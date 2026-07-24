@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content">
+  <meta name="theme-color" content="#0a0a0a">
+  <title>Controle AV</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="icons/icon-192.svg">
+  <link rel="apple-touch-icon" href="icons/icon-192.svg">
+  <link rel="stylesheet" href="../shared/material-symbols.css">
+  <link rel="stylesheet" href="controle.css">
+</head>
+<body>
+  <main>
+    <div class="list-header">
+      <button id="backBtn" class="back-btn" hidden><span class="msym">&#xe5c4;</span></button>
+      <span class="list-title" id="listTitle">Cronograma</span>
+      <span id="appVersion" class="app-version">Controle v4.78</span>
+      <input id="libSearch" class="lib-search" type="search" placeholder="Buscar na pasta…" hidden>
+      <button id="addDirBtn" class="add-dir-btn" hidden title="Sincronizar pasta do dispositivo"><span class="msym">&#xe2c8;</span></button>
+    </div>
+
+    <ul id="library" class="lib-list"></ul>
+
+    <!-- abas na base da seção de listas -->
+    <div class="tabs">
+      <label class="tab-add" title="Importar arquivos">
+        <!-- Ícone "arquivos+" (SVG inline, fora do subset da fonte): documento
+             com um "+", diferenciando importar ARQUIVOS de sincronizar PASTA
+             (que usa o ícone de pasta). O desenho preenche o viewBox (x5..19,
+             y3..21) para ter o mesmo peso visual dos demais ícones da aba
+             (lupa e glifos da fonte), que também preenchem a própria caixa. -->
+        <svg viewBox="0 0 24 24" width="23" height="23" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M7 3h7l5 5v11a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/>
+          <path d="M14 3v5h5"/>
+          <line x1="12" y1="12" x2="12" y2="17.6"/>
+          <line x1="9.2" y1="14.8" x2="14.8" y2="14.8"/>
+        </svg>
+        <input id="file" type="file" accept="image/*,video/*,audio/*" multiple hidden>
+      </label>
+      <button class="tab active" data-tab="imports" title="Cronograma"><span class="msym">&#xe413;</span></button>
+      <button class="tab" data-tab="folders" title="Pastas"><span class="msym">&#xe2c7;</span></button>
+      <button class="tab" data-tab="albums" title="Álbuns"><span class="msym">&#xe03d;</span></button>
+      <button class="tab" data-tab="bible" title="Bíblia">
+        <!-- Ícone de Bíblia (SVG inline, fora do subset da fonte): livro aberto
+             com uma cruz — distingue a aba de textos bíblicos das demais. -->
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M4 4.5A1.5 1.5 0 0 1 5.5 3H19v15H5.5A1.5 1.5 0 0 0 4 19.5z"/>
+          <path d="M4 19.5A1.5 1.5 0 0 0 5.5 21H19"/>
+          <line x1="11.5" y1="6.4" x2="11.5" y2="11.6"/>
+          <line x1="9.2" y1="8.4" x2="13.8" y2="8.4"/>
+        </svg>
+      </button>
+      <button class="tab" data-tab="messages" title="Mensagens">
+        <!-- Ícone de mensagem (SVG inline): balão de texto — mensagens/avisos. -->
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M4 5.5A1.5 1.5 0 0 1 5.5 4h13A1.5 1.5 0 0 1 20 5.5v9A1.5 1.5 0 0 1 18.5 16H9l-4 4z"/>
+          <line x1="8" y1="9" x2="16" y2="9"/>
+          <line x1="8" y1="12.5" x2="13" y2="12.5"/>
+        </svg>
+      </button>
+      <button class="tab-add" id="hymnSearchBtn" title="Buscar no acervo">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="11" cy="11" r="7"/>
+          <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+        </svg>
+      </button>
+    </div>
+
+    <!-- selbar substitui as abas durante a seleção múltipla -->
+    <div id="selbar" class="selbar" hidden>
+      <button id="selCancel" class="sel-btn" title="Cancelar"><span class="msym">&#xe14c;</span></button>
+      <span id="selCount" class="sel-count">0</span>
+      <span class="sel-spacer"></span>
+      <button id="selFolder" class="sel-btn" title="Salvar em pasta"><span class="msym">&#xe2c7;</span></button>
+      <button id="selRename" class="sel-btn" title="Renomear"><span class="msym">&#xe150;</span></button>
+      <button id="selDelete" class="sel-btn danger" title="Excluir"><span class="msym">&#xe872;</span></button>
+    </div>
+  </main>
+
+  <!-- controles multimídia fixados na base -->
+  <footer class="bottombar">
+    <!-- Grade real (CSS Grid): 2 colunas (conteúdo / mixer) x 3 linhas
+         (nowplaying / preview / transport). O mixer usa grid-template-rows:
+         subgrid pra herdar exatamente as mesmas 3 faixas de altura do .deck —
+         garante alinhamento pixel-perfeito entre as duas colunas em vez de
+         depender de flex-basis aproximado. Ver controle.css. -->
+    <div class="deck">
+      <div class="nowplaying">
+        <div class="np-name" id="npName"><span class="np-name-inner" id="npNameInner">Nada em exibição</span></div>
+        <div class="np-seek">
+          <span id="curTime" class="np-time">0:00</span>
+          <input type="range" id="seek" min="0" max="0" value="0" step="0.1" disabled>
+          <span id="durTime" class="np-time">0:00</span>
+        </div>
+      </div>
+      <div class="preview-row">
+        <button id="slidePrevBtn" class="slide-nav-btn" title="Estrofe anterior" disabled><span class="msym">&#xe045;</span></button>
+        <div class="preview" id="preview">
+          <div class="pv-wall" id="pvWall"><span class="pv-brand">Audio Visual <b>IASD</b></span></div>
+          <img id="pvImg" class="pv-layer" alt="" hidden>
+          <video id="pvVideo" class="pv-layer" playsinline muted hidden></video>
+          <div id="pvYoutube" class="pv-layer pv-yt-frame" hidden></div>
+          <!-- Letra sincronizada: mesma visualização do Display, em miniatura —
+               é um conceito universal do sistema (a preview sempre espelha o que
+               o telão mostra, igual já acontece com imagem/vídeo e YouTube). -->
+          <div id="pvLyrics" class="pv-layer pv-lyrics" hidden>
+            <div class="pv-lyrics-bg"><img id="pvLyricsImg" alt="" hidden></div>
+            <div class="pv-lyrics-content" id="pvLyricsContent">
+              <div class="pv-lyrics-box">
+                <div class="pv-lyrics-line" id="pvLyricsLine"></div>
+                <div class="pv-lyrics-aux" id="pvLyricsAux" hidden></div>
+              </div>
+            </div>
+          </div>
+          <!-- Camada de TEXTO manual (Bíblia/Mensagem) projetada: mesma
+               visualização do Display, em miniatura (a preview sempre espelha o
+               telão). Camada paralela sob a cortina. mode-verse | mode-message. -->
+          <div id="pvText" class="pv-layer pv-text" hidden>
+            <div class="pv-text-content" id="pvTextContent">
+              <div class="pv-text-box">
+                <div class="pv-text-main" id="pvTextMain"></div>
+                <div class="pv-text-sub" id="pvTextSub"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <button id="slideNextBtn" class="slide-nav-btn" title="Próxima estrofe" disabled><span class="msym">&#xe044;</span></button>
+      </div>
+      <div class="transport">
+        <button id="repeat" class="t-btn" title="Repetição"><span class="msym">&#xe040;</span></button>
+        <button id="prev" class="t-btn" title="Anterior"><span class="msym">&#xe045;</span></button>
+        <button id="playpause" class="t-btn" title="Play/Pause"><span class="msym">&#xe037;</span></button>
+        <button id="stop" class="t-btn" title="Parar e limpar"><span class="msym">&#xe047;</span></button>
+        <button id="next" class="t-btn" title="Seguinte"><span class="msym">&#xe044;</span></button>
+        <button id="plBtn" class="t-btn tab-pl" title="Playlist">
+          <span class="msym">&#xe03d;</span>
+          <span id="plCount" class="pl-badge"></span>
+        </button>
+      </div>
+
+      <!-- mixer: 3 "fatias" da grade (top/mid/bottom), sem card de fundo —
+           os botões ficam livres, só alinhados pela grade. mid agrupa os 3
+           botões do meio (fundo da letra/mesa de som/mudo); bottom guarda o
+           volume recolhível (vira fader ao abrir, ocupando top+mid). -->
+      <div class="mixer" id="mixer">
+        <div class="mixer-slot mixer-top">
+          <button id="viewToggle" class="ctl-btn view-btn fill-btn" title="Alternar Visual / Wallpaper"><span class="msym">&#xe251;</span></button>
+        </div>
+        <div class="mixer-slot mixer-mid">
+          <button id="lyricsBgToggle" class="ctl-btn lyricsbg-btn fill-btn" title="Fundo preto atrás da letra (toque para usar as imagens dos slides)">
+            <!-- Ícone de flor (SVG inline, fora do subset da fonte): rosácea de
+                 6 pétalas com miolo, o indicador do fundo da letra. -->
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true">
+              <circle cx="12" cy="5.9" r="3.1"/>
+              <circle cx="12" cy="18.1" r="3.1"/>
+              <circle cx="6.7" cy="8.95" r="3.1"/>
+              <circle cx="17.3" cy="8.95" r="3.1"/>
+              <circle cx="6.7" cy="15.05" r="3.1"/>
+              <circle cx="17.3" cy="15.05" r="3.1"/>
+            </svg>
+          </button>
+          <button id="standaloneToggle" class="ctl-btn standalone-btn fill-btn" title="Ouvir o áudio aqui / mesa de som (áudio independente do Display)">
+            <!-- Ícone de fone de ouvido (SVG inline, fora do subset da fonte):
+                 deixa claro que este botão faz o áudio sair no próprio aparelho
+                 (ouvir/mesa de som), distinto do ícone de nota musical. -->
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M4 13v-1a8 8 0 0 1 16 0v1"/>
+              <path d="M4 15a2 2 0 0 1 2-2h1v6H6a2 2 0 0 1-2-2z"/>
+              <path d="M20 15a2 2 0 0 0-2-2h-1v6h1a2 2 0 0 0 2-2z"/>
+            </svg>
+          </button>
+          <button id="muteToggle" class="ctl-btn mute-btn fill-btn" title="Mudo (liga/desliga)"><span class="msym">&#xe050;</span></button>
+        </div>
+        <!-- estado aberto: fader ocupa o lugar de top+mid (mesma posição/altura) -->
+        <div class="fader-wrap">
+          <input type="range" id="volSlider" class="fader" min="0" max="100" value="100" aria-label="Volume da mídia">
+        </div>
+        <!-- base da grade: abrir o volume (ícone de mixer). Fica na MESMA
+             posição do botão de ocultar (✕), que aparece aqui no estado aberto -->
+        <div class="mixer-slot mixer-bottom">
+          <button id="volToggle" class="ctl-btn vol-btn" title="Volume (mixer)">
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+              <line x1="6" y1="4" x2="6" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/><line x1="18" y1="4" x2="18" y2="20"/>
+              <rect x="3.5" y="7" width="5" height="3" rx="1.5" fill="currentColor" stroke="none"/>
+              <rect x="9.5" y="13" width="5" height="3" rx="1.5" fill="currentColor" stroke="none"/>
+              <rect x="15.5" y="9" width="5" height="3" rx="1.5" fill="currentColor" stroke="none"/>
+            </svg>
+          </button>
+          <button id="volClose" class="ctl-btn vol-close" title="Ocultar volume"><span class="msym">&#xe14c;</span></button>
+        </div>
+      </div>
+    </div>
+  </footer>
+
+  <!-- popup de playlist (bottom sheet) -->
+  <div id="plPopup" class="popup-backdrop">
+    <div class="popup-sheet">
+      <div class="popup-header">
+        <span class="msym popup-header-icon">&#xe03d;</span>
+        <span class="popup-title">Playlist</span>
+        <span id="plPopupCount" class="popup-count">0</span>
+        <button id="plPopupClose" class="popup-close" title="Fechar"><span class="msym">&#xe14c;</span></button>
+      </div>
+      <ul id="playlist" class="popup-list"></ul>
+    </div>
+  </div>
+
+  <!-- popup de configurações rápidas de exibição (bottom sheet) -->
+  <div id="fadePopup" class="popup-backdrop">
+    <div class="popup-sheet">
+      <div class="popup-header">
+        <span class="msym popup-header-icon">&#xe251;</span>
+        <span class="popup-title">Exibição</span>
+        <button id="fadePopupClose" class="popup-close" title="Fechar"><span class="msym">&#xe14c;</span></button>
+      </div>
+      <div class="fade-opts">
+        <div class="fade-row fade-row--fit">
+          <span>Preenchimento da mídia</span>
+          <div class="fit-seg" id="fitSeg">
+            <button type="button" class="fit-opt" data-fit="contain">Ajustar</button>
+            <button type="button" class="fit-opt" data-fit="cover">Preencher</button>
+            <button type="button" class="fit-opt" data-fit="fill">Esticar</button>
+          </div>
+        </div>
+      </div>
+      <div class="popup-footer">
+        <button id="openDisplayBtn" class="new-folder-btn">
+          <span class="msym">&#xe251;</span> Abrir Display
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- popup de busca GLOBAL no acervo (hinários + álbuns) — desliza do topo -->
+  <div id="hymnSearchPopup" class="popup-backdrop">
+    <div class="popup-sheet">
+      <div class="popup-header">
+        <span class="msym popup-header-icon">&#xe3a1;</span>
+        <span class="popup-title" id="hymnSearchTitle">Buscar no acervo</span>
+        <span id="hymnSearchCount" class="popup-count">0</span>
+        <button id="hymnSearchClose" class="popup-close" title="Fechar"><span class="msym">&#xe14c;</span></button>
+      </div>
+      <div class="hymn-search-bar">
+        <input id="hymnSearchInput" class="lib-search" type="search" placeholder="Buscar por nome ou número…">
+      </div>
+      <ul id="hymnResults" class="popup-list"></ul>
+    </div>
+  </div>
+
+  <!-- popup de seleção da versão da Bíblia (bottom sheet) -->
+  <div id="bibleVerPopup" class="popup-backdrop">
+    <div class="popup-sheet">
+      <div class="popup-header">
+        <span class="popup-title">Versão da Bíblia</span>
+        <button id="bibleVerClose" class="popup-close" title="Fechar"><span class="msym">&#xe14c;</span></button>
+      </div>
+      <ul id="bibleVerList" class="popup-list"></ul>
+    </div>
+  </div>
+
+  <!-- popup de seleção de pasta (bottom sheet) -->
+  <div id="folderPopup" class="popup-backdrop">
+    <div class="popup-sheet">
+      <div class="popup-header">
+        <span class="msym popup-header-icon">&#xe2c7;</span>
+        <span class="popup-title">Salvar em pasta</span>
+        <button id="folderPopupClose" class="popup-close" title="Fechar"><span class="msym">&#xe14c;</span></button>
+      </div>
+      <ul id="folderPickerList" class="popup-list"></ul>
+      <div class="popup-footer">
+        <button id="newFolderInPickerBtn" class="new-folder-btn">
+          <span class="msym">&#xe2cc;</span> Nova pasta
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- diálogo padrão do app (confirmações e prompts) — no tema do app, substitui
+       os confirm()/prompt() nativos em todas as interações do tipo (excluir etc.) -->
+  <div id="appDialog" class="dialog-backdrop">
+    <div class="dialog-card" role="dialog" aria-modal="true">
+      <div class="dialog-title" id="appDialogTitle"></div>
+      <div class="dialog-msg" id="appDialogMsg"></div>
+      <input id="appDialogInput" class="lib-search dialog-input" type="text" hidden>
+      <div class="dialog-actions">
+        <button id="appDialogCancel" class="dialog-btn" type="button">Cancelar</button>
+        <button id="appDialogOk" class="dialog-btn primary" type="button">OK</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- native.js PRIMEIRO: define window.__NATIVE__/AVNative antes que
+       qualquer outro script consulte essas guardas. No navegador é no-op. -->
+  <script src="../shared/native.js"></script>
+  <script src="../shared/db.js"></script>
+  <script src="../shared/stage.js"></script>
+  <script src="louvorja.js"></script>
+  <script src="bible.js"></script>
+  <script src="controle.js"></script>
+</body>
+</html>

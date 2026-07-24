@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#000000">
+  <title>Display AV</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="icons/icon-192.svg">
+  <link rel="apple-touch-icon" href="icons/icon-192.svg">
+  <!-- O Display não usa a fonte de ícones (Material Symbols): a UI é só
+       wallpaper + mídia, sem nenhum glifo .msym. A folha e o woff2 ficam
+       apenas no Controle. -->
+  <link rel="stylesheet" href="display.css">
+</head>
+<body>
+  <div id="wallpaper" class="wallpaper">
+    <div class="wallpaper-brand">Audio Visual <span>IASD</span></div>
+  </div>
+
+  <img id="img" class="layer" alt="" hidden>
+  <video id="video" class="layer" playsinline hidden></video>
+  <!-- Letra sincronizada (Hinário 2022 — ver CLAUDE.md): mesmo z-index dos
+       demais layers de mídia, então a cortina do wallpaper (z-index maior)
+       cobre/revela este layer de graça, sem precisar de nada no stage.js. -->
+  <div id="lyrics" class="layer lyrics-layer" hidden>
+    <div class="lyrics-bg"><img id="lyricsImg" alt="" hidden></div>
+    <div class="lyrics-content" id="lyricsContent">
+      <div class="lyrics-box">
+        <div class="lyrics-line" id="lyricsLine"></div>
+        <div class="lyrics-aux" id="lyricsAux" hidden></div>
+      </div>
+    </div>
+  </div>
+  <!-- Camada de TEXTO manual (Bíblia + Mensagens) — ver "Camada de Texto" no
+       CLAUDE.md. Genérica: `mode-verse` (versículo, com referência embaixo) ou
+       `mode-message` (mensagem/texto puro). Camada paralela ao stage.js (mesmo
+       z-index dos layers de mídia); a cortina do wallpaper (z-index maior) a
+       cobre/revela de graça. Independente do áudio: um som pode tocar por baixo. -->
+  <div id="text" class="layer text-layer" hidden>
+    <div class="text-content" id="textContent">
+      <div class="text-box">
+        <div class="text-main" id="textMain"></div>
+        <div class="text-sub" id="textSub" hidden></div>
+      </div>
+    </div>
+  </div>
+  <!-- Substituído pelo iframe oficial do YouTube IFrame Player API em runtime -->
+  <div id="youtube" class="layer yt-frame" hidden></div>
+  <!-- escudo anti-UI: cobre a tela final do YouTube enquanto o player cai -->
+  <div id="ytShield" class="layer yt-shield"></div>
+
+  <!-- Toque único ao abrir: navegadores exigem um gesto real do usuário para
+       liberar autoplay com som em conteúdo de terceiros (iframe do YouTube).
+       Cobre a tela inteira (qualquer toque serve) — some ao primeiro toque.
+       "Ligar Sistema": além de ativar o Display, o gesto também abre o Controle. -->
+  <button id="startBtn" class="start-overlay"><span class="start-pill">Ligar Sistema</span></button>
+
+  <!-- native.js PRIMEIRO: define window.__NATIVE__ antes que qualquer outro
+       script consulte essa guarda. No navegador é no-op. -->
+  <script src="../shared/native.js"></script>
+  <script src="../shared/db.js"></script>
+  <script src="../shared/stage.js"></script>
+  <script src="display.js"></script>
+</body>
+</html>

@@ -1,0 +1,1000 @@
+* {
+  margin: 0; padding: 0; box-sizing: border-box; touch-action: manipulation;
+  /* Sem seleção de texto/callout/realce de toque em lugar nenhum — é um
+     controle remoto, não um documento; um toque comprido em qualquer botão
+     ou linha da lista não deve abrir menu de seleção/copiar. `!important`
+     garante que nenhuma regra do sistema (UA stylesheet, que tem
+     especificidade maior que `*`) reative a seleção por acidente em algum
+     elemento no aparelho. */
+  user-select: none !important; -webkit-user-select: none !important;
+  -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent;
+}
+/* Exceção: os campos de busca são o único texto que faz sentido editar/
+   selecionar (o `!important` + a maior especificidade de `input,textarea`
+   vencem o `*` acima). */
+input, textarea { user-select: text !important; -webkit-user-select: text !important; }
+[hidden] { display: none !important; }
+
+/* ---------- Tokens de design (padrões visuais) ----------
+   Fonte única de verdade para cores, superfícies, raios e a curva de toque.
+   NÃO usar valores literais soltos na folha: sempre referenciar um token.
+   Alguns tokens de marca (--gold e o gradiente do wallpaper) precisam ficar
+   IDÊNTICOS aos de display.css — os dois apps são folhas separadas (não há
+   CSS compartilhado), então a sincronização é manual. Ver seção "Design
+   System" no CLAUDE.md. */
+:root {
+  /* superfícies / fundo */
+  --bg: #0a0a0a;
+  --panel: #161616;
+  --panel-2: #202020;
+  --bar: #111111;
+  --line: #1e1e1e;                       /* separadores/bordas escuras */
+  --surface: rgba(255, 255, 255, .06);   /* fundo padrão de botão/controle */
+  --surface-2: rgba(255, 255, 255, .07); /* chip/campo/badge levemente mais claro */
+
+  /* texto */
+  --text: #eaeaea;
+  --muted: #777777;
+
+  /* marca primária (azul) */
+  --accent: #2f81f7;
+  --accent-soft: rgba(47, 129, 247, .18);
+
+  /* marca secundária (dourado "IASD") — manter em sync com display.css */
+  --gold: #fbc02d;
+  --gold-soft: rgba(251, 192, 45, .18);
+  --gold-text: #ffe082;
+
+  /* perigo / estados de alerta */
+  --danger: #e53935;
+  --danger-soft: rgba(229, 57, 53, .22);
+  --danger-text: #ffcdd2;
+
+  /* sucesso / "check do sistema" (verde) — usado no cartão do Hinário 2022
+     quando o catálogo está completo offline */
+  --success: #66bb6a;
+  --success-soft: rgba(102, 187, 106, .18);
+
+  /* raios: botões/controles vs. cartões/painéis */
+  --radius-btn: 8px;
+  --radius-card: 10px;
+  --radius-pill: 999px;
+
+  /* wallpaper (cortina) — manter em sync com display.css */
+  --wallpaper: radial-gradient(circle at 50% 35%, #14331f 0%, #0a1a10 55%, #050b07 100%);
+
+  /* moldura da letra sincronizada (modo imagem) — manter em sync com display.css */
+  --lyrics-frame-bg: rgba(0, 0, 0, .4);
+  --lyrics-frame-border: rgba(255, 255, 255, .85);
+
+  /* feedback de toque padrão (:active) */
+  --press: scale(.96);
+
+  /* altura do teclado virtual (deslocamento com teclado) — atualizado pelo JS
+     via VisualViewport quando o navegador NÃO redimensiona o layout sozinho
+     (fallback ao interactive-widget=resizes-content do meta viewport). 0 quando
+     o teclado está fechado ou o layout já foi redimensionado. */
+  --kb: 0px;
+}
+
+html, body { height: 100%; overflow: hidden; }
+/* svh = small viewport height: desconta barras do browser no modo não-PWA.
+   Garante que o layout sempre caiba na área visível, evitando que o rodapé
+   fique sob a barra de navegação do Chrome. */
+html { height: 100svh; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, sans-serif;
+  display: flex; flex-direction: column;
+  height: 100vh;    /* fallback para browsers mais antigos */
+  /* Desconta a altura do teclado virtual (--kb, ver :root e o handler de
+     VisualViewport em controle.js): assim o app encolhe pra cima e nenhuma
+     lista/preview fica escondida atrás do teclado, mesmo onde o navegador não
+     redimensiona o layout sozinho. --kb é 0 no caso normal (teclado fechado ou
+     layout já redimensionado pelo interactive-widget), então não muda nada. */
+  height: calc(100svh - var(--kb, 0px));
+  overflow: hidden;
+}
+
+/* ---------- Indicador de versão (no cabeçalho da lista) ----------
+   A barra de topo do app foi removida; a versão aparece só ao lado do título
+   da aba Cronograma (ver renderListTitle / #appVersion). */
+.app-version {
+  flex-shrink: 0;
+  font-size: .7rem; color: var(--muted);
+  background: var(--surface-2); border-radius: var(--radius-pill); padding: 2px .55rem;
+}
+
+/* ---------- Barra de controles (base) ---------- */
+.bottombar {
+  flex-shrink: 0;
+  background: var(--bar);
+  padding: .5rem .7rem;
+  /* margem extra na base para não conflitar com navegação por gestos */
+  padding-bottom: calc(.6rem + max(env(safe-area-inset-bottom), 12px));
+  border-top: 1px solid var(--line);
+  box-shadow: 0 -2px 12px rgba(0, 0, 0, .6);
+}
+
+/* ---------- Deck: controles + mixer ---------- */
+/* Grade real (CSS Grid), não flex aproximado: 2 colunas (conteúdo / mixer,
+   56px) x 3 linhas (nowplaying / preview / transport, a mesma faixa de
+   130px do preview). O `.mixer` usa grid-template-rows:subgrid pra herdar
+   exatamente essas 3 faixas — garante que o topo/base de cada botão lateral
+   caia na mesma altura do início/fim da linha correspondente à esquerda,
+   sem depender de flex-basis calculado à parte (fonte do desalinhamento
+   antigo entre a coluna do mixer e nowplaying/preview/transport). */
+.deck {
+  display: grid;
+  grid-template-columns: 1fr 56px;
+  grid-template-rows: auto 130px auto;
+  column-gap: .6rem;
+  row-gap: .45rem;
+}
+.nowplaying  { grid-column: 1; grid-row: 1; }
+.preview-row { grid-column: 1; grid-row: 2; }
+.transport   { grid-column: 1; grid-row: 3; }
+
+/* Linha da preview + navegação manual de estrofe (letra sincronizada): os
+   botões flanqueiam a preview (mantida em 16:9) e crescem para ocupar o
+   espaço horizontal que sobra na linha. A altura vem da grade (.deck,
+   `grid-template-rows: auto 130px auto`), não mais de um `height` próprio. */
+.preview-row { display: flex; align-items: stretch; gap: .4rem; }
+.slide-nav-btn {
+  flex: 1; min-width: 0; border: none; border-radius: var(--radius-btn);
+  background: var(--surface); color: #fff; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+}
+.slide-nav-btn .msym { font-size: 22px; }
+.slide-nav-btn:active { transform: var(--press); }
+.slide-nav-btn:disabled { opacity: .3; }
+
+/* Preview */
+.preview {
+  position: relative; height: 100%; aspect-ratio: 16 / 9; flex: 0 0 auto;
+  background: #000; border-radius: var(--radius-card); overflow: hidden; border: 1px solid var(--line);
+}
+/* Preview em tela cheia (projeção direta pelo Controle): preenche a tela,
+   cantos retos e sem borda; as camadas internas (pv-layers, wallpaper) já são
+   inset:0 e a mídia usa object-fit, então preenchem/letterboxam sozinhas. */
+.preview:fullscreen, .preview:-webkit-full-screen {
+  width: 100%; height: 100%; aspect-ratio: auto;
+  border: none; border-radius: 0; background: #000;
+  /* superfície de gestos invisíveis: captura toques/deslizes sem o navegador
+     interpretar como rolagem/zoom (ver setupPreviewGestures em controle.js) */
+  touch-action: none;
+}
+/* Mesmo modelo do Display: mídia toca por baixo (z-index menor); o wallpaper
+   é a cortina que cobre por cima, ligada/desligada independente da mídia. */
+.pv-wall {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  background: var(--wallpaper);
+  z-index: 2;
+}
+.pv-brand { font-size: clamp(.7rem, 3.5vw, 1.05rem); font-weight: 700; letter-spacing: .03em; color: rgba(255,255,255,.9); }
+.pv-brand b { color: var(--gold); }
+.pv-layer { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; z-index: 1; }
+/* Preview do YouTube: a API cria o <iframe> dentro deste wrapper (mesmo
+   padrão do Display). pointer-events:none evita que um toque na preview
+   abra os controles/overlays do próprio YouTube.
+   O iframe é renderizado a 400% do wrapper e encolhido de volta com
+   transform:scale(.25): a UI própria do YouTube (logo, botão de play do
+   estado "cued", spinner) tem um piso de
+   tamanho que não acompanha um player minúsculo — abaixo dele ela fica
+   desproporcionalmente grande. Renderizando "grande" primeiro (dentro da
+   faixa normal de tamanho do player) e só depois encolhendo o resultado já
+   composto (vídeo + UI juntos, via transform — que não re-dispara o layout
+   responsivo interno do iframe), a UI sai proporcional ao vídeo — só fica
+   visualmente menor junto com ele, em vez de bater num piso próprio. */
+/* Letra sincronizada na preview: mesmo conceito visual do Display (retângulo
+   com moldura, cantos arredondados, centralizado), só que em miniatura — a
+   preview sempre espelha o telão, e isso vale pra letra igual já vale pra
+   imagem/vídeo/YouTube. */
+/* `background:#000` no próprio .pv-lyrics-bg é o preto de verdade (mesmo
+   motivo do Display): no modo preto a <img> fica `hidden` de propósito, em
+   vez de só sem `src` — evita o ícone/borda padrão de "imagem quebrada" que
+   alguns navegadores mostram mesmo sem `src` (aparecia como linha branca de
+   margem). `.pv-lyrics-bg img[hidden]{display:none}` é necessário além do
+   atributo em si — mesmo motivo do Display (ver `.lyrics-bg img[hidden]` em
+   display.css): sem essa regra própria, `.pv-lyrics-bg img{display:block}`
+   (mais específica que a regra `[hidden]` padrão do navegador) vencia e a
+   <img> continuava visível mesmo com `hidden` ligado pelo JS. */
+.pv-lyrics-bg { position: absolute; inset: 0; background: #000; }
+.pv-lyrics-bg img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.pv-lyrics-bg img[hidden] { display: none; }
+/* Container de tamanho — mesmo princípio do Display (`.lyrics-content` em
+   display.css): tudo dentro de `.pv-lyrics-content` usa unidades `cq*`
+   (relativas ao tamanho DESTA caixinha da preview, não à tela toda do
+   celular) para que a razão entre fonte/padding/gap/caixa nunca mude,
+   qualquer que seja o tamanho real da preview. SEM padding percentual aqui
+   (mesmo motivo do Display) — `.pv-lyrics-box` já é fração deste mesmo
+   container (92cqw/60cqh) e a margem sobra automaticamente via
+   align-items/justify-content:center; um padding em cq* aqui encolheria o
+   content-box e dobraria o encolhimento da caixa. */
+.pv-lyrics-content {
+  container-type: size;
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  box-sizing: border-box;
+}
+/* Tamanho FIXO (não cresce/encolhe com o texto do slide) — mesmo princípio
+   do Display: overflow:hidden + line-clamp abaixo garantem que qualquer
+   letra caiba sem vazar da moldura. Proporções equivalentes às calibradas
+   no Display (~60% da altura da caixinha para a moldura, fonte com
+   cap-height proporcional), só reexpressas em `cq*` da preview. */
+/* Mesmo padrão "vídeo de louvor" do Display: cantos retos, borda fina e
+   nítida, sem sombra — ver .lyrics-box em display.css. Borda + fundo
+   semitransparente só com `.imgbg` (fundo em imagens dos slides) — no modo
+   preto puro seriam uma zona escura flutuando à toa sobre a tela já preta,
+   mesmo motivo do Display (ver applyPvLyricsBgClass em controle.js). */
+.pv-lyrics-box {
+  width: 92cqw;
+  height: 60cqh;
+  box-sizing: border-box;
+  padding: 4.5cqh 4cqw;
+  border-radius: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2.3cqh;
+  text-align: center; overflow: hidden;
+}
+.pv-lyrics-content.imgbg .pv-lyrics-box {
+  background: var(--lyrics-frame-bg);
+  border-color: var(--lyrics-frame-border);
+}
+/* white-space:pre-line respeita as quebras reais já embutidas no texto (ver
+   normalizeLyricText em controle.js). */
+/* Fonte em cqmin (mesmo motivo do Display — ver .lyrics-line em display.css):
+   encolhe junto com a dimensão mais apertada da caixinha da preview, nunca
+   só com a altura. */
+.pv-lyrics-line {
+  color: #fff; font-weight: 700; text-transform: uppercase;
+  font-size: 9.3cqmin; line-height: 1.2; white-space: pre-line;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.pv-lyrics-aux {
+  color: rgba(255, 255, 255, .72); font-weight: 600; font-size: 4.9cqmin; white-space: pre-line;
+  display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden;
+}
+.pv-lyrics-content.cover .pv-lyrics-line {
+  color: var(--gold); font-size: 10.5cqmin; -webkit-line-clamp: 2;
+}
+
+.pv-yt-frame { pointer-events: none; overflow: hidden; }
+.pv-yt-frame iframe {
+  position: absolute; top: 50%; left: 50%;
+  width: 400%; height: 400%; border: 0;
+  transform: translate(-50%, -50%) scale(.25);
+  transform-origin: center center;
+}
+
+/* Nome + barra de progresso */
+.nowplaying { display: flex; flex-direction: column; gap: .25rem; }
+.np-name { font-size: .85rem; font-weight: 600; text-align: center; overflow: hidden; }
+.np-name-inner {
+  display: inline-block; max-width: 100%; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; vertical-align: middle;
+}
+/* Título longo: rola de um lado ao outro (ping-pong) para poder ser lido
+   inteiro. A distância (--np-shift) e a duração (--np-dur) vêm do JS
+   (medição do overflow em applyTitleMarquee); a classe só é ligada quando o
+   texto não cabe na largura disponível. */
+.np-name.scrolling { text-align: left; }
+.np-name.scrolling .np-name-inner {
+  max-width: none; overflow: visible; text-overflow: clip;
+  animation: np-marquee var(--np-dur, 8s) linear infinite alternate;
+}
+@keyframes np-marquee {
+  0%, 12% { transform: translateX(0); }
+  88%, 100% { transform: translateX(var(--np-shift, 0)); }
+}
+/* Legenda leve com a estrofe atual (letra sincronizada) — só um texto de
+   confirmação para o operador, não um mockup do slide projetado. */
+.np-lyric {
+  font-size: .75rem; color: var(--muted); text-align: center;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.np-seek { display: flex; align-items: center; gap: .5rem; }
+.np-time { font-size: .7rem; color: var(--muted); min-width: 32px; text-align: center; }
+#seek { flex: 1; accent-color: var(--accent); height: 4px; }
+#seek:disabled { opacity: .4; }
+
+/* Botões de transporte */
+.transport { display: flex; gap: .35rem; }
+.t-btn {
+  flex: 1; padding: .45rem 0; border: none; border-radius: var(--radius-btn);
+  background: var(--surface); color: #fff; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+}
+.t-btn .msym { font-size: 23px; }
+.t-btn:active { transform: var(--press); }
+.t-btn:disabled { opacity: .35; }
+#repeat.active { color: var(--accent); }
+
+/* ---------- Mixer ---------- */
+/* Sem "card" de fundo: os botões ficam livres (cada um com o próprio fundo
+   via .ctl-btn), só alinhados pela grade. .mixer é um item do grid do .deck
+   que ocupa as 3 linhas (grid-row:1/4) e usa grid-template-rows:subgrid para
+   HERDAR exatamente essas mesmas 3 faixas de altura (nowplaying / 130px do
+   preview / transport) — top/mid/bottom caem pixel a pixel nas mesmas
+   alturas de .nowplaying/.preview-row/.transport, em vez de flex-basis
+   aproximado (fonte do desalinhamento antigo). Padding só horizontal (0 no
+   eixo vertical): padding vertical deslocaria as linhas herdadas do subgrid
+   pra dentro, reintroduzindo o desalinhamento. */
+.mixer {
+  grid-column: 2; grid-row: 1 / 4;
+  display: grid; grid-template-rows: subgrid;
+  row-gap: .45rem; padding: 0 .35rem;
+  position: relative;
+}
+.mixer-slot { display: flex; flex-direction: column; gap: .35rem; min-height: 0; }
+.mixer-top    { grid-row: 1; }
+.mixer-mid    { grid-row: 2; }
+.mixer-bottom { grid-row: 3; }
+/* Botões preenchem por inteiro a própria fatia da grade — top (1 botão), mid
+   (3 botões) e bottom (volume/ocultar, só um visível por vez) ficam com a
+   altura cheia da linha correspondente, sem sobrar nem faltar espaço. */
+.mixer-slot .ctl-btn { flex: 1; min-height: 0; }
+.mixer .ctl-btn svg { display: block; }
+/* Volume recolhível: por padrão a lateral mostra os 4 botões (visual/fundo da
+   letra/mesa de som/mudo, em top+mid) + o botão de volume na base (bottom);
+   abrir troca top+mid pelo fader vertical (que ocupa exatamente o mesmo
+   espaço das duas linhas, 1+2) + o botão de ocultar na mesma base. */
+.fader-wrap { display: none; grid-row: 1 / 3; min-height: 90px; position: relative; }
+.mixer .vol-close { display: none; }
+.mixer.vol-open .mixer-top,
+.mixer.vol-open .mixer-mid { display: none; }
+.mixer.vol-open .fader-wrap { display: block; }
+.mixer.vol-open .vol-btn { display: none; }
+.mixer.vol-open .vol-close { display: flex; }
+/* Animação de abrir/fechar o slide de volume. O botão da BASE (volume/ocultar)
+   NÃO é animado: ele fica no mesmo lugar e só troca de característica (ícone/
+   cor) instantaneamente. Anima-se apenas o que está ACIMA dele — o fader
+   (abrir/fechar) e os botões de top+mid (ao voltar, .vol-revealing). Fechar
+   mantém a classe .vol-closing durante a saída do fader. Ver openVolume/
+   closeVolume em controle.js. */
+.mixer.vol-open:not(.vol-closing) .fader-wrap { animation: vol-slide-in .2s ease both; }
+.mixer.vol-closing .fader-wrap { animation: vol-slide-out .18s ease both; }
+.mixer.vol-revealing .mixer-top,
+.mixer.vol-revealing .mixer-mid { animation: vol-slide-in .2s ease both; }
+@keyframes vol-slide-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes vol-slide-out { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(10px); } }
+/* Botão de volume: preenchido de azul (accent) com o ícone de mixer em branco
+   — visualmente distinto e prominente na base da coluna. Seletor com `.mixer`
+   para ganhar de `.ctl-btn` (mesma especificidade, definido depois). */
+.mixer .vol-btn { background: var(--accent); color: #fff; }
+.fader {
+  position: absolute; top: 6px; bottom: 6px; left: 50%; transform: translateX(-50%);
+  writing-mode: vertical-lr; direction: rtl;
+  width: 24px; height: auto; margin: 0;
+  accent-color: var(--accent);
+  touch-action: none; cursor: pointer;
+}
+/* Botão (thumb) maior: facilita tocar e arrastar o fader num alvo pequeno. */
+.fader::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 34px; height: 34px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, .4);
+  cursor: pointer;
+}
+.ctl-btn {
+  border: 2px solid transparent; border-radius: var(--radius-btn); background: var(--surface);
+  color: #fff; cursor: pointer; display: flex; align-items: center; justify-content: center;
+}
+.ctl-btn .msym { font-size: 21px; }
+.ctl-btn:active { transform: var(--press); }
+.mixer .ctl-btn { width: 100%; padding: .4rem 0; }
+.view-btn.view-blocked { border-color: var(--danger); background: var(--danger-soft); color: var(--danger-text); }
+.mute-btn.muted { border-color: var(--danger); background: var(--danger-soft); color: var(--danger-text); }
+/* Modo "mesa de som" ativo: áudio real sai pelo Controle, independente do Display. */
+.standalone-btn.active { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+/* Fundo da letra sincronizada: preto é o padrão (botão neutro); ativo = usa
+   as imagens dos slides no lugar do preto. */
+.lyricsbg-btn.active { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+/* Sem áudio no Display (bloqueio do navegador): indicador âmbar pulsante;
+   o clique pede a liberação do som (comando audio-retry). */
+.mute-btn.blocked {
+  border-color: var(--gold); background: var(--gold-soft); color: var(--gold-text);
+  animation: mute-blocked-pulse 1.2s ease-in-out infinite;
+}
+@keyframes mute-blocked-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .45; }
+}
+
+/* ---------- Conteúdo principal ---------- */
+main {
+  flex: 1; min-height: 0; overflow: hidden;
+  /* padding-top inclui a safe-area (notch/status bar) já que não há mais appbar */
+  padding: calc(.6rem + env(safe-area-inset-top)) .8rem .8rem;
+  display: flex; flex-direction: column; gap: .7rem;
+}
+
+/* ---------- Título da lista ativa ---------- */
+.list-header { flex-shrink: 0; display: flex; align-items: center; gap: .3rem; }
+.list-title { flex: 1; font-size: .72rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+.add-dir-btn { flex-shrink: 0; width: 30px; height: 30px; border: none; border-radius: var(--radius-btn); background: var(--accent-soft); color: var(--accent); display: flex; align-items: center; justify-content: center; cursor: pointer; }
+.add-dir-btn .msym { font-size: 20px; }
+.back-btn {
+  background: none; border: none; color: var(--accent); cursor: pointer; padding: 0 .2rem 0 0;
+  display: flex; align-items: center;
+}
+.back-btn .msym { font-size: 20px; }
+
+/* ---------- Abas (ícones) ---------- */
+/* As abas ficam MESCLADAS ao fundo normal do app (sem card/seção isolada) — o
+   botão de importar fica à ESQUERDA (1º filho no HTML) e o de busca à direita;
+   as abas (flex:1) no meio. */
+.tabs {
+  display: flex; gap: .3rem; align-items: center; flex-shrink: 0;
+}
+
+/* Botão de playlist: mora na linha de transporte (.transport), à direita dos
+   demais — reaproveita o tamanho/estilo de .t-btn, só ganha posição relativa
+   para o badge de contagem. */
+.tab-pl { position: relative; }
+/* Só destaca em azul quando há de fato uma fila além da mídia atual
+   (mesmo critério do badge — 1 item não conta como "playlist" de verdade). */
+.tab-pl.has-items { color: var(--accent); }
+
+.pl-badge {
+  position: absolute; top: 2px; right: 2px;
+  background: var(--accent); color: #fff;
+  font-size: .58rem; font-weight: 700;
+  border-radius: var(--radius-pill); padding: 1px .3rem;
+  min-width: 14px; text-align: center; line-height: 1.4;
+  pointer-events: none;
+}
+.pl-badge:empty { display: none; }
+
+.tab {
+  flex: 1; height: 42px; border: none; border-bottom: 2px solid transparent;
+  background: transparent; color: var(--muted); cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+}
+.tab .msym { font-size: 22px; }
+.tab.active { color: var(--text); border-bottom-color: var(--accent); }
+
+/* border:none + appearance:none matam a borda 3D bicolor (bevel nativo) que o
+   <button> ganha do sistema — o #hymnSearchBtn é um <button> (o de importar é
+   um <label>, que não tinha o problema), então sem isto ele saía com a borda
+   diagonal clara/escura do sistema, fora do padrão do app. */
+.tab-add {
+  flex: none; width: 44px; height: 42px; border: none;
+  appearance: none; -webkit-appearance: none;
+  border-radius: var(--radius-btn); background: var(--accent); color: #fff;
+  display: flex; align-items: center; justify-content: center; cursor: pointer;
+}
+.tab-add .msym { font-size: 22px; }
+.tab-add:active { transform: var(--press); }
+
+/* barra de seleção */
+.selbar { flex-shrink: 0; display: flex; align-items: center; gap: .6rem; background: var(--accent-soft); border: 1px solid var(--accent); border-radius: var(--radius-card); padding: .35rem .6rem; }
+.sel-count { font-weight: 700; }
+.sel-spacer { flex: 1; }
+.sel-btn { width: 36px; height: 36px; border: none; border-radius: var(--radius-btn); background: var(--surface-2); color: var(--text); display: flex; align-items: center; justify-content: center; cursor: pointer; }
+.sel-btn:disabled { opacity: .35; }
+.sel-btn.danger { color: var(--danger-text); }
+.sel-btn .msym { font-size: 20px; }
+
+/* ---------- Itens (biblioteca) ---------- */
+.lib-list {
+  flex: 1; min-height: 0; overflow-y: auto;
+  position: relative; list-style: none; display: flex; flex-direction: column; gap: .4rem;
+  padding-bottom: .6rem;
+}
+.empty { color: var(--muted); text-align: center; padding: 1.6rem 0; line-height: 1.6; font-size: .9rem; }
+
+.row-item, .lib-item { position: relative; border-radius: var(--radius-card); background: var(--panel); border: 2px solid transparent; overflow: hidden; flex-shrink: 0; }
+.row-item.active, .lib-item.active { border-color: var(--accent); }
+.lib-item.selected { border-color: var(--accent); background: var(--panel-2); }
+.dragging { z-index: 5; opacity: .92; box-shadow: 0 6px 18px rgba(0,0,0,.6); }
+
+.row { position: relative; z-index: 1; display: flex; align-items: center; gap: .5rem; padding: .35rem .5rem; background: var(--panel); touch-action: pan-y; }
+.lib-item.selected .row, .lib-item.active .row, .row-item.active .row { background: var(--panel-2); }
+
+.thumb { width: 40px; height: 40px; flex-shrink: 0; border-radius: var(--radius-btn); overflow: hidden; background: #060606; display: flex; align-items: center; justify-content: center; }
+.thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.thumb--icon .msym { font-size: 24px; color: var(--muted); }
+
+.row-name { flex: 1; min-width: 0; font-size: .9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.url-badge { flex-shrink: 0; font-size: .6rem; font-weight: 700; letter-spacing: .04em; padding: 1px 5px; border-radius: 4px; background: rgba(255,255,255,.12); color: var(--muted); }
+.yt-badge { background: rgba(255, 0, 0, .18); color: #ff5252; }
+
+.row-btn, .row-handle { width: 34px; height: 34px; flex-shrink: 0; border: none; border-radius: var(--radius-btn); background: var(--surface); color: var(--text); display: flex; align-items: center; justify-content: center; cursor: pointer; }
+.row-btn .msym, .row-handle .msym { font-size: 19px; }
+.row-handle { background: transparent; color: var(--muted); touch-action: none; cursor: grab; }
+
+/* pastas sincronizadas (OPFS) */
+.folder-opfs .msym { color: var(--accent); }
+.folder-opfs .folder-count { color: var(--accent); opacity: .7; }
+
+/* Indicador de Wi-Fi/dados móveis na linha do Hinário 2022 (ver
+   isConfirmedWifi em controle.js) — verde/neutro quando Wi-Fi confirmado,
+   âmbar quando não (sincronização em massa desativada por padrão). */
+.net-badge { flex-shrink: 0; display: flex; align-items: center; color: var(--accent); opacity: .8; }
+.net-badge--warn { color: var(--gold); opacity: 1; }
+.storage-usage { font-size: .72rem; opacity: .7; padding: 10px 0; }
+
+/* ---------- Cartão informativo do Hinário 2022 ---------- */
+/* NÃO é uma pasta: é um "check do sistema" — símbolo do hinário, status de
+   sincronização, e estatísticas (sincronizados, peso, Wi-Fi) + ações. Card
+   vertical, mais volumoso que uma linha de pasta, para caber tudo. */
+.hymnal-card {
+  flex-shrink: 0;
+  border-radius: var(--radius-card);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  padding: .7rem .8rem;
+  display: flex; flex-direction: column; gap: .6rem;
+}
+/* Colapsado (padrão): só a barra de uma linha. O padding é o MESMO do card
+   expandido de propósito — a barra (ícone + título + botão de sincronizar) é o
+   elemento persistente entre os dois estados, então precisa ficar exatamente na
+   mesma posição ao expandir/colapsar (mudar o padding a deslocaria). A
+   compactação vem de só a barra aparecer colapsada, não de padding menor. */
+
+/* Barra compacta do card de coleção (sempre visível; clicável p/ expandir).
+   Colapsada mostra só nome + resumo de sincronização; o resto (status/ações/
+   estatísticas) só aparece expandido. */
+.coll-bar { display: flex; align-items: center; gap: .55rem; cursor: pointer; }
+.coll-bar:active { transform: var(--press); }
+.coll-bar-icon {
+  width: 32px; height: 32px; flex-shrink: 0;
+  border-radius: var(--radius-btn);
+  background: var(--accent-soft); color: var(--accent);
+  display: flex; align-items: center; justify-content: center;
+}
+.coll-bar-icon .msym { font-size: 20px; }
+.coll-bar-name { flex: 1; min-width: 0; font-size: .9rem; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.coll-bar-sync { flex-shrink: 0; font-size: .78rem; font-weight: 700; color: var(--muted); font-variant-numeric: tabular-nums; }
+.coll-bar-sync.done { color: var(--success); }
+.coll-bar-sync.busy { color: var(--accent); font-weight: 600; font-size: .7rem; max-width: 42%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Botões na barra (Ver músicas + sincronizar), no lugar do antigo chevron —
+   sincronizar é o último, na mesma posição colapsado/expandido; um pouco
+   menores que os botões do detalhe pra caber bem na linha. */
+.coll-bar-btn { width: 34px; height: 34px; flex-shrink: 0; }
+
+.hymnal-card-head { display: flex; align-items: center; gap: .6rem; }
+/* No card expandido o status é filho direto da head (o nome/ícone já estão na
+   barra), então precisa crescer pra empurrar as ações pra direita. */
+.hymnal-card-head > .hymnal-card-status { flex: 1; min-width: 0; }
+.hymnal-card-icon {
+  width: 44px; height: 44px; flex-shrink: 0;
+  border-radius: var(--radius-btn);
+  background: var(--accent-soft); color: var(--accent);
+  display: flex; align-items: center; justify-content: center;
+}
+.hymnal-card-icon .msym { font-size: 27px; }
+.hymnal-card-titles { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.hymnal-card-title { font-size: .95rem; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hymnal-card-status { font-size: .72rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: .25rem; }
+.hymnal-card-status.sync { color: var(--accent); }
+.hymnal-card-status.done { color: var(--success); }
+.hymnal-card-actions { display: flex; gap: .35rem; flex-shrink: 0; }
+.hymnal-card-btn {
+  width: 38px; height: 38px; border: none; appearance: none; -webkit-appearance: none;
+  border-radius: var(--radius-btn); background: var(--surface); color: var(--text);
+  display: flex; align-items: center; justify-content: center; cursor: pointer;
+}
+.hymnal-card-btn:active { transform: var(--press); }
+.hymnal-card-btn .msym { font-size: 20px; }
+.hymnal-card-btn svg { display: block; }
+/* Sincronizar e excluir são ambos AZUIS: sincronizar é o primário (preenchido
+   de accent), excluir é azul sobre superfície (ícone accent) — distintos entre
+   si, mas os dois na cor da marca. */
+.hymnal-card-btn.sync-btn { background: var(--accent); color: #fff; }
+.hymnal-card-btn.del-btn { color: var(--accent); }
+.hymnal-card-btn.busy { opacity: .55; }
+.hymnal-card-btn.busy svg { animation: hymnal-spin 1s linear infinite; }
+@keyframes hymnal-spin { to { transform: rotate(360deg); } }
+
+/* faixa de estatísticas (chips): sincronizados / peso / Wi-Fi */
+.hymnal-card-stats { display: flex; gap: .4rem; }
+/* flex:1 1 auto → cada chip parte do seu conteúdo e recebe uma fatia igual do
+   espaço livre, preenchendo a linha inteira (sem sobrar à direita da "Rede")
+   mas sem forçar largura idêntica — assim a "Rede", que tem o texto mais
+   longo, não fica apertada a ponto de espremer o ícone de Wi-Fi. */
+.hymnal-stat {
+  flex: 1 1 auto; min-width: 0;
+  display: flex; flex-direction: column; gap: 1px;
+  background: var(--surface-2); border-radius: var(--radius-btn);
+  padding: .32rem .55rem;
+}
+.hymnal-stat label, .hymnal-stat b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hymnal-stat.net b svg { flex-shrink: 0; }  /* o ícone de Wi-Fi nunca encolhe */
+.hymnal-stat label { font-size: .56rem; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+.hymnal-stat b { font-size: .82rem; font-weight: 700; color: var(--text); }
+.hymnal-stat.done b { color: var(--success); }
+.hymnal-stat.net b { display: flex; align-items: center; gap: .3rem; }
+.hymnal-stat.net.ok b { color: var(--accent); }
+.hymnal-stat.net.warn b { color: var(--gold); }
+
+/* ---------- Bíblia: seleção em "tabela periódica" ---------- */
+/* Três telas de seleção (livros → capítulos → versículos), cada uma uma grade
+   de células no estilo de uma tabela periódica: cada célula é um "símbolo"
+   (abreviação do livro ou número), com um índice pequeno no canto (como o
+   número atômico). Renderizadas dentro de #library (ver renderBible em
+   controle.js). */
+.bible-wrap { display: flex; flex-direction: column; gap: .6rem; padding-bottom: .6rem; }
+/* Tela de livros: preenche a altura disponível pra caber sem scroll (ver
+   .bible-grid--books). As demais telas mantêm altura automática (rolam). */
+.bible-wrap--fit { flex: 1; min-height: 0; padding-bottom: 0; }
+
+/* Seletor de versão: um botão com a versão atual que abre o popup de versões
+   (a lista não fica mais toda exposta em chips). */
+.bible-ver-btn {
+  display: flex; align-items: center; gap: .5rem; align-self: flex-start;
+  border: 1px solid var(--line); background: var(--surface-2); color: var(--text);
+  border-radius: var(--radius-btn); padding: .4rem .7rem; font-size: .82rem; font-weight: 700;
+  cursor: pointer; appearance: none; -webkit-appearance: none; max-width: 100%;
+}
+.bible-ver-btn:active { transform: var(--press); }
+.bible-ver-btn .bible-ver-label { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bible-ver-btn .bible-ver-caret { color: var(--muted); flex-shrink: 0; display: flex; }
+/* linha de uma versão no popup */
+.bible-ver-row.selected { color: var(--accent); }
+.bible-ver-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.bible-ver-row .row-name { font-weight: 600; }
+.bible-ver-status { font-size: .68rem; color: var(--muted); }
+.bible-ver-status.done { color: var(--success); }
+.bible-ver-check { color: var(--accent); font-weight: 700; flex-shrink: 0; }
+
+/* Aviso/estado (baixando versículos, sem rede etc.) */
+.bible-note { color: var(--muted); font-size: .82rem; line-height: 1.5; text-align: center; padding: .8rem .4rem; }
+.bible-note.err { color: var(--gold-text); }
+
+.bible-grid { display: grid; gap: 6px; grid-template-columns: repeat(6, 1fr); }
+/* capítulos/versículos: células menores (só números), mais colunas. */
+.bible-grid--num { grid-template-columns: repeat(auto-fill, minmax(46px, 1fr)); }
+/* Livros: 66 células em 6×11; as 11 linhas dividem a altura disponível (1fr)
+   pra caber TUDO sem scroll. Células retangulares (sem aspect-ratio), compactas. */
+.bible-grid--books { flex: 1; min-height: 0; gap: 4px; grid-template-rows: repeat(11, 1fr); }
+.bible-grid--books .bible-cell { aspect-ratio: auto; padding: 1px; }
+/* Só a abreviação (sem nome completo) — fonte maior, centralizada. */
+.bible-grid--books .bible-cell-sym { font-size: 1.25rem; }
+
+/* Bloco de livro: preenchido POR INTEIRO com a cor do grupo/divisão canônica
+   (ver .bg-<g> abaixo e o campo `g` em bible.js) — sem número de índice.
+   Capítulos/versículos (.bible-cell--num) ficam neutros (superfície). */
+.bible-cell {
+  position: relative; aspect-ratio: 1; min-width: 0;
+  border: none; border-radius: var(--radius-btn);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  cursor: pointer; overflow: hidden; padding: 2px; text-align: center;
+  color: #fff;
+}
+.bible-cell:active { transform: var(--press); }
+/* célula de número (capítulo/versículo): superfície neutra por padrão, com
+   TONS DISTINTOS por tela pra separar bem "capítulo" de "versículo"
+   (percepção da hierarquia): capítulos em tom frio (azulado), versículos em
+   tom quente (dourado/amarronzado). */
+.bible-cell--num { background: var(--panel-2); color: var(--text); }
+.bible-grid--chapters .bible-cell--num { background: #2f3d54; color: #dbe6f5; }
+.bible-grid--verses .bible-cell--num { background: #4a3f24; color: #f3e6c8; }
+/* célula em foco/seleção atual (versículo projetado agora) */
+.bible-cell.active { outline: 2px solid #fff; outline-offset: -2px; }
+.bible-cell--num.active { background: var(--accent); color: #fff; outline: none; }
+.bible-cell-sym { font-size: 1.05rem; font-weight: 800; line-height: 1; }
+.bible-cell--num .bible-cell-sym { font-weight: 700; font-variant-numeric: tabular-nums; }
+.bible-cell-name { font-size: .5rem; opacity: .82; margin-top: 3px; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Cores por grupo/divisão canônica (mesmos agrupamentos da referência; cores
+   próprias). Blocos preenchidos, texto branco. */
+.bg-lei        { background: #454b57; }  /* Pentateuco   */
+.bg-historicos { background: #b5641f; }  /* Históricos   */
+.bg-poeticos   { background: #2c8079; }  /* Poéticos     */
+.bg-pmaiores   { background: #6d3aa0; }  /* Prof. Maiores*/
+.bg-pmenores   { background: #93509a; }  /* Prof. Menores*/
+.bg-evangelhos { background: #2f66c9; }  /* Evangelhos   */
+.bg-atos       { background: #1f8ba0; }  /* Atos         */
+.bg-paulinas   { background: #3f8a49; }  /* Cartas Paulinas */
+.bg-gerais     { background: #6d8a2f; }  /* Cartas Gerais   */
+.bg-apocalipse { background: #a5702c; }  /* Apocalipse   */
+
+/* ---------- Bíblia: tela de leitura (versículo anterior/atual/próximo) ---------- */
+.bible-read { display: flex; flex-direction: column; gap: .5rem; padding-bottom: .6rem; }
+/* rodapé: seletor de versão + referência atual lado a lado */
+.bible-read-foot { display: flex; align-items: center; justify-content: center; gap: .5rem; flex-wrap: wrap; margin-top: .3rem; }
+.bible-read-foot .bible-ver-btn { align-self: auto; }
+
+/* ---------- Mensagens (texto puro) ---------- */
+.msg-wrap { display: flex; flex-direction: column; gap: .5rem; padding-bottom: .6rem; }
+.msg-add-btn {
+  align-self: stretch; border: 1px dashed var(--line); background: var(--surface); color: var(--accent);
+  border-radius: var(--radius-card); padding: .7rem; font-size: .9rem; font-weight: 700;
+  cursor: pointer; appearance: none; -webkit-appearance: none;
+}
+.msg-add-btn:active { transform: var(--press); }
+.msg-item {
+  display: flex; align-items: center; gap: .5rem; border: 2px solid transparent;
+  border-radius: var(--radius-card); background: var(--panel); padding: .5rem .6rem;
+}
+.msg-item.active { border-color: var(--success); background: var(--panel-2); }
+.msg-item.active .msg-text { color: var(--success); }
+.msg-text {
+  flex: 1; min-width: 0; font-size: .92rem; line-height: 1.4; cursor: pointer; white-space: pre-line;
+  overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+}
+/* indicador de salto pro capítulo/livro vizinho (preview anterior/próximo) */
+.bible-vsec.cross { border-style: dashed; }
+.bible-vsec-cross { font-size: .6rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--gold); }
+.bible-vsec {
+  border: 1px solid var(--line); border-radius: var(--radius-card); background: var(--panel);
+  padding: .6rem .7rem; cursor: pointer; display: flex; flex-direction: column; gap: .2rem;
+}
+.bible-vsec:active { transform: var(--press); }
+.bible-vsec.adj { opacity: .6; }             /* anterior / próximo (contexto) */
+.bible-vsec.cur { border-color: var(--accent); background: var(--panel-2); opacity: 1; }
+/* central EM EXIBIÇÃO ("no ar") — destaque verde */
+.bible-vsec.cur.live { border-color: var(--success); }
+.bible-vsec.cur.live .bible-vsec-ref { color: var(--success); }
+.bible-vsec.empty { opacity: .4; cursor: default; font-style: italic; }
+.bible-vsec-ref { font-size: .64rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.bible-vsec.cur .bible-vsec-ref { color: var(--accent); }
+/* dica enquanto a exibição não foi ativada */
+.bible-read-hint { text-align: center; font-size: .74rem; color: var(--muted); padding: .1rem 0 .2rem; }
+.bible-vsec-text { font-size: .9rem; line-height: 1.4; color: var(--text); }
+.bible-vsec.adj .bible-vsec-text { font-size: .82rem; }
+/* botão com a referência atual — volta pra seleção de livros ao tocar */
+.bible-read-ref {
+  margin-top: .2rem; align-self: center;
+  border: 1px solid var(--accent); background: var(--accent-soft); color: var(--accent);
+  border-radius: var(--radius-pill); padding: .5rem 1.1rem; font-size: .9rem; font-weight: 700;
+  cursor: pointer; appearance: none; -webkit-appearance: none;
+  display: inline-flex; align-items: center; gap: .4rem;
+}
+.bible-read-ref:active { transform: var(--press); }
+
+/* ---------- Bíblia: camada de texto na preview (espelha o Display) ---------- */
+/* Mesma estrutura do Display (.bible-content/.bible-box), tamanhos próprios em
+   px calibrados pra caixinha da preview — não dá pra reaproveitar a folha do
+   Display (cq* aqui seriam relativos à preview, então os valores diferem;
+   mesmo padrão de duplicação já usado por pv-lyrics/pv-yt). */
+.pv-text-content {
+  container-type: size;
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  padding: 5cqh 5cqw; box-sizing: border-box; font-family: system-ui, sans-serif;
+}
+/* Tamanho FIXO (espelha o Display) — sublinha (referência) ABAIXO do texto. */
+.pv-text-box {
+  width: 88cqw; height: 66cqh; box-sizing: border-box;
+  padding: 3.5cqh 4.5cqw;
+  background: var(--lyrics-frame-bg); border: 1px solid var(--lyrics-frame-border);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 1.8cqh; text-align: center; overflow: hidden;
+}
+.pv-text-main {
+  color: #fff; font-weight: 500; font-size: 6cqmin; line-height: 1.3; white-space: pre-line;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 5; overflow: hidden;
+}
+.pv-text-sub { color: var(--gold); font-weight: 700; font-size: 5.2cqmin; line-height: 1.15; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.pv-text-content.mode-message .pv-text-main { font-size: 6.8cqmin; -webkit-line-clamp: 7; font-weight: 600; }
+.pv-text-sub:empty { display: none; }
+
+/* fundo de ação do swipe */
+.swipe-bg { position: absolute; inset: 0; z-index: 0; display: flex; align-items: center; justify-content: space-between; padding: 0 18px; }
+.swipe-hint { opacity: .22; }
+.swipe-hint .msym { font-size: 24px; }
+.swipe-hint.right { color: var(--accent); }
+.lib-item.show-left .swipe-hint.right { opacity: 1; }
+
+/* linha-guia azul de reordenação */
+.drop-line { position: absolute; left: 6px; right: 6px; height: 3px; margin-top: -1.5px; background: var(--accent); border-radius: 2px; box-shadow: 0 0 6px var(--accent); pointer-events: none; z-index: 6; }
+
+/* ---------- Popup de playlist (bottom sheet) ---------- */
+.popup-backdrop {
+  position: fixed; inset: 0; z-index: 200;
+  background: rgba(0, 0, 0, .6);
+  display: flex; align-items: flex-end;
+  opacity: 0; pointer-events: none;
+  transition: opacity .25s ease;
+}
+.popup-backdrop.open {
+  opacity: 1; pointer-events: auto;
+}
+.popup-sheet {
+  width: 100%; max-height: 80vh;
+  background: var(--panel);
+  border-radius: 18px 18px 0 0;
+  display: flex; flex-direction: column;
+  transform: translateY(100%);
+  transition: transform .3s ease;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.popup-backdrop.open .popup-sheet { transform: translateY(0); }
+
+.popup-header {
+  display: flex; align-items: center; gap: .5rem;
+  padding: .8rem 1rem .6rem;
+  border-bottom: 1px solid var(--line); flex-shrink: 0;
+}
+.popup-header-icon { font-size: 20px; color: var(--accent); }
+.popup-title { font-size: .95rem; font-weight: 700; flex: 1; }
+.popup-count {
+  background: var(--accent); color: #fff;
+  font-size: .72rem; font-weight: 700;
+  border-radius: var(--radius-pill); padding: 0 .45rem; min-width: 20px; text-align: center;
+}
+.popup-close {
+  width: 34px; height: 34px; border: none; border-radius: var(--radius-btn);
+  background: var(--surface-2); color: var(--muted);
+  display: flex; align-items: center; justify-content: center; cursor: pointer;
+}
+.popup-close .msym { font-size: 20px; }
+
+.popup-list {
+  flex: 1; overflow-y: auto;
+  list-style: none; padding: .5rem .7rem .8rem;
+  display: flex; flex-direction: column; gap: .35rem;
+}
+.popup-list > li { flex-shrink: 0; }
+
+/* ---------- Contador de itens de pasta ---------- */
+.folder-count {
+  font-size: .75rem; color: var(--muted);
+  background: var(--surface-2); border-radius: var(--radius-pill);
+  padding: 2px .5rem; flex-shrink: 0;
+}
+
+/* ---------- Rodapé do popup (Nova pasta) ---------- */
+.popup-footer {
+  padding: .6rem .7rem;
+  border-top: 1px solid var(--line);
+  flex-shrink: 0;
+}
+.new-folder-btn {
+  width: 100%; padding: .6rem;
+  background: rgba(47, 129, 247, .12); border: 1px solid rgba(47, 129, 247, .4);
+  border-radius: var(--radius-card); color: var(--accent); font-size: .9rem;
+  display: flex; align-items: center; justify-content: center; gap: .4rem;
+  cursor: pointer;
+}
+.new-folder-btn .msym { font-size: 20px; }
+.new-folder-btn:active { transform: var(--press); }
+
+/* ---------- Botão de pasta no picker ---------- */
+.folder-pick-btn {
+  width: 100%; padding: .55rem .6rem;
+  background: rgba(255,255,255,.04); border: none; border-radius: var(--radius-card);
+  color: var(--text); font-size: .9rem;
+  display: flex; align-items: center; gap: .55rem;
+  cursor: pointer;
+}
+.folder-pick-btn .msym { font-size: 22px; color: var(--accent); }
+.folder-pick-btn:active { transform: var(--press); }
+
+/* ---------- Busca (pasta e Hinário) ---------- */
+/* appearance:none mata o visual NATIVO do sistema que o `type="search"` ganha
+   em WebKit/Chrome (cantos/altura próprios, botão de limpar embutido) — sem
+   isto o campo saía "despadronizado", diferente dos demais controles do app.
+   As pseudo-partes de busca do WebKit também são removidas para o campo ficar
+   idêntico a um input comum estilizado pelo design do app. */
+.lib-search {
+  flex: 1; min-width: 0;
+  appearance: none; -webkit-appearance: none;
+  border: none; outline: none;
+  background: var(--surface-2); color: var(--text);
+  border-radius: var(--radius-btn); padding: 6px 10px;
+  font-size: .85rem; font-family: inherit;
+}
+.lib-search::placeholder { color: var(--muted); }
+.lib-search::-webkit-search-decoration,
+.lib-search::-webkit-search-cancel-button,
+.lib-search::-webkit-search-results-button,
+.lib-search::-webkit-search-results-decoration { -webkit-appearance: none; appearance: none; display: none; }
+
+/* ---------- popup de busca no Hinário 2022 ---------- */
+/* Bandeja da busca do Hinário: desliza a partir do TOPO (não da base como os
+   demais bottom-sheets). Além de ser o pedido de UX, casa melhor com o teclado
+   — a bandeja fica no topo e os resultados abaixo, sem serem cobertos pelo
+   teclado que sobe da base. */
+#hymnSearchPopup { align-items: flex-start; }
+#hymnSearchPopup .popup-sheet {
+  border-radius: 0 0 18px 18px;
+  transform: translateY(-100%);
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: 0;
+}
+#hymnSearchPopup.open .popup-sheet { transform: translateY(0); }
+
+/* Barra de busca do Hinário ocupando toda a largura da bandeja: display:flex faz
+   o input (.lib-search, flex:1) esticar de lado a lado (sem isso o input ficava
+   no tamanho nativo, pequeno). Campo mais alto/legível que o de busca da pasta. */
+.hymn-search-bar { display: flex; padding: .5rem .9rem .6rem; flex-shrink: 0; }
+#hymnSearchInput { width: 100%; padding: 11px 14px; font-size: .95rem; }
+/* Resultado: thumb à ESQUERDA + coluna à direita com duas linhas (info em
+   cima, ações embaixo). A thumb é um quadrado maior (64px, ~a altura da coluna
+   info+ações à direita) em vez dos 40px fixos — proporcional ao conteúdo ao
+   lado. Fixa (não aspect-ratio+stretch, que não deriva a largura em flex item
+   de largura baseada em conteúdo). */
+.hymn-row { align-items: center; gap: .5rem; }
+.hymn-result .thumb { width: 64px; height: 64px; flex-shrink: 0; }
+.hymn-result .thumb--icon .msym { font-size: 32px; }
+.hymn-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: .35rem; }
+.hymn-info { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.hymn-sub { font-size: .7rem; color: var(--muted); }
+/* Linha de ações (só ícones): grupos por variante (Cantado/Playback) dividindo
+   a largura igualmente; dentro do grupo, tocar/+Cronograma/+Playlist crescem
+   (flex) pra preencher o espaço disponível. */
+.hymn-actions { display: flex; gap: .35rem; }
+.hymn-variant { flex: 1; display: flex; gap: .25rem; min-width: 0; }
+.hymn-play, .hymn-actions .hymn-add {
+  flex: 1; min-width: 0; width: auto; height: 34px;
+}
+.hymn-play {
+  display: flex; align-items: center; justify-content: center;
+  border: none; border-radius: var(--radius-btn); background: var(--surface);
+  color: var(--text); cursor: pointer;
+}
+.hymn-play svg { display: block; }
+.hymn-play:active, .hymn-add:active { transform: var(--press); }
+/* Playback (instrumental) fica em tom accent para diferenciar do Cantado. */
+.hymn-variant[data-variant="playback"] .hymn-play { background: var(--accent-soft); color: var(--accent); }
+
+/* ---------- popup de Exibição (preenchimento da mídia) ---------- */
+/* As transições (fade) são inerentes ao sistema — não há mais controles delas
+   aqui; o popup guarda só o seletor de preenchimento (ajustar/preencher/esticar)
+   e o atalho "Abrir Display". */
+.fade-opts { display: flex; flex-direction: column; gap: .4rem; padding: .3rem .9rem 1rem; }
+.fade-row {
+  display: flex; align-items: center; justify-content: space-between; gap: .8rem;
+  background: var(--panel); border-radius: var(--radius-card); padding: .65rem .8rem;
+  font-size: .9rem; cursor: pointer;
+}
+.fade-row--fit { flex-direction: column; align-items: stretch; gap: .5rem; cursor: default; }
+.fit-seg { display: flex; gap: .35rem; }
+.fit-opt {
+  flex: 1; border: none; border-radius: var(--radius-btn); padding: .5rem .4rem;
+  background: var(--surface); color: var(--muted);
+  font-size: .82rem; font-weight: 600; cursor: pointer;
+}
+.fit-opt.active { background: var(--accent); color: #fff; }
+
+/* Nota: o antigo "toast" flutuante foi removido — as informações agora são
+   transmitidas pela própria interface (ver flash() em controle.js, hoje um
+   no-op, e o indicador de sincronização no texto da linha do Hinário 2022). */
+
+/* Subtítulo de status na linha do Hinário 2022 (indicador de sincronização —
+   substitui o toast flutuante). Reaproveita .hymn-info/.hymn-sub, já usados
+   nos resultados de busca. */
+.hymn-info .hymn-sub { color: var(--accent); }
+
+/* ---------- Diálogo padrão do app (confirmações / prompts) ---------- */
+/* Substitui os confirm()/prompt() nativos por um modal no tema do app —
+   centralizado, para toda interação do tipo (excluir, renomear, avisos). Ver
+   openAppDialog/appConfirm/appPrompt em controle.js. */
+.dialog-backdrop {
+  position: fixed; inset: 0; z-index: 300;
+  background: rgba(0, 0, 0, .6);
+  display: flex; align-items: center; justify-content: center;
+  padding: 1.2rem;
+  opacity: 0; pointer-events: none; transition: opacity .2s ease;
+}
+.dialog-backdrop.open { opacity: 1; pointer-events: auto; }
+.dialog-card {
+  width: 100%; max-width: 360px;
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  padding: 1rem 1rem .8rem;
+  display: flex; flex-direction: column; gap: .7rem;
+  transform: translateY(8px) scale(.98); transition: transform .2s ease;
+}
+.dialog-backdrop.open .dialog-card { transform: none; }
+.dialog-title { font-size: 1rem; font-weight: 700; color: var(--text); }
+.dialog-msg { font-size: .88rem; color: var(--muted); line-height: 1.45; }
+.dialog-input { width: 100%; padding: 10px 12px; font-size: .95rem; }
+.dialog-actions { display: flex; gap: .5rem; justify-content: flex-end; margin-top: .1rem; }
+.dialog-btn {
+  border: none; appearance: none; -webkit-appearance: none;
+  border-radius: var(--radius-btn); padding: .55rem 1.1rem;
+  background: var(--surface-2); color: var(--text);
+  font-size: .9rem; font-weight: 600; cursor: pointer; font-family: inherit;
+}
+.dialog-btn:active { transform: var(--press); }
+.dialog-btn.primary { background: var(--accent); color: #fff; }

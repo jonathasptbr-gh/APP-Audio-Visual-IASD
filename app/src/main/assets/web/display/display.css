@@ -1,0 +1,317 @@
+* {
+  margin: 0; padding: 0; box-sizing: border-box;
+  /* Sem seleção de texto/callout: é uma tela de exibição, não um documento —
+     um toque comprido acidental na TV/telão não deve mostrar alça de seleção
+     nem o menu de "copiar" do navegador. `!important` vence qualquer regra do
+     sistema (UA stylesheet) que reative seleção num elemento específico. */
+  user-select: none !important; -webkit-user-select: none !important; -webkit-touch-callout: none;
+}
+
+/* ---------- Tokens de design (padrões visuais) ----------
+   O Display tem UI mínima (só wallpaper + mídia), então só precisa dos tokens
+   de MARCA compartilhados com o Controle. Estes valores DEVEM ficar idênticos
+   aos de controle.css — as duas folhas são separadas (não há CSS
+   compartilhado), a sincronização é manual. Ver seção "Design System" no
+   CLAUDE.md. */
+:root {
+  /* marca secundária (dourado "IASD") */
+  --gold: #fbc02d;
+  /* wallpaper (cortina) */
+  --wallpaper: radial-gradient(circle at 50% 35%, #14331f 0%, #0a1a10 55%, #050b07 100%);
+  /* moldura da letra sincronizada (modo imagem) */
+  --lyrics-frame-bg: rgba(0, 0, 0, .4);
+  --lyrics-frame-border: rgba(255, 255, 255, .85);
+}
+
+html, body {
+  height: 100%;
+  background: #000;
+  overflow: hidden;
+}
+
+/* Mídia (imagem / vídeo / iframe do YouTube) toca por baixo, sempre — quem
+   decide se aparece é só o wallpaper por cima (z-index maior). */
+.layer {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+  z-index: 1;
+}
+
+/* Wallpaper: cortina que cobre TODA a mídia quando visível — liga/desliga
+   (com fade, se configurado) independente do que estiver tocando por baixo. */
+.wallpaper {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--wallpaper);
+  z-index: 2;
+}
+
+.wallpaper-brand {
+  font-family: system-ui, sans-serif;
+  font-size: clamp(1.5rem, 5vw, 3.5rem);
+  font-weight: 700;
+  letter-spacing: .04em;
+  color: rgba(255, 255, 255, .9);
+}
+.wallpaper-brand span { color: var(--gold); }
+
+/* Letra sincronizada (Hinário 2022): imagem de fundo cheia + retângulo
+   central com moldura (fundo semitransparente + borda + cantos arredondados)
+   — a legibilidade do texto vem da moldura em si, não de um gradiente sobre
+   a tela inteira, então funciona igual independente do que estiver atrás.
+   object-fit própria (cover, não o contain do .layer): é fundo decorativo,
+   não mídia real, e não deve aparecer com barras pretas.
+   `background:#000` no próprio .lyrics-bg é o preto de verdade (não a <img>):
+   no modo preto (padrão) a <img> fica `hidden` de propósito — um <img> sem
+   `src` ainda assim tem retângulo/ícone de "imagem quebrada" com borda em
+   alguns navegadores, o que aparecia como uma linha branca de margem; ficar
+   oculta (em vez de só sem `src`) evita esse render por completo.
+   `.lyrics-bg img[hidden] { display:none }` é NECESSÁRIO além do atributo
+   `hidden` em si: o seletor `.lyrics-bg img` abaixo (uma classe + um tipo)
+   tem especificidade MAIOR que a regra `[hidden] { display:none }` da folha
+   de estilo padrão do navegador, então sem essa regra própria o `display:
+   block` daqui vencia e a <img> continuava visível (sem `src`) mesmo com o
+   atributo `hidden` ligado pelo JS — essa era a causa real do ícone de
+   "imagem quebrada" com borda que aparecia mesmo depois de esconder a
+   imagem via JS. */
+.lyrics-bg { position: absolute; inset: 0; background: #000; }
+.lyrics-bg img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.lyrics-bg img[hidden] { display: none; }
+/* Container de tamanho (`container-type:size`): tudo dentro de
+   `.lyrics-content` (moldura, fonte, padding, gap) usa unidades `cq*`
+   (cqw/cqh — relativas ao TAMANHO DESTE CONTAINER, não ao viewport) em vez
+   de `vh`/`vw`. Isso é o que garante o redimensionamento correto em
+   qualquer proporção/tamanho de tela: como a fonte, o padding, o gap e a
+   altura da caixa são todos frações do MESMO container, a razão entre eles
+   nunca muda — nem numa janela pequena, nem numa tela ultra-larga, nem
+   entre o Display (container = tela cheia) e a preview do Controle
+   (`.pv-lyrics-content`, container = caixinha da preview — mesmo princípio,
+   valores próprios calibrados pro tamanho dela). A versão anterior usava
+   `vh`/`vw` combinado com pisos/tetos em `rem`/`px` fixos — em telas
+   pequenas o piso fixo parava de encolher enquanto a caixa (só em vh)
+   continuava encolhendo, e a fonte acabava maior que a caixa (cortando/
+   bugando o texto); unidades `cq*` puras não têm esse descompasso: tudo
+   escala junto, sempre.
+   SEM padding percentual aqui (só a margem de segurança de gestos, em px):
+   `.lyrics-box` já é dimensionado como fração deste mesmo container
+   (80cqw/36cqh) e o espaço que sobra vira margem automaticamente via
+   `align-items`/`justify-content: center`. Um padding em cq* aqui além
+   disso encolheria o content-box do container, e `.lyrics-box` (também em
+   cq*, mas relativo a esse content-box já encolhido) ficaria menor que o
+   pretendido — um "encolhimento em dobro" que deixava a caixa ~19% mais
+   estreita que a calibração original. */
+.lyrics-content {
+  container-type: size;
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  padding-bottom: env(safe-area-inset-bottom);
+  box-sizing: border-box; font-family: system-ui, sans-serif;
+}
+/* Tamanho FIXO (não cresce/encolhe com o texto do slide) — precisa caber a
+   letra mais longa de qualquer slide sem vazar. overflow:hidden + o
+   line-clamp de .lyrics-line/.lyrics-aux abaixo são a garantia final contra
+   vazamento: textos grandes demais são cortados com reticências, nunca
+   estouram a caixa.
+   Proporções calibradas por medição em pixel de um vídeo de louvor de
+   referência (moldura ~76-80% da largura da tela / ~27-36% da altura;
+   fonte da letra com cap-height ~8,3% da altura da tela). */
+/* Moldura no padrão "vídeo de louvor" (cantos retos, borda fina e nítida,
+   sem sombra) — retângulo, não cartão arredondado. Borda + fundo
+   semitransparente só fazem sentido cobrindo uma imagem de fundo de
+   verdade (dão contraste/legibilidade contra ela); no modo preto puro
+   (padrão) seriam só uma zona escura flutuando sobre uma tela já preta,
+   sem função nenhuma — por isso ficam condicionados a `.imgbg` (ligado só
+   quando `lyricsBgMode==='image'`, ver `applyLyricsBgClass()`). Sem essa
+   classe, `background`/`border` ficam `transparent`, e é como se a letra
+   estivesse "solta" direto sobre o preto. */
+.lyrics-box {
+  width: 76cqw;
+  height: 32cqh;
+  box-sizing: border-box;
+  padding: 2.5cqh 4cqw;
+  border-radius: 0;
+  background: transparent;
+  border: 1.5px solid transparent;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 1.5cqh;
+  text-align: center; overflow: hidden;
+}
+.lyrics-content.imgbg .lyrics-box {
+  background: var(--lyrics-frame-bg);
+  border-color: var(--lyrics-frame-border);
+}
+/* white-space:pre-line respeita as quebras de linha reais que já vêm no
+   texto (ver normalizeLyricText em controle.js — a API embute `<br>` nas
+   letras, convertido pra `\n`), além de continuar quebrando normalmente por
+   largura quando uma linha não tiver quebra explícita.
+   Fonte em `cqmin` (o menor entre a largura e a altura do container), não
+   `cqh` puro: numa proporção estreita/alta (janela redimensionada em modo
+   retrato, por exemplo), uma fonte só relativa à altura cresce mais rápido
+   do que a largura disponível permite, e a própria linha de texto (não o
+   `\n` intencional) já não cabe — sobrando só 1 linha de verdade pro
+   `-webkit-line-clamp:2` e cortando a segunda linha (autorizada) inteira.
+   `cqmin` faz a fonte encolher junto com a dimensão mais apertada, sempre. */
+.lyrics-line {
+  color: #fff; font-weight: 700; text-transform: uppercase;
+  font-size: 8cqmin; line-height: 1.2;
+  white-space: pre-line;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
+}
+/* aux_lyric é um rótulo curto de seção (ex: "Refrão") — 1 linha só, não 2:
+   isso também mantém a caixa mais enxuta (linha principal domina o espaço). */
+.lyrics-aux {
+  color: rgba(255, 255, 255, .72); font-weight: 600;
+  font-size: 4.2cqmin; line-height: 1.25;
+  white-space: pre-line;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 1; overflow: hidden;
+}
+/* Slide de capa (título do hino): maior e na cor de destaque do app — mesma
+   caixa de tamanho fixo, só a fonte/cor mudam (aux fica escondido no slide
+   de capa, então as 2 linhas do clamp têm a caixa toda pra si). */
+.lyrics-content.cover .lyrics-line {
+  color: var(--gold); font-size: 9.5cqmin;
+}
+
+/* ---------- Camada de TEXTO manual (Bíblia + Mensagens) ----------
+   Cartão central com o texto e uma linha secundária embaixo (a referência,
+   dourada, no modo versículo; oculta no modo mensagem). Mesmo modelo de
+   redimensionamento por Container Queries da letra (`container-type:size` +
+   `cq*`). É prosa (caixa-baixa, várias linhas). A moldura (borda + fundo
+   semitransparente) fica SEMPRE visível — é a identidade visual do "cartão de
+   texto", sempre projetado sobre o preto (ou sobre a mídia/áudio de fundo). */
+.text-content {
+  container-type: size;
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  padding: 6cqh 6cqw;
+  padding-bottom: max(6cqh, env(safe-area-inset-bottom));
+  box-sizing: border-box; font-family: system-ui, sans-serif;
+}
+/* Tamanho FIXO (não cresce/encolhe com o texto) e o menor razoável — pra ocupar
+   pouco da tela/imagem de fundo. overflow:hidden + line-clamp cortam texto longo
+   demais com reticências (o operador vê o texto inteiro no Controle). */
+.text-box {
+  width: 80cqw;
+  height: 46cqh;
+  box-sizing: border-box;
+  padding: 3cqh 4.5cqw;
+  border-radius: 0;
+  background: var(--lyrics-frame-bg);
+  border: 1.5px solid var(--lyrics-frame-border);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 1.6cqh;
+  text-align: center; overflow: hidden;
+}
+/* Texto principal (versículo / mensagem) — prosa legível. cqmin (não cqh puro):
+   em proporção estreita a fonte não pode crescer com a altura além do que a
+   largura permite. */
+.text-main {
+  color: #fff; font-weight: 500;
+  font-size: 4.8cqmin; line-height: 1.32;
+  white-space: pre-line;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 5; overflow: hidden;
+}
+/* Linha secundária ABAIXO do texto — a referência (ex: "João 3:16") no modo
+   versículo, dourada, 1 linha. Oculta no modo mensagem. */
+.text-sub {
+  color: var(--gold); font-weight: 700;
+  font-size: 4.2cqmin; line-height: 1.2; letter-spacing: .02em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;
+}
+/* Modo mensagem: texto um pouco maior, mais linhas, sem sublinha. */
+.text-content.mode-message .text-main { font-size: 5.4cqmin; -webkit-line-clamp: 7; font-weight: 600; }
+
+/* Fundo preto evita flash branco enquanto o player do YouTube carrega.
+   pointer-events:none: toques/hover no telão nunca invocam a UI do player
+   (título, controles) — todo o transporte vem do Controle via IFrame Player
+   API. #youtube é só um wrapper; o iframe real é criado pela API oficial
+   dentro dele (display.js), por isso o tamanho é herdado via seletor filho.
+   O iframe é renderizado a 400% do wrapper e encolhido de volta com
+   transform:scale(.25) — mesmo truque da preview do Controle (ver
+   controle.css): a UI própria do YouTube (logo, botão de play do estado
+   "cued", spinner) tem um piso de tamanho próprio; renderizando "grande"
+   primeiro e só depois encolhendo o resultado já composto (via transform,
+   que não re-dispara o layout responsivo interno do iframe), essa UI sai
+   ainda mais discreta em relação ao vídeo — mesmo já sendo o telão
+   inteiro, o objetivo aqui é minimizar ao máximo a marca do YouTube na
+   apresentação, não só corrigir desproporção. */
+.yt-frame { border: none; background: #000; pointer-events: none; overflow: hidden; }
+.yt-frame iframe {
+  position: absolute; top: 50%; left: 50%;
+  width: 400%; height: 400%; border: none;
+  transform: translate(-50%, -50%) scale(.25);
+  transform-origin: center center;
+}
+
+/* Escudo anti-UI do YouTube: usado só no FIM do vídeo — cobre a tela de
+   "vídeos relacionados" enquanto o player é derrubado. Fica ACIMA do
+   wallpaper (z-index maior): entra instantâneo (para vencer a UI) já com o
+   wallpaper pronto por baixo, e esmaece revelando o wallpaper graciosamente. */
+.yt-shield {
+  background: #000;
+  object-fit: unset;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 3;
+}
+.yt-shield.on { opacity: 1; }
+
+/* Toque único ao abrir o Display: cobre a tela inteira, acima de tudo
+   (inclusive do wallpaper e do escudo) — é o gesto real que o navegador
+   exige para liberar autoplay com som em conteúdo de terceiros (iframe do
+   YouTube). Qualquer toque na tela serve (área de toque = tela inteira);
+   o pill central é só a pista visual de "isto é clicável". Some para
+   sempre no primeiro toque (display.js). */
+.start-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: #000;
+  padding: 0;
+  cursor: pointer;
+}
+.start-overlay[hidden] { display: none; }
+.start-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.1em 2.6em;
+  border-radius: 999px;
+  background: var(--gold);
+  color: #1a1400;
+  font-family: system-ui, sans-serif;
+  font-size: clamp(1.1rem, 4vw, 1.8rem);
+  font-weight: 700;
+  letter-spacing: .04em;
+  box-shadow: 0 6px 28px rgba(251, 192, 45, .35);
+  transition: transform .12s ease;
+}
+.start-overlay:active .start-pill { transform: scale(.95); }
+
+/* Feedback de confirmação: toque registrado, aguardando o overlay sumir
+   (display.js atrasa o hide até o fim desta animação — sem isso o overlay
+   some no mesmo instante do clique e o toque parece não ter feito nada). */
+.start-overlay.confirming { pointer-events: none; animation: startOverlayFade .3s ease forwards; }
+.start-overlay.confirming .start-pill { animation: startPillConfirm .3s ease forwards; }
+@keyframes startPillConfirm {
+  0% { transform: scale(.95); }
+  40% { transform: scale(1.08); }
+  100% { transform: scale(1.08); opacity: 0; }
+}
+@keyframes startOverlayFade {
+  0% { background: #000; }
+  100% { background: rgba(0, 0, 0, 0); }
+}

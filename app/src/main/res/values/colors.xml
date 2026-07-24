@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Espelha o token --bg do design system do PWA (controle.css). -->
+    <color name="app_bg">#0A0A0A</color>
+    <!-- Fundo do ícone adaptativo (o desenho dos PWAs é dourado sobre escuro). -->
+    <color name="ic_launcher_background">#0A1A10</color>
+</resources>

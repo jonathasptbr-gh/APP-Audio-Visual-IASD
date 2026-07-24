@@ -1,0 +1,4065 @@
+// ===== refs =====
+const prevEl = document.getElementById('prev');
+const playPauseEl = document.getElementById('playpause');
+const stopEl = document.getElementById('stop');
+const nextEl = document.getElementById('next');
+const repeatEl = document.getElementById('repeat');
+
+const npNameEl = document.getElementById('npName');
+const npNameInnerEl = document.getElementById('npNameInner');
+const seekEl = document.getElementById('seek');
+const curTimeEl = document.getElementById('curTime');
+const durTimeEl = document.getElementById('durTime');
+const slidePrevBtnEl = document.getElementById('slidePrevBtn');
+const slideNextBtnEl = document.getElementById('slideNextBtn');
+
+const viewToggleEl = document.getElementById('viewToggle');
+const muteToggleEl = document.getElementById('muteToggle');
+const volSliderEl = document.getElementById('volSlider');
+const mixerEl = document.getElementById('mixer');
+const volToggleEl = document.getElementById('volToggle');
+const volCloseEl = document.getElementById('volClose');
+const standaloneToggleEl = document.getElementById('standaloneToggle');
+const lyricsBgToggleEl = document.getElementById('lyricsBgToggle');
+const openDisplayBtnEl = document.getElementById('openDisplayBtn');
+
+const pvWallEl = document.getElementById('pvWall');
+const pvImgEl = document.getElementById('pvImg');
+const pvVideoEl = document.getElementById('pvVideo');
+const pvYoutubeEl = document.getElementById('pvYoutube');
+const pvLyricsEl = document.getElementById('pvLyrics');
+const pvLyricsImgEl = document.getElementById('pvLyricsImg');
+const pvLyricsContentEl = document.getElementById('pvLyricsContent');
+const pvLyricsLineEl = document.getElementById('pvLyricsLine');
+const pvLyricsAuxEl = document.getElementById('pvLyricsAux');
+const pvTextEl = document.getElementById('pvText');
+const pvTextContentEl = document.getElementById('pvTextContent');
+const pvTextMainEl = document.getElementById('pvTextMain');
+const pvTextSubEl = document.getElementById('pvTextSub');
+
+const plBtnEl = document.getElementById('plBtn');
+const plCountEl = document.getElementById('plCount');
+const playlistEl = document.getElementById('playlist');
+const plPopupEl = document.getElementById('plPopup');
+const plPopupCountEl = document.getElementById('plPopupCount');
+const plPopupCloseEl = document.getElementById('plPopupClose');
+
+const fileEl = document.getElementById('file');
+const tabsEl = document.querySelector('.tabs');
+const libraryEl = document.getElementById('library');
+const listTitleEl = document.getElementById('listTitle');
+const appVersionEl = document.getElementById('appVersion');
+
+const selbarEl = document.getElementById('selbar');
+const selCountEl = document.getElementById('selCount');
+const selCancelEl = document.getElementById('selCancel');
+const selFolderEl = document.getElementById('selFolder');
+const selRenameEl = document.getElementById('selRename');
+const selDeleteEl = document.getElementById('selDelete');
+
+const backBtnEl = document.getElementById('backBtn');
+const addDirBtnEl = document.getElementById('addDirBtn');
+const libSearchEl = document.getElementById('libSearch');
+const fadePopupEl = document.getElementById('fadePopup');
+const fadePopupCloseEl = document.getElementById('fadePopupClose');
+const fitSegEl = document.getElementById('fitSeg');
+const folderPopupEl = document.getElementById('folderPopup');
+const folderPickerListEl = document.getElementById('folderPickerList');
+const folderPopupCloseEl = document.getElementById('folderPopupClose');
+const newFolderInPickerBtnEl = document.getElementById('newFolderInPickerBtn');
+
+const hymnSearchBtnEl = document.getElementById('hymnSearchBtn');
+const hymnSearchPopupEl = document.getElementById('hymnSearchPopup');
+const hymnSearchCloseEl = document.getElementById('hymnSearchClose');
+const hymnSearchInputEl = document.getElementById('hymnSearchInput');
+const hymnResultsEl = document.getElementById('hymnResults');
+const hymnSearchCountEl = document.getElementById('hymnSearchCount');
+const hymnSearchTitleEl = document.getElementById('hymnSearchTitle');
+const bibleVerPopupEl = document.getElementById('bibleVerPopup');
+const bibleVerListEl = document.getElementById('bibleVerList');
+const bibleVerCloseEl = document.getElementById('bibleVerClose');
+// Escopo da busca/lista: null = busca global no acervo (botão de lupa);
+// coll.id = lista de músicas de UMA coleção (botão "Ver músicas" do card).
+let searchScope = null;
+
+const ICON = {
+  prev: '', // skip_previous
+  play: '', // play_arrow
+  pause: '', // pause
+  stop: '', // stop
+  next: '', // skip_next
+  viewOn: '',  // image (visual ativo)
+  viewOff: '', // image_not_supported (wallpaper/off)
+  volOn: '', // volume_up
+  volOff: '', // volume_off
+  music: '', // music_note
+  broken: '', // broken_image
+  del: '', // delete
+  import: '', // folder_open
+  repeatAll: '', // repeat
+  repeatOne: '', // repeat_one
+  shuffle: '', // shuffle
+  drag: '', // drag_indicator
+  edit: '', // edit
+  close: '', // close
+  plAdd: '', // playlist_add
+  plRemove: '', // playlist_remove
+  queue: '', // queue_music
+  folder: '',    // folder
+  folderNew: '', // create_new_folder
+  back: '',      // arrow_back
+};
+
+const REPEATS = ['off', 'all', 'one', 'shuffle'];
+
+// ===== estado =====
+let plItems = [];          // mídias da playlist (ordenadas)
+let libItems = [];         // mídias da aba ativa
+let currentItem = null;    // registro da mídia atual (mesmo que não esteja na aba visível)
+let currentId = null;
+let view = 'visual';
+let muted = false;
+let volume = 1;
+let playing = false;
+let repeat = 'all';
+let activeTab = 'imports';
+let selectionMode = false;
+const selected = new Set();
+let thumbUrls = [];
+let currentFolder = null; // null | {id, name, _opfs?} — pasta aberta (persiste entre trocas de aba)
+let folders = [];          // [{id, name}, ...] — pastas virtuais
+let folderCounts = {};     // {folderId: count}
+let opfsFolders = [];      // [{id, name, count, syncedAt, handle?}] — pastas sincronizadas no OPFS
+let folderQuery = '';      // filtro de busca dentro de pasta OPFS
+let syncBusy = false;      // sincronização em andamento
+// Transições visuais são INERENTES ao sistema (sempre ligadas, duração fixa) —
+// não há opção de desligar nem ajustar. Fade in/out em toda troca visual:
+// mídia, cortina do wallpaper (view toggle), letra e texto bíblico.
+const fadeCfg = { in: true, out: true, time: 0.6 };
+// ===== Coleções de mídia do LouvorJA (acervo offline) =====
+// Sistema genérico que cobre TODAS as coleções do banco público do LouvorJA
+// (ver docs/FONTE-DE-DADOS-LOUVORJA.md e a seção "Coleções de mídia (LouvorJA)"
+// no CLAUDE.md). Cada coleção vira um card na aba Álbuns e uma pasta OPFS
+// própria (folders/<coll.id>/), com sincronizar/atualizar/excluir e busca — o
+// mesmo mecanismo que antes era exclusivo do Hinário 2022, agora parametrizado
+// por coleção.
+//
+// Dois tipos de coleção:
+//  - 'hymnal' (fixas): um arquivo de LISTA do banco (pt_hymnal / pt_hymnal_1996)
+//    já é o índice completo de hinos. Sempre visíveis; o índice leve é
+//    atualizado sozinho (autoRefreshCollections).
+//  - 'album' (dinâmicas): descobertas em pt_categories (um card por álbum do
+//    banco). O índice de cada álbum vem de album_{id}.musics e é buscado
+//    automaticamente (autoRefreshCollections, fase 2 — só metadados), com
+//    concorrência limitada e TTL (ALBUM_INDEX_TTL), pra a busca cobrir todo o
+//    acervo mesmo sem nada baixado.
+//
+// O himnário em espanhol e demais idiomas ficam de fora naturalmente: só
+// consumimos arquivos 'pt_*' (ver COLLECTION_LOCALE).
+const COLLECTION_LOCALE = 'pt';
+const HYMNAL_2022_ID = 'hymnal-2022'; // == pasta OPFS legada; preserva downloads já feitos
+const FIXED_COLLECTIONS = [
+  { id: HYMNAL_2022_ID, name: 'Hinário Adventista 2022', kind: 'hymnal', source: Louvorja.HYMNAL_2022_FILE, iconKey: 'music' },
+  { id: 'hymnal-1996',  name: 'Hinário Adventista 1996', kind: 'hymnal', source: Louvorja.HYMNAL_1996_FILE, iconKey: 'music' },
+];
+// Índice (metadados leves) de cada coleção, por coll.id → { indexSyncedAt,
+// songs:[{ id_music, track, name, duration, has_instrumental_music,
+// fileIdFull, fileIdPlayback }] }. Fonte de verdade em memória (carregada no
+// init por loadCollections); persistida em state 'coll:<id>'.
+let collState = {};
+// Catálogo de álbuns descobertos (state 'albumCatalog') — [{ id_album, name }].
+// Alimenta os cards de álbum; persistido pra os cards aparecerem offline.
+let albumCatalog = [];
+
+// Registro completo de coleções: hinários fixos + um card por álbum do catálogo.
+function allCollections() {
+  const cols = FIXED_COLLECTIONS.slice();
+  for (const a of albumCatalog) {
+    cols.push({ id: 'album-' + a.id_album, name: a.name, kind: 'album',
+      source: 'album_' + a.id_album, albumId: a.id_album, iconKey: 'queue' });
+  }
+  return cols;
+}
+function collSongs(id) { return (collState[id] && collState[id].songs) || []; }
+
+// ===== Bíblia (acervo online, baixado na 1ª vez que for usado) =====
+// Ver bible.js (window.Bible) e a seção "Bíblia" no CLAUDE.md. A seleção é uma
+// "tabela periódica" em três telas (livros → capítulos → versículos); a
+// estrutura dos livros é offline (Bible.BOOKS), só o TEXTO de cada capítulo
+// (e a lista de versões/livros com ids reais) vem da rede.
+let bibleScreen = 'books';       // 'books' | 'chapters' | 'verses'
+let bibleVersions = [];          // [{ id, name }] baixadas (state 'bibleVersions')
+let bibleBooksOnline = null;     // [{ id, name }] do banco (state 'bibleBooks') — casa o id_bible_book real
+let bibleVersionId = null;       // versão selecionada (state 'bibleVersion')
+let bibleMetaLoaded = false;     // já tentou carregar versões/livros nesta sessão?
+let bibleSel = { bookIdx: -1, chapter: 0 }; // seleção em andamento
+let bibleChapterData = null;     // { verses:[{n,text}] } do capítulo aberto na tela de versículos
+let bibleChapterLoading = false; // baixando o capítulo agora?
+let bibleChapterError = '';      // mensagem de falha (sem rede etc.)
+let bibleLoadSeq = 0;            // descarta downloads de capítulo obsoletos (troca rápida)
+// Sessão de leitura ativa (texto projetado): { versionId, bookIdx, bookId,
+// bookName, chapter, verses, idx }. null = nenhum texto bíblico em cena.
+let bibleSession = null;
+// Download da versão INTEIRA (todos os capítulos) — progresso em memória:
+// { versionId, total, done, running }. null = nenhum download em andamento.
+let bibleDl = null;
+// Versões já totalmente baixadas (offline) — cache em memória de
+// state['bibleComplete:<v>'], pra a tela de livros mostrar "completa" sem async.
+const bibleCompleteVersions = new Set();
+
+// ===== Mensagens (texto puro personalizado) =====
+// Fonte "mensagem" da Camada de Texto: textos curtos que o operador salva e
+// projeta (avisos, versículos avulsos, etc.). Cada mensagem é um slide.
+// Persistido em state 'messages'. msgSession espelha bibleSession (idx dentro
+// da lista + projecting) — passa/volta com os mesmos botões de slide.
+let messages = [];       // [{ id, text }]
+let msgSession = null;   // { idx, projecting } | null
+// id_bible_book real do livro no índice `idx` de Bible.BOOKS: usa o id da lista
+// online (mesma ordem canônica) quando baixada; senão cai no índice+1.
+function bibleBookId(idx) {
+  const b = bibleBooksOnline && bibleBooksOnline[idx];
+  return (b && b.id != null) ? b.id : (idx + 1);
+}
+
+// Estado transitório de UI por coleção (não persistido): sincronização em
+// andamento, mensagem de status e peso (bytes) já baixado.
+const collUI = {};
+function ui(id) { return collUI[id] || (collUI[id] = { syncBusy: false, status: '', statusTimer: null, bytes: 0 }); }
+
+// Indicador de sincronização de uma coleção — subtítulo no card
+// (renderCollectionCard). autoClearMs limpa sozinho (mensagens finais/erro);
+// durante o progresso fica até a próxima chamada. Substitui o toast flutuante.
+function setCollStatus(id, text, autoClearMs) {
+  const u = ui(id);
+  u.status = text || '';
+  clearTimeout(u.statusTimer);
+  if (autoClearMs) {
+    u.statusTimer = setTimeout(() => { u.status = ''; refreshCollectionsIfVisible(); }, autoClearMs);
+  }
+  refreshCollectionsIfVisible();
+}
+// Peso (bytes) dos arquivos já baixados de uma coleção — somatório dos `size`
+// do catálogo OPFS da pasta da coleção. Cacheado e recalculado sob demanda
+// (render síncrono); só re-renderiza quando o total muda.
+async function updateCollBytes(id) {
+  try {
+    const recs = await AVDB.filesByFolder(id);
+    const total = recs.reduce((sum, r) => sum + (r.size || 0), 0);
+    const u = ui(id);
+    if (total !== u.bytes) { u.bytes = total; refreshCollectionsIfVisible(); }
+  } catch (_) { /* sem catálogo ainda — peso fica 0 */ }
+}
+// Downloads de música em andamento ("<coll.id>:<id_music>" -> Promise) — evita
+// disparar dois downloads da mesma música em paralelo (tocar duas vezes rápido).
+const songDownloadInFlight = new Map();
+
+// ===== Detecção de rede (Wi-Fi vs dados móveis) =====
+// Só afeta a sincronização em MASSA do Hinário 2022 (baixar tudo de uma vez)
+// — nunca o download individual disparado por tocar/adicionar um hino
+// específico, que é sempre permitido (é exatamente o uso que gera o gasto de
+// dados, não um download em massa não solicitado). Network Information API
+// (Chrome/Android, onde os dois apps sempre rodam); sem suporte no navegador
+// cai em 'unknown', tratado como "Wi-Fi não confirmado" — mais conservador
+// (evita presumir Wi-Fi e gastar dados móveis à toa) do que assumir Wi-Fi por
+// falta de informação.
+function networkConnection() {
+  return navigator.connection || navigator.mozConnection || navigator.webkitConnection || null;
+}
+function networkType() {
+  const conn = networkConnection();
+  return (conn && typeof conn.type === 'string') ? conn.type : 'unknown';
+}
+function isConfirmedWifi() {
+  const t = networkType();
+  return t === 'wifi' || t === 'ethernet';
+}
+let mediaFit = 'contain'; // preenchimento da mídia (persistido em state 'fit')
+// Modo "mesa de som": saída de áudio local — a preview deixa de ser
+// forçosamente muda e passa a tocar o som de verdade pelo próprio aparelho.
+// Não mexe na comunicação com o Display (comandos continuam normais); se o
+// Display nem estiver aberto, ele só não escuta, sem tratamento especial
+// disso aqui. Não é persistido: cada abertura do app começa em modo normal
+// (preview muda), evitando som inesperado saindo do celular numa sessão nova.
+let standalone = false;
+let ytEnded = false;       // YouTube terminou/parou sem player tocando: ▶ recarrega
+let displayAudioBlocked = false; // Display reportou áudio bloqueado pelo navegador
+const scrollPos = {};      // posição de scroll por aba/pasta (sessão)
+
+// ===== preview (espelho do display) =====
+// Mostra exatamente o que o display mostra; sempre mudo. Recebe os MESMOS
+// comandos enviados ao display e ainda comanda a barra de progresso/avanço.
+const preview = createStage({
+  wallpaper: pvWallEl, img: pvImgEl, video: pvVideoEl, forceMuted: true,
+  onTime: previewTick,
+  // Display presente é a fonte de verdade do avanço automático: quando ele
+  // está ativo, quem avança é o `media-ended` remoto (com guarda de mediaId).
+  // Sem este early-return, se o Display chegar ao fim antes da preview (drift
+  // até SYNC_DRIFT), os dois disparariam autoAdvance() e pulariam uma faixa.
+  // Mesmo princípio de previewTick/ytPreviewTick.
+  onEnded: () => { if (displayActive()) return; autoAdvance(); },
+  onError: (e) => {
+    const code = e.target.error ? e.target.error.code : '?';
+    const src = e.target.src ? e.target.src.slice(-60) : '(sem src)';
+    flash('Erro ' + code + ': …' + src);
+  },
+});
+
+// ===== preview do YouTube (player real, mudo, minúsculo) =====
+// stage.js não toca YouTube (só mostra a thumbnail) — para ter uma preview
+// de verdade aqui, criamos nosso próprio YT.Player, sempre mudo, dirigido
+// pelos mesmos comandos que vão para o Display (mesmo padrão do
+// display.js, bem simplificado: sem cortina/fade próprios do vídeo, sem
+// avanço automático — isso continua vindo do display-status remoto).
+let ytPreviewApiPromise = null;
+function loadYtPreviewApi() {
+  if (window.YT && window.YT.Player) return Promise.resolve();
+  if (ytPreviewApiPromise) return ytPreviewApiPromise;
+  ytPreviewApiPromise = new Promise((resolve, reject) => {
+    const prevCb = window.onYouTubeIframeAPIReady;
+    window.onYouTubeIframeAPIReady = () => { if (prevCb) prevCb(); resolve(); };
+    const tag = document.createElement('script');
+    tag.src = 'https://www.youtube.com/iframe_api';
+    // Sem onerror, uma falha de rede no fetch do script deixaria a promise
+    // pendente para sempre — e como ela é cacheada, TODA preview YouTube
+    // futura travaria. Rejeitar + limpar o cache deixa a próxima tentativa
+    // refazer o fetch.
+    tag.onerror = () => { ytPreviewApiPromise = null; reject(new Error('YT API load failed')); };
+    document.head.appendChild(tag);
+  });
+  return ytPreviewApiPromise;
+}
+
+let ytPreview = null; // { mediaId, player }
+let ytPreviewSeq = 0;
+
+// Rampa curta de volume do player da preview do YouTube, usada ao ligar/
+// desligar a "mesa de som" — evita o corte abrupto de áudio. Reusa o mesmo
+// passo-a-passo/duração do stage.js (createStage.rampSteps/MUTE_RAMP_TIME),
+// fonte única compartilhada pelos três sinks de áudio do sistema.
+const MUTE_RAMP_TIME = createStage.MUTE_RAMP_TIME;
+let ytPreviewRampTimer = null;
+function ytPreviewRampVolume(from, to, dur) {
+  clearInterval(ytPreviewRampTimer);
+  const p = ytPreview && ytPreview.player;
+  if (!p) return;
+  try { p.setVolume(Math.round(Math.min(1, Math.max(0, from)) * 100)); } catch (_) {}
+  ytPreviewRampTimer = createStage.rampSteps(from, to, dur, (v) => {
+    try { if (ytPreview && ytPreview.player) ytPreview.player.setVolume(Math.round(v * 100)); } catch (_) {}
+  });
+}
+
+function dropYtPreview() {
+  if (ytPreview) {
+    clearInterval(ytPreview.qualityTimer);
+    clearInterval(ytPreview.tickTimer);
+    if (ytPreview.player) { try { ytPreview.player.destroy(); } catch (_) {} }
+  }
+  clearInterval(ytPreviewRampTimer);
+  ytPreview = null;
+  pvYoutubeEl.hidden = true;
+  pvYoutubeEl.innerHTML = '';
+}
+
+// Pede a menor qualidade disponível: a preview já é minúscula (~130px de
+// altura), então isso só reforça o que o YouTube tende a escolher sozinho
+// pelo tamanho do player — evita puxar HD à toa num player que ninguém vê em
+// tamanho real. Reforçado também por polling (abaixo, não só onReady/
+// onPlaybackQualityChange): o iframe agora é renderizado a 400% do wrapper
+// e encolhido de volta via CSS (ver controle.css, truque pra deixar a UI do
+// YouTube proporcionalmente menor) — o YouTube decide a qualidade padrão
+// pelo tamanho do iframe QUE ELE PRÓPRIO enxerga (400%, não o tamanho visual
+// já encolhido), então sem reforço contínuo esse truque de UI poderia
+// silenciosamente puxar uma qualidade mais alta do que antes.
+function ytPreviewForceLowQuality(player) {
+  try { if (player.getPlaybackQuality() !== 'tiny') player.setPlaybackQuality('tiny'); } catch (_) {}
+}
+
+async function loadYtPreview(rec, v) {
+  dropYtPreview();
+  const seq = ++ytPreviewSeq;
+  // stage.js retorna cedo para kind='youtube' (só marca a thumbnail) e por
+  // isso nunca chega na revelação da cortina no fim de load() — cobre aqui
+  // à parte, igual o display.js faz para o player real. A thumbnail (posta
+  // por preview.handle() em paralelo) fica como placeholder até o player
+  // real assumir por cima (mesmo z-index, depois no DOM).
+  preview.instantCover(v === 'wallpaper');
+  try { await loadYtPreviewApi(); }
+  catch (_) { return; }   // API não carregou (rede) — mantém só a thumbnail
+  if (seq !== ytPreviewSeq) return;
+  const host = document.createElement('div');
+  pvYoutubeEl.appendChild(host);
+  pvYoutubeEl.hidden = false;
+  const cur = { mediaId: rec.id, player: null, qualityTimer: null, tickTimer: null };
+  ytPreview = cur;
+  cur.player = new YT.Player(host, {
+    videoId: rec.youtubeId,
+    playerVars: {
+      autoplay: 1, mute: 1, controls: 0, disablekb: 1, fs: 0,
+      iv_load_policy: 3, rel: 0, playsinline: 1,
+    },
+    events: {
+      onReady: (e) => {
+        if (ytPreview !== cur) return;
+        // Normalmente a preview é sempre muda (espelha o Display); no modo
+        // "mesa de som" ela é quem toca o áudio de verdade, com o volume/mudo
+        // que o operador já tiver definido.
+        if (standalone) {
+          try { if (!muted) e.target.unMute(); e.target.setVolume(Math.round(volume * 100)); } catch (_) {}
+        } else {
+          try { e.target.mute(); } catch (_) {}
+        }
+        ytPreviewForceLowQuality(e.target);
+        try { e.target.playVideo(); } catch (_) {}
+        clearInterval(cur.qualityTimer);
+        cur.qualityTimer = setInterval(() => {
+          if (ytPreview !== cur || !cur.player) return;
+          ytPreviewForceLowQuality(cur.player);
+        }, 1500);
+        startYtPreviewTick(cur);
+      },
+      onStateChange: (e) => { if (ytPreview === cur) onYtPreviewState(e); },
+      onPlaybackQualityChange: (e) => { if (ytPreview === cur) ytPreviewForceLowQuality(e.target); },
+    },
+  });
+}
+
+// A preview do YouTube (player real na tela do operador) é a FONTE DE VERDADE
+// do play/pause, da barra de progresso e do avanço automático dos itens YouTube
+// — como a preview local (`previewTick`) faz para mídia comum. Antes isso
+// dependia só do `display-status` remoto do Display, que pode chegar atrasado
+// ou nem chegar (Display em segundo plano/fechado), deixando o ▶/⏸ preso e sem
+// pausar. Agora o player local dirige a UI, sempre responsivo.
+function startYtPreviewTick(cur) {
+  clearInterval(cur.tickTimer);
+  cur.tickTimer = setInterval(() => {
+    if (ytPreview !== cur || !cur.player) return;
+    ytPreviewTick();
+  }, 500);
+}
+// Sincronização (qualquer tipo de mídia com tempo — YouTube, áudio, vídeo):
+// o player do DISPLAY (a projeção real) é a fonte de verdade quando está
+// enviando status; se ele não existir / estiver estrangulado ou fechado
+// (nenhum display-status recente), a PREVIEW local assume. `displayStatusAt`
+// guarda o instante do último display-status do item atual; `displayActive()`
+// = recebeu algo há menos de DISPLAY_TIMEOUT. `lastDisplayTime` guarda o
+// último `currentTime` reportado — usado por quem precisa da posição
+// "oficial" fora do fluxo de tick (`stepSlide`/`renderSlideNav`, ver
+// `authoritativeTime()`).
+let displayStatusAt = 0;
+let lastDisplayTime = 0;
+const DISPLAY_TIMEOUT = 2500; // sem status do Display por mais que isso → preview assume
+const SYNC_DRIFT = 1.6;       // só re-sincroniza a preview se o drift passar disso (s)
+function displayActive() {
+  return (Date.now() - displayStatusAt) < DISPLAY_TIMEOUT;
+}
+function ytDisplayActive() {
+  return !!(currentItem && currentItem.kind === 'youtube') && displayActive();
+}
+// Posição "oficial" do item atual: a do Display enquanto ele for a fonte de
+// verdade (ver acima), senão a da própria preview. Usado por ações
+// disparadas fora do ciclo de tick normal (stepSlide, renderSlideNav) — sem
+// isso, "estrofe anterior/próxima" calcularia a partir de um tempo local já
+// desatualizado em relação ao que está de fato no telão.
+function authoritativeTime() {
+  if (currentItem && currentItem.kind !== 'youtube' && displayActive()) return lastDisplayTime;
+  return preview.getTime() || 0;
+}
+// Re-alinha a preview à projeção real do Display (fonte de verdade): casa o
+// play/pause e, se o tempo divergir muito (ex: preview estrangulada enquanto o
+// Controle esteve minimizado), busca o instante do Display. Não busca em "mesa
+// de som" (evita salto audível); só casa play/pause.
+function ytResyncPreviewToDisplay(isPlaying, currentTime) {
+  const p = ytPreview && ytPreview.player;
+  if (!p) return;
+  try {
+    if (!standalone && typeof currentTime === 'number' && isFinite(currentTime)) {
+      const pt = p.getCurrentTime() || 0;
+      if (Math.abs(pt - currentTime) > SYNC_DRIFT) p.seekTo(currentTime, true);
+    }
+    const st = p.getPlayerState();
+    if (isPlaying && st !== 1 && st !== 3) p.playVideo();
+    else if (!isPlaying && st === 1) p.pauseVideo();
+  } catch (_) {}
+}
+// Mesmo princípio de ytResyncPreviewToDisplay, para mídia comum (áudio/vídeo
+// do próprio stage.js, não YouTube): casa o play/pause e corrige o tempo da
+// preview se o drift passar de SYNC_DRIFT — sem isso, dois decodificadores
+// de áudio independentes (Display e preview) divergem aos poucos e a letra
+// sincronizada acaba trocando de slide em momentos diferentes nos dois
+// lados. Também não busca em "mesa de som" (evita salto audível).
+function resyncPreviewToDisplay(isPlaying, currentTime) {
+  if (!preview.isTimed()) return;
+  try {
+    if (!standalone && typeof currentTime === 'number' && isFinite(currentTime)) {
+      const pt = preview.getTime() || 0;
+      if (Math.abs(pt - currentTime) > SYNC_DRIFT) preview.seek(currentTime);
+    }
+    if (isPlaying && !preview.isPlaying()) preview.play();
+    else if (!isPlaying && preview.isPlaying()) preview.pause();
+  } catch (_) {}
+}
+function ytPreviewTick() {
+  if (ytDisplayActive()) return; // Display presente é a fonte — a preview só assume na ausência dele
+  const p = ytPreview && ytPreview.player;
+  if (!p) return;
+  let st = -1, t = 0, dur = 0;
+  try { st = p.getPlayerState(); t = p.getCurrentTime() || 0; dur = p.getDuration() || 0; } catch (_) { return; }
+  playing = (st === 1 || st === 3); // playing | buffering
+  playPauseEl.querySelector('.msym').textContent = playing ? ICON.pause : ICON.play;
+  durTimeEl.textContent = fmtTime(dur);
+  seekEl.disabled = !(dur > 0);
+  if (!seeking) {
+    seekEl.max = dur > 0 ? dur : 0;
+    seekEl.value = t;
+    curTimeEl.textContent = fmtTime(t);
+  }
+}
+function onYtPreviewState(e) {
+  if (ytDisplayActive()) return; // Display presente é a fonte — ignora eventos locais
+  const st = e.data; // 1 playing, 2 paused, 3 buffering, 0 ended, 5 cued
+  if (st === 0) { // fim natural → avança a playlist (só quando a preview é a fonte)
+    playing = false;
+    playPauseEl.querySelector('.msym').textContent = ICON.play;
+    ytEnded = true;
+    autoAdvance();
+    return;
+  }
+  if (st === 1 || st === 2 || st === 3) {
+    ytEnded = false;
+    ytPreviewTick();
+  }
+}
+
+// Transporte do player da preview: play/pause/seek sempre; mute/volume só
+// importam no modo "mesa de som" (fora dele a preview do YouTube é sempre
+// muda, como a mídia local). A cortina (view/fade) é tratada à parte, sempre
+// via preview.handle() (ver cmd()), pois é a mesma cortina compartilhada
+// usada pela mídia local.
+function ytPreviewHandle(obj) {
+  if (!ytPreview || !ytPreview.player) return;
+  const p = ytPreview.player;
+  switch (obj.type) {
+    case 'play': try { p.playVideo(); } catch (_) {} break;
+    case 'pause': try { p.pauseVideo(); } catch (_) {} break;
+    case 'seek': if (typeof obj.time === 'number') { try { p.seekTo(obj.time, true); } catch (_) {} } break;
+    case 'mute':
+      if (standalone) { try { if (obj.muted) p.mute(); else p.unMute(); } catch (_) {} }
+      break;
+    case 'volume':
+      if (standalone && typeof obj.volume === 'number') { try { p.setVolume(Math.round(obj.volume * 100)); } catch (_) {} }
+      break;
+  }
+}
+
+// Liga/desliga o modo "mesa de som": é só uma SAÍDA DE ÁUDIO LOCAL — a
+// preview passa a tocar o som de verdade pelo próprio aparelho, em vez de
+// sempre muda. Não mexe em nada da comunicação com o Display: os comandos
+// continuam sendo enviados normalmente (cmd() não muda de comportamento);
+// na prática, se o Display nem estiver aberto, ninguém escuta esses
+// comandos e é como se ele não existisse — mas o Controle não precisa saber
+// disso nem tratar esse caso de forma especial.
+async function setStandalone(v) {
+  if (standalone === v) return;
+  standalone = v;
+  // Mídia local: a rampa vive no stage (setForceMuted). YouTube da preview:
+  // rampa aqui, em paralelo, com a mesma duração — ligar desmuta e sobe de 0
+  // ao volume alvo (respeitando o mudo do operador); desligar desce até 0 e só
+  // então muta.
+  preview.setForceMuted(!standalone);
+  if (ytPreview && ytPreview.player) {
+    const p = ytPreview.player;
+    clearInterval(ytPreviewRampTimer);
+    if (standalone) {
+      if (!muted) { try { p.unMute(); } catch (_) {} ytPreviewRampVolume(0, volume, MUTE_RAMP_TIME); }
+      else { try { p.setVolume(Math.round(volume * 100)); } catch (_) {} }
+    } else {
+      ytPreviewRampVolume(volume, 0, MUTE_RAMP_TIME);
+      setTimeout(() => {
+        if (!standalone && ytPreview && ytPreview.player) { try { ytPreview.player.mute(); } catch (_) {} }
+      }, MUTE_RAMP_TIME * 1000);
+    }
+  }
+  standaloneToggleEl.classList.toggle('active', standalone);
+}
+
+// Fundo da letra sincronizada (Hinário 2022): 'black' (padrão) ignora as
+// imagens dos slides e mantém o fundo preto atrás do texto; 'image' usa as
+// imagens de verdade. Persistido em state.lyricsBg, aplicado ao vivo (igual
+// fade/fit) via comando — tanto no Display quanto na própria preview, que
+// segue o mesmo conceito universal de espelhar o telão.
+let lyricsBg = 'black';
+async function setLyricsBg(mode) {
+  mode = mode === 'image' ? 'image' : 'black';
+  if (lyricsBg === mode) return;
+  lyricsBg = mode;
+  await AVDB.setState('lyricsBg', lyricsBg);
+  renderLyricsBgBtn();
+  cmd({ type: 'lyricsbg', mode: lyricsBg });
+}
+function renderLyricsBgBtn() {
+  const active = lyricsBg === 'image';
+  lyricsBgToggleEl.classList.toggle('active', active);
+  lyricsBgToggleEl.title = active
+    ? 'Imagens dos slides atrás da letra (toque para usar fundo preto)'
+    : 'Fundo preto atrás da letra (toque para usar as imagens dos slides)';
+}
+
+// Envia o comando ao display E aplica na preview (espelho) — YouTube usa seu
+// próprio player pequeno (acima); mídia comum continua no stage.js. O modo
+// "mesa de som" não altera nada aqui (ver setStandalone) — só a saída de
+// áudio da preview muda, a comunicação com o Display permanece normal.
+function cmd(obj) {
+  AVDB.sendCommand(obj);
+  // Texto manual (Bíblia/Mensagem): overlay independente — espelha na preview.
+  if (obj.type === 'text') { showPvText(obj); return; }
+  if (obj.type === 'text-hide') { hidePvText(); return; }
+  const nowYoutube = !!(currentItem && currentItem.kind === 'youtube');
+  if (obj.type === 'load') {
+    // Esconde a letra incondicionalmente (como o Display). O texto manual é um
+    // overlay independente: só some ao carregar VISUAL; ÁUDIO toca por baixo e
+    // mantém o texto (independência áudio × texto).
+    hidePvLyrics();
+    const keepText = pvTextActive && currentItem && currentItem.kind === 'audio';
+    if (!keepText) hidePvText();
+    // preview.handle() sempre roda primeiro: mantém preview.getCurrent()/
+    // fallback de thumbnail em dia (stage.js já sabe lidar com kind=youtube,
+    // só não toca o vídeo) — mesmo quando o player real assume por cima.
+    preview.handle(obj);
+    if (nowYoutube) loadYtPreview(currentItem, obj.view);
+    else if (ytPreview) dropYtPreview();
+    // Só mostra a letra do áudio se NÃO houver texto manual em cena (precedência).
+    if (!keepText && currentItem && currentItem.kind === 'audio' && Array.isArray(currentItem.lyrics) && currentItem.lyrics.length) showPvLyrics(currentItem);
+    return;
+  }
+  if (obj.type === 'stop' || obj.type === 'clear') {
+    hidePvLyrics();
+    hidePvText();
+    if (ytPreview) dropYtPreview();
+    preview.handle(obj);
+    return;
+  }
+  if (obj.type === 'lyricsbg') {
+    // Não é um comando do stage.js (letra é camada paralela) — aplica direto
+    // na preview, se ela estiver mostrando letra sincronizada agora.
+    applyPvLyricsBg();
+    return;
+  }
+  if (obj.type === 'fade' || obj.type === 'view' || obj.type === 'fit') {
+    preview.handle(obj); // cortina/config compartilhada — sempre, independe do youtube
+    return;
+  }
+  if (nowYoutube && ytPreview) { ytPreviewHandle(obj); return; }
+  preview.handle(obj);
+}
+
+function previewTick() {
+  // Texto manual em cena sem áudio de fundo: nada de mídia/tempo a sincronizar.
+  // (Com áudio de fundo, o texto é overlay e a preview segue o áudio normalmente.)
+  if ((bibleSession || msgSession) && !preview.getCurrent()) return;
+  // Itens YouTube tocam só no Display (player real): a UI de transporte é
+  // dirigida pelo display-status remoto, não pela preview local.
+  if (currentItem && currentItem.kind === 'youtube') return;
+  // Display presente é a fonte de verdade (ver displayActive()) — a preview
+  // só dirige a UI/letra na ausência dele; enquanto ele estiver ativo, quem
+  // atualiza tudo isso é o handler de 'display-status' (AVDB.onCommand).
+  if (displayActive()) return;
+  playing = preview.isPlaying();
+  playPauseEl.querySelector('.msym').textContent = playing ? ICON.pause : ICON.play;
+  const dur = preview.getDuration();
+  durTimeEl.textContent = fmtTime(dur);
+  seekEl.disabled = !preview.isTimed();
+  if (!seeking) {
+    seekEl.max = isFinite(dur) && dur > 0 ? dur : 0;
+    seekEl.value = preview.getTime() || 0;
+    curTimeEl.textContent = fmtTime(preview.getTime());
+  }
+  updatePvLyricSlide(preview.getTime() || 0);
+  renderSlideNav();
+}
+
+// Último índice de slide cujo `time` já passou (letra sincronizada por
+// tempo) — mesmo algoritmo usado pelo Display para trocar de estrofe.
+function findSlideIndex(lyrics, time) {
+  let idx = -1;
+  for (let i = 0; i < lyrics.length; i++) {
+    if (lyrics[i].time <= time) idx = i; else break;
+  }
+  return idx < 0 ? 0 : idx;
+}
+
+// Fade-in curto de um elemento (troca de slide/versículo) — respeita a config
+// de transições (fadeCfg.in). Anima só o conteúdo de texto, não a moldura
+// (evita a moldura "piscar" a cada troca). Cancela uma animação anterior.
+function pvFadeIn(el) {
+  if (!el || !el.animate || !fadeCfg.in) return;
+  try { el.getAnimations().forEach((a) => a.cancel()); } catch (_) {}
+  el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 260, easing: 'ease' });
+}
+
+// ===== Letra sincronizada na preview — mesma visualização do Display =====
+// A preview já espelha o Display para imagem/vídeo (stage.js) e YouTube
+// (segundo player, ver loadYtPreview) — letra sincronizada segue o mesmo
+// princípio universal do sistema: o operador vê no celular exatamente o que
+// está sendo exibido no telão.
+let pvLyrics = null;
+let pvLyricsMeta = null; // { hymnName, hymnTrack } do item atual, pro slide de capa
+let pvLyricSlideIdx = -1;
+let pvLyricLoadSeq = 0;
+let pvLyricImgKey = null;
+let pvLyricImgUrl = null;
+
+function hidePvLyrics() {
+  pvLyrics = null;
+  pvLyricsMeta = null;
+  pvLyricSlideIdx = -1;
+  pvLyricsEl.hidden = true;
+  if (pvLyricImgUrl) { URL.revokeObjectURL(pvLyricImgUrl); pvLyricImgUrl = null; }
+  pvLyricImgKey = null;
+  pvLyricsImgEl.hidden = true;
+  pvLyricsImgEl.removeAttribute('src');
+}
+
+function showPvLyrics(rec) {
+  pvLyrics = rec.lyrics;
+  pvLyricsMeta = { hymnName: rec.hymnName, hymnTrack: rec.hymnTrack };
+  pvLyricSlideIdx = -1;
+  pvLyricsEl.hidden = false;
+  applyPvLyricsBgClass();
+  renderPvLyricSlide(0);
+}
+
+// A moldura (borda + fundo semitransparente) só faz sentido cobrindo uma
+// imagem de fundo de verdade — mesmo motivo do Display (ver
+// applyLyricsBgClass em display.js). `.imgbg` liga a moldura só quando
+// lyricsBg==='image' (ver .pv-lyrics-box/.pv-lyrics-content.imgbg em
+// controle.css).
+function applyPvLyricsBgClass() {
+  pvLyricsContentEl.classList.toggle('imgbg', lyricsBg === 'image');
+}
+
+function renderPvLyricSlide(idx) {
+  if (idx === pvLyricSlideIdx) return;
+  pvLyricSlideIdx = idx;
+  const slide = pvLyrics[idx];
+  if (!slide) return;
+
+  pvLyricsContentEl.classList.toggle('cover', !!slide.cover);
+  if (slide.cover) {
+    const meta = pvLyricsMeta || {};
+    pvLyricsLineEl.textContent = (meta.hymnTrack ? meta.hymnTrack + '. ' : '') + (meta.hymnName || '');
+    pvLyricsAuxEl.hidden = true;
+  } else {
+    pvLyricsLineEl.textContent = slide.text || '';
+    pvLyricsAuxEl.textContent = slide.auxText || '';
+    pvLyricsAuxEl.hidden = !slide.auxText;
+  }
+  pvFadeIn(pvLyricsLineEl);
+  if (!pvLyricsAuxEl.hidden) pvFadeIn(pvLyricsAuxEl);
+
+  applyPvLyricsImage(slide);
+}
+
+// Resolve (ou limpa) a imagem de fundo do slide atual, respeitando o modo
+// preto/imagens (`lyricsBg`, ver setLyricsBg) — só troca de fato se a chave
+// efetiva mudou (linhas seguidas costumam compartilhar a mesma imagem), com
+// guarda de sequência pra descartar resoluções obsoletas.
+function applyPvLyricsImage(slide) {
+  if (!slide) return;
+  const key = (lyricsBg === 'image' && slide.imageOpfsPath) ? slide.imageOpfsPath : null;
+  if (key === pvLyricImgKey) return;
+  const seq = ++pvLyricLoadSeq;
+  if (!key) {
+    pvLyricImgKey = null;
+    if (pvLyricImgUrl) { URL.revokeObjectURL(pvLyricImgUrl); pvLyricImgUrl = null; }
+    // Oculta a <img> (não só limpa o src) — mesmo motivo do Display: sem
+    // isso, alguns navegadores mostram o ícone/borda padrão de "imagem
+    // quebrada" mesmo sem `src`, aparecendo como uma linha branca de
+    // margem sobre o preto de .pv-lyrics-bg.
+    pvLyricsImgEl.hidden = true;
+    pvLyricsImgEl.removeAttribute('src');
+    return;
+  }
+  AVDB.opfsGetFile(key).then((file) => {
+    if (seq !== pvLyricLoadSeq) return;
+    const url = URL.createObjectURL(file);
+    const prevUrl = pvLyricImgUrl;
+    pvLyricImgUrl = url;
+    pvLyricImgKey = key;
+    pvLyricsImgEl.src = url;
+    pvLyricsImgEl.hidden = false;
+    if (prevUrl) URL.revokeObjectURL(prevUrl);
+  }).catch(() => {});
+}
+
+function updatePvLyricSlide(t) {
+  if (!pvLyrics) return;
+  renderPvLyricSlide(findSlideIndex(pvLyrics, t));
+}
+
+// Reaplica o fundo (preto/imagens) no slide atual sem precisar de uma troca
+// de estrofe — chamado quando o operador alterna o botão de fundo da letra.
+function applyPvLyricsBg() {
+  if (!pvLyrics || pvLyricSlideIdx < 0) return;
+  applyPvLyricsBgClass();
+  applyPvLyricsImage(pvLyrics[pvLyricSlideIdx]);
+}
+
+// ===== Camada de TEXTO manual na preview (Bíblia/Mensagem) — espelha o Display =====
+// Overlay independente do áudio: um som pode seguir tocando por baixo (preview
+// muda), como no Display. `mode`: 'verse' (sublinha = referência) | 'message'.
+let pvTextActive = false;
+
+function hidePvText() {
+  if (!pvTextActive && pvTextEl.hidden) return;
+  pvTextActive = false;
+  pvTextEl.hidden = true;
+  pvTextMainEl.textContent = '';
+  pvTextSubEl.textContent = '';
+}
+
+function showPvText(obj) {
+  const wallpaper = obj.view === 'wallpaper';
+  const isMsg = obj.mode === 'message';
+  pvTextContentEl.classList.toggle('mode-message', isMsg);
+  pvTextMainEl.textContent = obj.main || '';
+  pvTextSubEl.textContent = obj.sub || '';
+  if (pvTextActive) {
+    // Já em cena (troca de versículo/mensagem): fade-in do texto.
+    pvFadeIn(pvTextMainEl); if (obj.sub) pvFadeIn(pvTextSubEl);
+    preview.instantCover(wallpaper);
+    return;
+  }
+  hidePvLyrics();
+  if (ytPreview) dropYtPreview();
+  // NÃO para o áudio de fundo da preview (independência) — só some com o visual
+  // concorrente (YouTube/letra); o stage da preview segue tocando por baixo.
+  pvTextActive = true;
+  pvTextEl.hidden = false;
+  if (wallpaper) preview.instantCover(true); else preview.coverOut();
+}
+
+// ===== util =====
+function fmtTime(s) {
+  if (!s || !isFinite(s)) return '0:00';
+  const m = Math.floor(s / 60);
+  const sec = Math.floor(s % 60);
+  return m + ':' + String(sec).padStart(2, '0');
+}
+function msym(code) {
+  const s = document.createElement('span');
+  s.className = 'msym';
+  s.textContent = code;
+  return s;
+}
+function persistCurrent() {
+  return AVDB.setState('current', { mediaId: currentId, view, muted, volume, at: Date.now() });
+}
+
+// ===== miniaturas =====
+function drawThumb(srcEl, w, h) {
+  return new Promise((resolve) => {
+    const size = 160;
+    const canvas = document.createElement('canvas');
+    canvas.width = size; canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    const scale = Math.max(size / w, size / h);
+    const dw = w * scale, dh = h * scale;
+    ctx.drawImage(srcEl, (size - dw) / 2, (size - dh) / 2, dw, dh);
+    canvas.toBlob((b) => resolve(b), 'image/jpeg', 0.72);
+  });
+}
+function thumbFromImage(file) {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = async () => {
+      try { resolve(await drawThumb(img, img.naturalWidth, img.naturalHeight)); }
+      catch (e) { resolve(null); }
+      finally { URL.revokeObjectURL(url); }
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); resolve(null); };
+    img.src = url;
+  });
+}
+function thumbFromVideo(file) {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const v = document.createElement('video');
+    let settled = false;
+    function finish(blob) {
+      if (settled) return;
+      settled = true;
+      URL.revokeObjectURL(url);
+      resolve(blob);
+    }
+    v.muted = true; v.preload = 'auto'; v.playsInline = true;
+    v.onloadeddata = () => {
+      try { v.currentTime = Math.min(0.5, (v.duration || 1) / 3); }
+      catch (e) { finish(null); }
+    };
+    v.onseeked = async () => {
+      try { finish(await drawThumb(v, v.videoWidth || 160, v.videoHeight || 160)); }
+      catch (e) { finish(null); }
+    };
+    v.onerror = () => finish(null);
+    v.src = url;
+    // Garante limpeza caso onseeked nunca dispare (ex: vídeo com duração=0).
+    setTimeout(() => finish(null), 3500);
+  });
+}
+async function makeThumb(file, kind) {
+  if (kind !== 'image' && kind !== 'video') return null;
+  return kind === 'image' ? thumbFromImage(file) : thumbFromVideo(file);
+}
+
+// ===== carregar + render =====
+// Guarda de sequência: load() é async e disparada fire-and-forget por dezenas
+// de handlers. Sem isto, duas chamadas concorrentes poderiam terminar fora de
+// ordem e a mais antiga sobrescreveria o estado/render da mais nova. Só o
+// último load() aplica seu resultado (mesmo padrão do loadSeq do stage.js).
+let loadSeqCtl = 0;
+async function load() {
+  const myseq = ++loadSeqCtl;
+
+  // ---- FASE 1: só leituras do IDB, em locais (nada de estado/DOM ainda) ----
+  const cur = await AVDB.getState('current');
+  const repeatV = (await AVDB.getState('repeat')) || 'off';
+  const plItemsV = await AVDB.listItems('playlist');
+  const foldersV = (await AVDB.getState('folders')) || [];
+  // Contagens das pastas em paralelo (antes era um await sequencial por pasta
+  // a cada micro-mudança — ex: uma simples adição à playlist relia tudo).
+  const folderIdArrays = await Promise.all(foldersV.map((f) => AVDB.getState('folder_' + f.id)));
+  const folderCountsV = {};
+  foldersV.forEach((f, i) => { folderCountsV[f.id] = (folderIdArrays[i] || []).length; });
+  const opfsFoldersV = (await AVDB.getState('opfs-folders')) || [];
+  const messagesV = (await AVDB.getState('messages')) || [];
+  const storedFit = await AVDB.getState('fit');
+  const lyricsBgV = (await AVDB.getState('lyricsBg')) === 'image' ? 'image' : 'black';
+  let libItemsV;
+  if (activeTab === 'folders') {
+    if (currentFolder && currentFolder._opfs) {
+      libItemsV = (await AVDB.filesByFolder(currentFolder.id))
+        .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+    } else {
+      libItemsV = currentFolder ? await loadFolderMediaItems(currentFolder.id) : [];
+    }
+  } else if (activeTab === 'imports' || activeTab === 'playlist') {
+    // Só as abas que são de fato listas de IDs de mídia. As abas 'albums',
+    // 'bible' e 'messages' NÃO são listas de mídia — e 'messages' guarda
+    // objetos {id,text} no mesmo state key, então passar isso por listItems
+    // (getMedia por id) lançaria DataError e quebraria o load() inteiro.
+    libItemsV = await AVDB.listItems(activeTab);
+  } else {
+    libItemsV = [];
+  }
+  const curMediaId = cur && cur.mediaId ? cur.mediaId : null;
+  const currentItemV = curMediaId ? (await AVDB.getMedia(curMediaId)) || null : null;
+
+  // Um load() mais novo assumiu enquanto este lia o IDB — descarta este.
+  if (myseq !== loadSeqCtl) return;
+
+  // ---- FASE 2: aplica ao estado do módulo + render (síncrono, atômico) ----
+  currentId = curMediaId;
+  view = (cur && cur.view) || 'visual';
+  muted = !!(cur && cur.muted);
+  volume = (cur && typeof cur.volume === 'number') ? cur.volume : 1;
+  repeat = repeatV;
+  plItems = plItemsV;
+  folders = foldersV;
+  folderCounts = folderCountsV;
+  opfsFolders = opfsFoldersV;
+  messages = messagesV;
+  if (storedFit) mediaFit = storedFit;
+  lyricsBg = lyricsBgV;
+  libItems = libItemsV;
+  currentItem = currentItemV;
+
+  renderLyricsBgBtn();
+  renderControls();
+  renderNowPlaying();
+  renderRepeat();
+  renderTabs();
+  renderListTitle();
+  renderPlaylist();
+  renderLibrary();
+  renderSelbar();
+  renderSlideNav();
+
+  // mantém a preview alinhada (sem recarregar a mídia). NÃO mexe na cortina
+  // (setView) enquanto um texto bíblico está em cena: a Bíblia é uma camada
+  // paralela e o stage da preview está sem `current` (=null), então setView
+  // recobriria a cortina e o texto sumiria da preview ao trocar de aba — a
+  // projeção deve ser independente da navegação, como qualquer outra mídia.
+  if (!pvTextActive) preview.setView(view);
+  preview.setMute(muted); preview.setVolume(volume);
+  preview.setFade({ fadeIn: fadeCfg.in, fadeOut: fadeCfg.out, time: fadeCfg.time });
+  preview.setFit(mediaFit);
+
+  // restaura a posição de scroll da aba/pasta atual
+  libraryEl.scrollTop = scrollPos[scrollKey()] || 0;
+}
+
+// chave de posição de scroll: aba (+ pasta aberta, se houver)
+function scrollKey() {
+  return activeTab + (currentFolder ? '/' + currentFolder.id : '');
+}
+function rememberScroll() {
+  scrollPos[scrollKey()] = libraryEl.scrollTop;
+}
+
+function renderControls() {
+  viewToggleEl.querySelector('.msym').textContent = view === 'visual' ? ICON.viewOn : ICON.viewOff;
+  viewToggleEl.classList.toggle('view-blocked', view === 'wallpaper');
+  // 3 estados do botão de mudo: normal | mudo (operador) | sem áudio no
+  // Display (navegador bloqueou — tocando mudo; clique tenta liberar).
+  const blocked = displayAudioBlocked && !muted;
+  muteToggleEl.querySelector('.msym').textContent = (muted || blocked) ? ICON.volOff : ICON.volOn;
+  muteToggleEl.classList.toggle('muted', muted);
+  muteToggleEl.classList.toggle('blocked', blocked);
+  muteToggleEl.title = blocked
+    ? 'Sem áudio no Display — toque para tentar liberar'
+    : 'Mudo (liga/desliga)';
+  if (!volSeeking) volSliderEl.value = Math.round(volume * 100);
+}
+
+function renderRepeat() {
+  const icon = repeat === 'one' ? ICON.repeatOne : repeat === 'shuffle' ? ICON.shuffle : ICON.repeatAll;
+  const label = repeat === 'off' ? 'Repetição desativada'
+    : repeat === 'one' ? 'Repetir 1' : repeat === 'shuffle' ? 'Aleatório' : 'Repetir tudo';
+  repeatEl.querySelector('.msym').textContent = icon;
+  repeatEl.title = label;
+  repeatEl.classList.toggle('active', repeat !== 'off');
+}
+
+function renderNowPlaying() {
+  // Mensagem EM EXIBIÇÃO: mostra "Mensagem" no now-playing.
+  if (msgSession && msgSession.projecting) {
+    npNameInnerEl.textContent = 'Mensagem ' + (msgSession.idx + 1);
+    applyTitleMarquee();
+    playPauseEl.querySelector('.msym').textContent = playing ? ICON.pause : ICON.play;
+    return;
+  }
+  // Texto bíblico EM EXIBIÇÃO: mostra a referência (livro cap:versículo). Antes
+  // de ativar a exibição (só selecionado), o telão ainda não mostra a Bíblia,
+  // então o now-playing segue a mídia/estado normal.
+  if (bibleSession && bibleSession.projecting) {
+    const v = bibleSession.verses[bibleSession.idx];
+    npNameInnerEl.textContent = bibleSession.bookName + ' ' + bibleSession.chapter + ':' + v.n;
+    applyTitleMarquee();
+    playPauseEl.querySelector('.msym').textContent = ICON.play;
+    seekEl.disabled = true;
+    return;
+  }
+  // Prioriza plItems/libItems (já carregados); usa currentItem como fallback
+  // para o caso de o item estar somente em outra aba (ex: dentro de uma pasta).
+  const cur = [...plItems, ...libItems].find((m) => m.id === currentId) || currentItem;
+  npNameInnerEl.textContent = cur ? cur.name : 'Nada em exibição';
+  applyTitleMarquee();
+  playPauseEl.querySelector('.msym').textContent = playing ? ICON.pause : ICON.play;
+  const isTimed = cur && (cur.kind === 'video' || cur.kind === 'audio');
+  seekEl.disabled = !isTimed;
+}
+
+// Título rolante: se o nome da mídia não couber na largura disponível, liga a
+// animação de rolagem (ping-pong) para que o operador possa lê-lo inteiro.
+// Mede no estado estático (a leitura de scrollWidth força o reflow, que também
+// reinicia a animação ao religar a classe). A distância e a duração (velocidade
+// ~constante) vão para o CSS via variáveis.
+function applyTitleMarquee() {
+  npNameEl.classList.remove('scrolling');
+  npNameInnerEl.style.removeProperty('--np-shift');
+  npNameInnerEl.style.removeProperty('--np-dur');
+  const overflow = npNameInnerEl.scrollWidth - npNameEl.clientWidth;
+  if (overflow > 4) {
+    const shift = overflow + 12; // +margem para o fim do texto sair da borda
+    const dur = Math.max(5, shift / 32 + 2);
+    npNameInnerEl.style.setProperty('--np-shift', (-shift) + 'px');
+    npNameInnerEl.style.setProperty('--np-dur', dur.toFixed(1) + 's');
+    npNameEl.classList.add('scrolling');
+  }
+}
+
+function renderTabs() {
+  tabsEl.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === activeTab));
+}
+
+function renderListTitle() {
+  // Indicador de versão: só ao lado do título da aba Cronograma.
+  appVersionEl.hidden = activeTab !== 'imports';
+  if (activeTab === 'messages') {
+    backBtnEl.hidden = true; addDirBtnEl.hidden = true; libSearchEl.hidden = true; libSearchEl.value = '';
+    listTitleEl.hidden = false; listTitleEl.textContent = 'Mensagens';
+    return;
+  }
+  if (activeTab === 'bible') {
+    backBtnEl.hidden = bibleScreen === 'books';
+    addDirBtnEl.hidden = true;
+    libSearchEl.hidden = true; libSearchEl.value = '';
+    // Sem título na aba Bíblia — libera espaço (a grade/leitura falam por si).
+    listTitleEl.hidden = true; listTitleEl.textContent = '';
+    return;
+  }
+  const inFolder = activeTab === 'folders' && currentFolder !== null;
+  const inOpfs = inFolder && currentFolder._opfs;
+  backBtnEl.hidden = !inFolder;
+  addDirBtnEl.hidden = !(activeTab === 'folders' && !inFolder);
+  libSearchEl.hidden = !inOpfs;
+  libSearchEl.value = inOpfs ? folderQuery : '';
+  listTitleEl.hidden = inOpfs;
+  const titles = { imports: 'Cronograma', folders: 'Pastas', albums: 'Álbuns' };
+  listTitleEl.textContent = inFolder ? currentFolder.name : (titles[activeTab] || '');
+}
+
+// ---- thumb element ----
+function thumbEl(item) {
+  const t = document.createElement('div');
+  t.className = 'thumb';
+  if (item.thumb && typeof item.thumb === 'string') {
+    // URL string thumb (e.g. YouTube hqdefault)
+    const im = document.createElement('img'); im.src = item.thumb; im.alt = '';
+    t.appendChild(im);
+  } else if (item.thumb) {
+    const url = URL.createObjectURL(item.thumb);
+    thumbUrls.push(url);
+    const im = document.createElement('img'); im.src = url; im.alt = '';
+    t.appendChild(im);
+  } else {
+    t.appendChild(msym(item.kind === 'audio' ? ICON.music : ICON.broken));
+    t.classList.add('thumb--icon');
+  }
+  return t;
+}
+
+// ---- Playlist (sequência) ----
+function renderPlaylist() {
+  const count = plItems.length;
+  // O badge (e a cor do ícone) não devem chamar atenção quando a playlist é só
+  // a mídia atual (1 item); conta apenas os itens além do primeiro (2 itens →
+  // "1", 3 → "2"...) — mesmo critério pros dois, o ícone só fica destacado
+  // quando existe de fato uma fila além do item em exibição.
+  plCountEl.textContent = count > 1 ? String(count - 1) : '';
+  plPopupCountEl.textContent = String(count);
+  plBtnEl.classList.toggle('has-items', count > 1);
+
+  playlistEl.innerHTML = '';
+  if (count === 0) {
+    playlistEl.innerHTML = '<li class="empty">Playlist vazia.<br>Deslize um item para a esquerda para adicionar.</li>';
+    return;
+  }
+  plItems.forEach((item) => {
+    const li = document.createElement('li');
+    li.className = 'row-item' + (item.id === currentId ? ' active' : '');
+    li.dataset.id = item.id;
+
+    const row = document.createElement('div');
+    row.className = 'row';
+    const name = document.createElement('span'); name.className = 'row-name'; name.textContent = item.name;
+    const rm = document.createElement('button'); rm.className = 'row-btn'; rm.title = 'Tirar da playlist';
+    rm.appendChild(msym(ICON.plRemove));
+    rm.addEventListener('click', async (e) => { e.stopPropagation(); await AVDB.listRemove('playlist', item.id); load(); });
+    const handle = document.createElement('button'); handle.className = 'row-handle'; handle.title = 'Arraste para reordenar';
+    handle.appendChild(msym(ICON.drag));
+
+    row.append(name, rm, handle);
+    li.appendChild(row);
+    row.addEventListener('click', (e) => { if (!e.target.closest('.row-btn,.row-handle')) send(item.id); });
+    attachHandle(handle, item.id, 'playlist');
+    playlistEl.appendChild(li);
+  });
+}
+
+// ---- Biblioteca (Cronograma / Pastas) ----
+// ===== Bíblia: metadados, seleção (tabela periódica) e download =====
+
+// Garante a lista de versões (pt_bible_version) e de livros (pt_bible_book) —
+// baixadas na 1ª vez e cacheadas em state; offline reusa o cache. Silenciosa
+// (uma falha de rede só mantém o que já houver). A seleção de livros/capítulos
+// funciona mesmo sem isso (Bible.BOOKS é offline); versões/ids reais só são de
+// fato necessários no download do capítulo.
+async function ensureBibleMeta(force) {
+  bibleMetaLoaded = true;
+  // versões
+  if (!bibleVersions.length) bibleVersions = (await AVDB.getState('bibleVersions')) || [];
+  if (!bibleVersions.length || force) {
+    try {
+      const fetched = await Bible.fetchVersions();
+      if (fetched.length) { bibleVersions = fetched; await AVDB.setState('bibleVersions', fetched); }
+    } catch (_) {}
+  }
+  // versão selecionada (padrão: Almeida Revista e Atualizada — ver
+  // pickDefaultBibleVersion; senão a 1ª disponível)
+  if (bibleVersionId == null) {
+    const saved = await AVDB.getState('bibleVersion');
+    bibleVersionId = (saved != null && bibleVersions.some((v) => v.id === saved))
+      ? saved : pickDefaultBibleVersion(bibleVersions);
+  }
+  // livros (ids reais)
+  if (!bibleBooksOnline) bibleBooksOnline = (await AVDB.getState('bibleBooks')) || null;
+  if (!bibleBooksOnline || force) {
+    try {
+      const fetched = await Bible.fetchBooks();
+      if (fetched.length) { bibleBooksOnline = fetched; await AVDB.setState('bibleBooks', fetched); }
+    } catch (_) {}
+  }
+  // Completude offline de TODAS as versões (pra resumir na lista de seleção).
+  for (const v of bibleVersions) {
+    if (await AVDB.getState('bibleComplete:' + v.id)) bibleCompleteVersions.add(v.id);
+  }
+  if (activeTab === 'bible') renderLibrary();
+}
+
+// Versão padrão: Almeida Revista e Atualizada (RA/ARA) quando existir no banco,
+// senão a primeira disponível.
+function pickDefaultBibleVersion(versions) {
+  if (!versions.length) return null;
+  const ra = versions.find((v) => /revista\s+e\s+atualizada|\bara\b|(^|\s)ra(\s|$)/i.test(v.name || ''));
+  return (ra || versions[0]).id;
+}
+
+// Popup de seleção de versão (bottom-sheet) — a lista não fica mais toda
+// exposta em chips; um botão com a versão atual abre esta lista.
+function openBibleVerPopup() {
+  renderBibleVerList();
+  bibleVerPopupEl.classList.add('open');
+}
+function closeBibleVerPopup() { bibleVerPopupEl.classList.remove('open'); }
+function renderBibleVerList() {
+  bibleVerListEl.innerHTML = '';
+  bibleVersions.forEach((v) => {
+    const li = document.createElement('li');
+    const row = document.createElement('div');
+    row.className = 'row bible-ver-row' + (v.id === bibleVersionId ? ' selected' : '');
+    // nome + status offline resumido (completa / baixando / —)
+    const main = document.createElement('span'); main.className = 'bible-ver-main';
+    const name = document.createElement('span'); name.className = 'row-name'; name.textContent = v.name;
+    const st = document.createElement('span'); st.className = 'bible-ver-status';
+    if (bibleCompleteVersions.has(v.id)) { st.textContent = '✓ Completa offline'; st.classList.add('done'); }
+    else if (bibleDl && bibleDl.running && bibleDl.versionId === v.id) { st.textContent = 'Baixando ' + bibleDl.done + '/' + bibleDl.total + '…'; }
+    else { st.textContent = 'Baixa ao usar'; }
+    main.append(name, st);
+    row.appendChild(main);
+    if (v.id === bibleVersionId) { const chk = document.createElement('span'); chk.textContent = '✓'; chk.className = 'bible-ver-check'; row.appendChild(chk); }
+    row.addEventListener('click', () => {
+      closeBibleVerPopup();
+      changeBibleVersion(v.id); // troca + recarrega o capítulo atual na nova versão
+    });
+    li.appendChild(row);
+    bibleVerListEl.appendChild(li);
+  });
+}
+
+// Entrada na aba Bíblia: garante os metadados e dispara o download da versão
+// INTEIRA na 1ª vez (em segundo plano) — ver ensureBibleVersionDownloaded.
+async function enterBibleTab() {
+  // Armazenamento persistente (mesma proteção do sync de músicas/pastas): pede
+  // ao browser para NÃO descartar a origin sob pressão de espaço — garante que
+  // a Bíblia baixada (cache IDB em 'bible:<v>_<b>_<c>') sobreviva entre sessões.
+  // persist() é da origin inteira (não por store) e idempotente.
+  if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+  await ensureBibleMeta(false);
+  if (bibleVersionId != null) ensureBibleVersionDownloaded(bibleVersionId);
+}
+
+// Total de capítulos do cânon (Σ dos capítulos dos 66 livros = 1189).
+function bibleTotalChapters() {
+  return Bible.BOOKS.reduce((s, b) => s + b.chapters, 0);
+}
+
+// Baixa a versão INTEIRA da Bíblia (todos os capítulos de todos os livros) na
+// 1ª vez que ela é usada — em segundo plano, resumível (pula o que já está em
+// cache), concorrência limitada (runLimited, 5). O texto de cada capítulo é
+// leve (só versículos, sem mídia), então o volume total é modesto. O progresso
+// (bibleDl) aparece na tela de livros; ao terminar sem falhas, marca
+// state['bibleComplete:<v>'] pra não refazer. A leitura por capítulo
+// (loadBibleChapter) continua funcionando sob demanda se o operador abrir um
+// capítulo antes de o download em massa chegar nele.
+async function ensureBibleVersionDownloaded(versionId) {
+  if (versionId == null) return;
+  // Já baixando esta versão, ou já completa: nada a fazer.
+  if (bibleDl && bibleDl.running && bibleDl.versionId === versionId) return;
+  if (bibleCompleteVersions.has(versionId)) return;
+  if (await AVDB.getState('bibleComplete:' + versionId)) { bibleCompleteVersions.add(versionId); return; }
+  await ensureBibleMeta(false); // garante os ids reais dos livros
+
+  // Lista de todos os capítulos (livro × capítulo).
+  const items = [];
+  Bible.BOOKS.forEach((b, i) => {
+    const bId = bibleBookId(i);
+    for (let c = 1; c <= b.chapters; c++) items.push({ bId, chapter: c });
+  });
+  const total = items.length;
+  let done = 0, failed = 0;
+  // Reatribuir bibleDl para a nova versão faz workers de um download anterior
+  // (de outra versão) pararem sozinhos (checam versionId).
+  bibleDl = { versionId, total, done: 0, running: true };
+  refreshBibleDl();
+
+  await runLimited(items, 5, async (it) => {
+    if (!bibleDl || !bibleDl.running || bibleDl.versionId !== versionId) return; // superado/cancelado
+    const key = 'bible:' + versionId + '_' + it.bId + '_' + it.chapter;
+    try {
+      const existing = await AVDB.getState(key);
+      if (!existing || !existing.verses || !existing.verses.length) {
+        const vs = await Bible.fetchChapter(versionId, it.bId, it.chapter);
+        if (vs.length) await AVDB.setState(key, { verses: vs, syncedAt: Date.now() });
+        else failed++;
+      }
+    } catch (_) { failed++; }
+    done++;
+    if (bibleDl && bibleDl.versionId === versionId) { bibleDl.done = done; refreshBibleDl(); }
+  });
+
+  if (bibleDl && bibleDl.versionId === versionId) {
+    bibleDl.running = false;
+    if (failed === 0) { await AVDB.setState('bibleComplete:' + versionId, true); bibleCompleteVersions.add(versionId); }
+    refreshBibleDl();
+  }
+}
+
+// O status offline/progresso do download aparece SÓ dentro do popup de seleção
+// de versão (`.bible-ver-status` por versão) — não disputa espaço com a leitura.
+// Enquanto o download roda, re-renderiza a lista se o popup estiver aberto.
+function refreshBibleDl() {
+  if (bibleVerPopupEl.classList.contains('open')) renderBibleVerList();
+}
+
+// Ordem das telas da Bíblia (pra direção do slide de transição).
+const BIBLE_SCREENS = ['books', 'chapters', 'verses', 'reading'];
+
+// Navega entre as telas da Bíblia sem recarregar o IDB inteiro (só re-render):
+// guarda o scroll, volta ao topo e faz um leve slide direcional (fundo → frente
+// desliza da direita; voltar, da esquerda).
+function gotoBibleScreen(screen) {
+  const dir = BIBLE_SCREENS.indexOf(screen) >= BIBLE_SCREENS.indexOf(bibleScreen) ? 1 : -1;
+  bibleScreen = screen;
+  renderLibrary();
+  renderListTitle();
+  libraryEl.scrollTop = 0;
+  animateTabSwitch(dir); // mesma animação de deslize das abas (genérica em #library)
+}
+
+function renderBible() {
+  const wrap = document.createElement('div');
+  // A tela de livros preenche a altura disponível (grade compacta, sem scroll);
+  // as demais rolam normalmente se precisarem (ex.: Salmos, 150 capítulos).
+  wrap.className = 'bible-wrap' + (bibleScreen === 'books' ? ' bible-wrap--fit' : '');
+  if (bibleScreen === 'chapters') renderBibleChapters(wrap);
+  else if (bibleScreen === 'verses') renderBibleVerses(wrap);
+  else if (bibleScreen === 'reading') renderBibleReading(wrap);
+  else renderBibleBooks(wrap);
+  libraryEl.appendChild(wrap);
+}
+
+function bibleCell(sym, opts) {
+  const cell = document.createElement('button');
+  cell.type = 'button';
+  cell.className = 'bible-cell' + (opts && opts.cls ? ' ' + opts.cls : '') + (opts && opts.active ? ' active' : '');
+  const s = document.createElement('span'); s.className = 'bible-cell-sym'; s.textContent = sym;
+  cell.appendChild(s);
+  if (opts && opts.name) {
+    const nm = document.createElement('span'); nm.className = 'bible-cell-name'; nm.textContent = opts.name;
+    cell.appendChild(nm);
+  }
+  return cell;
+}
+
+function renderBibleBooks(wrap) {
+  // (O seletor de versão e o status de download saíram daqui — moram na tela de
+  // leitura, dando mais espaço para a grade de livros. Ver renderBibleReading.)
+  const grid = document.createElement('div'); grid.className = 'bible-grid bible-grid--books';
+  Bible.BOOKS.forEach((b, i) => {
+    // Só a abreviação (sem o nome completo) — fonte maior, ver .bible-grid--books.
+    const cell = bibleCell(b.abbr, { cls: 'bg-' + b.g });
+    cell.title = b.name;
+    cell.addEventListener('click', () => { bibleSel = { bookIdx: i, chapter: 0 }; gotoBibleScreen('chapters'); });
+    grid.appendChild(cell);
+  });
+  wrap.appendChild(grid);
+}
+
+function renderBibleChapters(wrap) {
+  const book = Bible.BOOKS[bibleSel.bookIdx];
+  if (!book) { gotoBibleScreen('books'); return; }
+  const grid = document.createElement('div'); grid.className = 'bible-grid bible-grid--num bible-grid--chapters';
+  for (let c = 1; c <= book.chapters; c++) {
+    const cell = bibleCell(String(c), { cls: 'bible-cell--num' });
+    cell.addEventListener('click', () => { bibleSel.chapter = c; gotoBibleScreen('verses'); loadBibleChapter(); });
+    grid.appendChild(cell);
+  }
+  wrap.appendChild(grid);
+}
+
+function renderBibleVerses(wrap) {
+  const book = Bible.BOOKS[bibleSel.bookIdx];
+  if (!book || !bibleSel.chapter) { gotoBibleScreen('books'); return; }
+  if (bibleChapterLoading) {
+    const n = document.createElement('div'); n.className = 'bible-note'; n.textContent = 'Baixando versículos…';
+    wrap.appendChild(n); return;
+  }
+  if (bibleChapterError) {
+    const n = document.createElement('div'); n.className = 'bible-note err'; n.textContent = bibleChapterError;
+    wrap.appendChild(n); return;
+  }
+  const verses = bibleChapterData && bibleChapterData.verses ? bibleChapterData.verses : [];
+  if (!verses.length) {
+    const n = document.createElement('div'); n.className = 'bible-note'; n.textContent = 'Nenhum versículo neste capítulo.';
+    wrap.appendChild(n); return;
+  }
+  const onThisChapter = bibleSession && bibleSession.bookIdx === bibleSel.bookIdx && bibleSession.chapter === bibleSel.chapter;
+  const grid = document.createElement('div'); grid.className = 'bible-grid bible-grid--num bible-grid--verses';
+  verses.forEach((v, i) => {
+    const cell = bibleCell(String(v.n), { cls: 'bible-cell--num', active: onThisChapter && bibleSession.idx === i });
+    cell.addEventListener('click', () => startBibleReading(i));
+    grid.appendChild(cell);
+  });
+  wrap.appendChild(grid);
+}
+
+// Baixa (ou lê do cache) o texto do capítulo selecionado. Cacheado em
+// state 'bible:<versao>_<livro>_<capitulo>' (baixado na 1ª vez que for usado).
+async function loadBibleChapter() {
+  const seq = ++bibleLoadSeq;
+  bibleChapterData = null; bibleChapterError = ''; bibleChapterLoading = true;
+  if (activeTab === 'bible') renderLibrary();
+  await ensureBibleMeta(false);
+  if (seq !== bibleLoadSeq) return;
+  const vId = bibleVersionId;
+  if (vId == null) {
+    bibleChapterLoading = false;
+    bibleChapterError = 'Nenhuma versão da Bíblia disponível. Conecte-se à internet uma vez para baixá-la.';
+    if (activeTab === 'bible') renderLibrary();
+    return;
+  }
+  const bId = bibleBookId(bibleSel.bookIdx);
+  const key = 'bible:' + vId + '_' + bId + '_' + bibleSel.chapter;
+  let cached = await AVDB.getState(key);
+  if (!cached || !cached.verses || !cached.verses.length) {
+    try {
+      const vs = await Bible.fetchChapter(vId, bId, bibleSel.chapter);
+      if (!vs.length) throw new Error('vazio');
+      cached = { verses: vs, syncedAt: Date.now() };
+      await AVDB.setState(key, cached);
+    } catch (_) {
+      if (seq !== bibleLoadSeq) return;
+      bibleChapterLoading = false;
+      bibleChapterError = (navigator.onLine === false)
+        ? 'Sem internet — não foi possível baixar este capítulo.'
+        : 'Não foi possível baixar este capítulo. Tente novamente.';
+      if (activeTab === 'bible') renderLibrary();
+      return;
+    }
+  }
+  if (seq !== bibleLoadSeq) return;
+  bibleChapterData = cached;
+  bibleChapterLoading = false;
+  if (activeTab === 'bible' && bibleScreen === 'verses') renderLibrary();
+}
+
+// Inicia a leitura a partir do versículo `i` (índice na lista do capítulo):
+// define a sessão e abre a tela de leitura — SEM exibir ainda (o texto só é
+// projetado depois que o operador toca no versículo central; ver
+// renderBibleReading / activateBibleVerse).
+function startBibleReading(i) {
+  if (!bibleChapterData || !bibleChapterData.verses.length) return;
+  clearMsgSession(); // só um texto manual por vez (Bíblia × Mensagem)
+  const book = Bible.BOOKS[bibleSel.bookIdx];
+  bibleSession = {
+    versionId: bibleVersionId,
+    bookIdx: bibleSel.bookIdx,
+    bookId: bibleBookId(bibleSel.bookIdx),
+    bookName: book.name,
+    chapter: bibleSel.chapter,
+    verses: bibleChapterData.verses,
+    idx: i,
+    projecting: false,   // ainda não exibido; ativa ao tocar o central
+  };
+  bibleScreen = 'reading';
+  renderListTitle();
+  bibleRenderReading();
+  animateTabSwitch(1); // desliza pra frente (verses → reading)
+}
+
+// Define o versículo central da leitura. Se a visualização já estiver ativa,
+// EXIBE o novo versículo automaticamente; senão, só move o central na tela
+// (sem projetar) — é o gate pedido: navegar entre anterior/próximo antes de
+// ativar não mostra nada no telão.
+function bibleSetIdx(idx) {
+  const s = bibleSession;
+  if (!s || idx < 0 || idx >= s.verses.length) return;
+  s.idx = idx;
+  if (s.projecting) projectBibleVerse(idx);
+  else { renderNowPlaying(); renderSlideNav(); bibleRenderReading(); }
+}
+
+// Ativa a visualização a partir do versículo central atual (toque no central).
+function activateBibleVerse() {
+  const s = bibleSession;
+  if (!s) return;
+  s.projecting = true;
+  projectBibleVerse(s.idx);
+}
+
+// Projeta o versículo de índice `idx` da sessão atual (Display + preview).
+// Sempre marca a sessão como "exibindo" (projecting) — é o ato de mostrar.
+function projectBibleVerse(idx) {
+  const s = bibleSession;
+  if (!s || idx < 0 || idx >= s.verses.length) return;
+  s.idx = idx;
+  s.projecting = true;
+  const v = s.verses[idx];
+  const ref = s.bookName + ' ' + s.chapter + ':' + v.n;
+  view = 'visual';   // projetar a Escritura sempre revela (desliga o wallpaper)
+  persistCurrent();
+  // Camada de texto unificada: modo 'verse' (sublinha = referência dourada).
+  cmd({ type: 'text', mode: 'verse', main: v.text, sub: ref, view: 'visual' });
+  renderControls();
+  renderNowPlaying();
+  renderSlideNav();
+  bibleRenderReading();
+}
+
+// Re-render só da tela de leitura (destaque do versículo central), preservando
+// o scroll — usado tanto ao projetar quanto ao só mover o central.
+function bibleRenderReading() {
+  if (activeTab === 'bible' && (bibleScreen === 'reading' || bibleScreen === 'verses')) {
+    const sp = libraryEl.scrollTop;
+    renderLibrary();
+    libraryEl.scrollTop = sp;
+  }
+}
+
+function bibleVersionName(id) {
+  const v = bibleVersions.find((x) => x.id === id);
+  return v ? v.name : '';
+}
+
+// Troca a versão da Bíblia (do seletor na tela de leitura). Recarrega o
+// capítulo atual na nova versão, mantendo o versículo; reexibe se estava
+// exibindo.
+async function changeBibleVersion(id) {
+  if (id == null || bibleVersionId === id) return;
+  bibleVersionId = id;
+  bibleAdjCache = {}; // vizinhos em cache eram da versão antiga
+  await AVDB.setState('bibleVersion', id);
+  ensureBibleVersionDownloaded(id);
+  if (!bibleSession) { renderLibrary(); return; }
+  const s = bibleSession;
+  let verses;
+  try { verses = await fetchBibleChapterCached(id, s.bookIdx, s.chapter); }
+  catch (_) { renderLibrary(); return; }
+  if (bibleSession !== s) return;
+  s.versionId = id;
+  s.verses = verses;
+  s.idx = Math.min(s.idx, verses.length - 1);
+  bibleChapterData = { verses };
+  if (s.projecting) projectBibleVerse(s.idx);
+  else bibleRenderReading();
+}
+
+// Referência do capítulo vizinho (cruza para o próximo/anterior LIVRO nos
+// extremos). null = fim/início da Bíblia.
+function nextChapterRef(bookIdx, chapter) {
+  const b = Bible.BOOKS[bookIdx];
+  if (chapter < b.chapters) return { bookIdx, chapter: chapter + 1 };
+  if (bookIdx < Bible.BOOKS.length - 1) return { bookIdx: bookIdx + 1, chapter: 1 };
+  return null;
+}
+function prevChapterRef(bookIdx, chapter) {
+  if (chapter > 1) return { bookIdx, chapter: chapter - 1 };
+  if (bookIdx > 0) return { bookIdx: bookIdx - 1, chapter: Bible.BOOKS[bookIdx - 1].chapters };
+  return null;
+}
+
+// Lê (do cache) ou baixa o texto de um capítulo — [{ n, text }]. Lança se não
+// houver cache nem rede.
+async function fetchBibleChapterCached(versionId, bookIdx, chapter) {
+  const bId = bibleBookId(bookIdx);
+  const key = 'bible:' + versionId + '_' + bId + '_' + chapter;
+  let cached = await AVDB.getState(key);
+  if (!cached || !cached.verses || !cached.verses.length) {
+    const vs = await Bible.fetchChapter(versionId, bId, chapter);
+    if (!vs.length) throw new Error('vazio');
+    cached = { verses: vs, syncedAt: Date.now() };
+    await AVDB.setState(key, cached);
+  }
+  return cached.verses;
+}
+
+// Move a sessão de leitura para outro capítulo (cruza livro nos extremos),
+// baixando o texto se necessário. want: 'first' | 'last'.
+async function bibleGotoChapter(bookIdx, chapter, want) {
+  const s = bibleSession;
+  if (!s) return;
+  let verses;
+  try { verses = await fetchBibleChapterCached(s.versionId, bookIdx, chapter); }
+  catch (_) { return; } // sem cache e sem rede: fica onde está
+  if (!bibleSession || bibleSession !== s) return; // a sessão trocou durante o await
+  const book = Bible.BOOKS[bookIdx];
+  const wasProjecting = s.projecting;
+  bibleSession = {
+    versionId: s.versionId, bookIdx, bookId: bibleBookId(bookIdx),
+    bookName: book.name, chapter, verses, idx: want === 'last' ? verses.length - 1 : 0,
+    projecting: wasProjecting,
+  };
+  // A seleção acompanha a leitura (grid de versículos e título seguem o capítulo).
+  bibleSel = { bookIdx, chapter };
+  bibleChapterData = { verses };
+  renderListTitle();
+  // Exibe o novo versículo só se já estava exibindo; senão apenas move o central.
+  if (wasProjecting) projectBibleVerse(bibleSession.idx);
+  else { renderNowPlaying(); renderSlideNav(); bibleRenderReading(); }
+}
+
+// Passa/volta um versículo (reusa os botões de slide). No fim do último
+// versículo do capítulo, pula para o 1º do capítulo seguinte (indo para o
+// próximo LIVRO, se preciso); no início, volta para o último do anterior.
+// Respeita o gate: se ainda não ativou a visualização, só move o central.
+async function bibleStep(delta) {
+  const s = bibleSession;
+  if (!s) return;
+  const t = s.idx + delta;
+  if (t >= 0 && t < s.verses.length) { bibleSetIdx(t); return; }
+  if (delta > 0) {
+    const nx = nextChapterRef(s.bookIdx, s.chapter);
+    if (nx) await bibleGotoChapter(nx.bookIdx, nx.chapter, 'first');
+  } else {
+    const pv = prevChapterRef(s.bookIdx, s.chapter);
+    if (pv) await bibleGotoChapter(pv.bookIdx, pv.chapter, 'last');
+  }
+}
+
+// Cache dos capítulos VIZINHOS (só pra preview do anterior/próximo que cruza o
+// limite do capítulo/livro), por `<versao>_<livroIdx>_<capitulo>`. Limpo ao
+// trocar de versão / encerrar a leitura.
+let bibleAdjCache = {};
+let bibleAdjSeq = 0;
+
+// Info do versículo vizinho (delta = -1 anterior, +1 próximo). Dentro do
+// capítulo: o versículo direto. No limite: cruza pro capítulo/livro vizinho
+// (verso já em cache do vizinho, se houver). null = início/fim da Bíblia.
+function bibleAdjacentVerse(delta) {
+  const s = bibleSession;
+  const t = s.idx + delta;
+  if (t >= 0 && t < s.verses.length) {
+    return { bookIdx: s.bookIdx, chapter: s.chapter, bookName: s.bookName, v: s.verses[t], cross: false };
+  }
+  const ref = delta > 0 ? nextChapterRef(s.bookIdx, s.chapter) : prevChapterRef(s.bookIdx, s.chapter);
+  if (!ref) return null; // início/fim da Bíblia
+  const book = Bible.BOOKS[ref.bookIdx];
+  const cachedKey = s.versionId + '_' + ref.bookIdx + '_' + ref.chapter;
+  const cached = bibleAdjCache[cachedKey];
+  const v = (cached && cached.length) ? (delta > 0 ? cached[0] : cached[cached.length - 1]) : null;
+  return {
+    bookIdx: ref.bookIdx, chapter: ref.chapter, bookName: book.name, v,
+    cross: true, crossBook: ref.bookIdx !== s.bookIdx, chapterRef: ref,
+  };
+}
+
+// Baixa/lê o capítulo vizinho pra preencher a preview do anterior/próximo que
+// cruza limite, e re-renderiza a leitura quando chega.
+async function ensureAdjLoaded(ref) {
+  const s = bibleSession;
+  if (!s) return;
+  const key = s.versionId + '_' + ref.bookIdx + '_' + ref.chapter;
+  if (bibleAdjCache[key]) return;
+  const seq = ++bibleAdjSeq;
+  let verses;
+  try { verses = await fetchBibleChapterCached(s.versionId, ref.bookIdx, ref.chapter); }
+  catch (_) { return; }
+  bibleAdjCache[key] = verses;
+  if (seq === bibleAdjSeq && bibleSession && activeTab === 'bible' && bibleScreen === 'reading') {
+    bibleRenderReading();
+  }
+}
+
+// Tela de LEITURA: seletor de versão + status offline no topo, versículo
+// anterior / atual / próximo empilhados (o anterior/próximo mostram também o
+// salto pro capítulo/livro vizinho nos limites, com indicador da mudança), e a
+// referência atual num botão que volta para a seleção de livros. Toque no
+// CENTRAL ativa a exibição; toque no anterior/próximo move pro central (só
+// exibe automaticamente depois de ativado — ver bibleSetIdx).
+function renderBibleReading(wrap) {
+  const s = bibleSession;
+  if (!s) { gotoBibleScreen('books'); return; }
+  const read = document.createElement('div'); read.className = 'bible-read';
+
+  // delta: -1 (anterior) | 0 (atual) | +1 (próximo)
+  const mkSection = (delta, role) => {
+    const sec = document.createElement('div');
+    const info = delta === 0
+      ? { bookName: s.bookName, chapter: s.chapter, v: s.verses[s.idx], cross: false }
+      : bibleAdjacentVerse(delta);
+    if (!info) { // início/fim da Bíblia
+      sec.className = 'bible-vsec ' + role + ' empty';
+      const t = document.createElement('div'); t.className = 'bible-vsec-text';
+      t.textContent = delta > 0 ? 'Fim da Bíblia' : 'Início da Bíblia';
+      sec.appendChild(t);
+      return sec;
+    }
+    const live = role === 'cur' && s.projecting;
+    sec.className = 'bible-vsec ' + role + (live ? ' live' : '') + (info.cross ? ' cross' : '');
+    // Indicador de mudança de capítulo/livro (antes de selecionar).
+    if (info.cross) {
+      const badge = document.createElement('div'); badge.className = 'bible-vsec-cross';
+      const arrow = delta > 0 ? '▸ ' : '◂ ';
+      const label = info.crossBook
+        ? (delta > 0 ? 'Livro seguinte: ' : 'Livro anterior: ') + info.bookName + ' ' + info.chapter
+        : 'Capítulo ' + info.chapter;
+      badge.textContent = arrow + label;
+      sec.appendChild(badge);
+    }
+    const ref = document.createElement('div'); ref.className = 'bible-vsec-ref';
+    ref.textContent = (live ? '● No ar · ' : '') + info.bookName + ' ' + info.chapter + (info.v ? ':' + info.v.n : '');
+    const txt = document.createElement('div'); txt.className = 'bible-vsec-text';
+    txt.textContent = info.v ? info.v.text : (info.cross ? '…' : '');
+    sec.append(ref, txt);
+    sec.addEventListener('click', () => {
+      if (role === 'cur') activateBibleVerse();
+      else bibleStep(delta); // navega (cruza capítulo/livro nos limites)
+    });
+    if (info.cross && !info.v && info.chapterRef) ensureAdjLoaded(info.chapterRef);
+    return sec;
+  };
+  read.appendChild(mkSection(-1, 'adj'));
+  read.appendChild(mkSection(0, 'cur'));
+  read.appendChild(mkSection(1, 'adj'));
+
+  // Dica enquanto não ativou a exibição.
+  if (!s.projecting) {
+    const hint = document.createElement('div'); hint.className = 'bible-read-hint';
+    hint.textContent = 'Toque no versículo central para exibir no telão';
+    read.appendChild(hint);
+  }
+
+  // Rodapé: seletor de versão + referência atual (lado a lado). O status
+  // offline/progresso NÃO fica mais aqui — só dentro do popup de versões.
+  const foot = document.createElement('div'); foot.className = 'bible-read-foot';
+  if (bibleVersions.length) {
+    const verBtn = document.createElement('button'); verBtn.type = 'button'; verBtn.className = 'bible-ver-btn';
+    const label = document.createElement('span'); label.className = 'bible-ver-label';
+    label.textContent = bibleVersionName(bibleVersionId) || 'Versão';
+    const caret = document.createElement('span'); caret.className = 'bible-ver-caret';
+    caret.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>';
+    verBtn.append(label, caret);
+    verBtn.addEventListener('click', openBibleVerPopup);
+    foot.appendChild(verBtn);
+  }
+  const v = s.verses[s.idx];
+  const refBtn = document.createElement('button'); refBtn.type = 'button'; refBtn.className = 'bible-read-ref';
+  refBtn.textContent = s.bookName + ' ' + s.chapter + ':' + v.n;
+  refBtn.addEventListener('click', () => gotoBibleScreen('books'));
+  foot.appendChild(refBtn);
+  read.appendChild(foot);
+  wrap.appendChild(read);
+}
+
+// Encerra o modo de leitura bíblica (quando uma mídia comum assume, ou stop).
+function clearBibleSession() {
+  if (!bibleSession) return;
+  bibleSession = null;
+  bibleAdjCache = {};
+  // A tela de leitura depende da sessão: sem ela, volta pra seleção de versículos.
+  if (bibleScreen === 'reading') bibleScreen = 'verses';
+  renderSlideNav();
+  renderNowPlaying();
+  if (activeTab === 'bible') { renderLibrary(); renderListTitle(); }
+}
+
+// ===== Mensagens: lista, projeção e navegação =====
+function clearMsgSession() {
+  if (!msgSession) return;
+  msgSession = null;
+  renderSlideNav();
+  renderNowPlaying();
+  if (activeTab === 'messages') renderLibrary();
+}
+// Encerra QUALQUER texto manual em cena (Bíblia ou Mensagem) — só um por vez.
+function clearManualText() { clearBibleSession(); clearMsgSession(); }
+
+// Projeta a mensagem de índice `idx` (Display + preview). Encerra a Bíblia (só
+// um texto manual por vez).
+function projectMessage(idx) {
+  if (idx < 0 || idx >= messages.length) return;
+  clearBibleSession();
+  msgSession = { idx, projecting: true };
+  view = 'visual';
+  persistCurrent();
+  cmd({ type: 'text', mode: 'message', main: messages[idx].text, sub: '', view: 'visual' });
+  renderControls();
+  renderNowPlaying();
+  renderSlideNav();
+  if (activeTab === 'messages') { const sp = libraryEl.scrollTop; renderLibrary(); libraryEl.scrollTop = sp; }
+}
+
+// Passa/volta entre mensagens salvas (reusa os botões de slide).
+function msgStep(delta) {
+  if (!msgSession) return;
+  const t = Math.min(Math.max(msgSession.idx + delta, 0), messages.length - 1);
+  if (t === msgSession.idx) return;
+  projectMessage(t);
+}
+
+async function saveMessages() { await AVDB.setState('messages', messages); }
+
+async function addMessage() {
+  const text = await appPrompt({ title: 'Nova mensagem', message: 'Texto da mensagem:', okText: 'Salvar', placeholder: 'Ex.: Bem-vindos ao culto!' });
+  if (!text || !text.trim()) return;
+  messages.push({ id: uid(), text: text.trim() });
+  await saveMessages();
+  renderLibrary();
+}
+
+async function deleteMessage(id) {
+  const i = messages.findIndex((m) => m.id === id);
+  if (i < 0) return;
+  if (msgSession && msgSession.idx === i) clearManualText();
+  messages.splice(i, 1);
+  await saveMessages();
+  renderLibrary();
+}
+
+function renderMessages() {
+  const wrap = document.createElement('div'); wrap.className = 'msg-wrap';
+  const addBtn = document.createElement('button'); addBtn.type = 'button'; addBtn.className = 'msg-add-btn';
+  addBtn.textContent = '+ Nova mensagem';
+  addBtn.addEventListener('click', addMessage);
+  wrap.appendChild(addBtn);
+  if (!messages.length) {
+    const empty = document.createElement('div'); empty.className = 'empty';
+    empty.textContent = 'Nenhuma mensagem. Toque em "Nova mensagem" para criar.';
+    wrap.appendChild(empty);
+  }
+  messages.forEach((m, i) => {
+    const active = msgSession && msgSession.projecting && msgSession.idx === i;
+    const row = document.createElement('div'); row.className = 'msg-item' + (active ? ' active' : '');
+    const txt = document.createElement('div'); txt.className = 'msg-text'; txt.textContent = m.text;
+    txt.addEventListener('click', () => projectMessage(i));
+    const del = document.createElement('button'); del.type = 'button'; del.className = 'row-btn';
+    del.appendChild(msym(ICON.del));
+    del.addEventListener('click', (e) => { e.stopPropagation(); deleteMessage(m.id); });
+    row.append(txt, del);
+    wrap.appendChild(row);
+  });
+  libraryEl.appendChild(wrap);
+}
+
+function renderLibrary() {
+  thumbUrls.forEach((u) => URL.revokeObjectURL(u));
+  thumbUrls = [];
+  libraryEl.innerHTML = '';
+
+  if (activeTab === 'albums') {
+    renderCollectionsList();
+    renderStorageUsage();
+    return;
+  }
+
+  if (activeTab === 'bible') {
+    renderBible();
+    return;
+  }
+
+  if (activeTab === 'messages') {
+    renderMessages();
+    return;
+  }
+
+  if (activeTab === 'folders' && !currentFolder) {
+    renderFolderList();
+    return;
+  }
+
+  // Filtro de busca dentro de pasta OPFS (catálogo em memória — instantâneo).
+  let items = libItems;
+  const fq = folderQuery.toLowerCase().trim();
+  if (fq && activeTab === 'folders' && currentFolder && currentFolder._opfs) {
+    items = libItems.filter((m) => m.name.toLowerCase().includes(fq));
+  }
+
+  if (items.length === 0) {
+    libraryEl.innerHTML = activeTab === 'folders'
+      ? (fq ? '<li class="empty">Nenhum arquivo encontrado.</li>' : '<li class="empty">Pasta vazia.</li>')
+      : '<li class="empty">Cronograma vazio.<br>Importe arquivos ou sincronize uma pasta.</li>';
+    return;
+  }
+
+  items.forEach((item) => {
+    const li = document.createElement('li');
+    // Bug fix: active highlight only when not in selection mode
+    const isActive = !selectionMode && item.id === currentId;
+    li.className = 'lib-item' + (isActive ? ' active' : '') + (selected.has(item.id) ? ' selected' : '');
+    li.dataset.id = item.id;
+
+    if (activeTab !== 'folders') {
+      const bg = document.createElement('div'); bg.className = 'swipe-bg';
+      const right = document.createElement('div'); right.className = 'swipe-hint right'; right.appendChild(msym(ICON.plAdd));
+      bg.appendChild(right);
+      li.appendChild(bg);
+    }
+
+    const row = document.createElement('div'); row.className = 'row';
+
+    // A miniatura é o primeiro elemento (flush à esquerda). A seleção múltipla
+    // é indicada só pelo highlight azul (.lib-item.selected) — sem ícone de check.
+    const thumb = thumbEl(item);
+
+    const name = document.createElement('span'); name.className = 'row-name'; name.textContent = item.name;
+    // Badge for URL-based items
+    let badge = null;
+    if (item.kind === 'youtube') {
+      badge = document.createElement('span'); badge.className = 'url-badge yt-badge'; badge.textContent = 'YT';
+    } else if (!item.blob && item.url) {
+      badge = document.createElement('span'); badge.className = 'url-badge'; badge.textContent = 'URL';
+    }
+    const handle = document.createElement('button'); handle.className = 'row-handle'; handle.title = 'Arraste para reordenar';
+    handle.appendChild(msym(ICON.drag));
+
+    // Arquivo OPFS dentro de pasta: botão para entrar no Cronograma sem cópia
+    // (mesmo id nas listas; os bytes continuam só no OPFS).
+    let addBtn = null;
+    if (activeTab === 'folders' && item.opfsPath) {
+      addBtn = document.createElement('button'); addBtn.className = 'row-btn'; addBtn.title = 'Adicionar ao Cronograma';
+      addBtn.appendChild(msym(ICON.plAdd));
+      addBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const had = await AVDB.listHas('imports', item.id);
+        await AVDB.listAdd('imports', item.id);
+        flash(had ? 'Já no Cronograma' : 'Adicionado ao Cronograma');
+      });
+    }
+
+    const parts = [thumb, name];
+    if (badge) parts.push(badge);
+    if (addBtn) parts.push(addBtn);
+    if (activeTab !== 'folders') parts.push(handle);
+    row.append(...parts);
+    li.appendChild(row);
+    attachRowGestures(row, item);
+    if (activeTab !== 'folders') attachHandle(handle, item.id, activeTab);
+    libraryEl.appendChild(li);
+  });
+}
+
+function countDownloaded(id) {
+  return collSongs(id).filter((s) => s.fileIdFull).length;
+}
+
+// Linha fixa do Hinário Adventista 2022 no topo da aba Pastas — mesmo padrão
+// visual das pastas sincronizadas do OPFS, mas a fonte é remota (API do
+// LouvorJA), não um `showDirectoryPicker()` do dispositivo. Sempre visível
+// (mesmo antes da 1ª sincronização) para o operador saber que a opção existe.
+// SVG inline (ícone fora do subset da fonte, mesma convenção do botão de
+// volume/mixer): antena de Wi-Fi. `.net-badge--warn` (via CSS) recolore para
+// indicar "sem Wi-Fi confirmado" — a sincronização em massa fica desativada
+// por padrão nesse estado (ver isConfirmedWifi/syncCollection).
+function wifiIconEl() {
+  const span = document.createElement('span');
+  span.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+    + '<path d="M2 8.5a17 17 0 0 1 20 0"/><path d="M5.5 12.5a11.5 11.5 0 0 1 13 0"/><path d="M9 16.3a6 6 0 0 1 6 0"/><circle cx="12" cy="19.5" r="1.2" fill="currentColor" stroke="none"/>'
+    + '</svg>';
+  return span.firstElementChild;
+}
+
+// SVG inline (fora do subset da fonte): setas circulares de "sincronizar".
+function syncIconSvg() {
+  return '<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+    + '<polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>'
+    + '<path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>'
+    + '</svg>';
+}
+// SVG inline de "check" (verde), usado no status "Completo offline".
+function checkIconSvg() {
+  return '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>';
+}
+// SVG inline de "lista" — botão "Ver músicas" (abre a lista de músicas da
+// coleção no popup de busca, escopado à coleção).
+function listIconSvg() {
+  return '<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>';
+}
+// SVG inline de "voz" (microfone) — botão de tocar a variante CANTADO (vocal).
+function voiceIconSvg() {
+  return '<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="11" rx="3"/><path d="M5 10a7 7 0 0 0 14 0"/><line x1="12" y1="17" x2="12" y2="21"/><line x1="8" y1="21" x2="16" y2="21"/></svg>';
+}
+// SVG inline de "nota musical" — botão de tocar a variante PLAYBACK (instrumental).
+function noteIconSvg() {
+  return '<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18V5l10-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="16" cy="16" r="3"/></svg>';
+}
+
+// Lista de cards da aba Álbuns: hinários (fixos) + um card por álbum do
+// catálogo. Cada card é um "check do sistema" (não abre como pasta): símbolo,
+// status, estatísticas e ações.
+function renderCollectionsList() {
+  const cols = allCollections();
+  cols.forEach((coll) => libraryEl.appendChild(renderCollectionCard(coll)));
+  if (cols.length === 0) {
+    const empty = document.createElement('li'); empty.className = 'empty';
+    empty.textContent = 'Nenhuma coleção disponível.';
+    libraryEl.appendChild(empty);
+  }
+}
+
+// Cartão informativo de UMA coleção (hinário ou álbum) — NÃO é uma pasta: é um
+// "check do sistema" (símbolo, status, estatísticas sincronizados/peso/rede +
+// ações sincronizar/excluir). Não abre como pasta ao tocar (o operador
+// acessa/toca as músicas pela busca do acervo, botão de lupa). Sempre visível,
+// mesmo antes da 1ª sincronização. Retorna o <li> (não anexa).
+//
+// COLAPSADO POR PADRÃO (deixa a lista compacta): mostra só uma barra com nome +
+// resumo de sincronização (baixados/total). Tocar na barra EXPANDE o card com o
+// detalhe completo (status, ações, estatísticas). O estado (expandido) é
+// transitório em `ui(coll.id).expanded` (não persistido) — cada abertura do app
+// começa colapsada.
+function renderCollectionCard(coll) {
+  const total = collSongs(coll.id).length;
+  const downloaded = countDownloaded(coll.id);
+  const complete = total > 0 && downloaded >= total;
+  const wifiOk = isConfirmedWifi();
+  const u = ui(coll.id);
+
+  // dispara (fire-and-forget) o recálculo do peso; só re-renderiza se mudar
+  updateCollBytes(coll.id);
+
+  const li = document.createElement('li');
+  li.className = 'hymnal-card ' + (u.expanded ? 'expanded' : 'collapsed');
+
+  // ---- barra compacta (sempre visível; clicável p/ expandir/colapsar) ----
+  const bar = document.createElement('div'); bar.className = 'coll-bar';
+  const barIcon = document.createElement('div'); barIcon.className = 'coll-bar-icon';
+  barIcon.appendChild(msym(ICON[coll.iconKey] || ICON.music));
+  const barName = document.createElement('span'); barName.className = 'coll-bar-name'; barName.textContent = coll.name;
+  bar.append(barIcon, barName);
+  if (!u.expanded) {
+    // Resumo de sincronização (só no estado colapsado — no expandido o detalhe
+    // já mostra tudo): progresso ao vivo se sincronizando, senão baixados/total.
+    const summary = document.createElement('span'); summary.className = 'coll-bar-sync';
+    if (u.syncBusy && u.status) {
+      summary.classList.add('busy'); summary.textContent = u.status;
+    } else if (total > 0) {
+      if (complete) summary.classList.add('done');
+      summary.textContent = downloaded + '/' + total;
+    } else {
+      summary.textContent = coll.kind === 'album' ? 'não sincron.' : '—';
+    }
+    bar.appendChild(summary);
+  }
+  // Botões da barra (sempre visíveis, mesmo colapsado): "Ver músicas" (só com
+  // índice carregado) + sincronizar. Ficam à direita, com stopPropagation
+  // (tocar neles não expande/colapsa); o sincronizar é sempre o ÚLTIMO item,
+  // então fica na MESMA posição colapsado e expandido.
+  if (total > 0) {
+    const barList = document.createElement('button');
+    barList.className = 'hymnal-card-btn list-btn coll-bar-btn';
+    barList.title = 'Ver músicas';
+    barList.innerHTML = listIconSvg();
+    barList.addEventListener('click', (e) => { e.stopPropagation(); openCollectionSongs(coll); });
+    bar.appendChild(barList);
+  }
+  const barSync = document.createElement('button');
+  barSync.className = 'hymnal-card-btn sync-btn coll-bar-btn' + (u.syncBusy ? ' busy' : '');
+  barSync.title = 'Atualizar/baixar';
+  barSync.innerHTML = syncIconSvg();
+  barSync.addEventListener('click', (e) => { e.stopPropagation(); syncCollection(coll); });
+  bar.appendChild(barSync);
+  bar.addEventListener('click', () => { u.expanded = !u.expanded; refreshCollectionsIfVisible(); });
+  li.appendChild(bar);
+
+  if (!u.expanded) return li; // colapsado: só a barra
+
+  // ---- detalhe (só expandido): status + ações + estatísticas ----
+  const head = document.createElement('div'); head.className = 'hymnal-card-head';
+  const status = document.createElement('span'); status.className = 'hymnal-card-status';
+  if (u.status) {
+    status.classList.add('sync');
+    status.textContent = u.status;
+  } else if (complete) {
+    status.classList.add('done');
+    status.innerHTML = checkIconSvg();
+    status.appendChild(document.createTextNode(' Completo offline'));
+  } else if (total > 0) {
+    status.textContent = 'Parcial — sincronize para completar';
+  } else {
+    status.textContent = coll.kind === 'album' ? 'Toque em sincronizar para baixar a lista' : 'Não sincronizado';
+  }
+
+  const actions = document.createElement('div'); actions.className = 'hymnal-card-actions';
+  // (Ver músicas e sincronizar moram na barra — ver acima)
+  if (downloaded > 0 || total > 0) {
+    const rmBtn = document.createElement('button');
+    rmBtn.className = 'hymnal-card-btn del-btn';
+    rmBtn.title = 'Excluir baixado';
+    rmBtn.appendChild(msym(ICON.del));
+    rmBtn.addEventListener('click', (e) => { e.stopPropagation(); deleteCollection(coll); });
+    actions.appendChild(rmBtn);
+  }
+  head.append(status, actions);
+
+  // ---- faixa de estatísticas ----
+  const stats = document.createElement('div'); stats.className = 'hymnal-card-stats';
+  stats.appendChild(hymnalStat('Sincronizados', total ? downloaded + '/' + total : '—', complete ? 'done' : ''));
+  stats.appendChild(hymnalStat('Peso', u.bytes ? fmtBytes(u.bytes) : '—'));
+
+  const net = document.createElement('div');
+  net.className = 'hymnal-stat net ' + (wifiOk ? 'ok' : 'warn');
+  net.title = wifiOk
+    ? 'Wi-Fi confirmado — sincronização completa liberada'
+    : 'Sem Wi-Fi confirmado — sincronizar baixa só a lista; músicas são baixadas individualmente ao usar (ou force pelo botão)';
+  const netLabel = document.createElement('label'); netLabel.textContent = 'Rede';
+  const netVal = document.createElement('b');
+  netVal.appendChild(wifiIconEl());
+  netVal.appendChild(document.createTextNode(wifiOk ? 'Wi-Fi' : 'Aguardando'));
+  net.append(netLabel, netVal);
+  stats.appendChild(net);
+
+  li.append(head, stats);
+  return li;
+}
+
+// Monta um "chip" de estatística (rótulo em cima, valor embaixo).
+function hymnalStat(label, value, extraClass) {
+  const el = document.createElement('div');
+  el.className = 'hymnal-stat' + (extraClass ? ' ' + extraClass : '');
+  const l = document.createElement('label'); l.textContent = label;
+  const v = document.createElement('b'); v.textContent = value;
+  el.append(l, v);
+  return el;
+}
+
+// Só re-renderiza os cards de coleção se a aba Álbuns estiver de fato visível —
+// evita custo de DOM à toa enquanto o operador está em outra aba durante o download.
+function refreshCollectionsIfVisible() {
+  if (activeTab === 'albums') renderLibrary();
+}
+
+function renderFolderList() {
+  if (opfsFolders.length === 0 && folders.length === 0) {
+    const empty = document.createElement('li');
+    empty.className = 'empty';
+    empty.textContent = 'Nenhuma pasta.';
+    libraryEl.appendChild(empty);
+    renderStorageUsage();
+    return;
+  }
+  opfsFolders.forEach((f) => {
+    const li = document.createElement('li');
+    li.className = 'lib-item folder-opfs';
+    const row = document.createElement('div'); row.className = 'row';
+    const icon = document.createElement('div'); icon.className = 'thumb thumb--icon';
+    icon.appendChild(msym(ICON.import));
+    const nameEl = document.createElement('span'); nameEl.className = 'row-name'; nameEl.textContent = f.name;
+    const countEl = document.createElement('span'); countEl.className = 'folder-count'; countEl.textContent = String(f.count || 0);
+    const syncBtn = document.createElement('button'); syncBtn.className = 'row-btn'; syncBtn.title = 'Re-sincronizar com a pasta do dispositivo';
+    syncBtn.appendChild(msym(ICON.import));
+    syncBtn.addEventListener('click', (e) => { e.stopPropagation(); syncDeviceFolder(f); });
+    const rmBtn = document.createElement('button'); rmBtn.className = 'row-btn'; rmBtn.title = 'Excluir pasta e arquivos sincronizados';
+    rmBtn.appendChild(msym(ICON.del));
+    rmBtn.addEventListener('click', (e) => { e.stopPropagation(); deleteOpfsFolder(f); });
+    row.append(icon, nameEl, countEl, syncBtn, rmBtn);
+    li.appendChild(row);
+    li.addEventListener('click', () => openOpfsFolder(f));
+    libraryEl.appendChild(li);
+  });
+  folders.forEach((folder) => {
+    const count = folderCounts[folder.id] || 0;
+    const li = document.createElement('li');
+    li.className = 'lib-item';
+
+    const row = document.createElement('div'); row.className = 'row';
+    const icon = document.createElement('div'); icon.className = 'thumb thumb--icon';
+    icon.appendChild(msym(ICON.folder));
+    const nameEl = document.createElement('span'); nameEl.className = 'row-name'; nameEl.textContent = folder.name;
+    const countEl = document.createElement('span'); countEl.className = 'folder-count'; countEl.textContent = String(count);
+    const rmBtn = document.createElement('button'); rmBtn.className = 'row-btn'; rmBtn.title = 'Excluir pasta';
+    rmBtn.appendChild(msym(ICON.del));
+    rmBtn.addEventListener('click', (e) => { e.stopPropagation(); deleteFolder(folder.id); });
+
+    row.append(icon, nameEl, countEl, rmBtn);
+    li.appendChild(row);
+    li.addEventListener('click', () => openFolder(folder));
+    libraryEl.appendChild(li);
+  });
+  renderStorageUsage();
+}
+
+// Rodapé com o uso de armazenamento do origin (OPFS + IDB).
+function renderStorageUsage() {
+  if (!(navigator.storage && navigator.storage.estimate)) return;
+  navigator.storage.estimate().then(({ usage, quota }) => {
+    if ((activeTab !== 'folders' && activeTab !== 'albums') || currentFolder) return; // aba mudou enquanto aguardava
+    // Remove uma linha anterior antes de anexar: sem isto, dois estimate()
+    // pendentes (renderFolderList chamado em sequência) empilhariam duas
+    // linhas de uso na mesma lista.
+    const old = libraryEl.querySelector('.storage-usage');
+    if (old) old.remove();
+    const li = document.createElement('li');
+    li.className = 'empty storage-usage';
+    li.textContent = fmtBytes(usage || 0) + ' usados de ' + fmtBytes(quota || 0) + ' disponíveis';
+    libraryEl.appendChild(li);
+  }).catch(() => {});
+}
+
+function fmtBytes(n) {
+  if (n >= 1073741824) return (n / 1073741824).toFixed(1) + ' GB';
+  if (n >= 1048576) return (n / 1048576).toFixed(1) + ' MB';
+  if (n >= 1024) return Math.round(n / 1024) + ' KB';
+  return n + ' B';
+}
+
+function renderSelbar() {
+  selbarEl.hidden = !selectionMode;
+  tabsEl.hidden = selectionMode;
+  if (!selectionMode) return;
+  selCountEl.textContent = String(selected.size);
+  selRenameEl.disabled = selected.size !== 1;
+}
+
+// ===== ações de reprodução / sequência =====
+async function send(id) {
+  currentId = id;
+  // Atualiza cache do item atual para renderNowPlaying funcionar mesmo fora da aba ativa.
+  currentItem = [...plItems, ...libItems].find((m) => m.id === id) || currentItem;
+  // Independência áudio × texto: um ÁUDIO (música de fundo) NÃO encerra o texto
+  // manual em cena (Bíblia/Mensagem); qualquer VISUAL (vídeo/imagem/YouTube) encerra.
+  if (!((bibleSession || msgSession) && currentItem && currentItem.kind === 'audio')) clearManualText();
+  await persistCurrent();
+  ytEnded = false;
+  displayStatusAt = 0; // até o Display confirmar o novo item, a preview dirige
+  lastDisplayTime = 0;
+  cmd({ type: 'load', mediaId: id, view, muted, volume });
+  // re-render leve de estados ativos
+  document.querySelectorAll('.lib-item,.row-item').forEach((el) => el.classList.toggle('active', el.dataset.id === id));
+  renderNowPlaying();
+  if (currentItem && currentItem.kind === 'youtube') {
+    // Zera a UI de transporte; o display-status remoto assume em seguida.
+    seekEl.value = 0; seekEl.max = 0; seekEl.disabled = true;
+    curTimeEl.textContent = '0:00'; durTimeEl.textContent = '0:00';
+  }
+}
+
+function step(delta) {
+  if (plItems.length === 0) return;
+  const idx = plItems.findIndex((m) => m.id === currentId);
+  const target = idx === -1 ? 0 : (idx + delta + plItems.length) % plItems.length;
+  send(plItems[target].id);
+}
+
+// Navegação manual de estrofe (independente da posição do áudio): pula pro
+// tempo do slide vizinho reaproveitando o comando `seek` já existente — o
+// Display (e a própria preview) sincronizam a letra sozinhos ao reagir ao
+// novo tempo, sem precisar de um comando novo no protocolo.
+function stepSlide(delta) {
+  // Texto manual em cena: os botões de slide passam/voltam versículos/mensagens.
+  if (msgSession) { msgStep(delta); return; }
+  if (bibleSession) { bibleStep(delta); return; }
+  const lyrics = currentItem && Array.isArray(currentItem.lyrics) ? currentItem.lyrics : null;
+  if (!lyrics || lyrics.length === 0) return;
+  const idx = findSlideIndex(lyrics, authoritativeTime());
+  const target = Math.min(Math.max(idx + delta, 0), lyrics.length - 1);
+  if (target === idx) return;
+  cmd({ type: 'seek', time: lyrics[target].time });
+}
+
+// Habilita/desabilita os botões de estrofe conforme o item atual tem letra
+// sincronizada e a posição dentro dela (desabilita no primeiro/último slide).
+function renderSlideNav() {
+  // Mensagens: passa/volta entre as mensagens salvas (nos extremos desabilita).
+  if (msgSession) {
+    slidePrevBtnEl.disabled = msgSession.idx <= 0;
+    slideNextBtnEl.disabled = msgSession.idx >= messages.length - 1;
+    return;
+  }
+  // Leitura bíblica: só desabilita no começo (Gn 1:1) e no fim (Ap, último
+  // versículo) da Bíblia — nos limites de capítulo cruza para o vizinho.
+  if (bibleSession) {
+    const s = bibleSession;
+    const lastBook = Bible.BOOKS.length - 1;
+    slidePrevBtnEl.disabled = (s.bookIdx === 0 && s.chapter === 1 && s.idx === 0);
+    slideNextBtnEl.disabled = (s.bookIdx === lastBook
+      && s.chapter === Bible.BOOKS[lastBook].chapters && s.idx === s.verses.length - 1);
+    return;
+  }
+  const lyrics = currentItem && Array.isArray(currentItem.lyrics) ? currentItem.lyrics : null;
+  if (!lyrics || lyrics.length === 0) {
+    slidePrevBtnEl.disabled = true;
+    slideNextBtnEl.disabled = true;
+    return;
+  }
+  const idx = findSlideIndex(lyrics, authoritativeTime());
+  slidePrevBtnEl.disabled = idx <= 0;
+  slideNextBtnEl.disabled = idx >= lyrics.length - 1;
+}
+
+function resetAfterEnd() {
+  // stage.js já voltou ao wallpaper internamente (ended flag);
+  // apenas atualiza a UI sem limpar currentId (replay possível com play)
+  playing = false;
+  playPauseEl.querySelector('.msym').textContent = ICON.play;
+  seekEl.value = 0;
+  curTimeEl.textContent = '0:00';
+  seekEl.disabled = false;
+  durTimeEl.textContent = fmtTime(preview.getDuration());
+}
+
+function autoAdvance() {
+  if (repeat === 'off') { resetAfterEnd(); return; }
+  if (repeat === 'one') { if (currentId) send(currentId); return; }
+  if (plItems.length === 0) return;
+  if (repeat === 'shuffle') {
+    if (plItems.length === 1) { send(plItems[0].id); return; }
+    let i; do { i = Math.floor(Math.random() * plItems.length); } while (plItems[i].id === currentId);
+    send(plItems[i].id);
+    return;
+  }
+  // all
+  const idx = plItems.findIndex((m) => m.id === currentId);
+  const target = idx === -1 ? 0 : (idx + 1) % plItems.length;
+  send(plItems[target].id);
+}
+
+async function cycleRepeat() {
+  repeat = REPEATS[(REPEATS.indexOf(repeat) + 1) % REPEATS.length];
+  await AVDB.setState('repeat', repeat);
+  renderRepeat();
+}
+
+async function setView(v) {
+  view = v; await persistCurrent();
+  // Com texto bíblico em cena, 'view' só liga/desliga a cortina compartilhada
+  // (mesmo modelo do YouTube) — não passa por preview.handle (que recobriria,
+  // já que não há mídia carregada no stage da preview).
+  if (bibleSession) {
+    AVDB.sendCommand({ type: 'view', view });
+    // Cortina com fade (coverIn/coverOut respeitam a config de transições).
+    if (v === 'wallpaper') preview.coverIn(false); else preview.coverOut();
+    renderControls();
+    return;
+  }
+  cmd({ type: 'view', view });
+  renderControls();
+}
+async function toggleMute() {
+  // Sem áudio no Display (bloqueio do navegador, não é mudo do operador):
+  // o clique vira "liberar o som" — pede uma retentativa imediata.
+  if (displayAudioBlocked && !muted) {
+    AVDB.sendCommand({ type: 'audio-retry' });
+    flash('Tentando liberar o áudio no Display…');
+    return;
+  }
+  muted = !muted; await persistCurrent();
+  cmd({ type: 'mute', muted });
+  renderControls();
+}
+
+// Parar = limpar o display (volta ao wallpaper); mantém currentId para replay com play.
+async function stopClear() {
+  cmd({ type: 'clear' });
+  clearManualText();
+  playing = false;
+  // YouTube: 'clear' derruba o player da preview (dropYtPreview via cmd) e o do
+  // Display → o próximo ▶ precisa recarregar (send), não só reenviar 'play'.
+  if (currentItem && currentItem.kind === 'youtube') ytEnded = true;
+  playPauseEl.querySelector('.msym').textContent = ICON.play;
+  seekEl.value = 0; seekEl.disabled = true;
+  curTimeEl.textContent = '0:00';
+  await persistCurrent();
+}
+
+
+
+// ===== gestos da biblioteca =====
+const SWIPE = 72, MOVE = 10, LONGPRESS = 450;
+
+function attachRowGestures(row, item) {
+  let startX = 0, startY = 0, startT = 0, dx = 0, mode = null, lp = null, pid = null;
+  const li = row.closest('li') || row.parentElement;
+
+  row.addEventListener('pointerdown', (e) => {
+    if (e.target.closest('.row-handle') || e.target.closest('.row-btn')) return;
+    pid = e.pointerId; startX = e.clientX; startY = e.clientY; startT = Date.now(); dx = 0; mode = null;
+    lp = setTimeout(() => { mode = 'long'; enterSelection(item.id); }, LONGPRESS);
+  });
+  row.addEventListener('pointermove', (e) => {
+    if (pid === null) return;
+    const ddx = e.clientX - startX, ddy = e.clientY - startY;
+    if (mode === null) {
+      if (Math.abs(ddx) > MOVE && Math.abs(ddx) > Math.abs(ddy)) { mode = 'swipe'; clearTimeout(lp); try { row.setPointerCapture(pid); } catch (_) {} }
+      else if (Math.abs(ddy) > MOVE) { clearTimeout(lp); pid = null; return; }
+    }
+    if (mode === 'swipe') {
+      dx = ddx; row.style.transform = `translateX(${dx}px)`;
+      li.classList.toggle('show-left', dx < 0);
+    }
+  });
+  function finish(e) {
+    if (pid === null) return;
+    clearTimeout(lp);
+    const dt = Date.now() - startT;
+    if (mode === 'swipe') {
+      row.style.transform = '';
+      li.classList.remove('show-left');
+      if (dx <= -SWIPE) addToPlaylist(item);
+    } else if (mode !== 'long') {
+      const moved = Math.abs((e.clientX || startX) - startX) > MOVE || Math.abs((e.clientY || startY) - startY) > MOVE;
+      if (!moved && dt < LONGPRESS) onTap(item);
+    }
+    pid = null; mode = null;
+  }
+  row.addEventListener('pointerup', finish);
+  row.addEventListener('pointercancel', () => { clearTimeout(lp); row.style.transform = ''; li.classList.remove('show-left'); pid = null; mode = null; });
+}
+
+async function onTap(item) {
+  if (selectionMode) { toggleSelect(item.id); return; }
+  // Toque direto na biblioteca: define a playlist como este item apenas.
+  // Swipe para esquerda continua ADICIONANDO à playlist.
+  await AVDB.listSet('playlist', [item.id]);
+  plItems = [item];
+  renderPlaylist();
+  send(item.id);
+}
+
+// Deslize à esquerda: adiciona (sem substituir) à playlist.
+async function addToPlaylist(item) {
+  const had = await AVDB.listHas('playlist', item.id);
+  await AVDB.listAdd('playlist', item.id);
+  flash(had ? 'Já na playlist' : 'Adicionado à playlist');
+  load();
+}
+
+// ===== arrastar para reordenar =====
+function attachHandle(handle, id, listName) {
+  let pid = null, startY = 0, li = null;
+  handle.addEventListener('pointerdown', (e) => {
+    e.preventDefault(); e.stopPropagation();
+    pid = e.pointerId; startY = e.clientY; li = handle.closest('li');
+    li.classList.add('dragging');
+    try { handle.setPointerCapture(pid); } catch (_) {}
+  });
+  handle.addEventListener('pointermove', (e) => {
+    if (pid === null) return;
+    li.style.transform = `translateY(${e.clientY - startY}px)`;
+    showDropLine(li.parentElement, li, e.clientY);
+  });
+  async function drop(e) {
+    if (pid === null) return;
+    const ul = li.parentElement;
+    const target = dropIndex(ul, li, e.clientY);
+    li.style.transform = ''; li.classList.remove('dragging');
+    hideDropLine(ul);
+    pid = null;
+    await reorder(listName, id, target);
+  }
+  handle.addEventListener('pointerup', drop);
+  handle.addEventListener('pointercancel', () => { if (li) { li.style.transform = ''; li.classList.remove('dragging'); hideDropLine(li.parentElement); } pid = null; });
+}
+
+function dropIndex(ul, draggedLi, y) {
+  const lis = [...ul.querySelectorAll('li')].filter((l) => l !== draggedLi);
+  let idx = lis.length;
+  for (let i = 0; i < lis.length; i++) {
+    const r = lis[i].getBoundingClientRect();
+    if (y < r.top + r.height / 2) { idx = i; break; }
+  }
+  return idx;
+}
+
+// linha-guia azul mostrando onde o item vai cair
+function showDropLine(ul, draggedLi, y) {
+  let line = ul.querySelector('.drop-line');
+  if (!line) { line = document.createElement('div'); line.className = 'drop-line'; ul.appendChild(line); }
+  const lis = [...ul.querySelectorAll('li')].filter((l) => l !== draggedLi);
+  const ulTop = ul.getBoundingClientRect().top;
+  let top;
+  let before = null;
+  for (const el of lis) {
+    const r = el.getBoundingClientRect();
+    if (y < r.top + r.height / 2) { before = el; break; }
+  }
+  if (before) top = before.getBoundingClientRect().top - ulTop;
+  else if (lis.length) { const r = lis[lis.length - 1].getBoundingClientRect(); top = r.bottom - ulTop; }
+  else top = 0;
+  line.style.top = (top + ul.scrollTop) + 'px';
+}
+function hideDropLine(ul) {
+  const line = ul && ul.querySelector('.drop-line');
+  if (line) line.remove();
+}
+
+async function reorder(listName, id, toIndex) {
+  const ids = await AVDB.listIds(listName);
+  const from = ids.indexOf(id);
+  if (from === -1) return;
+  ids.splice(from, 1);
+  ids.splice(toIndex, 0, id);
+  await AVDB.listSet(listName, ids);
+  load();
+}
+
+// ===== seleção múltipla =====
+function enterSelection(id) {
+  selectionMode = true;
+  selected.clear();
+  selected.add(id);
+  renderLibrary(); renderSelbar();
+}
+function toggleSelect(id) {
+  if (selected.has(id)) selected.delete(id); else selected.add(id);
+  if (selected.size === 0) exitSelection();
+  else { renderLibrary(); renderSelbar(); }
+}
+function exitSelection() {
+  selectionMode = false; selected.clear();
+  renderLibrary(); renderSelbar();
+}
+async function deleteSelected() {
+  if (activeTab === 'folders' && currentFolder && currentFolder._opfs) {
+    // Pasta OPFS: apaga o arquivo físico, o registro do catálogo e as
+    // referências que sobraram em listas.
+    for (const id of selected) {
+      const rec = await AVDB.fileGet(id);
+      if (rec && rec.opfsPath) await AVDB.opfsDeleteFile(rec.opfsPath);
+      await AVDB.fileDelete(id);
+      for (const l of ['imports', 'playlist']) await AVDB.listRemove(l, id);
+    }
+    await refreshOpfsFolderCount(currentFolder.id);
+  } else if (activeTab === 'folders' && currentFolder) {
+    const ids = (await AVDB.getState('folder_' + currentFolder.id)) || [];
+    await AVDB.setState('folder_' + currentFolder.id, ids.filter((id) => !selected.has(id)));
+  } else {
+    for (const id of selected) await AVDB.listRemove(activeTab, id);
+  }
+  exitSelection(); load();
+}
+async function renameSelected() {
+  if (selected.size !== 1) return;
+  const id = [...selected][0];
+  const item = libItems.find((m) => m.id === id);
+  const name = await appPrompt({ title: 'Renomear', message: 'Novo nome:', value: item ? item.name : '', okText: 'Renomear' });
+  if (name && name.trim()) await AVDB.renameMedia(id, name.trim());
+  exitSelection(); load();
+}
+
+// ===== pastas =====
+async function loadFolderMediaItems(folderId) {
+  const ids = (await AVDB.getState('folder_' + folderId)) || [];
+  const items = await Promise.all(ids.map((id) => AVDB.getMedia(id)));
+  return items.filter(Boolean);
+}
+
+function openFolder(folder) {
+  rememberScroll();
+  currentFolder = folder;
+  load();
+}
+
+function navigateBack() {
+  if (activeTab === 'bible') {
+    if (bibleScreen === 'reading') gotoBibleScreen('verses');
+    else if (bibleScreen === 'verses') gotoBibleScreen('chapters');
+    else if (bibleScreen === 'chapters') gotoBibleScreen('books');
+    return;
+  }
+  rememberScroll();
+  currentFolder = null;
+  folderQuery = '';
+  libSearchEl.value = '';
+  load();
+}
+
+async function createFolder(name) {
+  const id = uid();
+  folders.push({ id, name });
+  await AVDB.setState('folders', folders);
+  load();
+}
+
+async function deleteFolder(folderId) {
+  const folder = folders.find((f) => f.id === folderId);
+  if (!(await appConfirm({ title: 'Excluir pasta', message: 'Excluir a pasta "' + (folder ? folder.name : '') + '"? As mídias não são apagadas.', okText: 'Excluir' }))) return;
+  folders = folders.filter((f) => f.id !== folderId);
+  await AVDB.setState('folders', folders);
+  await AVDB.setState('folder_' + folderId, []);
+  if (currentFolder && currentFolder.id === folderId) currentFolder = null;
+  load();
+}
+
+async function addToFolder(folderId, ids) {
+  const existing = (await AVDB.getState('folder_' + folderId)) || [];
+  await AVDB.setState('folder_' + folderId, [...new Set([...existing, ...ids])]);
+  flash('Salvo na pasta');
+  exitSelection();
+  load();
+}
+
+function openFolderPicker() {
+  renderFolderPicker();
+  folderPopupEl.classList.add('open');
+}
+
+function closeFolderPicker() {
+  folderPopupEl.classList.remove('open');
+}
+
+function renderFolderPicker() {
+  folderPickerListEl.innerHTML = '';
+  if (folders.length === 0) {
+    folderPickerListEl.innerHTML = '<li class="empty">Nenhuma pasta ainda.<br>Crie uma abaixo.</li>';
+    return;
+  }
+  const selectedIds = [...selected];
+  folders.forEach((folder) => {
+    const li = document.createElement('li');
+    const btn = document.createElement('button'); btn.className = 'folder-pick-btn';
+    btn.append(msym(ICON.folder), Object.assign(document.createElement('span'), { textContent: folder.name }));
+    btn.addEventListener('click', () => { closeFolderPicker(); addToFolder(folder.id, selectedIds); });
+    li.appendChild(btn);
+    folderPickerListEl.appendChild(li);
+  });
+}
+
+
+// ===== pastas sincronizadas (OPFS) =====
+// A pasta do dispositivo é copiada para o Origin Private File System em uma
+// única operação com permissão (showDirectoryPicker). Depois disso o acesso é
+// permanente: nenhuma permissão é pedida para listar, buscar ou reproduzir —
+// o catálogo (metadados + thumbnails) fica no IDB e os bytes no OPFS.
+
+function uid() {
+  return crypto.randomUUID ? crypto.randomUUID() : String(Date.now() + Math.random());
+}
+
+async function refreshOpfsFolderCount(folderId) {
+  const f = opfsFolders.find((x) => x.id === folderId);
+  if (!f) return;
+  f.count = (await AVDB.filesByFolder(folderId)).length;
+  await AVDB.setState('opfs-folders', opfsFolders);
+}
+
+// Abre uma pasta do dispositivo e devolve uma FONTE uniforme, para que o
+// corpo da sincronização (abaixo) seja um só nos dois contextos:
+//
+//   { name, uri?, handle?, entries: [{ name, stat(), read() }] }
+//
+// - No NAVEGADOR: File System Access API (showDirectoryPicker + handles).
+// - No APP NATIVO: Storage Access Framework via AVNative.pickFolder/listFolder.
+//   A File System Access API **não existe no Android** — era por isso que a
+//   sincronização de pastas, no PWA, sempre caía no aviso "navegador não
+//   suporta seleção de pastas" em qualquer celular. Aqui ela funciona.
+//
+// `stat()` devolve { size, mtime } SEM ler os bytes: é o que permite pular
+// arquivos inalterados de graça (no SAF os metadados já vêm na listagem; no
+// navegador o File é obtido uma vez e reaproveitado por `read()`).
+async function openFolderSource(existing) {
+  if (window.__NATIVE__) {
+    let picked = existing && existing.uri ? { uri: existing.uri, name: existing.name } : null;
+    let list = picked ? await AVNative.listFolder(picked.uri) : null;
+    // Sem URI salvo, ou permissão revogada / pasta movida (listagem vazia
+    // onde antes havia arquivos): pede a pasta de novo.
+    if (!picked || (list.length === 0 && existing && existing.count > 0)) {
+      picked = await AVNative.pickFolder();
+      if (!picked) return null; // operador cancelou
+      list = await AVNative.listFolder(picked.uri);
+    }
+    return {
+      name: picked.name,
+      uri: picked.uri,
+      entries: list.map((f) => ({
+        name: f.name,
+        stat: async () => ({ size: f.size, mtime: f.mtime }),
+        read: async () => {
+          // A ponte entrega URL servível, não bytes: isto é um fetch local
+          // em streaming, o mesmo padrão já usado com o OPFS.
+          const res = await fetch(f.url);
+          if (!res.ok) throw new Error('leitura falhou');
+          return await res.blob();
+        },
+      })),
+    };
+  }
+
+  if (!('showDirectoryPicker' in window)) { flash('Navegador não suporta seleção de pastas'); return null; }
+
+  // Re-sync: tenta reutilizar o handle salvo (browsers que persistem a
+  // permissão nem mostram prompt); senão cai no picker.
+  let handle = existing && existing.handle;
+  if (handle) {
+    try {
+      let perm = await handle.queryPermission({ mode: 'read' });
+      if (perm !== 'granted') perm = await handle.requestPermission({ mode: 'read' });
+      if (perm !== 'granted') handle = null;
+    } catch (_) { handle = null; }
+  }
+  if (!handle) {
+    try { handle = await window.showDirectoryPicker({ mode: 'read' }); }
+    catch (_) { return null; } // usuário cancelou
+  }
+
+  const entries = [];
+  for await (const [name, entry] of handle.entries()) {
+    if (entry.kind !== 'file') continue;
+    let cached = null;
+    const file = async () => (cached || (cached = await entry.getFile()));
+    entries.push({
+      name,
+      stat: async () => { const f = await file(); return { size: f.size, mtime: f.lastModified }; },
+      read: file,
+    });
+  }
+  return { name: handle.name, handle, entries };
+}
+
+// Sincroniza (ou re-sincroniza) uma pasta do dispositivo para o OPFS.
+// `existing` = registro de opfsFolders para re-sync; undefined para nova pasta.
+async function syncDeviceFolder(existing) {
+  if (!AVDB.opfsSupported()) { flash('Navegador não suporta armazenamento OPFS'); return; }
+  if (syncBusy) { flash('Sincronização em andamento…'); return; }
+
+  const source = await openFolderSource(existing);
+  if (!source) return;
+
+  syncBusy = true;
+  try {
+    // Pede armazenamento persistente para o browser não descartar os arquivos.
+    if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+
+    let folder = existing || opfsFolders.find((f) => f.name === source.name);
+    if (!folder) {
+      folder = { id: uid(), name: source.name, count: 0, syncedAt: 0 };
+      opfsFolders.push(folder);
+    }
+    // `handle` (web) e `uri` (nativo) cumprem o mesmo papel: acelerar o
+    // re-sync sem pedir a pasta de novo.
+    if (source.handle) folder.handle = source.handle;
+    if (source.uri) folder.uri = source.uri;
+
+    const existingRecs = await AVDB.filesByFolder(folder.id);
+    const bySrcName = new Map(existingRecs.map((r) => [r.srcName, r]));
+
+    const entries = [];
+    for (const entry of source.entries) {
+      const type = guessMediaType(entry.name);
+      if (AVDB.kindFromType(type) === 'other') continue;
+      entries.push([entry, type]);
+    }
+
+    let done = 0, added = 0;
+    for (const [entry, type] of entries) {
+      done++;
+      flash('Sincronizando ' + done + '/' + entries.length + '…', true);
+      const name = entry.name;
+      let st;
+      try { st = await entry.stat(); } catch (_) { continue; }
+      const prev = bySrcName.get(name);
+      // Já sincronizado e inalterado (mesmo tamanho e data) → pula.
+      if (prev && prev.size === st.size && prev.mtime === st.mtime) continue;
+      let file;
+      try { file = await entry.read(); } catch (_) { continue; }
+      const kind = AVDB.kindFromType(type);
+      const path = 'folders/' + folder.id + '/' + name;
+      try { await AVDB.opfsWriteFile(path, file); } catch (_) { continue; }
+      const thumb = await makeThumb(file, kind);
+      await AVDB.fileAdd({
+        id: prev ? prev.id : uid(),
+        folder: folder.id,
+        opfsPath: path,
+        srcName: name,
+        name: name.replace(/\.[^.]+$/, ''),
+        type, kind,
+        size: st.size,
+        mtime: st.mtime,
+        thumb,
+        blob: null, url: null,
+        addedAt: prev ? prev.addedAt : Date.now(),
+      });
+      added++;
+    }
+
+    folder.count = (await AVDB.filesByFolder(folder.id)).length;
+    folder.syncedAt = Date.now();
+    await AVDB.setState('opfs-folders', opfsFolders);
+    flash(added > 0 ? added + ' arquivo(s) sincronizado(s)' : 'Pasta já em dia');
+  } catch (_) {
+    flash('Erro na sincronização');
+  } finally {
+    syncBusy = false;
+  }
+  load();
+}
+
+function openOpfsFolder(f) {
+  rememberScroll();
+  currentFolder = { id: f.id, name: f.name, _opfs: true };
+  folderQuery = '';
+  libSearchEl.value = '';
+  load();
+}
+
+// Remove uma leva de registros do catálogo OPFS (store "files") e limpa as
+// referências que tenham sobrado nas listas. Usado ao excluir uma pasta OPFS
+// ou o Hinário inteiro — os bytes já são apagados em bloco por opfsDeleteDir,
+// então aqui não é preciso opfsDeleteFile por registro.
+async function purgeCatalogRecords(recs) {
+  for (const r of recs) {
+    await AVDB.fileDelete(r.id);
+    for (const l of ['imports', 'playlist']) await AVDB.listRemove(l, r.id);
+  }
+}
+
+async function deleteOpfsFolder(f) {
+  if (!(await appConfirm({ title: 'Excluir pasta', message: 'Excluir a pasta "' + f.name + '" e todos os arquivos sincronizados?', okText: 'Excluir' }))) return;
+  const recs = await AVDB.filesByFolder(f.id);
+  await purgeCatalogRecords(recs);
+  await AVDB.opfsDeleteDir('folders/' + f.id);
+  opfsFolders = opfsFolders.filter((x) => x.id !== f.id);
+  await AVDB.setState('opfs-folders', opfsFolders);
+  if (currentFolder && currentFolder.id === f.id) currentFolder = null;
+  load();
+}
+
+// Fonte única extensão→MIME. Usada por guessMediaType (arquivos OPFS) e, via
+// AVDB.kindFromType, por detectUrlKind (URLs) — antes as duas mantinham listas
+// de extensões separadas que podiam divergir.
+const MEDIA_MIME = {
+  jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif',
+  webp: 'image/webp', svg: 'image/svg+xml', avif: 'image/avif', bmp: 'image/bmp',
+  mp4: 'video/mp4', webm: 'video/webm', ogv: 'video/ogg', mov: 'video/mp4',
+  m4v: 'video/mp4', mkv: 'video/x-matroska',
+  mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg', aac: 'audio/aac',
+  flac: 'audio/flac', m4a: 'audio/mp4', opus: 'audio/opus',
+};
+function guessMediaType(filename) {
+  const ext = (filename.split('.').pop() || '').toLowerCase();
+  return MEDIA_MIME[ext] || 'application/octet-stream';
+}
+
+// ===== Coleções de mídia (LouvorJA) — sincronização e download =====
+// Carrega em memória o estado de todas as coleções (índices por coll.id) + o
+// catálogo de álbuns, aplicando a migração do estado legado 'hymnal2022' →
+// 'coll:hymnal-2022' (mesma pasta OPFS 'hymnal-2022', então os downloads já
+// feitos continuam válidos). Chamado uma vez no init, antes do primeiro load().
+async function loadCollections() {
+  const legacy = await AVDB.getState('hymnal2022');
+  const has2022 = await AVDB.getState('coll:' + HYMNAL_2022_ID);
+  if (legacy && !has2022) await AVDB.setState('coll:' + HYMNAL_2022_ID, legacy);
+
+  albumCatalog = (await AVDB.getState('albumCatalog')) || [];
+  const cols = allCollections();
+  const states = await Promise.all(cols.map((c) => AVDB.getState('coll:' + c.id)));
+  collState = {};
+  cols.forEach((c, i) => { collState[c.id] = states[i] || { indexSyncedAt: 0, songs: [] }; });
+}
+
+// Descobre os álbuns disponíveis no banco (pt_categories → álbuns de cada
+// categoria) e persiste um catálogo leve [{id_album, name}] — alimenta os
+// cards de álbum da aba Álbuns (um por álbum), visíveis offline. Álbuns cujo
+// nome parece de hinário são pulados: já têm card dedicado (evita duplicar).
+// Lança em falha (sem rede/resposta inválida).
+async function fetchAlbumCatalog() {
+  const cats = await Louvorja.fetchList(Louvorja.CATEGORIES_FILE);
+  if (!Array.isArray(cats)) throw new Error('Resposta inválida (categorias)');
+  const seen = new Set();
+  const albums = [];
+  for (const cat of cats) {
+    const catAlbums = Array.isArray(cat && cat.albums) ? cat.albums : [];
+    for (const a of catAlbums) {
+      if (!a || a.id_album == null || seen.has(a.id_album)) continue;
+      if (/hin[aá]rio/i.test(a.name || '')) continue; // hinário tem card próprio
+      seen.add(a.id_album);
+      albums.push({ id_album: a.id_album, name: a.name || ('Álbum ' + a.id_album) });
+    }
+  }
+  albumCatalog = albums;
+  await AVDB.setState('albumCatalog', albumCatalog);
+  // Garante entrada em collState pros álbuns novos (índice vazio até sincronizar).
+  for (const coll of allCollections()) {
+    if (!collState[coll.id]) collState[coll.id] = { indexSyncedAt: 0, songs: [] };
+  }
+  refreshCollectionsIfVisible();
+}
+
+// Busca o índice (metadados leves) de UMA coleção e atualiza collState[coll.id],
+// preservando fileIdFull/fileIdPlayback já conhecidos de cada música. Para
+// hinários, o arquivo de lista (coll.source) já é o índice; para álbuns, o
+// índice vem de album_{id}.musics. Lança em caso de falha (sem rede/resposta
+// inválida); quem chama decide se avisa o operador ou ignora silenciosamente.
+async function fetchCollectionIndex(coll) {
+  const raw = await Louvorja.fetchList(coll.source);
+  const list = coll.kind === 'album'
+    ? (raw && Array.isArray(raw.musics) ? raw.musics : null)
+    : (Array.isArray(raw) ? raw : null);
+  if (!list) throw new Error('Resposta inválida do servidor (' + coll.source + ')');
+
+  const byId = new Map(collSongs(coll.id).map((s) => [s.id_music, s]));
+  const songs = list.map((row) => {
+    const prev = byId.get(row.id_music);
+    return {
+      id_music: row.id_music,
+      track: row.track,
+      name: row.name,
+      duration: row.duration,
+      has_instrumental_music: !!row.has_instrumental_music,
+      fileIdFull: (prev && prev.fileIdFull) || null,
+      fileIdPlayback: (prev && prev.fileIdPlayback) || null,
+    };
+  });
+  collState[coll.id] = { indexSyncedAt: Date.now(), songs };
+  await AVDB.setState('coll:' + coll.id, collState[coll.id]);
+  refreshCollectionsIfVisible();
+  // Popup de busca aberto durante a atualização: re-renderiza pra refletir a
+  // lista nova na hora (sem esperar o operador reabrir o popup).
+  if (hymnSearchPopupEl.classList.contains('open')) renderSearchResults(hymnSearchInputEl.value);
+}
+
+// Executa `fn` sobre `items` com concorrência limitada (no máximo `limit` em
+// voo ao mesmo tempo). Usado pra buscar o índice de dezenas de álbuns sem
+// disparar todas as requisições de uma vez.
+async function runLimited(items, limit, fn) {
+  let i = 0;
+  async function worker() {
+    while (i < items.length) { const idx = i++; await fn(items[idx], idx); }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+}
+
+// Índices de álbum são considerados "frescos" por este tempo — dentro dele,
+// uma retomada do app não refaz a requisição (evita N requisições a cada
+// visibilitychange). Álbuns novos ou ainda sem índice são sempre buscados.
+const ALBUM_INDEX_TTL = 12 * 60 * 60 * 1000; // 12 h
+
+// Atualização automática e silenciosa — ao abrir o app e ao retomar do 2º
+// plano (ver wiring perto do check do service worker), sem aviso de erro:
+//  1. índices leves dos HINÁRIOS (fixos) + catálogo de ÁLBUNS (nomes dos cards);
+//  2. índice leve (só metadados — album_{id}.musics, SEM áudio) de CADA álbum,
+//     pra a busca do acervo cobrir TODAS as músicas de TODOS os álbuns mesmo
+//     sem nada baixado (tocar num resultado baixa sob demanda — igual ao
+//     hinário). Concorrência limitada + TTL (pula álbuns indexados há pouco,
+//     mas sempre busca os novos/vazios). Uma falha (ex: sem rede) só mantém o
+//     que já está em cache.
+let collectionsRefreshing = false;
+async function autoRefreshCollections() {
+  if (collectionsRefreshing) return;
+  collectionsRefreshing = true;
+  try {
+    // Fase 1: hinários + catálogo de álbuns (barato).
+    await Promise.all([
+      ...FIXED_COLLECTIONS.map((c) => fetchCollectionIndex(c).catch(() => {})),
+      fetchAlbumCatalog().catch(() => {}),
+    ]);
+    // Fase 2: índice de cada álbum (só os que estão vazios ou vencidos pelo TTL).
+    const now = Date.now();
+    const stale = allCollections().filter((c) => {
+      if (c.kind !== 'album') return false;
+      const st = collState[c.id];
+      return !st || !st.songs.length || (now - (st.indexSyncedAt || 0)) > ALBUM_INDEX_TTL;
+    });
+    await runLimited(stale, 5, (c) => fetchCollectionIndex(c).catch(() => {}));
+  } finally { collectionsRefreshing = false; }
+}
+
+// Sincroniza (ou re-sincroniza) UMA coleção da API do LouvorJA para uso 100%
+// offline. Duas fases: (1) Índice leve (nomes/números/duração) — a busca usa
+// só isso; (2) Download pesado: para cada música ainda não baixada (ou cujo
+// arquivo catalogado tenha sido apagado por fora, ou que ainda não tenha a
+// letra sincronizada — backfill sem rebaixar o áudio), busca music_{id} e
+// grava áudio Cantado + Playback (se houver) + capa/letra no OPFS/catálogo
+// (mesma pasta `folders/<coll.id>/`). Aditiva e resumível: interromper e
+// sincronizar de novo continua de onde parou, sem duplicar.
+async function syncCollection(coll) {
+  const u = ui(coll.id);
+  if (u.syncBusy) return; // já em andamento — o status no card já indica
+  if (!AVDB.opfsSupported()) { setCollStatus(coll.id, 'Armazenamento OPFS indisponível', 5000); return; }
+  u.syncBusy = true;
+  setCollStatus(coll.id, 'Atualizando lista…');
+  try {
+    if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+
+    try { await fetchCollectionIndex(coll); }
+    catch (_) { setCollStatus(coll.id, 'Sem internet — falha ao atualizar', 5000); return; }
+    const songs = collSongs(coll.id);
+
+    const pending = [];
+    for (const s of songs) {
+      const { needsFull, needsPlayback } = await songVariantsNeeded(coll, s);
+      if (needsFull || needsPlayback) pending.push(s);
+    }
+    if (pending.length === 0) { setCollStatus(coll.id, 'Já completo offline', 4000); return; }
+
+    // Sem Wi-Fi confirmado: não baixa tudo sem avisar (evita estourar dados
+    // móveis) — a lista já foi atualizada acima, e cada música ainda pode ser
+    // baixada individualmente ao ser tocada/adicionada. O operador pode forçar
+    // a sincronização completa mesmo assim, se quiser.
+    if (!isConfirmedWifi()) {
+      const proceed = await appConfirm({
+        title: 'Sem Wi-Fi confirmado',
+        message: 'Baixar agora ' + pending.length + ' música(s) pendente(s) vai usar dados móveis (pode ser bastante). '
+          + 'Sem confirmar, a lista já foi atualizada — cada música ainda é baixada sozinha quando for tocada ou adicionada.',
+        okText: 'Baixar mesmo assim', cancelText: 'Agora não',
+      });
+      if (!proceed) {
+        setCollStatus(coll.id, 'Lista atualizada (baixa por música ao usar)', 5000);
+        return;
+      }
+    }
+
+    let done = 0;
+    const CONCURRENCY = 3;
+    let next = 0;
+    async function worker() {
+      while (next < pending.length) {
+        const s = pending[next++];
+        await downloadCollectionSong(coll, s);
+        done++;
+        setCollStatus(coll.id, 'Baixando ' + done + '/' + pending.length + '…');
+        await AVDB.setState('coll:' + coll.id, collState[coll.id]);
+      }
+    }
+    await Promise.all(Array.from({ length: CONCURRENCY }, worker));
+    setCollStatus(coll.id, 'Atualizado (' + done + ' baixado(s))', 4000);
+  } catch (_) {
+    setCollStatus(coll.id, 'Erro na sincronização', 5000);
+  } finally {
+    u.syncBusy = false;
+    refreshCollectionsIfVisible();
+  }
+}
+
+// Baixa (ou completa) uma música: busca os metadados individuais (URLs reais) e
+// grava áudio Cantado + Playback (se houver) + capa/letra sincronizada no
+// OPFS/catálogo. `s` é mutado in-place (fileIdFull/fileIdPlayback), refletido
+// no collState[coll.id] compartilhado.
+async function downloadCollectionSong(coll, s) {
+  let meta;
+  try { meta = await Louvorja.fetchList('music_' + s.id_music); }
+  catch (_) { return; } // sem rede agora; a próxima sincronização tenta de novo
+
+  // Cache de imagens por URL, compartilhado entre as duas variantes (Cantado
+  // e Playback quase sempre usam as mesmas imagens da letra) — evita baixar a
+  // mesma imagem mais de uma vez.
+  const imgCache = new Map();
+  async function resolveImage(url) {
+    if (!url) return null;
+    if (imgCache.has(url)) return imgCache.get(url);
+    const result = await downloadCollectionImage(coll.id, url, s.id_music, imgCache.size);
+    imgCache.set(url, result);
+    return result;
+  }
+
+  const coverImage = meta.url_image ? await resolveImage(meta.url_image) : null;
+  const thumb = coverImage ? coverImage.thumbBlob : null;
+
+  await ensureSongVariant(coll, s, 'fileIdFull', meta.url_music, 'Cantado', meta, 'time', thumb, resolveImage);
+  if (s.has_instrumental_music) {
+    await ensureSongVariant(coll, s, 'fileIdPlayback', meta.url_instrumental_music, 'Playback', meta, 'instrumental_time', thumb, resolveImage);
+  }
+}
+
+// Garante que uma variante (Cantado/Playback) tenha áudio E letra
+// sincronizada. Cobre 3 casos: nunca baixado (baixa tudo); áudio já baixado
+// mas ainda sem `lyrics` (só recalcula e grava a letra no registro existente,
+// SEM rebaixar o áudio — backfill dos itens baixados antes da letra existir);
+// já completo (não faz nada).
+async function ensureSongVariant(coll, s, fileKey, urlPath, variantLabel, meta, timeField, thumb, resolveImage) {
+  const existingId = s[fileKey];
+  const existingRec = existingId ? await AVDB.fileGet(existingId) : null;
+  if (existingRec && existingRec.lyrics !== undefined) return; // já completo
+
+  const lyrics = await buildLyricSlides(meta, timeField, resolveImage);
+
+  if (existingRec) {
+    existingRec.lyrics = lyrics;
+    existingRec.hymnName = s.name;
+    existingRec.hymnTrack = s.track;
+    await AVDB.fileAdd(existingRec);
+    return;
+  }
+  if (!urlPath) return;
+  const id = await downloadCollectionFile(coll, s, urlPath, variantLabel, thumb, lyrics);
+  if (id) s[fileKey] = id;
+}
+
+async function downloadCollectionFile(coll, s, urlPath, variantLabel, thumb, lyrics) {
+  if (!urlPath) return null;
+  let blob;
+  try {
+    const res = await fetch(Louvorja.fileUrl(urlPath));
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    blob = await res.blob();
+  } catch (_) { return null; }
+  const ext = (urlPath.split('.').pop() || 'mp3').toLowerCase().split('?')[0];
+  const id = uid();
+  const path = 'folders/' + coll.id + '/' + s.id_music + '-' + variantLabel.toLowerCase() + '.' + ext;
+  try { await AVDB.opfsWriteFile(path, blob); } catch (_) { return null; }
+  await AVDB.fileAdd({
+    id, folder: coll.id, opfsPath: path,
+    srcName: s.id_music + '-' + variantLabel,
+    name: (s.track ? String(s.track).padStart(3, '0') + '. ' : '') + s.name + ' (' + variantLabel + ')',
+    hymnName: s.name, hymnTrack: s.track,
+    type: blob.type || 'audio/mpeg', kind: 'audio',
+    size: blob.size, mtime: Date.now(), thumb, lyrics,
+    blob: null, url: null, addedAt: Date.now(),
+  });
+  return id;
+}
+
+// Baixa uma imagem em resolução real pro OPFS (fundo dos slides de letra) e
+// gera a miniatura do catálogo (mesmo `drawThumb`) a partir do MESMO blob —
+// evita baixar a capa duas vezes (uma pro fundo, outra só pra miniatura).
+async function downloadCollectionImage(folderId, url, songId, index) {
+  let blob;
+  try {
+    const res = await fetch(Louvorja.fileUrl(url));
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    blob = await res.blob();
+  } catch (_) { return null; }
+  const ext = (url.split('.').pop() || 'jpg').toLowerCase().split('?')[0];
+  const path = 'folders/' + folderId + '/' + songId + '-img-' + index + '.' + ext;
+  try { await AVDB.opfsWriteFile(path, blob); } catch (_) { return null; }
+
+  let thumbBlob = null;
+  let objUrl = null;
+  try {
+    objUrl = URL.createObjectURL(blob);
+    const img = await new Promise((resolve, reject) => {
+      const im = new Image();
+      im.onload = () => resolve(im);
+      im.onerror = reject;
+      im.src = objUrl;
+    });
+    thumbBlob = await drawThumb(img, img.naturalWidth, img.naturalHeight);
+  } catch (_) {
+    // sem miniatura, mas a imagem de fundo já foi gravada — segue normalmente
+  } finally {
+    if (objUrl) URL.revokeObjectURL(objUrl);
+  }
+  return { opfsPath: path, thumbBlob };
+}
+
+// "HH:MM:SS" (ou variações com menos partes) → segundos. `null` se
+// vazio/inválido — nunca 0, pra não colidir com o tempo fixo do slide de capa.
+function parseTimeToSeconds(str) {
+  if (!str) return null;
+  const parts = String(str).split(':').map(Number);
+  if (parts.some((n) => isNaN(n))) return null;
+  while (parts.length < 3) parts.unshift(0);
+  const [h, m, sec] = parts;
+  return h * 3600 + m * 60 + sec;
+}
+
+// Monta os slides de letra sincronizada de uma variante (Cantado usa `time`,
+// Playback usa `instrumental_time`): slide de capa (tempo 0, sem texto,
+// imagem da música) + uma entrada por linha de `meta.lyric` marcada como
+// `show_slide`, ordenadas por tempo. Uma linha sem imagem própria herda a da
+// anterior (fallback "grudento", igual ao app original); linhas sem tempo
+// utilizável no campo ativo são ignoradas. Retorna `null` se não sobrar
+// nenhuma linha real (só a capa) — sinaliza "sem letra utilizável", pra não
+// tentar de novo a cada sincronização (ver ensureSongVariant).
+// A API do LouvorJA embute quebras de linha manuais como tags `<br>` literais
+// dentro do texto (confirmado no app-ja: ele usa `v-html` pra renderizar
+// essas tags como quebra real) — sem isso, a letra ficaria como um único
+// parágrafo e o navegador quebraria a linha sozinho, de forma diferente da
+// quebra original pretendida pelo hino. Convertemos pra `\n` real (não
+// `innerHTML`/`v-html` — mais seguro, sem risco de injeção) e `white-space:
+// pre-line` no CSS (`.lyrics-line`/`.lyrics-aux`) respeita essas quebras.
+function normalizeLyricText(str) {
+  return (str || '').replace(/<br\s*\/?>/gi, '\n').trim();
+}
+
+async function buildLyricSlides(meta, timeField, resolveImage) {
+  let prevImage = meta.url_image ? await resolveImage(meta.url_image) : null;
+  let prevImagePosition = meta.image_position;
+
+  const cover = {
+    time: 0, text: null, auxText: null, cover: true,
+    imageOpfsPath: prevImage ? prevImage.opfsPath : null,
+    imagePosition: prevImagePosition,
+  };
+
+  const lines = Object.values(meta.lyric || {})
+    .filter((l) => l.show_slide === 1)
+    .sort((a, b) => a.order - b.order);
+
+  const slides = [cover];
+  for (const line of lines) {
+    const time = parseTimeToSeconds(line[timeField]);
+    if (time === null) continue;
+    if (line.url_image) {
+      const resolved = await resolveImage(line.url_image);
+      if (resolved) { prevImage = resolved; prevImagePosition = line.image_position; }
+    }
+    slides.push({
+      time,
+      text: normalizeLyricText(line.lyric),
+      auxText: line.aux_lyric ? normalizeLyricText(line.aux_lyric) : null,
+      cover: false,
+      imageOpfsPath: prevImage ? prevImage.opfsPath : null,
+      imagePosition: prevImagePosition,
+    });
+  }
+
+  if (slides.length <= 1) return null; // só a capa — nada de real pra sincronizar
+
+  slides.sort((a, b) => a.time - b.time);
+  return slides;
+}
+
+async function deleteCollection(coll) {
+  if (!(await appConfirm({ title: 'Excluir ' + coll.name, message: 'Excluir o que foi baixado de "' + coll.name + '" (áudios e capas) e a lista offline?', okText: 'Excluir' }))) return;
+  const recs = await AVDB.filesByFolder(coll.id);
+  await purgeCatalogRecords(recs);
+  await AVDB.opfsDeleteDir('folders/' + coll.id);
+  collState[coll.id] = { indexSyncedAt: 0, songs: [] };
+  await AVDB.setState('coll:' + coll.id, collState[coll.id]);
+  const u = ui(coll.id); u.bytes = 0;
+  if (currentFolder && currentFolder.id === coll.id) currentFolder = null;
+  load();
+}
+
+// ---- popup de busca ----
+const DIACRITICS_RE = new RegExp('[' + String.fromCharCode(0x0300) + '-' + String.fromCharCode(0x036f) + ']', 'g');
+function normalizeForSearch(s) {
+  return String(s || '').normalize('NFD').replace(DIACRITICS_RE, '').toLowerCase();
+}
+
+// Busca GLOBAL (botão de lupa): escopo null = varre todas as coleções.
+function openHymnSearch() {
+  searchScope = null;
+  hymnSearchTitleEl.textContent = 'Buscar no acervo';
+  hymnSearchInputEl.placeholder = 'Buscar por nome ou número…';
+  hymnSearchInputEl.value = '';
+  renderSearchResults('');
+  hymnSearchPopupEl.classList.add('open');
+  setTimeout(() => hymnSearchInputEl.focus(), 50);
+}
+// Lista de músicas de UMA coleção (botão "Ver músicas" do card): reaproveita o
+// mesmo popup/rows da busca, escopado a essa coleção (mostra tudo por padrão,
+// e o campo filtra dentro dela). Não auto-foca o campo (o operador está
+// navegando a lista, não necessariamente digitando — evita abrir o teclado
+// cobrindo os resultados).
+function openCollectionSongs(coll) {
+  searchScope = coll.id;
+  hymnSearchTitleEl.textContent = coll.name;
+  hymnSearchInputEl.placeholder = 'Filtrar músicas…';
+  hymnSearchInputEl.value = '';
+  renderSearchResults('');
+  hymnSearchPopupEl.classList.add('open');
+}
+function closeHymnSearch() {
+  hymnSearchPopupEl.classList.remove('open');
+  searchScope = null;
+}
+
+// Renderiza os resultados: escopo null = TODAS as coleções (busca global);
+// escopo = uma coleção (lista de músicas dela). Cada resultado carrega sua
+// coleção pra tocar/adicionar/baixar sob demanda.
+function renderSearchResults(query) {
+  const q = normalizeForSearch(query).trim();
+  const cols = searchScope ? allCollections().filter((c) => c.id === searchScope) : allCollections();
+  const matches = []; // { coll, song }
+  let totalIndexed = 0;
+  for (const coll of cols) {
+    const songs = collSongs(coll.id);
+    totalIndexed += songs.length;
+    for (const s of songs) {
+      if (q === '' || normalizeForSearch(s.name).includes(q) || String(s.track) === q) {
+        matches.push({ coll, song: s });
+      }
+    }
+  }
+  hymnSearchCountEl.textContent = String(matches.length);
+  hymnResultsEl.innerHTML = '';
+  if (totalIndexed === 0) {
+    hymnResultsEl.innerHTML = searchScope
+      ? '<li class="empty">Lista ainda não carregada.<br>Abra o app com internet ou sincronize esta coleção.</li>'
+      : '<li class="empty">Índice do acervo ainda não carregado.<br>Abra o app com internet uma vez para baixar a lista completa.</li>';
+    return;
+  }
+  if (matches.length === 0) {
+    hymnResultsEl.innerHTML = '<li class="empty">Nenhuma música encontrada.</li>';
+    return;
+  }
+  const LIMIT = 60;
+  matches.slice(0, LIMIT).forEach((m) => hymnResultsEl.appendChild(hymnResultRow(m.coll, m.song)));
+  if (matches.length > LIMIT) {
+    const li = document.createElement('li'); li.className = 'empty';
+    li.textContent = '+' + (matches.length - LIMIT) + ' resultado(s). Refine a busca.';
+    hymnResultsEl.appendChild(li);
+  }
+}
+
+// Thumb à ESQUERDA; à direita uma coluna com duas linhas — em cima a info
+// (nome + subtítulo), embaixo a linha de ações (só ícones). Cada variante
+// (Cantado/Playback) é um grupo [tocar][+ Cronograma][+ Playlist]; o botão de
+// tocar usa ícone de voz (Cantado) ou nota musical (Playback). Os botões
+// crescem (flex) pra preencher a largura disponível. Playback só se houver.
+function hymnResultRow(coll, s) {
+  const li = document.createElement('li');
+  li.className = 'lib-item hymn-result';
+
+  const row = document.createElement('div'); row.className = 'row hymn-row';
+  const thumb = document.createElement('div'); thumb.className = 'thumb thumb--icon';
+  thumb.appendChild(msym(ICON[coll.iconKey] || ICON.music));
+
+  const main = document.createElement('div'); main.className = 'hymn-main';
+  const info = document.createElement('div'); info.className = 'hymn-info';
+  const name = document.createElement('span'); name.className = 'row-name';
+  name.textContent = (s.track ? s.track + '. ' : '') + s.name;
+  // Subtítulo: na busca global mostra a coleção de origem (+ duração); escopado
+  // a uma coleção o título já identifica, então mostra só a duração.
+  const sub = document.createElement('span'); sub.className = 'hymn-sub';
+  sub.textContent = (searchScope ? '' : coll.name + (s.duration ? ' · ' : '')) + (s.duration || '');
+  info.append(name, sub);
+
+  const actions = document.createElement('div'); actions.className = 'hymn-actions';
+  actions.appendChild(hymnVariantEl(coll, s, 'full', 'Cantado'));
+  if (s.has_instrumental_music) actions.appendChild(hymnVariantEl(coll, s, 'playback', 'Playback'));
+
+  main.append(info, actions);
+  row.append(thumb, main);
+  li.appendChild(row);
+  return li;
+}
+
+function hymnVariantEl(coll, s, variant, label) {
+  const wrap = document.createElement('div'); wrap.className = 'hymn-variant'; wrap.dataset.variant = variant;
+  const playBtn = document.createElement('button'); playBtn.className = 'hymn-play'; playBtn.title = 'Tocar ' + label;
+  playBtn.innerHTML = variant === 'playback' ? noteIconSvg() : voiceIconSvg();
+  playBtn.addEventListener('click', () => playSongVariant(coll, s, variant));
+  const addBtn = document.createElement('button'); addBtn.className = 'hymn-add row-btn'; addBtn.title = 'Adicionar ' + label + ' ao Cronograma';
+  addBtn.appendChild(msym(ICON.plAdd));
+  addBtn.addEventListener('click', () => addSongVariant(coll, s, variant));
+  const plBtn = document.createElement('button'); plBtn.className = 'hymn-add row-btn'; plBtn.title = 'Adicionar ' + label + ' à playlist';
+  plBtn.appendChild(msym(ICON.queue));
+  plBtn.addEventListener('click', () => addSongToPlaylist(coll, s, variant));
+  wrap.append(playBtn, addBtn, plBtn);
+  return wrap;
+}
+
+// Verifica quais variantes de uma música ainda precisam ser baixadas: o
+// arquivo não existe no catálogo (nunca baixado ou apagado por fora) OU existe
+// mas ainda não tem a letra sincronizada (`lyrics === undefined` → backfill sem
+// rebaixar o áudio). Regra única usada pela sincronização em massa e pelo
+// download sob demanda.
+async function songVariantsNeeded(coll, s) {
+  const fullRec = s.fileIdFull ? await AVDB.fileGet(s.fileIdFull) : null;
+  const playbackRec = s.fileIdPlayback ? await AVDB.fileGet(s.fileIdPlayback) : null;
+  return {
+    needsFull: !fullRec || fullRec.lyrics === undefined,
+    needsPlayback: !!(s.has_instrumental_music && (!playbackRec || playbackRec.lyrics === undefined)),
+  };
+}
+
+// Baixa uma música sob demanda ("conforme o uso") — diferente da sincronização
+// em massa (gated por Wi-Fi), um download disparado por tocar/adicionar é
+// sempre permitido, mesmo em dados móveis: é exatamente a música que o operador
+// pediu pra usar, nunca o acervo inteiro de uma vez. Reaproveita
+// downloadCollectionSong — a música sai já com áudio, capa e letra, pronta pra
+// tocar 100% offline nas próximas vezes.
+async function ensureSongDownloaded(coll, s) {
+  const { needsFull, needsPlayback } = await songVariantsNeeded(coll, s);
+  if (!needsFull && !needsPlayback) return;
+
+  const key = coll.id + ':' + s.id_music;
+  if (songDownloadInFlight.has(key)) { await songDownloadInFlight.get(key); return; }
+  const p = (async () => {
+    flash('Baixando "' + s.name + '"…', true);
+    await downloadCollectionSong(coll, s);
+    await AVDB.setState('coll:' + coll.id, collState[coll.id]);
+    refreshCollectionsIfVisible();
+  })();
+  songDownloadInFlight.set(key, p);
+  try { await p; } finally { songDownloadInFlight.delete(key); }
+}
+
+async function resolveSongMediaId(coll, s, variant) {
+  await ensureSongDownloaded(coll, s);
+  const fileId = variant === 'full' ? s.fileIdFull : s.fileIdPlayback;
+  if (!fileId) return null;
+  const rec = await AVDB.fileGet(fileId);
+  return rec ? fileId : null;
+}
+
+async function playSongVariant(coll, s, variant) {
+  const id = await resolveSongMediaId(coll, s, variant);
+  if (!id) { flash('Não foi possível tocar (sem internet para baixar)'); return; }
+  const rec = await AVDB.getMedia(id);
+  if (!rec) { flash('Erro ao carregar mídia'); return; }
+  await AVDB.listSet('playlist', [id]);
+  plItems = [rec];
+  renderPlaylist();
+  closeHymnSearch();
+  dismissFlash();   // fecha o toast "Baixando…" sticky que ensureSongDownloaded pode ter deixado
+  send(id);
+}
+
+async function addSongVariant(coll, s, variant) {
+  const id = await resolveSongMediaId(coll, s, variant);
+  if (!id) { flash('Não foi possível adicionar (sem internet para baixar)'); return; }
+  const had = await AVDB.listHas('imports', id);
+  await AVDB.listAdd('imports', id);
+  flash(had ? 'Já no Cronograma' : 'Adicionado ao Cronograma');
+  if (activeTab === 'imports' && !currentFolder) load();
+}
+
+async function addSongToPlaylist(coll, s, variant) {
+  const id = await resolveSongMediaId(coll, s, variant);
+  if (!id) { flash('Não foi possível adicionar (sem internet para baixar)'); return; }
+  const had = await AVDB.listHas('playlist', id);
+  await AVDB.listAdd('playlist', id);
+  plItems = await AVDB.listItems('playlist');
+  renderPlaylist();
+  flash(had ? 'Já na playlist' : 'Adicionado à playlist');
+}
+
+// ===== transições (fade in/out) =====
+function openFadePopup() {
+  renderFitSeg();
+  fadePopupEl.classList.add('open');
+}
+function closeFadePopup() {
+  fadePopupEl.classList.remove('open');
+}
+
+function renderFitSeg() {
+  fitSegEl.querySelectorAll('.fit-opt').forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.fit === mediaFit);
+  });
+}
+async function applyFit(mode) {
+  mediaFit = mode;
+  renderFitSeg();
+  await AVDB.setState('fit', mediaFit);
+  cmd({ type: 'fit', fit: mediaFit });
+}
+
+// ===== URL / compartilhamento =====
+function extractYouTubeId(url) {
+  // Extrai apenas a parte http://... sem espaços ou texto extra
+  const cleanUrl = (url || '').match(/https?:\/\/\S+/);
+  if (!cleanUrl) return null;
+  try {
+    const u = new URL(cleanUrl[0]);
+    let id = null;
+    if (u.hostname === 'youtu.be') {
+      id = u.pathname.slice(1).split('/')[0];
+    } else if (u.hostname.includes('youtube.com')) {
+      // watch?v=ID e também /shorts/ID, /live/ID, /embed/ID, /v/ID
+      id = u.searchParams.get('v');
+      if (!id) {
+        const m = u.pathname.match(/^\/(?:shorts|live|embed|v)\/([^/?#]+)/);
+        if (m) id = m[1];
+      }
+    }
+    if (id) id = decodeURIComponent(id);
+    // Valida formato de ID do YouTube: exatamente 11 chars [A-Za-z0-9_-]
+    return (id && /^[A-Za-z0-9_-]{11}$/.test(id)) ? id : null;
+  } catch (_) {}
+  return null;
+}
+
+function detectUrlKind(url) {
+  if (extractYouTubeId(url)) return 'youtube';
+  const lower = url.toLowerCase().split('?')[0];
+  const ext = (lower.split('.').pop() || '');
+  const mime = MEDIA_MIME[ext];
+  // MEDIA_MIME só contém extensões de image/video/audio → kindFromType nunca
+  // devolve 'other' aqui; extensão desconhecida (sem mime) vira 'url'.
+  return mime ? AVDB.kindFromType(mime) : 'url';
+}
+
+async function handleSharedUrl(url, title) {
+  if (!url) return;
+  const ytId = extractYouTubeId(url);
+  if (ytId) {
+    await AVDB.addUrlMedia(url, {
+      kind: 'youtube',
+      type: 'video/youtube',
+      name: title || ('YouTube: ' + ytId),
+      thumb: 'https://img.youtube.com/vi/' + ytId + '/hqdefault.jpg',
+      youtubeId: ytId,
+    });
+    flash('YouTube adicionado');
+  } else {
+    const kind = detectUrlKind(url);
+    const fallbackName = url.split('/').pop().split('?')[0] || url;
+    await AVDB.addUrlMedia(url, {
+      kind,
+      type: kind + '/url',
+      name: title || fallbackName,
+      thumb: null,
+    });
+    flash('Link adicionado');
+  }
+}
+
+// Importa um share já normalizado. Aceita as DUAS formas de arquivo:
+//   - `File` (navegador: o SW gravou o POST multipart em pending-share);
+//   - `{ name, type, url }` (app nativo: a ponte entrega URL servível e os
+//     bytes vêm por fetch, nunca base64).
+// Daqui pra baixo o caminho é o mesmo dos arquivos importados à mão.
+async function importShare(pending) {
+  if (!pending) return false;
+  let added = false;
+
+  const files = pending.files || [];
+  let ok = 0;
+  for (const item of files) {
+    let blob = null;
+    let name = '';
+    if (item instanceof File) {
+      blob = item;
+      name = item.name;
+    } else if (item && item.url) {
+      try {
+        const res = await fetch(item.url);
+        if (!res.ok) continue;
+        blob = await res.blob();
+      } catch (_) { continue; }
+      name = item.name || 'arquivo';
+    } else {
+      continue;
+    }
+    // O tipo vem da extensão (mesma fonte usada na sincronização de pastas):
+    // provedores do Android costumam devolver MIME genérico.
+    const type = guessMediaType(name) || blob.type;
+    const kind = AVDB.kindFromType(type);
+    const thumb = await makeThumb(blob, kind);
+    await AVDB.addMedia(blob, { name: name.replace(/\.[^.]+$/, ''), type, kind, thumb });
+    ok++;
+  }
+  if (ok > 0) {
+    flash(ok + ' arquivo(s) adicionado(s)');
+    added = true;
+  }
+
+  if (pending.url) {
+    await handleSharedUrl(pending.url, pending.title);
+    added = true;
+  }
+  if (added) {
+    if (activeTab !== 'imports') activeTab = 'imports';
+    load();
+  }
+  return added;
+}
+
+async function checkPendingShare() {
+  // App nativo: o share chega por intent (AVNative.onShare), não pelo
+  // `pending-share` que o service worker gravava — o intent-filter entrega o
+  // conteúdo direto, sem depender de um POST interceptado.
+  if (window.__NATIVE__) {
+    AVNative.onShare((share) => { importShare(share); });
+    return;
+  }
+  const pending = await AVDB.getState('pending-share');
+  if (!pending) return;
+  await AVDB.setState('pending-share', null);
+  await importShare(pending);
+}
+
+// ===== feedback rápido =====
+// O sistema de alerta FLUTUANTE (toast) foi removido: as informações agora são
+// transmitidas pela própria interface de design (estados dos botões, contadores,
+// listas e — para a sincronização — o texto no card da coleção, ver
+// setCollStatus/renderCollectionCard). flash()/dismissFlash() viraram no-ops para
+// não precisar mexer em cada um dos ~25 pontos de chamada espalhados pelo
+// arquivo; qualquer mensagem que antes ia pro toast simplesmente não aparece
+// mais. Feedback relevante que precisa continuar visível foi migrado para a
+// própria UI no ponto de origem (ex: a sincronização do Hinário, abaixo).
+function flash() { /* no-op: alerta flutuante removido (ver comentário acima) */ }
+function dismissFlash() { /* no-op: alerta flutuante removido */ }
+
+// ===== Diálogo padrão do app (confirmações / prompts) =====
+// Modal no tema do app que substitui os confirm()/prompt() nativos em TODA
+// interação do tipo (excluir, renomear, avisos). Assíncrono: retorna uma
+// Promise — confirm → true/false; prompt → string (OK) ou null (cancelar).
+const appDialogEl = document.getElementById('appDialog');
+const appDialogTitleEl = document.getElementById('appDialogTitle');
+const appDialogMsgEl = document.getElementById('appDialogMsg');
+const appDialogInputEl = document.getElementById('appDialogInput');
+const appDialogOkEl = document.getElementById('appDialogOk');
+const appDialogCancelEl = document.getElementById('appDialogCancel');
+let appDialogResolve = null;
+
+function closeAppDialog(result) {
+  appDialogEl.classList.remove('open');
+  const r = appDialogResolve; appDialogResolve = null;
+  if (r) r(result);
+}
+function openAppDialog(opts) {
+  const { title, message, okText, cancelText, input, value, placeholder } = opts || {};
+  return new Promise((resolve) => {
+    // Se já houver um diálogo aberto, resolve o anterior como cancelado.
+    if (appDialogResolve) closeAppDialog(input ? null : false);
+    appDialogResolve = resolve;
+    appDialogTitleEl.textContent = title || '';
+    appDialogTitleEl.hidden = !title;
+    appDialogMsgEl.textContent = message || '';
+    appDialogMsgEl.hidden = !message;
+    appDialogOkEl.textContent = okText || 'OK';
+    appDialogCancelEl.textContent = cancelText || 'Cancelar';
+    if (input) {
+      appDialogInputEl.hidden = false;
+      appDialogInputEl.value = value || '';
+      appDialogInputEl.placeholder = placeholder || '';
+    } else {
+      appDialogInputEl.hidden = true;
+    }
+    appDialogEl.classList.add('open');
+    if (input) setTimeout(() => { appDialogInputEl.focus(); appDialogInputEl.select(); }, 60);
+  });
+}
+// confirm → resolve true (OK) / false (cancelar/fora/Esc)
+function appConfirm(opts) { return openAppDialog({ okText: 'Confirmar', cancelText: 'Cancelar', ...opts, input: false }); }
+// prompt → resolve o texto (OK) / null (cancelar/fora/Esc)
+function appPrompt(opts) { return openAppDialog({ okText: 'OK', cancelText: 'Cancelar', ...opts, input: true }); }
+
+appDialogOkEl.addEventListener('click', () => closeAppDialog(appDialogInputEl.hidden ? true : appDialogInputEl.value));
+appDialogCancelEl.addEventListener('click', () => closeAppDialog(appDialogInputEl.hidden ? false : null));
+appDialogEl.addEventListener('click', (e) => { if (e.target === appDialogEl) closeAppDialog(appDialogInputEl.hidden ? false : null); });
+appDialogInputEl.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); closeAppDialog(appDialogInputEl.value); }
+  else if (e.key === 'Escape') closeAppDialog(null);
+});
+
+// ===== popup de playlist =====
+function openPlPopup() {
+  renderPlaylist();
+  plPopupEl.classList.add('open');
+}
+function closePlPopup() {
+  plPopupEl.classList.remove('open');
+}
+
+// ===== eventos =====
+fileEl.addEventListener('change', async () => {
+  const files = Array.from(fileEl.files || []);
+  for (const file of files) {
+    const kind = AVDB.kindFromType(file.type);
+    const thumb = await makeThumb(file, kind);
+    await AVDB.addMedia(file, { name: file.name.replace(/\.[^.]+$/, ''), thumb });
+  }
+  fileEl.value = '';
+  if (activeTab !== 'imports') activeTab = 'imports';
+  load();
+});
+
+playPauseEl.addEventListener('click', () => {
+  // Texto manual em cena SEM áudio de fundo: play/pause não faz nada (navega-se
+  // pelos botões de slide). Com um áudio de fundo tocando (preview.getCurrent),
+  // o play/pause controla esse áudio — a projeção do texto é independente.
+  if (bibleSession && !preview.getCurrent()) return;
+  if (playing) { cmd({ type: 'pause' }); }
+  // YouTube sem player vivo no Display (fim natural ou stop manual) → recarrega
+  else if (ytEnded && currentItem && currentItem.kind === 'youtube' && currentId) { send(currentId); }
+  else if (preview.getCurrent()) { cmd({ type: 'play' }); }
+  else if (currentId) { send(currentId); } // após stop: recarrega e inicia do início
+});
+stopEl.addEventListener('click', stopClear);
+prevEl.addEventListener('click', () => step(-1));
+nextEl.addEventListener('click', () => step(1));
+slidePrevBtnEl.addEventListener('click', () => stepSlide(-1));
+slideNextBtnEl.addEventListener('click', () => stepSlide(1));
+repeatEl.addEventListener('click', cycleRepeat);
+
+
+seekEl.addEventListener('input', () => { curTimeEl.textContent = fmtTime(parseFloat(seekEl.value)); });
+seekEl.addEventListener('change', () => cmd({ type: 'seek', time: parseFloat(seekEl.value) }));
+
+viewToggleEl.addEventListener('click', () => setView(view === 'visual' ? 'wallpaper' : 'visual'));
+muteToggleEl.addEventListener('click', toggleMute);
+standaloneToggleEl.addEventListener('click', () => setStandalone(!standalone));
+lyricsBgToggleEl.addEventListener('click', () => setLyricsBg(lyricsBg === 'image' ? 'black' : 'image'));
+// Volume recolhível (estado só de UI, não persistido): abrir troca os botões
+// da lateral pelo fader com animação de entrada; fechar anima a saída do fader
+// antes de trazer os botões de volta (também animados). Ver as classes
+// vol-open/vol-closing/vol-revealing em controle.css.
+const VOL_ANIM = 190; // ms — casa com as durações das animações no CSS
+let volAnimTimer = null;
+function openVolume() {
+  clearTimeout(volAnimTimer);
+  mixerEl.classList.remove('vol-closing', 'vol-revealing');
+  mixerEl.classList.add('vol-open');
+}
+function closeVolume() {
+  if (!mixerEl.classList.contains('vol-open')) return;
+  clearTimeout(volAnimTimer);
+  mixerEl.classList.add('vol-closing');
+  volAnimTimer = setTimeout(() => {
+    mixerEl.classList.remove('vol-open', 'vol-closing');
+    mixerEl.classList.add('vol-revealing');
+    volAnimTimer = setTimeout(() => mixerEl.classList.remove('vol-revealing'), VOL_ANIM);
+  }, VOL_ANIM);
+}
+volToggleEl.addEventListener('click', openVolume);
+volCloseEl.addEventListener('click', closeVolume);
+
+// Se a largura mudar (ex: rotação), remede o título rolante.
+let titleResizeTimer = null;
+window.addEventListener('resize', () => {
+  clearTimeout(titleResizeTimer);
+  titleResizeTimer = setTimeout(applyTitleMarquee, 150);
+});
+
+// ===== Deslocamento com o teclado virtual =====
+// O meta viewport pede `interactive-widget=resizes-content` (index.html), o que
+// já faz o navegador encolher o layout quando o teclado abre — o app sobe
+// sozinho e nada fica escondido. Este handler é o FALLBACK para navegadores que
+// não honram esse hint: usa a VisualViewport API pra medir quanto o teclado
+// cobriu e escreve isso em `--kb` (usado por `body { height: calc(100svh - var(--kb)) }`
+// em controle.css). Quando o layout já é redimensionado pelo navegador (ou o
+// teclado está fechado), a conta dá ~0 e nada muda — os dois mecanismos convivem
+// sem brigar. Como o Controle roda sempre como PWA instalado no Android, a
+// VisualViewport API está disponível.
+(function keyboardShift() {
+  const vv = window.visualViewport;
+  if (!vv) return;
+  let raf = 0;
+  const apply = () => {
+    raf = 0;
+    // Altura coberta pelo teclado = o que sobra abaixo da viewport visual.
+    const kb = Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop));
+    document.documentElement.style.setProperty('--kb', kb + 'px');
+  };
+  const schedule = () => { if (!raf) raf = requestAnimationFrame(apply); };
+  vv.addEventListener('resize', schedule);
+  vv.addEventListener('scroll', schedule);
+  apply();
+})();
+
+let volSeeking = false;
+volSliderEl.addEventListener('pointerdown', () => { volSeeking = true; });
+volSliderEl.addEventListener('pointerup', () => { volSeeking = false; });
+volSliderEl.addEventListener('input', () => {
+  volume = parseFloat(volSliderEl.value) / 100;
+  if (volume > 0 && muted) { muted = false; cmd({ type: 'mute', muted }); }
+  cmd({ type: 'volume', volume });
+  renderControls();
+});
+volSliderEl.addEventListener('change', () => { volSeeking = false; persistCurrent(); });
+
+plBtnEl.addEventListener('click', openPlPopup);
+plPopupCloseEl.addEventListener('click', closePlPopup);
+plPopupEl.addEventListener('click', (e) => { if (e.target === plPopupEl) closePlPopup(); });
+
+// Ordem das abas (esquerda→direita) — define a DIREÇÃO do deslize na animação
+// de troca de aba (ir pra uma aba à direita desliza a lista entrando pela
+// direita, e vice-versa).
+const TAB_ORDER = ['imports', 'folders', 'albums', 'bible', 'messages'];
+const prefersReducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+// Anima a entrada da lista ao trocar de aba: leve deslize direcional + fade.
+// Usa a Web Animations API na PRÓPRIA `#library` — como o `load()` reconstrói o
+// conteúdo em poucos ms (leituras IDB em memória), animar já a partir de
+// opacity:0 esconde a troca e revela o conteúdo novo entrando. Sai cedo se o
+// usuário prefere menos movimento.
+function animateTabSwitch(dir) {
+  if (prefersReducedMotion || !libraryEl.animate) return;
+  libraryEl.animate(
+    [
+      { opacity: 0, transform: 'translateX(' + (dir * 22) + 'px)' },
+      { opacity: 1, transform: 'translateX(0)' },
+    ],
+    { duration: 220, easing: 'cubic-bezier(.22,.61,.36,1)' },
+  );
+}
+
+tabsEl.addEventListener('click', (e) => {
+  const tab = e.target.closest('.tab');
+  if (!tab || tab.dataset.tab === activeTab) return;
+  // Direção do deslize: +1 se a aba nova está à direita da atual, -1 se à esquerda.
+  const dir = TAB_ORDER.indexOf(tab.dataset.tab) > TAB_ORDER.indexOf(activeTab) ? 1 : -1;
+  // Mantém a posição: guarda o scroll da aba atual e NÃO reseta a pasta
+  // aberta — voltar para Pastas retorna exatamente onde estava.
+  rememberScroll();
+  activeTab = tab.dataset.tab;
+  if (selectionMode) exitSelection();
+  load();
+  animateTabSwitch(dir);
+  // Ao entrar na Bíblia: garante versões/livros e baixa a versão INTEIRA na
+  // 1ª vez (em segundo plano — ver ensureBibleVersionDownloaded).
+  if (activeTab === 'bible') enterBibleTab();
+});
+
+selCancelEl.addEventListener('click', exitSelection);
+selFolderEl.addEventListener('click', openFolderPicker);
+selDeleteEl.addEventListener('click', deleteSelected);
+selRenameEl.addEventListener('click', renameSelected);
+
+backBtnEl.addEventListener('click', navigateBack);
+addDirBtnEl.addEventListener('click', () => syncDeviceFolder());
+libSearchEl.addEventListener('input', () => { folderQuery = libSearchEl.value; renderLibrary(); });
+
+hymnSearchBtnEl.addEventListener('click', openHymnSearch);
+hymnSearchCloseEl.addEventListener('click', closeHymnSearch);
+bibleVerCloseEl.addEventListener('click', closeBibleVerPopup);
+bibleVerPopupEl.addEventListener('click', (e) => { if (e.target === bibleVerPopupEl) closeBibleVerPopup(); });
+hymnSearchPopupEl.addEventListener('click', (e) => { if (e.target === hymnSearchPopupEl) closeHymnSearch(); });
+hymnSearchInputEl.addEventListener('input', () => renderSearchResults(hymnSearchInputEl.value));
+
+// Mantém o indicador de Wi-Fi/dados móveis dos cards de coleção atualizado
+// em tempo real (o navegador dispara 'change' quando o tipo de conexão muda).
+(function () {
+  const conn = networkConnection();
+  if (conn && conn.addEventListener) conn.addEventListener('change', refreshCollectionsIfVisible);
+})();
+
+// Preview: FORA do fullscreen — toque simples coloca a PRÓPRIA preview em tela
+// cheia (landscape); pressionar longo (~500 ms) abre as configurações de
+// Exibição (fade/fit). A preview em tela cheia é a projeção direta pelo Controle
+// (espelha a tela cheia do celular, sem depender do Miracast de app isolado).
+//
+// DENTRO do fullscreen — a tela inteira vira uma superfície de CONTROLE POR
+// GESTOS INVISÍVEIS (nada é desenhado no telão), mapeados para as ações que já
+// existem. Mapa (posição + tipo de movimento distinguem cada gesto):
+//   • Volume        → ARRASTAR na vertical no terço DIREITO (cima = +, baixo = −)
+//   • Play/Pause    → TOQUE no terço central
+//   • Estrofe ± 1   → TOQUE no terço esquerdo (anterior) / direito (próxima)
+//   • Mídia ± 1     → DESLIZE horizontal: ← próxima, → anterior
+//   • Wallpaper on/off → DESLIZE para CIMA (terço esq/central)
+//   • Sair da tela cheia → DESLIZE para BAIXO (terço esq/central) — ou o gesto
+//                          de voltar do Android
+// A trava de paisagem (Screen Orientation API) só é permitida COM o elemento já
+// em fullscreen (padrão de player de vídeo); é destravada ao sair.
+(function setupPreviewGestures() {
+  const previewEl = document.getElementById('preview');
+  const isFs = () => document.fullscreenElement === previewEl;
+  let lpTimer = null, lpFired = false;
+  const clearLp = () => { clearTimeout(lpTimer); lpTimer = null; };
+
+  async function enterFullscreen() {
+    try {
+      if (previewEl.requestFullscreen) await previewEl.requestFullscreen();
+      else if (previewEl.webkitRequestFullscreen) previewEl.webkitRequestFullscreen();
+      try { await (screen.orientation && screen.orientation.lock && screen.orientation.lock('landscape')); } catch (_) {}
+    } catch (_) {}
+  }
+  function exitFullscreen() { try { if (document.exitFullscreen) document.exitFullscreen(); } catch (_) {} }
+  document.addEventListener('fullscreenchange', () => {
+    if (!document.fullscreenElement) { try { screen.orientation && screen.orientation.unlock && screen.orientation.unlock(); } catch (_) {} }
+  });
+
+  // volume (mesma lógica do fader #volSlider), reusável pelo gesto
+  function gSetVolume(v) {
+    volume = Math.max(0, Math.min(1, v));
+    if (volume > 0 && muted) { muted = false; cmd({ type: 'mute', muted }); }
+    cmd({ type: 'volume', volume });
+    volSliderEl.value = Math.round(volume * 100);
+    renderControls();
+  }
+
+  // ---- reconhecedor de gestos (só em fullscreen) ----
+  const TAP_MOVE = 14, SWIPE_MIN = 45, VOL_MIN = 12;
+  let sx = 0, sy = 0, third = 'center', volActive = false, volStart = 1;
+  function zoneOf(clientX) {
+    const r = previewEl.getBoundingClientRect();
+    const x = clientX - r.left, w = r.width || 1;
+    if (x < w / 3) return 'left';
+    if (x > 2 * w / 3) return 'right';
+    return 'center';
+  }
+
+  previewEl.addEventListener('pointerdown', (e) => {
+    if (isFs()) {
+      sx = e.clientX; sy = e.clientY; third = zoneOf(e.clientX);
+      volActive = false; volStart = volume;
+      try { previewEl.setPointerCapture(e.pointerId); } catch (_) {}
+      return;
+    }
+    lpFired = false; clearLp();
+    lpTimer = setTimeout(() => { if (!document.fullscreenElement) { lpFired = true; openFadePopup(); } }, 500);
+  });
+
+  previewEl.addEventListener('pointermove', (e) => {
+    if (!isFs()) { clearLp(); return; }
+    const dx = e.clientX - sx, dy = e.clientY - sy;
+    // volume: arrasto vertical no terço direito
+    if (third === 'right' && Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > VOL_MIN) {
+      volActive = true;
+      const h = previewEl.getBoundingClientRect().height || 1;
+      gSetVolume(volStart + (-dy / (h * 0.6))); // arrastar pra cima aumenta
+    }
+  });
+
+  previewEl.addEventListener('pointerup', (e) => {
+    if (isFs()) {
+      if (volActive) { persistCurrent(); return; }
+      const dx = e.clientX - sx, dy = e.clientY - sy;
+      const adx = Math.abs(dx), ady = Math.abs(dy);
+      // Ações acionam os BOTÕES existentes (.click()): reaproveitam os handlers
+      // e respeitam o `disabled` (ex.: estrofe ± vira no-op quando não há letra).
+      if (Math.max(adx, ady) < TAP_MOVE) {                        // TOQUE
+        if (third === 'left') slidePrevBtnEl.click();             // estrofe anterior
+        else if (third === 'right') slideNextBtnEl.click();       // próxima estrofe
+        else playPauseEl.click();                                 // centro → play/pause
+      } else if (adx > ady && adx > SWIPE_MIN) {                  // DESLIZE horizontal → mídia
+        if (dx < 0) nextEl.click(); else prevEl.click();          // ← próxima, → anterior
+      } else if (ady > adx && ady > SWIPE_MIN && third !== 'right') { // DESLIZE vertical (esq/centro)
+        if (dy < 0) viewToggleEl.click(); else exitFullscreen();  // ↑ wallpaper · ↓ sair
+      }
+      return;
+    }
+    clearLp();
+    if (!lpFired) enterFullscreen(); // fora do fullscreen: toque entra em tela cheia
+  });
+
+  previewEl.addEventListener('pointercancel', () => { clearLp(); volActive = false; });
+  previewEl.addEventListener('pointerleave', clearLp);
+})();
+fadePopupCloseEl.addEventListener('click', closeFadePopup);
+fadePopupEl.addEventListener('click', (e) => { if (e.target === fadePopupEl) closeFadePopup(); });
+fitSegEl.addEventListener('click', (e) => {
+  const btn = e.target.closest('.fit-opt');
+  if (btn) applyFit(btn.dataset.fit);
+});
+// Tenta abrir o PWA do Display instalado. Não há API web pra "lançar outro
+// app instalado" de forma garantida — isso depende do Android reconhecer a
+// URL como pertencente ao escopo do WebAPK do Display e oferecer abrir nele
+// em vez de uma aba do Chrome (comportamento varia por versão do Android/
+// Chrome; pode abrir uma aba comum como fallback).
+// No navegador, "Abrir Display" lança o outro PWA numa janela à parte.
+//
+// No app nativo isso não existe: o Display é uma `Presentation` que o shell
+// cria SOZINHO na TV assim que uma tela de apresentação aparece (e recria
+// quando o dongle cai e volta). Não há o que "abrir" — então o botão vira um
+// indicador do estado da conexão, atualizado ao vivo pela ponte.
+if (window.__NATIVE__) {
+  const renderDisplayStatus = (list) => {
+    const tv = (list && list[0]) || null;
+    openDisplayBtnEl.disabled = true;
+    openDisplayBtnEl.innerHTML = '';
+    const label = document.createElement('span');
+    label.textContent = tv
+      ? 'Telão conectado: ' + (tv.name || 'TV') + ' (' + tv.w + '×' + tv.h + ')'
+      : 'Nenhum telão conectado';
+    openDisplayBtnEl.appendChild(label);
+  };
+  AVNative.displays().then(renderDisplayStatus);
+  AVNative.onDisplayChange(renderDisplayStatus);
+} else {
+  openDisplayBtnEl.addEventListener('click', () => window.open('../display/', '_blank'));
+}
+
+
+folderPopupCloseEl.addEventListener('click', closeFolderPicker);
+folderPopupEl.addEventListener('click', (e) => { if (e.target === folderPopupEl) closeFolderPicker(); });
+
+newFolderInPickerBtnEl.addEventListener('click', async () => {
+  const name = await appPrompt({ title: 'Nova pasta', message: 'Nome da nova pasta:', okText: 'Criar', placeholder: 'Ex.: Louvores especiais' });
+  if (name && name.trim()) { await createFolder(name.trim()); renderFolderPicker(); }
+});
+
+let seeking = false;
+seekEl.addEventListener('pointerdown', () => { seeking = true; });
+seekEl.addEventListener('pointerup', () => { seeking = false; });
+
+// O Display (projeção real) é a FONTE DE SINCRONIZAÇÃO enquanto envia status
+// — dirige o play/pause, a barra de progresso, a letra sincronizada e o
+// avanço, e re-alinha a preview a ele. Se ele não existir/estiver
+// estrangulado ou fechado (nenhum status recente → displayActive() falso), a
+// PREVIEW local assume (previewTick/ytPreviewTick+onYtPreviewState). Isso
+// cobre os dois casos: Controle em primeiro plano com Display em segundo
+// (preview manda) e Controle minimizado com o Display tocando (Display
+// manda, e a preview se re-alinha a ele ao voltar). Vale tanto para YouTube
+// quanto para mídia comum (áudio/vídeo do stage.js) — dois decodificadores
+// independentes (Display e preview) divergem aos poucos sem essa correção
+// periódica, e a letra sincronizada acaba trocando de slide em momentos
+// diferentes nos dois lados.
+AVDB.onCommand((msg) => {
+  if (!msg) return;
+  if (msg.type === 'display-ready' && currentId && playing) {
+    AVDB.sendCommand({ type: 'load', mediaId: currentId, view, muted, volume });
+    return;
+  }
+  // Áudio bloqueado no Display (política de autoplay): avisa o OPERADOR —
+  // nada é exibido no telão; a recuperação automática roda no Display e o
+  // botão de mudo do mixer vira indicador/atalho para liberar.
+  if (msg.type === 'display-status' && typeof msg.audioBlocked === 'boolean'
+      && msg.audioBlocked !== displayAudioBlocked) {
+    displayAudioBlocked = msg.audioBlocked;
+    flash(displayAudioBlocked
+      ? 'Display sem áudio (navegador) — recuperando automaticamente…'
+      : 'Áudio do Display ativo');
+    renderControls();
+  }
+  if (!currentItem || msg.mediaId !== currentId) return;
+  const isYoutube = currentItem.kind === 'youtube';
+  const isTimedLocal = currentItem.kind === 'audio' || currentItem.kind === 'video';
+  if (!isYoutube && !isTimedLocal) return; // imagem/etc: sem noção de tempo, nada a sincronizar
+  if (msg.type === 'display-status') {
+    // Player morto/parado (fim natural ou stop manual): ignora qualquer
+    // display-status ainda em trânsito reportando o player antigo tocando —
+    // senão o ícone voltaria a "pause" e o ▶ (que deve recarregar) quebraria.
+    if (isYoutube && ytEnded) return;
+    displayStatusAt = Date.now();
+    lastDisplayTime = msg.currentTime || 0;
+    playing = !!msg.playing;
+    playPauseEl.querySelector('.msym').textContent = playing ? ICON.pause : ICON.play;
+    const dur = (typeof msg.duration === 'number' && isFinite(msg.duration)) ? msg.duration : 0;
+    seekEl.disabled = !(dur > 0);
+    durTimeEl.textContent = fmtTime(dur);
+    if (!seeking) {
+      seekEl.max = dur > 0 ? dur : 0;
+      seekEl.value = msg.currentTime || 0;
+      curTimeEl.textContent = fmtTime(msg.currentTime);
+    }
+    if (isYoutube) {
+      ytResyncPreviewToDisplay(playing, msg.currentTime);
+    } else {
+      updatePvLyricSlide(lastDisplayTime);
+      renderSlideNav();
+      resyncPreviewToDisplay(playing, msg.currentTime);
+    }
+  } else if (msg.type === 'media-ended') {
+    displayStatusAt = Date.now();
+    if (isYoutube) ytEnded = true;
+    playing = false;
+    autoAdvance();
+  }
+});
+
+// Auto-atualização: ao abrir e ao retomar do segundo plano, checa se há uma
+// versão nova publicada; quando o novo service worker assume o controle,
+// recarrega para exibir a versão nova. Recarregar o Controle não afeta a
+// projeção (o Display é um app à parte, que segue tocando).
+let swReg = null;
+// No app nativo NÃO há service worker: os assets vêm do APK (offline por
+// natureza) e o compartilhamento chega por intent, não pelo POST em
+// `share-target` que o SW interceptava.
+if (!window.__NATIVE__ && 'serviceWorker' in navigator) {
+  // Só recarrega numa ATUALIZAÇÃO (já havia um controller); a primeira
+  // instalação reivindica a página sem precisar recarregar.
+  const hadController = !!navigator.serviceWorker.controller;
+  let refreshing = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (refreshing || !hadController) return;
+    refreshing = true;
+    location.reload();
+  });
+  navigator.serviceWorker.register('sw.js').then((reg) => {
+    swReg = reg;
+    if (document.visibilityState === 'visible') reg.update().catch(() => {});
+  }).catch(() => {});
+}
+
+// Um ÚNICO handler ao retomar do 2º plano (antes eram dois listeners
+// separados): busca a versão nova do service worker E atualiza os índices
+// leves das coleções (índices dos hinários + catálogo de álbuns — só
+// metadados, sem áudio — barato pra rodar a cada retomada, mantém a busca e os
+// cards em dia).
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible') return;
+  if (swReg) swReg.update().catch(() => {});
+  autoRefreshCollections();
+});
+
+(async function init() {
+  await loadCollections();
+  await load();
+  // processa share pendente (Web Share Target via SW)
+  await checkPendingShare();
+  // Índices das coleções em segundo plano (fire-and-forget): não atrasa a
+  // abertura do app, só deixa a busca/os cards prontos assim que a resposta chegar.
+  autoRefreshCollections();
+  // Metadados da Bíblia (versões + livros) em segundo plano — baixados na 1ª
+  // vez e cacheados; deixa a aba Bíblia pronta pra baixar capítulos.
+  ensureBibleMeta(false);
+})();

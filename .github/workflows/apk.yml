@@ -1,0 +1,57 @@
+name: Build APK
+
+on:
+  push:
+    branches: [main, 'claude/**']
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # O runner ubuntu-latest já traz o Android SDK e o JDK — nenhuma
+      # infraestrutura externa é necessária para gerar o APK.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Permissão de execução do wrapper
+        run: chmod +x ./gradlew
+
+      - name: Build (debug)
+        run: ./gradlew --no-daemon assembleDebug
+
+      - name: Build (release, não assinado)
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: ./gradlew --no-daemon assembleRelease
+
+      - name: Renomear APK de debug
+        run: |
+          mkdir -p dist
+          cp app/build/outputs/apk/debug/app-debug.apk \
+             "dist/audio-visual-iasd-${GITHUB_SHA::7}.apk"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: audio-visual-iasd-apk
+          path: dist/*.apk
+          if-no-files-found: error
+
+      # Tag `v*` publica uma Release com link DIRETO para o .apk — instalar
+      # pelo artifact exigiria descompactar um .zip no celular.
+      - uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/v')
+        with:
+          files: dist/*.apk
+          generate_release_notes: true
