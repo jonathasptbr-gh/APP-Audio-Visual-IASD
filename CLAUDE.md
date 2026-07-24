@@ -217,3 +217,4 @@ Rodar local: `./gradlew assembleDebug` (exige Android SDK instalado).
 - **A cada atualização, incrementar a versão visual do Controle**
   (`#appVersion` em `assets/web/controle/index.html`) e o `versionCode`/
   `versionName` em `app/build.gradle.kts` quando o shell mudar.
+  **Versão atual: v4.79** (base web) · **shell 1.0** (`SHELL_VERSION` 1).

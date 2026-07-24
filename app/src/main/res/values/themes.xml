@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- Sem AppCompat: a UI inteira é o WebView. O tema só garante fundo
-         preto (o mesmo --bg do design system web) e ausência de action bar,
+         preto (o mesmo token `bg` do design system web) e sem action bar,
          para não haver "flash" claro entre o splash e a carga do WebView. -->
     <style name="Theme.AvIasd" parent="@android:style/Theme.Material.NoActionBar">
         <item name="android:windowBackground">@color/app_bg</item>
