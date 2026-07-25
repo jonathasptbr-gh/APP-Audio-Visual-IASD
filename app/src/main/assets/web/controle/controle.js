@@ -63,6 +63,8 @@ const libSearchEl = document.getElementById('libSearch');
 const fadePopupEl = document.getElementById('fadePopup');
 const fadePopupCloseEl = document.getElementById('fadePopupClose');
 const fitSegEl = document.getElementById('fitSeg');
+const wallFileEl = document.getElementById('wallFile');
+const wallResetEl = document.getElementById('wallReset');
 const folderPopupEl = document.getElementById('folderPopup');
 const folderPickerListEl = document.getElementById('folderPickerList');
 const folderPopupCloseEl = document.getElementById('folderPopupClose');
@@ -3632,6 +3634,65 @@ async function checkPendingShare() {
 function flash() { /* no-op: alerta flutuante removido (ver comentário acima) */ }
 function dismissFlash() { /* no-op: alerta flutuante removido */ }
 
+// ===== Wallpaper personalizado =====
+// A cortina do telão (e da preview) aceita uma imagem no lugar do gradiente
+// padrão. O blob mora no state `wallpaper`, compartilhado com o Display; o
+// comando `wallpaper` só avisa que mudou.
+let pvWallpaperUrl = null;
+
+async function applyPvWallpaper() {
+  let blob = null;
+  try { blob = await AVDB.getState('wallpaper'); } catch (_) { /* segue no padrão */ }
+  if (pvWallpaperUrl) { URL.revokeObjectURL(pvWallpaperUrl); pvWallpaperUrl = null; }
+  const brand = pvWallEl.querySelector('.pv-brand');
+  if (blob instanceof Blob) {
+    pvWallpaperUrl = URL.createObjectURL(blob);
+    pvWallEl.style.backgroundImage = 'url("' + pvWallpaperUrl + '")';
+    if (brand) brand.hidden = true;
+  } else {
+    pvWallEl.style.backgroundImage = '';
+    if (brand) brand.hidden = false;
+  }
+}
+
+// Reduz a imagem escolhida para caber num telão 1080p. O operador costuma
+// pegar uma foto do próprio celular (12 MP): guardar e decodificar isso a
+// cada abertura do Display seria desperdício puro — a cortina nunca passa da
+// resolução da TV.
+async function fitWallpaperImage(file) {
+  const MAX_W = 1920;
+  const MAX_H = 1080;
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((resolve, reject) => {
+      const im = new Image();
+      im.onload = () => resolve(im);
+      im.onerror = reject;
+      im.src = url;
+    });
+    const scale = Math.min(1, MAX_W / img.naturalWidth, MAX_H / img.naturalHeight);
+    if (scale >= 1) return file; // já cabe: guarda o original, sem recomprimir
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(img.naturalWidth * scale);
+    canvas.height = Math.round(img.naturalHeight * scale);
+    canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise((res) => canvas.toBlob(res, 'image/jpeg', 0.9));
+    return blob || file; // toBlob pode falhar em imagens enormes
+  } catch (_) {
+    return file; // formato exótico: guarda como veio
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+async function setWallpaper(file) {
+  const blob = file ? await fitWallpaperImage(file) : null;
+  await AVDB.setState('wallpaper', blob);
+  await applyPvWallpaper();
+  // O Display lê o mesmo state — o comando só avisa que mudou.
+  AVDB.sendCommand({ type: 'wallpaper' });
+}
+
 // ===== trabalho pesado com o app minimizado =====
 // No app nativo, minimizar faz o Android tratar o processo como descartável e
 // congelá-lo — e a sincronização (hinos, álbuns, Bíblia, pastas) morria no
@@ -3729,11 +3790,18 @@ function closePlPopup() {
 fileEl.addEventListener('change', async () => {
   const files = Array.from(fileEl.files || []);
   for (const file of files) {
-    const kind = AVDB.kindFromType(file.type);
+    // O tipo vem da EXTENSÃO, com o do arquivo como reserva: um seletor de
+    // documentos do Android pode entregar `application/octet-stream`, e aí a
+    // mídia entraria como 'other' — importada mas impossível de reproduzir.
+    // Mesma regra do share e da sincronização de pastas.
+    const type = guessMediaType(file.name) || file.type;
+    const kind = AVDB.kindFromType(type);
     const thumb = await makeThumb(file, kind);
-    await AVDB.addMedia(file, { name: file.name.replace(/\.[^.]+$/, ''), thumb });
+    await AVDB.addMedia(file, { name: file.name.replace(/\.[^.]+$/, ''), type, kind, thumb });
   }
   fileEl.value = '';
+  // Importar sempre cai no Cronograma (lista `imports`, via addMedia) — a aba
+  // acompanha para o operador ver o que acabou de entrar.
   if (activeTab !== 'imports') activeTab = 'imports';
   load();
 });
@@ -4006,6 +4074,13 @@ fitSegEl.addEventListener('click', (e) => {
   const btn = e.target.closest('.fit-opt');
   if (btn) applyFit(btn.dataset.fit);
 });
+// Wallpaper: escolher imagem / voltar ao padrão.
+wallFileEl.addEventListener('change', async () => {
+  const file = (wallFileEl.files || [])[0];
+  wallFileEl.value = '';
+  if (file) await setWallpaper(file);
+});
+wallResetEl.addEventListener('click', () => { setWallpaper(null); });
 // Tenta abrir o PWA do Display instalado. Não há API web pra "lançar outro
 // app instalado" de forma garantida — isso depende do Android reconhecer a
 // URL como pertencente ao escopo do WebAPK do Display e oferecer abrir nele
@@ -4150,6 +4225,8 @@ document.addEventListener('visibilitychange', () => {
 (async function init() {
   await loadCollections();
   await load();
+  // Wallpaper escolhido pelo operador (a preview espelha o telão).
+  await applyPvWallpaper();
   // processa share pendente (Web Share Target via SW)
   await checkPendingShare();
   // Índices das coleções em segundo plano (fire-and-forget): não atrasa a

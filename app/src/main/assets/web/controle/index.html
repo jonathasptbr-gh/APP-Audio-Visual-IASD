@@ -16,7 +16,7 @@
     <div class="list-header">
       <button id="backBtn" class="back-btn" hidden><span class="msym">&#xe5c4;</span></button>
       <span class="list-title" id="listTitle">Cronograma</span>
-      <span id="appVersion" class="app-version">Controle v4.83</span>
+      <span id="appVersion" class="app-version">Controle v4.84</span>
       <input id="libSearch" class="lib-search" type="search" placeholder="Buscar na pasta…" hidden>
       <button id="addDirBtn" class="add-dir-btn" hidden title="Sincronizar pasta do dispositivo"><span class="msym">&#xe2c8;</span></button>
     </div>
@@ -222,6 +222,17 @@
             <button type="button" class="fit-opt" data-fit="contain">Ajustar</button>
             <button type="button" class="fit-opt" data-fit="cover">Preencher</button>
             <button type="button" class="fit-opt" data-fit="fill">Esticar</button>
+          </div>
+        </div>
+        <!-- Wallpaper: a cortina que cobre o telão fora das mídias. Uma
+             imagem própria substitui o gradiente padrão (e a marca). -->
+        <div class="fade-row fade-row--fit">
+          <span>Wallpaper do telão</span>
+          <div class="fit-seg" id="wallSeg">
+            <label class="fit-opt" id="wallPick">Escolher imagem
+              <input id="wallFile" type="file" accept="image/*" hidden>
+            </label>
+            <button type="button" class="fit-opt" id="wallReset">Padrão</button>
           </div>
         </div>
       </div>

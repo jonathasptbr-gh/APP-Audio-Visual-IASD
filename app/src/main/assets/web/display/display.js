@@ -268,6 +268,30 @@ function restoreSceneAfterText() {
   updateLyricSlide(stage.getTime());
 }
 
+// ===== Wallpaper personalizado =====
+// A cortina do telão aceita uma imagem escolhida pelo operador no lugar do
+// gradiente padrão. A imagem vem do state `wallpaper` (blob), gravada pelo
+// Controle; o comando `wallpaper` só avisa que ela mudou — o Display lê do
+// IDB, que é compartilhado. Sem imagem, volta ao gradiente e à marca.
+let wallpaperUrl = null;
+
+async function applyWallpaper() {
+  let blob = null;
+  try { blob = await AVDB.getState('wallpaper'); } catch (_) { /* segue no padrão */ }
+  if (wallpaperUrl) { URL.revokeObjectURL(wallpaperUrl); wallpaperUrl = null; }
+  const brand = wallpaperEl.querySelector('.wallpaper-brand');
+  if (blob instanceof Blob) {
+    wallpaperUrl = URL.createObjectURL(blob);
+    wallpaperEl.style.backgroundImage = 'url("' + wallpaperUrl + '")';
+    // A marca é a identidade do fundo PADRÃO; sobre uma imagem própria ela
+    // só atrapalharia.
+    if (brand) brand.hidden = true;
+  } else {
+    wallpaperEl.style.backgroundImage = '';
+    if (brand) brand.hidden = false;
+  }
+}
+
 // ===== Áudio sem toque: recuperação automática =====
 // A política de autoplay dos navegadores pode bloquear som sem gesto do
 // usuário. Em vez de exigir um toque no telão, o vídeo começa mudo e o áudio
@@ -786,6 +810,8 @@ AVDB.onCommand(async (cmd) => {
   // 'text' mostra/atualiza o cartão; 'text-hide' encerra sem tocar na mídia.
   if (cmd.type === 'text') { showText(cmd); return; }
   if (cmd.type === 'text-hide') { hideText(); return; }
+  // Wallpaper trocado no Controle: a imagem já está no state compartilhado.
+  if (cmd.type === 'wallpaper') { applyWallpaper(); return; }
   // Enquanto o texto manual está em cena, ele é um OVERLAY independente:
   //  - 'view' liga/desliga a cortina do wallpaper por cima do texto;
   //  - transporte (play/pause/seek/volume/mute) segue pro stage — controla o
@@ -881,6 +907,8 @@ async function restore() {
   // igual ao fade acima.
   const fit = await AVDB.getState('fit');
   if (fit) stage.setFit(fit);
+  // Wallpaper escolhido pelo operador — preferência visual, igual às acima.
+  await applyWallpaper();
   // NÃO recarrega nem toca a última mídia sozinho: abrir o Display nunca
   // deve iniciar reprodução por conta própria — fica no wallpaper (ponto
   // inicial) até um comando explícito chegar. O Controle, ao receber

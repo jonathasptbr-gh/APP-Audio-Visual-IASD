@@ -63,6 +63,10 @@ html, body {
   align-items: center;
   justify-content: center;
   background: var(--wallpaper);
+  /* Wallpaper personalizado (imagem escolhida pelo operador) entra como
+     background-image inline — cobre a tela sem distorcer. */
+  background-size: cover;
+  background-position: center;
   z-index: 3;
 }
 

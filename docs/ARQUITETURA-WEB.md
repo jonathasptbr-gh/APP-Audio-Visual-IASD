@@ -212,6 +212,7 @@ O campo `kind` é derivado do `type` (ou definido pelo chamador para itens de UR
 | `fade` | legado — as transições visuais (fade in/out) viraram **inerentes ao sistema** (`fadeCfg` fixo `{in:true, out:true, time:0.6}` nos dois apps, não configurável); esta chave **não é mais lida nem gravada** (fica ignorada se existir de versões antigas). Fade em toda troca visual: mídia, cortina do wallpaper (view toggle), letra e texto bíblico |
 | `fit` | `'contain'` \| `'cover'` \| `'fill'` — preenchimento da mídia (ajustar/preencher/esticar) no Display e na preview |
 | `lyricsBg` | `'black'` (padrão) \| `'image'` — fundo atrás da letra sincronizada: preto ou as imagens dos slides |
+| `wallpaper` | `Blob` da imagem escolhida para a cortina do telão, ou ausente/`null` = gradiente padrão (ver "Wallpaper personalizado") |
 | `folders` | `[{ id, name }]` — pastas virtuais |
 | `folder_<id>` | array de IDs de mídia da pasta |
 | `messages` | `[{ id, text }]` — mensagens de texto puro da aba Mensagens (ver "Camada de Texto") |
@@ -296,6 +297,7 @@ Todos os comandos são objetos com um campo `type`.
 | `fade` | `fadeIn, fadeOut, time` | Atualiza ao vivo a configuração de transições do stage |
 | `fit` | `fit` (`'contain'`\|`'cover'`\|`'fill'`) | Atualiza ao vivo o preenchimento da mídia (ajustar/preencher/esticar) |
 | `lyricsbg` | `mode` (`'black'`\|`'image'`) | Atualiza ao vivo o fundo atrás da letra sincronizada (preto ou imagens dos slides) |
+| `wallpaper` | — | Avisa que a imagem do wallpaper mudou. **Sem payload**: o blob mora no state `wallpaper`, que os dois apps compartilham — o Display relê do IDB (ver "Wallpaper personalizado") |
 | `text` | `main, sub, mode, view` | Projeta/atualiza a **Camada de Texto** manual (Bíblia OU Mensagem — ver "Camada de Texto"). `main`=texto principal, `sub`=referência (dourada, abaixo; vazio nas mensagens), `mode`=`'verse'`\|`'message'`. Um novo `text` troca o conteúdo em cena; `view` só liga/desliga a cortina compartilhada. **Independente do áudio**: um `text` NÃO para a mídia do stage — o áudio segue tocando por baixo |
 | `text-hide` | — | Encerra a Camada de Texto (Bíblia/Mensagem) sem tocar na mídia de fundo |
 | `audio-retry` | — | Retentativa imediata de liberar o áudio bloqueado (botão de mudo do Controle no estado "sem áudio") |
@@ -680,6 +682,29 @@ vertical no terço direito nunca vira sair/wallpaper (é sempre volume). A confi
 de fade é persistida em `state.fade` e a de preenchimento em `state.fit`; ambas
 aplicadas ao vivo via comando (`fade`/`fit`, Display + preview) e recarregadas do
 state ao inicializar (Controle e Display).
+
+### Wallpaper personalizado
+
+A cortina do telão aceita uma **imagem escolhida pelo operador** no lugar do
+gradiente padrão — em "Exibição" (pressionar longo na preview): *Escolher
+imagem* / *Padrão*.
+
+- O blob mora no **state `wallpaper`**, que Controle e Display compartilham,
+  então o comando `wallpaper` **não carrega payload**: só avisa que mudou, e
+  cada lado relê do IDB. (Mandar a imagem pelo canal seria copiar megabytes a
+  cada troca, sem ganho nenhum.)
+- A imagem é **reduzida para no máximo 1920×1080** (`fitWallpaperImage`) antes
+  de ser guardada. O operador escolhe uma foto do próprio celular (12 MP);
+  guardar e decodificar isso a cada abertura seria desperdício puro — a
+  cortina nunca passa da resolução da TV. Imagens que já cabem são guardadas
+  como vieram, sem recompressão.
+- A **marca "Audio Visual IASD"** (`.wallpaper-brand`/`.pv-brand`) é ocultada
+  enquanto há imagem própria: ela é a identidade do fundo padrão e sobre uma
+  imagem escolhida só atrapalharia.
+- CSS: a imagem entra como `background-image` inline (vence o
+  `background: var(--wallpaper)` da folha) com `background-size: cover` —
+  limpar o inline devolve o gradiente. Aplicado em `restore()` (Display) e no
+  `init()` (Controle), além do comando ao vivo.
 
 **Botão ⏹ ("Parar e limpar"):** envia `clear` (volta ao wallpaper) mas mantém
 `currentId` — o ▶ recarrega e reproduz do início.
