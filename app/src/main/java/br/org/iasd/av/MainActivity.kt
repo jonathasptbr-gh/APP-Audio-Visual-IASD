@@ -410,7 +410,9 @@ class MainActivity : ComponentActivity(), BridgeHost {
             }
             // Nada de espelhamento neste aparelho: melhor abrir o seletor de
             // Cast (ou as Configurações) do que o botão não fazer nada.
-            for (action in listOf(Settings.ACTION_CAST_SETTINGS, Settings.ACTION_DISPLAY_SETTINGS, Settings.ACTION_SETTINGS)) {
+            // Sem nenhum alvo de espelhamento: a tela de Tela vem ANTES da de
+            // Cast — abrir o Google Cast é justamente o que não se quer aqui.
+            for (action in listOf(Settings.ACTION_DISPLAY_SETTINGS, Settings.ACTION_CAST_SETTINGS, Settings.ACTION_SETTINGS)) {
                 try {
                     startActivity(Intent(action).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
                     return@runOnUiThread
@@ -436,6 +438,9 @@ class MainActivity : ComponentActivity(), BridgeHost {
      * Primeiro alvo de espelhamento que existe neste aparelho e **não é** o
      * Google Cast. Devolve o intent e um rótulo legível, ou null.
      */
+    private fun shortComponent(pkg: String, cls: String): String =
+        if (cls.startsWith("$pkg.")) pkg + "/" + cls.removePrefix(pkg) else "$pkg/$cls"
+
     private fun pickCastIntent(): Pair<Intent, String>? {
         for (intent in castCandidates()) {
             val target = packageManager.resolveActivity(intent, 0)?.activityInfo ?: continue
@@ -443,30 +448,61 @@ class MainActivity : ComponentActivity(), BridgeHost {
             // impede a cadeia de "resolver" num seletor de Cast quando ainda há
             // um de espelhamento a tentar depois.
             if (target.packageName == GMS_PACKAGE) continue
-            return intent to castLabel(target.packageName)
+            // O componente entra no rótulo de propósito: os alvos variam por
+            // fabricante e não são documentados, então quando o botão abre a
+            // tela errada essa string é o que permite saber qual candidato
+            // pegou, sem depender de logcat.
+            return intent to (castLabel(target.packageName) + " (" + shortComponent(target.packageName, target.name) + ")")
         }
         return null
     }
 
     private fun castLabel(pkg: String): String = when {
-        pkg == SAMSUNG_MIRROR_PACKAGE -> "Smart View"
+        pkg.startsWith("com.samsung.android.smartmirroring") -> "Smart View"
         pkg.startsWith("com.samsung") -> "Espelhamento (Samsung)"
         pkg.startsWith("com.android.settings") -> "Espelhamento (Configurações)"
         else -> pkg
     }
 
-    /** Alvos de espelhamento, do mais específico ao mais genérico. */
-    private fun castCandidates(): List<Intent> = listOf(
-        // Samsung Smart View — o popup que o operador conhece. Componente
-        // explícito: o nome da activity não é documentado, então se estiver
-        // errado (ou não exportado) o resolveActivity simplesmente falha e a
-        // cadeia segue, sem quebrar nada.
-        Intent().setClassName(SAMSUNG_MIRROR_PACKAGE, "$SAMSUNG_MIRROR_PACKAGE.CastDialog"),
-        Intent("com.samsung.wfd.LAUNCH_WFD_PICKER"),
+    /**
+     * Alvos de espelhamento, do mais específico ao mais genérico.
+     *
+     * Para o Smart View da Samsung o nome da activity **não é adivinhado**: o
+     * `PackageManager` é consultado sobre quais activities o pacote expõe
+     * (`GET_ACTIVITIES`) e as exportadas entram na fila. Adivinhar o nome era
+     * frágil — um palpite errado simplesmente não resolvia, a cadeia caía no
+     * fallback e o botão abria o Google Cast, que é o oposto do pedido.
+     *
+     * Os nomes de pacote e as ações abaixo não são API documentada; nada aqui
+     * quebra se não existirem (resolveActivity devolve null / startActivity
+     * lança, e a cadeia segue).
+     */
+    private fun castCandidates(): List<Intent> {
+        val out = mutableListOf<Intent>()
+        for (pkg in SAMSUNG_MIRROR_PACKAGES) {
+            for (cls in exportedActivities(pkg)) {
+                out.add(Intent().setClassName(pkg, cls))
+            }
+        }
+        out.add(Intent("com.samsung.wfd.LAUNCH_WFD_PICKER"))
         // AOSP: a tela de "Wireless display / Transmitir tela". Ação legada,
-        // ainda declarada pelo app de Configurações em muitos aparelhos.
-        Intent("android.settings.WIFI_DISPLAY_SETTINGS"),
-    )
+        // ainda declarada pelo app de Configurações em muitos aparelhos — e a
+        // que NÃO é reivindicada pelo Play Services (ao contrário de
+        // CAST_SETTINGS, que na Samsung testada abre o Google Cast).
+        out.add(Intent("android.settings.WIFI_DISPLAY_SETTINGS"))
+        return out
+    }
+
+    /** Activities EXPORTADAS de um pacote, ou vazio se ele não existir. */
+    private fun exportedActivities(pkg: String): List<String> = try {
+        @Suppress("DEPRECATION")
+        packageManager.getPackageInfo(pkg, PackageManager.GET_ACTIVITIES)
+            .activities.orEmpty()
+            .filter { it.exported }
+            .map { it.name }
+    } catch (_: Exception) {
+        emptyList()
+    }
 
     override fun setCaptureVolumeKeys(on: Boolean) {
         runOnUiThread { captureVolumeKeys = on }
@@ -573,6 +609,10 @@ class MainActivity : ComponentActivity(), BridgeHost {
     companion object {
         private const val TAG = "AvIasd"
         private const val GMS_PACKAGE = "com.google.android.gms"
-        private const val SAMSUNG_MIRROR_PACKAGE = "com.samsung.android.smartmirroring"
+        /** Pacotes do Smart View conhecidos (varia por versão do One UI). */
+        private val SAMSUNG_MIRROR_PACKAGES = listOf(
+            "com.samsung.android.smartmirroring",
+            "com.samsung.android.app.smartmirroring",
+        )
     }
 }

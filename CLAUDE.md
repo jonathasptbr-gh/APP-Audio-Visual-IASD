@@ -151,7 +151,7 @@ Além disso, `native.js` publica três globais lidas direto (sem Promise):
 APK, que é o **índice de versão do shell exibido ao operador**. Ele não se
 confunde com `__SHELL_VERSION__`: base web e shell atualizam por caminhos
 independentes (OTA × instalar APK), então o cabeçalho do Cronograma mostra os
-dois (`Web v4.93 · Shell v1.9`). Num shell antigo (sem `appVersion()`) a
+dois (`Web v4.94 · Shell v1.10`). Num shell antigo (sem `appVersion()`) a
 string vem vazia e a UI cai em só a versão web — mesma degradação do navegador.
 
 **Princípio: a ponte entrega URLs SERVÍVEIS, não bytes.** Arquivos do
@@ -328,20 +328,32 @@ resolve para o Play Services** (`com.google.android.gms`) — é esse filtro, e
 não só a ordem, que impede a cadeia de terminar no seletor de Cast enquanto
 ainda há espelhamento a tentar:
 
-1. `com.samsung.android.smartmirroring/.CastDialog` (componente explícito)
+1. **as activities exportadas do Smart View** — `com.samsung.android.
+   smartmirroring` e `com.samsung.android.app.smartmirroring`
 2. `com.samsung.wfd.LAUNCH_WFD_PICKER`
-3. `android.settings.WIFI_DISPLAY_SETTINGS` (AOSP, ação legada)
+3. `android.settings.WIFI_DISPLAY_SETTINGS` (AOSP, ação legada — e a que **não**
+   é reivindicada pelo Play Services, ao contrário de `CAST_SETTINGS`)
 
-**Nenhum desses três é API documentada.** Se um não existir (ou não for
+Para o Smart View o nome da activity **não é adivinhado**: `exportedActivities()`
+pergunta ao `PackageManager` quais o pacote expõe (`GET_ACTIVITIES`) e enfileira
+as exportadas. A primeira tentativa usava um nome chutado (`.CastDialog`) — um
+palpite errado simplesmente não resolve, a cadeia cai no fallback e o botão abre
+o Google Cast, que é o oposto do pedido. Perguntar ao sistema elimina o chute.
+
+**Nada disso é API documentada.** Se um alvo não existir (ou não for
 exportado), `resolveActivity` devolve null / `startActivity` lança, e a cadeia
 segue sem quebrar nada. Por isso `resolveActivity` precisa enxergá-los: daí o
 bloco `<queries>` no `AndroidManifest.xml` (visibilidade de pacotes do Android
 11+) — sem ele tudo resolveria para null e a cadeia cairia direto no fallback.
+E o fallback abre a tela de **Tela** antes da de **Cast**, justamente porque o
+Google Cast é o que não se quer aqui.
 
 Como isso é território de fabricante, `describeCastTarget()` devolve o rótulo
-do alvo escolhido e o **popup de Exibição mostra "Espelhar abre: …"**. O
-operador vê o que o aparelho ofereceu antes de tocar, em vez de descobrir na
-hora — e quem for depurar não precisa de logcat.
+do alvo escolhido **com o componente real** (ex.: `Smart View
+(com.samsung.android.smartmirroring/.CastDialog)`) e o **popup de Exibição
+mostra "Espelhar abre: …"**. O operador vê o que o aparelho ofereceu antes de
+tocar — e, quando o botão abre a tela errada, essa string é o que diz qual
+candidato pegou, sem depender de logcat.
 
 ### Andaimes do modelo de dois PWAs, removidos
 
@@ -420,4 +432,4 @@ Rodar local: `./gradlew assembleDebug` (exige Android SDK instalado).
   (`#appVersion` em `assets/web/controle/index.html`) **e `version` em
   `assets/web/version.json`** — é este último que faz a atualização chegar
   aos aparelhos por OTA. O `versionCode`/`versionName` do APK vêm do CI.
-  **Versão atual: v4.93** (base web) · **shell 1.9** (`SHELL_VERSION` 7).
+  **Versão atual: v4.94** (base web) · **shell 1.10** (`SHELL_VERSION` 7).

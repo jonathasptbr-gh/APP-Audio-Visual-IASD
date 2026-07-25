@@ -203,7 +203,11 @@ body {
 .pv-fab:active { transform: var(--press); }
 .pv-fab--tl { top: 5px; left: 5px; }
 .pv-fab--tr { top: 5px; right: 5px; }
+.pv-fab--bl { bottom: 5px; left: 5px; }
 .pv-fab--br { bottom: 5px; right: 5px; }
+/* Mensagem no ar: o mesmo botão vira o X de desligar, em vermelho para não
+   se confundir com "abrir a lista". */
+.pv-fab.live { background: var(--danger); border-color: var(--danger); color: #fff; }
 /* Em tela cheia a preview É a projeção (quando não há TV conectada): nada de
    UI por cima, ou o botão iria junto para o telão. */
 .preview:fullscreen .pv-fabs,
@@ -541,19 +545,22 @@ main {
 .tab .msym { font-size: 22px; }
 .tab.active { color: var(--text); border-bottom-color: var(--accent); }
 
-/* Importar arquivos: fim da lista do Cronograma, não mais na faixa de abas —
-   é uma ação sobre ESTA lista, e no fim dela (onde os arquivos vão cair) a
-   relação fica evidente. Tracejado para se ler como "espaço a preencher", não
-   como mais um item da lista. */
-.import-row { flex-shrink: 0; }
+/* Fim da lista do Cronograma: "Importar arquivos" e "Pastas" lado a lado — as
+   duas respondem à mesma pergunta ("de onde vem a mídia?") e ficam onde o
+   resultado delas aparece. Tracejado para se lerem como "espaço a preencher",
+   não como mais um item da lista.
+   A margem de cima separa da última mídia: sem ela o botão encostava na lista
+   e parecia mais um item dela. */
+.import-row { flex-shrink: 0; display: flex; gap: .5rem; margin-top: .85rem; }
 .import-btn {
-  width: 100%; padding: .75rem;
+  flex: 1; min-width: 0; padding: .75rem .5rem;
   background: transparent; border: 1px dashed rgba(47, 129, 247, .5);
   border-radius: var(--radius-card); color: var(--accent); font-size: .9rem;
   display: flex; align-items: center; justify-content: center; gap: .45rem;
   cursor: pointer;
 }
-.import-btn svg { display: block; }
+.import-btn svg { display: block; flex-shrink: 0; }
+.import-btn span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .import-btn:active { transform: var(--press); }
 
 /* Buscar no acervo (único .tab-add que restou — o de importar desceu para o
@@ -664,6 +671,10 @@ main {
 /* Único botão da linha: a engrenagem das opções. */
 .coll-bar-btn { width: 34px; height: 34px; flex-shrink: 0; }
 .hymnal-card-btn.cfg-btn { background: var(--surface); color: var(--muted); }
+
+/* Conteúdo do bottom-sheet de mensagens. */
+.msg-opts { display: flex; flex-direction: column; gap: .5rem; padding: .2rem .9rem .9rem; }
+.msg-opts .empty { padding: 1rem 0; }
 
 /* Conteúdo do bottom-sheet de opções da coleção. */
 .coll-opts { display: flex; flex-direction: column; gap: .6rem; padding: .2rem .9rem .9rem; }
@@ -847,7 +858,9 @@ main {
 .bible-read-foot .bible-ver-btn { align-self: auto; }
 
 /* ---------- Mensagens (texto puro) ---------- */
-.msg-wrap { display: flex; flex-direction: column; gap: .5rem; padding-bottom: .6rem; }
+/* Vivem num bottom-sheet aberto pelo botão flutuante da preview (`.msg-opts`),
+   não numa aba: um aviso de texto é uma interrupção rápida, não uma seção da
+   biblioteca que se navega. */
 .msg-add-btn {
   align-self: stretch; border: 1px dashed var(--line); background: var(--surface); color: var(--accent);
   border-radius: var(--radius-card); padding: .7rem; font-size: .9rem; font-weight: 700;

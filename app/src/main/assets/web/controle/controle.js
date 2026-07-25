@@ -59,7 +59,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '4.93';
+const WEB_VERSION = '4.94';
 
 function renderVersionLabel() {
   // __SHELL_NAME__ = versionName do APK (ver native.js). Vazio no navegador e
@@ -102,6 +102,10 @@ const collPopupEl = document.getElementById('collPopup');
 const collPopupTitleEl = document.getElementById('collPopupTitle');
 const collOptsEl = document.getElementById('collOpts');
 const collPopupCloseEl = document.getElementById('collPopupClose');
+const msgPopupEl = document.getElementById('msgPopup');
+const msgOptsEl = document.getElementById('msgOpts');
+const msgPopupCloseEl = document.getElementById('msgPopupClose');
+const pvMsgBtnEl = document.getElementById('pvMsgBtn');
 const hymnSearchCountEl = document.getElementById('hymnSearchCount');
 const hymnSearchTitleEl = document.getElementById('hymnSearchTitle');
 const bibleVerPopupEl = document.getElementById('bibleVerPopup');
@@ -1228,18 +1232,17 @@ function applyTitleMarquee() {
 }
 
 function renderTabs() {
-  tabsEl.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === activeTab));
+  // Pastas não tem aba própria: é uma sub-tela do Cronograma (entra-se pelo
+  // botão no fim da lista, e o voltar retorna pra lá). Manter o Cronograma
+  // aceso enquanto se está nela evita uma faixa de abas sem nada marcado.
+  const shown = activeTab === 'folders' ? 'imports' : activeTab;
+  tabsEl.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === shown));
 }
 
 function renderListTitle() {
   // Indicador de versão: só ao lado do título da aba Cronograma.
   appVersionEl.hidden = activeTab !== 'imports';
   if (!appVersionEl.hidden) renderVersionLabel();
-  if (activeTab === 'messages') {
-    backBtnEl.hidden = true; addDirBtnEl.hidden = true; libSearchEl.hidden = true; libSearchEl.value = '';
-    listTitleEl.hidden = false; listTitleEl.textContent = 'Mensagens';
-    return;
-  }
   if (activeTab === 'bible') {
     backBtnEl.hidden = bibleScreen === 'books';
     addDirBtnEl.hidden = true;
@@ -1250,7 +1253,9 @@ function renderListTitle() {
   }
   const inFolder = activeTab === 'folders' && currentFolder !== null;
   const inOpfs = inFolder && currentFolder._opfs;
-  backBtnEl.hidden = !inFolder;
+  // Pastas não tem aba (chega-se a ela pelo botão no fim do Cronograma), então
+  // o voltar precisa estar disponível já na raiz — é a única saída de lá.
+  backBtnEl.hidden = !(inFolder || activeTab === 'folders');
   addDirBtnEl.hidden = !(activeTab === 'folders' && !inFolder);
   libSearchEl.hidden = !inOpfs;
   libSearchEl.value = inOpfs ? folderQuery : '';
@@ -1999,7 +2004,7 @@ function clearMsgSession() {
   msgSession = null;
   renderSlideNav();
   renderNowPlaying();
-  if (activeTab === 'messages') renderLibrary();
+  renderMsgFab(); refreshMsgPopup();
 }
 // Encerra QUALQUER texto manual em cena (Bíblia ou Mensagem) — só um por vez.
 function clearManualText() { clearBibleSession(); clearMsgSession(); }
@@ -2016,14 +2021,36 @@ function projectMessage(idx) {
   renderControls();
   renderNowPlaying();
   renderSlideNav();
-  if (activeTab === 'messages') { const sp = libraryEl.scrollTop; renderLibrary(); libraryEl.scrollTop = sp; }
+  renderMsgFab(); refreshMsgPopup();
 }
 
-// Passa/volta entre mensagens salvas (reusa os botões de slide).
+// Tira a mensagem do telão mantendo a sessão viva (o operador pode reexibir
+// pela lista). Espelha hideBibleVerse: `text-hide` encerra só a Camada de
+// Texto — um áudio de fundo, se houver, segue tocando.
+function hideMessage() {
+  if (!msgProjecting()) return;
+  msgSession.projecting = false;
+  cmd({ type: 'text-hide' });
+  renderControls();
+  renderNowPlaying();
+  renderSlideNav();
+  renderMsgFab();
+  refreshMsgPopup();
+}
+
+// Passa/volta entre mensagens salvas (reusa os botões de slide). Com a
+// mensagem fora do ar (o operador tocou no X), passar só MOVE a seleção — não
+// traz de volta o que ele acabou de tirar. Mesma regra da Bíblia (bibleSetIdx).
 function msgStep(delta) {
   if (!msgSession) return;
   const t = Math.min(Math.max(msgSession.idx + delta, 0), messages.length - 1);
   if (t === msgSession.idx) return;
+  if (!msgProjecting()) {
+    msgSession.idx = t;
+    renderSlideNav();
+    refreshMsgPopup();
+    return;
+  }
   projectMessage(t);
 }
 
@@ -2034,7 +2061,7 @@ async function addMessage() {
   if (!text || !text.trim()) return;
   messages.push({ id: uid(), text: text.trim() });
   await saveMessages();
-  renderLibrary();
+  refreshMsgPopup();
 }
 
 async function deleteMessage(id) {
@@ -2043,32 +2070,64 @@ async function deleteMessage(id) {
   if (msgSession && msgSession.idx === i) clearManualText();
   messages.splice(i, 1);
   await saveMessages();
-  renderLibrary();
+  refreshMsgPopup();
 }
 
-function renderMessages() {
-  const wrap = document.createElement('div'); wrap.className = 'msg-wrap';
+// ===== Mensagens: botão flutuante na preview + popup =====
+// Deixou de ser uma aba: um aviso de texto é uma interrupção rápida ("bem-vindos",
+// "desliguem o celular"), não uma seção da biblioteca que se navega. Vive como
+// um botão sobre a preview, no canto inferior esquerdo.
+//
+// O MESMO botão faz as duas coisas, conforme o estado: sem mensagem no ar, abre
+// a lista; com uma mensagem projetada, vira um **X que a tira da tela**. É a
+// ação que o operador quer ter à mão nesse momento — e evita ter que reabrir o
+// popup só para desligar o que já está exibido.
+function msgProjecting() { return !!(msgSession && msgSession.projecting); }
+
+const MSG_ICON_SVG = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor"'
+  + ' stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+  + '<path d="M4 5.5A1.5 1.5 0 0 1 5.5 4h13A1.5 1.5 0 0 1 20 5.5v9A1.5 1.5 0 0 1 18.5 16H9l-4 4z"/>'
+  + '<line x1="8" y1="9" x2="16" y2="9"/><line x1="8" y1="12.5" x2="13" y2="12.5"/></svg>';
+const MSG_CLOSE_SVG = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor"'
+  + ' stroke-width="2.2" stroke-linecap="round" aria-hidden="true">'
+  + '<line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>';
+
+function renderMsgFab() {
+  const live = msgProjecting();
+  pvMsgBtnEl.innerHTML = live ? MSG_CLOSE_SVG : MSG_ICON_SVG;
+  pvMsgBtnEl.classList.toggle('live', live);
+  pvMsgBtnEl.title = live ? 'Tirar a mensagem da tela' : 'Mensagem na tela';
+}
+
+function openMsgPopup() { renderMsgList(); msgPopupEl.classList.add('open'); }
+function closeMsgPopup() { msgPopupEl.classList.remove('open'); }
+function refreshMsgPopup() { if (msgPopupEl.classList.contains('open')) renderMsgList(); }
+
+function renderMsgList() {
+  msgOptsEl.innerHTML = '';
   const addBtn = document.createElement('button'); addBtn.type = 'button'; addBtn.className = 'msg-add-btn';
   addBtn.textContent = '+ Nova mensagem';
   addBtn.addEventListener('click', addMessage);
-  wrap.appendChild(addBtn);
+  msgOptsEl.appendChild(addBtn);
   if (!messages.length) {
     const empty = document.createElement('div'); empty.className = 'empty';
     empty.textContent = 'Nenhuma mensagem. Toque em "Nova mensagem" para criar.';
-    wrap.appendChild(empty);
+    msgOptsEl.appendChild(empty);
+    return;
   }
   messages.forEach((m, i) => {
     const active = msgSession && msgSession.projecting && msgSession.idx === i;
     const row = document.createElement('div'); row.className = 'msg-item' + (active ? ' active' : '');
     const txt = document.createElement('div'); txt.className = 'msg-text'; txt.textContent = m.text;
-    txt.addEventListener('click', () => projectMessage(i));
+    // Projetar fecha o popup: a mensagem já está no ar, e o que o operador
+    // quer ver agora é a preview (e o botão, que virou o X de desligar).
+    txt.addEventListener('click', () => { projectMessage(i); closeMsgPopup(); });
     const del = document.createElement('button'); del.type = 'button'; del.className = 'row-btn';
     del.appendChild(msym(ICON.del));
     del.addEventListener('click', (e) => { e.stopPropagation(); deleteMessage(m.id); });
     row.append(txt, del);
-    wrap.appendChild(row);
+    msgOptsEl.appendChild(row);
   });
-  libraryEl.appendChild(wrap);
 }
 
 function renderLibrary() {
@@ -2084,11 +2143,6 @@ function renderLibrary() {
 
   if (activeTab === 'bible') {
     renderBible();
-    return;
-  }
-
-  if (activeTab === 'messages') {
-    renderMessages();
     return;
   }
 
@@ -2180,6 +2234,7 @@ function appendImportRow() {
   if (activeTab !== 'imports' || currentFolder || selectionMode) return;
   const li = document.createElement('li');
   li.className = 'import-row';
+
   const label = document.createElement('label');
   label.className = 'import-btn';
   label.title = 'Importar arquivos';
@@ -2193,7 +2248,23 @@ function appendImportRow() {
   txt.textContent = 'Importar arquivos';
   label.appendChild(txt);
   label.appendChild(fileEl); // o MESMO input de sempre, só reposicionado
-  li.appendChild(label);
+
+  // Pastas do dispositivo saiu da faixa de abas e virou o par de "Importar":
+  // as duas são a mesma pergunta — "de onde vem a mídia?" —, e ficam lado a
+  // lado no fim do Cronograma, que é onde o resultado das duas aparece.
+  const folders = document.createElement('button');
+  folders.type = 'button';
+  folders.className = 'import-btn';
+  folders.title = 'Pastas do dispositivo';
+  folders.innerHTML = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor"'
+    + ' stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+    + '<path d="M3 7.5A1.5 1.5 0 0 1 4.5 6h4l2 2.5h7A1.5 1.5 0 0 1 19 10v7.5a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 3 17.5z"/></svg>';
+  const ftxt = document.createElement('span');
+  ftxt.textContent = 'Pastas';
+  folders.appendChild(ftxt);
+  folders.addEventListener('click', () => switchTab('folders'));
+
+  li.append(label, folders);
   libraryEl.appendChild(li);
 }
 
@@ -2973,6 +3044,9 @@ function navigateBack() {
     else if (bibleScreen === 'chapters') gotoBibleScreen('books');
     return;
   }
+  // Na raiz de Pastas o voltar sai da tela (de volta ao Cronograma); dentro de
+  // uma pasta, sobe um nível primeiro.
+  if (activeTab === 'folders' && currentFolder === null) { switchTab('imports'); return; }
   rememberScroll();
   currentFolder = null;
   folderQuery = '';
@@ -4331,6 +4405,14 @@ if (window.__NATIVE__) {
   AVNative.captureVolumeKeys(true);
 }
 
+// O botão flutuante de mensagem é dois botões num só (ver renderMsgFab):
+// com mensagem no ar, tira-a da tela; sem, abre a lista.
+pvMsgBtnEl.addEventListener('click', () => {
+  if (msgProjecting()) hideMessage(); else openMsgPopup();
+});
+msgPopupCloseEl.addEventListener('click', closeMsgPopup);
+msgPopupEl.addEventListener('click', (e) => { if (e.target === msgPopupEl) closeMsgPopup(); });
+
 collPopupCloseEl.addEventListener('click', closeCollectionOptions);
 collPopupEl.addEventListener('click', (e) => { if (e.target === collPopupEl) closeCollectionOptions(); });
 
@@ -4341,7 +4423,9 @@ plPopupEl.addEventListener('click', (e) => { if (e.target === plPopupEl) closePl
 // Ordem das abas (esquerda→direita) — define a DIREÇÃO do deslize na animação
 // de troca de aba (ir pra uma aba à direita desliza a lista entrando pela
 // direita, e vice-versa).
-const TAB_ORDER = ['imports', 'folders', 'albums', 'bible', 'messages'];
+// Pastas e Mensagens não têm aba, mas Pastas ainda é uma TELA (activeTab) e
+// precisa de posição aqui para a direção do deslize sair certa.
+const TAB_ORDER = ['imports', 'folders', 'albums', 'bible'];
 const prefersReducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 // Anima a entrada da lista ao trocar de aba: leve deslize direcional + fade.
@@ -4360,21 +4444,29 @@ function animateTabSwitch(dir) {
   );
 }
 
-tabsEl.addEventListener('click', (e) => {
-  const tab = e.target.closest('.tab');
-  if (!tab || tab.dataset.tab === activeTab) return;
-  // Direção do deslize: +1 se a aba nova está à direita da atual, -1 se à esquerda.
-  const dir = TAB_ORDER.indexOf(tab.dataset.tab) > TAB_ORDER.indexOf(activeTab) ? 1 : -1;
+// Troca de tela da lista. Nem toda tela tem aba: **Pastas** é alcançada pelo
+// botão no fim do Cronograma (ver appendImportRow), e o botão voltar dali
+// retorna ao Cronograma — mas continua sendo um `activeTab`, com a mesma
+// navegação interna (pastas sincronizadas, pastas virtuais, busca).
+function switchTab(tab) {
+  if (tab === activeTab) return;
+  // Direção do deslize: +1 se a tela nova está à direita da atual, -1 se à esquerda.
+  const dir = TAB_ORDER.indexOf(tab) > TAB_ORDER.indexOf(activeTab) ? 1 : -1;
   // Mantém a posição: guarda o scroll da aba atual e NÃO reseta a pasta
   // aberta — voltar para Pastas retorna exatamente onde estava.
   rememberScroll();
-  activeTab = tab.dataset.tab;
+  activeTab = tab;
   if (selectionMode) exitSelection();
   load();
   animateTabSwitch(dir);
   // Ao entrar na Bíblia: garante versões/livros e baixa a versão INTEIRA na
   // 1ª vez (em segundo plano — ver ensureBibleVersionDownloaded).
   if (activeTab === 'bible') enterBibleTab();
+}
+
+tabsEl.addEventListener('click', (e) => {
+  const tab = e.target.closest('.tab');
+  if (tab) switchTab(tab.dataset.tab);
 });
 
 selCancelEl.addEventListener('click', exitSelection);
@@ -4689,6 +4781,7 @@ document.addEventListener('visibilitychange', () => {
 (async function init() {
   await loadCollections();
   await load();
+  renderMsgFab(); // botão flutuante de mensagem começa no estado "abrir lista"
   // Wallpaper escolhido pelo operador (a preview espelha o telão).
   await applyPvWallpaper();
   // processa share pendente (Web Share Target via SW)

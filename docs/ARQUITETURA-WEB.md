@@ -79,10 +79,10 @@ git push origin main
   `renderVersionLabel()`), o fallback estático do `<span id="appVersion">` em
   `controle/index.html` e `version` em `version.json` (é este último que
   dispara a atualização por OTA nos aparelhos). Versionamento incremental
-  simples (4.91, 4.92, 4.93…). **Versão atual: v4.93.**
-  No app nativo o rótulo mostra os **dois índices** — `Web v4.93 · Shell v1.9`
+  simples (4.92, 4.93, 4.94…). **Versão atual: v4.94.**
+  No app nativo o rótulo mostra os **dois índices** — `Web v4.94 · Shell v1.10`
   —, porque base web e shell atualizam por caminhos independentes (OTA ×
-  instalar APK); no navegador sai só `Controle v4.93`.
+  instalar APK); no navegador sai só `Controle v4.94`.
 
 ---
 
@@ -875,36 +875,40 @@ janela à parte — útil para desenvolver a base web fora do app, e nada mais.
 ### Abas e biblioteca
 
 As abas ficam na **base da seção de listas** (ícones), **mescladas ao fundo
-normal do app** (`.tabs` sem fundo/card próprio — não é mais uma seção isolada
-visualmente). Da esquerda pra direita: **Cronograma** · **Pastas** ·
-**Álbuns** · **Bíblia** · **Mensagens** (as 5 `.tab`, `flex:1`) · **buscar no
-acervo** (`#hymnSearchBtn`, `.tab-add`, à direita). A faixa é **só navegação** —
-importar arquivos saiu dela e virou uma linha no fim do Cronograma (abaixo):
+normal do app** (`.tabs` sem fundo/card próprio). Restaram **três**:
+**Cronograma** · **Álbuns** · **Bíblia** (as `.tab`, `flex:1`) · **buscar no
+acervo** (`#hymnSearchBtn`, `.tab-add`, à direita). A faixa é só navegação — e
+só do que é de fato uma seção da biblioteca:
 
 - **Cronograma** (`imports`) — itens importados; ficam até serem excluídos.
-  (O recurso de favoritos foi removido — para agrupar mídias, use pastas
-  virtuais via "salvar em pasta" na seleção múltipla.)
-- **Pastas** (`folders`) — pastas sincronizadas no OPFS e pastas virtuais
-  (agrupam mídias já importadas).
-- **Álbuns** (`albums`) — o acervo do LouvorJA: um **card por coleção** (os dois
-  hinários + um card por álbum do banco). Não é uma lista de mídia navegável, e
-  sim cards de "check do sistema" (sincronizar/atualizar/excluir); o acesso às
-  músicas é pela **busca do acervo** (botão de lupa). Ver "Coleções de mídia
-  (LouvorJA)".
-- **Bíblia** (`bible`) — seleção e projeção de textos bíblicos numa "tabela
-  periódica" (livros → capítulos → versículos). Não é uma lista de mídia; ver
-  a seção **"Bíblia"** abaixo.
-- **Mensagens** (`messages`) — lista de mensagens de **texto puro** (avisos,
-  boas-vindas etc.) criadas pelo operador (`appPrompt`), projetadas pela mesma
-  **Camada de Texto** da Bíblia. Não é uma lista de mídia; ver "Camada de Texto".
-**Importar arquivos** (`appendImportRow`) é a **última linha da lista do
-Cronograma** (`.import-row` > `.import-btn`, tracejada), não mais um botão na
-faixa de abas: é uma ação sobre ESTA lista, e no lugar onde os arquivos vão
-cair a relação é evidente. O `<input type="file" multiple>` continua sendo o
-mesmo elemento de sempre (`#file`, com o listener de `change` já registrado) —
-ele mora solto no `index.html` e é **movido** para dentro do `<label>` a cada
-render, porque `libraryEl.innerHTML = ''` destruiria um input criado ali. Não
-aparece dentro de pasta nem em modo de seleção múltipla.
+- **Álbuns** (`albums`) — o acervo do LouvorJA, agrupado por categoria. Ver
+  "Coleções de mídia (LouvorJA)".
+- **Bíblia** (`bible`) — seleção e projeção de textos bíblicos. Não é uma lista
+  de mídia; ver a seção **"Bíblia"** abaixo.
+
+**Duas telas saíram da faixa de abas**, cada uma por um motivo próprio:
+
+- **Pastas** (`folders`) — pastas sincronizadas no OPFS e pastas virtuais.
+  Continua sendo um `activeTab` (com toda a navegação interna: abrir pasta,
+  buscar, sincronizar), mas chega-se a ela pelo **botão ao lado de "Importar
+  arquivos"**, no fim do Cronograma: as duas respondem à mesma pergunta — "de
+  onde vem a mídia?" — e ficam onde o resultado delas aparece. O `#backBtn`
+  passa a aparecer também na **raiz** de Pastas (é a única saída de lá) e
+  `navigateBack()` volta ao Cronograma; `renderTabs()` mantém o Cronograma
+  aceso enquanto se está em Pastas, para a faixa não ficar sem nada marcado.
+- **Mensagens** — virou um **botão flutuante sobre a preview** (canto inferior
+  esquerdo) que abre a lista num bottom-sheet. Um aviso de texto ("bem-vindos",
+  "desliguem o celular") é uma interrupção rápida, não uma seção que se navega.
+  Ver "Mensagens" abaixo.
+
+**Importar arquivos e Pastas** (`appendImportRow`) são a **última linha da
+lista do Cronograma** (`.import-row` com dois `.import-btn` lado a lado,
+tracejados, separados da lista por uma margem). O `<input type="file"
+multiple>` continua sendo o mesmo elemento de sempre (`#file`, com o listener
+de `change` já registrado) — ele mora solto no `index.html` e é **movido** para
+dentro do `<label>` a cada render, porque `libraryEl.innerHTML = ''`
+destruiria um input criado ali. A linha não aparece dentro de pasta nem em modo
+de seleção múltipla.
 
 **Navegação persistente:** trocar de aba **não** reseta a pasta aberta nem a
 busca — voltar para Pastas retorna exatamente onde estava. A posição de scroll
@@ -915,7 +919,7 @@ trocar de aba, abrir pasta ou voltar. (Memória por sessão, em RAM.)
 **Animação de troca de aba** (`animateTabSwitch`): ao trocar de aba, a lista
 `#library` entra com um leve **deslize direcional + fade** (Web Animations API
 na própria lista, ~220 ms). A direção vem da ordem das abas (`TAB_ORDER =
-['imports','folders','albums','bible','messages']`): ir pra uma aba à **direita** desliza entrando
+['imports','folders','albums','bible']`): ir pra uma aba à **direita** desliza entrando
 da direita (`translateX(22px)→0`), à esquerda o contrário. Como o `load()`
 reconstrói o conteúdo em poucos ms, animar já a partir de `opacity:0` esconde a
 troca e revela o conteúdo novo entrando; o `overflow:hidden` do `main` clipa o
@@ -1493,6 +1497,18 @@ tudo — cobre/revela "de graça", sem tocar em `stage.js`). Os três são:
 |---|---|---|---|
 | **Bíblia** | manual (operador avança versículo) | banco LouvorJA | `#text` / `#pvText` |
 | **Mensagens** | manual (operador avança mensagem) | `state.messages` (texto puro) | `#text` / `#pvText` |
+
+> **Mensagens não tem aba** — vive no botão flutuante `#pvMsgBtn`, no canto
+> inferior esquerdo da preview. O **mesmo botão faz as duas coisas**, conforme
+> o estado (`renderMsgFab`): sem mensagem no ar, abre a lista
+> (`#msgPopup`); com uma projetada, vira um **X vermelho que a tira da tela**
+> (`hideMessage` → comando `text-hide`, que encerra só a Camada de Texto — um
+> áudio de fundo segue tocando). É a ação que o operador quer à mão nesse
+> momento, sem reabrir o popup só para desligar o que já está exibido. Tocar
+> numa mensagem projeta e **fecha o popup** (o que ele quer ver agora é a
+> preview). Com a mensagem fora do ar mas a sessão viva, os botões de slide só
+> MOVEM a seleção — não trazem de volta o que ele acabou de tirar (mesma regra
+> da Bíblia).
 | **Letra sincronizada** | **temporizado** (segue o `currentTime` do áudio) | música do LouvorJA | `#lyrics` / `#pvLyrics` |
 
 **Bíblia e Mensagens são literalmente o MESMO cartão** (`#text` no Display,

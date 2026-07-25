@@ -30,6 +30,7 @@
          Isto não concede acesso a nada: só permite consultar quem atende. -->
     <queries>
         <package android:name="com.samsung.android.smartmirroring" />
+        <package android:name="com.samsung.android.app.smartmirroring" />
         <intent><action android:name="com.samsung.wfd.LAUNCH_WFD_PICKER" /></intent>
         <intent><action android:name="android.settings.WIFI_DISPLAY_SETTINGS" /></intent>
         <intent><action android:name="android.settings.CAST_SETTINGS" /></intent>

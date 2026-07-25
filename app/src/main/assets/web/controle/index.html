@@ -16,7 +16,7 @@
     <div class="list-header">
       <button id="backBtn" class="back-btn" hidden><span class="msym">&#xe5c4;</span></button>
       <span class="list-title" id="listTitle">Cronograma</span>
-      <span id="appVersion" class="app-version">Controle v4.93</span>
+      <span id="appVersion" class="app-version">Controle v4.94</span>
       <input id="libSearch" class="lib-search" type="search" placeholder="Buscar na pasta…" hidden>
       <button id="addDirBtn" class="add-dir-btn" hidden title="Sincronizar pasta do dispositivo"><span class="msym">&#xe2c8;</span></button>
     </div>
@@ -31,7 +31,6 @@
     <!-- abas na base da seção de listas -->
     <div class="tabs">
       <button class="tab active" data-tab="imports" title="Cronograma"><span class="msym">&#xe413;</span></button>
-      <button class="tab" data-tab="folders" title="Pastas"><span class="msym">&#xe2c7;</span></button>
       <button class="tab" data-tab="albums" title="Álbuns"><span class="msym">&#xe03d;</span></button>
       <button class="tab" data-tab="bible" title="Bíblia">
         <!-- Ícone de Bíblia (SVG inline, fora do subset da fonte): livro aberto
@@ -41,14 +40,6 @@
           <path d="M4 19.5A1.5 1.5 0 0 0 5.5 21H19"/>
           <line x1="11.5" y1="6.4" x2="11.5" y2="11.6"/>
           <line x1="9.2" y1="8.4" x2="13.8" y2="8.4"/>
-        </svg>
-      </button>
-      <button class="tab" data-tab="messages" title="Mensagens">
-        <!-- Ícone de mensagem (SVG inline): balão de texto — mensagens/avisos. -->
-        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M4 5.5A1.5 1.5 0 0 1 5.5 4h13A1.5 1.5 0 0 1 20 5.5v9A1.5 1.5 0 0 1 18.5 16H9l-4 4z"/>
-          <line x1="8" y1="9" x2="16" y2="9"/>
-          <line x1="8" y1="12.5" x2="13" y2="12.5"/>
         </svg>
       </button>
       <button class="tab-add" id="hymnSearchBtn" title="Buscar no acervo">
@@ -139,6 +130,10 @@
                 <path d="M8.5 5h10A2.5 2.5 0 0 1 21 7.5v9a2.5 2.5 0 0 1-2.5 2.5H16"/>
               </svg>
             </button>
+            <!-- Mensagem rápida: abre a lista num popup; com uma mensagem no
+                 ar, o mesmo botão vira um X que a tira da tela (ver
+                 renderMsgFab). -->
+            <button id="pvMsgBtn" class="pv-fab pv-fab--bl" title="Mensagem na tela"></button>
             <button id="pvFullBtn" class="pv-fab pv-fab--br" title="Tela cheia">
               <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <path d="M4 9V5.5A1.5 1.5 0 0 1 5.5 4H9"/>
@@ -292,6 +287,25 @@
         <button id="collPopupClose" class="popup-close" title="Fechar"><span class="msym">&#xe14c;</span></button>
       </div>
       <div class="coll-opts" id="collOpts"></div>
+    </div>
+  </div>
+
+  <!-- Mensagens: avisos de texto puro, projetados pela Camada de Texto. Não é
+       uma aba — é um alerta rápido, aberto pelo botão flutuante da preview. -->
+  <div id="msgPopup" class="popup-backdrop">
+    <div class="popup-sheet">
+      <div class="popup-header">
+        <span class="popup-header-icon">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M4 5.5A1.5 1.5 0 0 1 5.5 4h13A1.5 1.5 0 0 1 20 5.5v9A1.5 1.5 0 0 1 18.5 16H9l-4 4z"/>
+            <line x1="8" y1="9" x2="16" y2="9"/>
+            <line x1="8" y1="12.5" x2="13" y2="12.5"/>
+          </svg>
+        </span>
+        <span class="popup-title">Mensagem na tela</span>
+        <button id="msgPopupClose" class="popup-close" title="Fechar"><span class="msym">&#xe14c;</span></button>
+      </div>
+      <div class="msg-opts" id="msgOpts"></div>
     </div>
   </div>
 
