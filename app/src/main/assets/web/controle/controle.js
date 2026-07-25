@@ -4029,11 +4029,19 @@ hymnSearchInputEl.addEventListener('input', () => renderSearchResults(hymnSearch
       return;
     }
     lpFired = false; clearLp();
+    sx = e.clientX; sy = e.clientY; // origem também fora do fullscreen (long press)
     lpTimer = setTimeout(() => { if (!document.fullscreenElement) { lpFired = true; openFadePopup(); } }, 500);
   });
 
   previewEl.addEventListener('pointermove', (e) => {
-    if (!isFs()) { clearLp(); return; }
+    if (!isFs()) {
+      // Tolerância de movimento: um dedo parado ainda oscila alguns pixels, e
+      // cancelar o long press ao PRIMEIRO pointermove fazia o popup de
+      // Exibição quase nunca abrir. Só desiste quando o movimento passa do
+      // mesmo limiar que separa toque de deslize.
+      if (lpTimer && Math.hypot(e.clientX - sx, e.clientY - sy) > TAP_MOVE) clearLp();
+      return;
+    }
     const dx = e.clientX - sx, dy = e.clientY - sy;
     // volume: arrasto vertical no terço direito
     if (third === 'right' && Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > VOL_MIN) {

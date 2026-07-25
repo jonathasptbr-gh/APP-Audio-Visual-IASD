@@ -107,6 +107,14 @@ Estão codificadas em `WebViewFactory.kt` e são o que sustenta a base web:
 5. **Não reimplementar em Kotlin nada que já exista em JS.** Transporte,
    playlist, letra sincronizada, Bíblia, Camada de Texto e fades permanecem no
    web — são ~7.000 linhas de lógica madura.
+6. **`onShowFileChooser` no `WebChromeClient`.** Um WebView **ignora
+   `<input type="file">` por completo** sem esse override: o toque não faz
+   nada, sem erro nenhum no console. No navegador o seletor é da plataforma;
+   aqui é o app que precisa abri-lo. Dele dependem a importação para o
+   Cronograma e a escolha do wallpaper.
+7. **`onShowCustomView`/`onHideCustomView`.** Sem eles, `requestFullscreen()`
+   falha silenciosamente — e a preview em tela cheia é a projeção quando não
+   há TV conectada.
 
 **Reconexão vem de graça:** quando o dongle cai e volta, o Android destrói e
 recria a Presentation, o WebView recarrega `/display/` e dispara
@@ -317,4 +325,4 @@ Rodar local: `./gradlew assembleDebug` (exige Android SDK instalado).
   (`#appVersion` em `assets/web/controle/index.html`) **e `version` em
   `assets/web/version.json`** — é este último que faz a atualização chegar
   aos aparelhos por OTA. O `versionCode`/`versionName` do APK vêm do CI.
-  **Versão atual: v4.84** (base web) · **shell 1.2** (`SHELL_VERSION` 3).
+  **Versão atual: v4.85** (base web) · **shell 1.3** (`SHELL_VERSION` 3).

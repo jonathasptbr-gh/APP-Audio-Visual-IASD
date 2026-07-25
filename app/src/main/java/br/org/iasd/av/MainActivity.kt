@@ -14,6 +14,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.webkit.ConsoleMessage
+import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.widget.FrameLayout
@@ -48,6 +49,29 @@ class MainActivity : ComponentActivity(), BridgeHost {
 
     /** Callback do `AVNative.pickFolder()` em andamento. */
     private var pendingFolderPick: ((Uri?) -> Unit)? = null
+
+    /**
+     * Callback do `<input type="file">` em andamento.
+     *
+     * Um WebView **ignora `<input type="file">` por completo** sem
+     * `onShowFileChooser` — o toque simplesmente não faz nada. No navegador o
+     * seletor é nativo da plataforma; aqui é o app que precisa abri-lo. É
+     * disso que dependem a importação para o Cronograma e a escolha do
+     * wallpaper.
+     */
+    private var filePathCallback: ValueCallback<Array<Uri>>? = null
+
+    private val fileChooser = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        val cb = filePathCallback
+        filePathCallback = null
+        // parseResult devolve null quando o operador cancela — entregar esse
+        // null é o que destrava o input para uma próxima tentativa.
+        cb?.onReceiveValue(
+            WebChromeClient.FileChooserParams.parseResult(result.resultCode, result.data),
+        )
+    }
 
     /** Share recebido por intent, aguardando o lado web consumir. */
     private var pendingShare: JSONObject? = null
@@ -307,6 +331,31 @@ class MainActivity : ComponentActivity(), BridgeHost {
     // ---------- fullscreen HTML5 ----------
 
     private inner class ControleChromeClient : WebChromeClient() {
+
+        /**
+         * Abre o seletor de arquivos do sistema para um `<input type="file">`.
+         * O intent vem pronto de [FileChooserParams.createIntent], já
+         * respeitando o `accept` e o `multiple` declarados no HTML.
+         */
+        override fun onShowFileChooser(
+            webView: WebView,
+            callback: ValueCallback<Array<Uri>>,
+            params: FileChooserParams,
+        ): Boolean {
+            // Um seletor anterior sem resposta deixaria o input travado para
+            // sempre — encerra o pendente antes de abrir o novo.
+            filePathCallback?.onReceiveValue(null)
+            filePathCallback = callback
+            return try {
+                fileChooser.launch(params.createIntent())
+                true
+            } catch (e: Exception) {
+                Log.w(TAG, "seletor de arquivos indisponível", e)
+                filePathCallback = null
+                callback.onReceiveValue(null)
+                false
+            }
+        }
 
         override fun onShowCustomView(view: View, callback: CustomViewCallback) {
             if (customView != null) {
