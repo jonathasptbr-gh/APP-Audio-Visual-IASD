@@ -174,25 +174,29 @@ body {
      interpretar como rolagem/zoom (ver setupPreviewGestures em controle.js) */
   touch-action: none;
 }
-/* ---------- Botões flutuantes sobre a preview ---------- */
-/* Semitransparentes, nos três cantos: configurações (topo esq), cast (topo
-   dir) e tela cheia (base dir). Substituem os gestos que existiam antes no
-   próprio toque (toque = tela cheia, toque longo = popup de Exibição), que
-   eram invisíveis e por isso pouco descobríveis. Agora o toque na preview só
-   mostra/esconde estes botões; a ação fica no botão, explícita.
-   `.pv-fabs` não intercepta toques (pointer-events:none) — só os botões —,
-   senão a camada cobriria a preview inteira e o toque nunca chegaria ao
-   reconhecedor de gestos. */
+/* ---------- Botões sobre a preview ---------- */
+/* Uma fileira única alinhada à BASE: configurações · cast · mensagem · tela
+   cheia. Antes cada um morava num canto — dispersos, o olho tinha que
+   procurar os quatro em lugares diferentes, e o do topo tampava justamente a
+   parte da miniatura onde costuma estar o texto projetado.
+   Substituíram os gestos invisíveis que existiam antes (toque = tela cheia,
+   toque longo = popup), que nada na tela anunciava. Agora o toque na preview
+   só mostra/esconde a fileira; a ação é de quem tocar no botão.
+   `.pv-fabs` não intercepta toques fora dos botões (pointer-events:none),
+   senão a barra cobriria a preview e o toque nunca chegaria ao reconhecedor
+   de gestos. */
 .pv-fabs {
-  position: absolute; inset: 0; z-index: 5; pointer-events: none;
+  position: absolute; left: 0; right: 0; bottom: 5px;
+  z-index: 5; pointer-events: none;
+  display: flex; justify-content: center; gap: 6px;
   transition: opacity .18s ease;
 }
-/* Escondidos: `display` continua block (senão não há o que transicionar) e a
+/* Escondidos: `display` continua flex (senão não há o que transicionar) e a
    saída é por opacidade; `visibility` garante que não recebam foco. */
-.pv-fabs[hidden] { display: block; opacity: 0; visibility: hidden; }
+.pv-fabs[hidden] { display: flex; opacity: 0; visibility: hidden; }
 .pv-fab {
-  position: absolute; pointer-events: auto;
-  width: 34px; height: 34px; padding: 0;
+  pointer-events: auto;
+  width: 34px; height: 34px; padding: 0; flex-shrink: 0;
   border: 1px solid rgba(255, 255, 255, .22); border-radius: var(--radius-btn);
   background: rgba(0, 0, 0, .45); color: rgba(255, 255, 255, .92);
   backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px);
@@ -201,12 +205,8 @@ body {
 }
 .pv-fab svg { display: block; }
 .pv-fab:active { transform: var(--press); }
-.pv-fab--tl { top: 5px; left: 5px; }
-.pv-fab--tr { top: 5px; right: 5px; }
-.pv-fab--bl { bottom: 5px; left: 5px; }
-.pv-fab--br { bottom: 5px; right: 5px; }
-/* Mensagem no ar: o mesmo botão vira o X de desligar, em vermelho para não
-   se confundir com "abrir a lista". */
+/* Mensagem no ar: o mesmo botão vira o X de desligar, em vermelho para não se
+   confundir com "abrir a lista". */
 .pv-fab.live { background: var(--danger); border-color: var(--danger); color: #fff; }
 /* Em tela cheia a preview É a projeção (quando não há TV conectada): nada de
    UI por cima, ou o botão iria junto para o telão. */

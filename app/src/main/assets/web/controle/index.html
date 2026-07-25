@@ -16,7 +16,7 @@
     <div class="list-header">
       <button id="backBtn" class="back-btn" hidden><span class="msym">&#xe5c4;</span></button>
       <span class="list-title" id="listTitle">Cronograma</span>
-      <span id="appVersion" class="app-version">Controle v4.98</span>
+      <span id="appVersion" class="app-version">Controle v4.99</span>
       <input id="libSearch" class="lib-search" type="search" placeholder="Buscar na pasta…" hidden>
       <button id="addDirBtn" class="add-dir-btn" hidden title="Sincronizar pasta do dispositivo"><span class="msym">&#xe2c8;</span></button>
     </div>
@@ -116,22 +116,21 @@
               </div>
             </div>
           </div>
-          <!-- Botões flutuantes sobre a preview: semitransparentes e VISÍVEIS
-               por padrão (um toque na preview os esconde, e outro os traz de
-               volta — ver setupPreviewGestures). Ficam SEMPRE ocultos em tela
-               cheia: é a tela cheia que vai ao telão quando não há TV
-               conectada, e um botão sobreposto seria projetado junto. -->
+          <!-- Barra de botões sobre a preview: semitransparentes, todos
+               alinhados na BASE, numa fileira só (configurações · cast ·
+               mensagem · tela cheia). Visíveis por padrão; um toque na
+               preview os esconde e outro os traz de volta (ver
+               setupPreviewGestures). Ficam SEMPRE ocultos em tela cheia:
+               é a tela cheia que vai ao telão quando não há TV conectada,
+               e um botão sobreposto seria projetado junto. -->
           <div class="pv-fabs" id="pvFabs">
-            <button id="pvSettingsBtn" class="pv-fab pv-fab--tr" title="Configurações de exibição">
+<button id="pvSettingsBtn" class="pv-fab" title="Configurações de exibição">
               <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <circle cx="12" cy="12" r="3.2"/>
                 <path d="M19.4 14.2a1.6 1.6 0 0 0 .32 1.77l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.6 1.6 0 0 0-1.77-.32 1.6 1.6 0 0 0-.97 1.47V20a2 2 0 1 1-4 0v-.11a1.6 1.6 0 0 0-1.05-1.46 1.6 1.6 0 0 0-1.77.32l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.6 1.6 0 0 0 .32-1.77 1.6 1.6 0 0 0-1.47-.97H4a2 2 0 1 1 0-4h.11a1.6 1.6 0 0 0 1.46-1.05 1.6 1.6 0 0 0-.32-1.77l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.6 1.6 0 0 0 1.77.32H9.9a1.6 1.6 0 0 0 .97-1.47V4a2 2 0 1 1 4 0v.11a1.6 1.6 0 0 0 .97 1.47 1.6 1.6 0 0 0 1.77-.32l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.6 1.6 0 0 0-.32 1.77v.08a1.6 1.6 0 0 0 1.47.97H20a2 2 0 1 1 0 4h-.11a1.6 1.6 0 0 0-1.47.97z"/>
               </svg>
             </button>
-            <!-- Cast: abre o seletor de espelhamento do Android (Smart View /
-                 Transmitir). Só faz sentido no app nativo — escondido no
-                 navegador (ver setupPreviewFabs). -->
-            <button id="pvCastBtn" class="pv-fab pv-fab--tl" title="Espelhar na TV" hidden>
+<button id="pvCastBtn" class="pv-fab" title="Espelhar na TV" hidden>
               <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <path d="M3 19a2 2 0 0 1 2 2"/>
                 <path d="M3 15.5a5.5 5.5 0 0 1 5.5 5.5"/>
@@ -139,11 +138,8 @@
                 <path d="M8.5 5h10A2.5 2.5 0 0 1 21 7.5v9a2.5 2.5 0 0 1-2.5 2.5H16"/>
               </svg>
             </button>
-            <!-- Mensagem rápida: abre a lista num popup; com uma mensagem no
-                 ar, o mesmo botão vira um X que a tira da tela (ver
-                 renderMsgFab). -->
-            <button id="pvMsgBtn" class="pv-fab pv-fab--bl" title="Mensagem na tela"></button>
-            <button id="pvFullBtn" class="pv-fab pv-fab--br" title="Tela cheia">
+<button id="pvMsgBtn" class="pv-fab" title="Mensagem na tela"></button>
+<button id="pvFullBtn" class="pv-fab" title="Tela cheia">
               <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <path d="M4 9V5.5A1.5 1.5 0 0 1 5.5 4H9"/>
                 <path d="M15 4h3.5A1.5 1.5 0 0 1 20 5.5V9"/>
