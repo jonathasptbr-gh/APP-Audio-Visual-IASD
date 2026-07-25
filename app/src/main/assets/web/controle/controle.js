@@ -58,7 +58,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '4.88';
+const WEB_VERSION = '4.89';
 
 function renderVersionLabel() {
   // __SHELL_NAME__ = versionName do APK (ver native.js). Vazio no navegador e
@@ -4229,6 +4229,10 @@ hymnSearchInputEl.addEventListener('input', () => renderSearchResults(hymnSearch
       }
       return;
     }
+    // Toque NO botão: quem responde é o handler dele. Este evento borbulha a
+    // partir do botão, e esconder os FABs aqui (antes do `click`, que só é
+    // despachado depois do pointerup) poderia engolir o clique.
+    if (e.target.closest && e.target.closest('.pv-fab')) return;
     // Fora do fullscreen a preview não tem mais ação própria: o toque só
     // revela (ou esconde) os botões flutuantes, e a ação é de quem tocar no
     // botão. Um arrasto não conta como toque.
