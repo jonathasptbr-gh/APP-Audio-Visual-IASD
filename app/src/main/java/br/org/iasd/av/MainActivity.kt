@@ -324,31 +324,96 @@ class MainActivity : ComponentActivity(), BridgeHost {
     }
 
     /**
-     * Seletor de espelhamento. O Android **não expõe** o popup das
-     * configurações rápidas (o painel de Transmitir/Smart View) a apps de
-     * terceiros — `Settings.Panel` só cobre internet, wifi, nfc e volume. O
-     * mais próximo em API pública é a tela de Cast das Configurações, que
-     * lista as mesmas telas e é para onde o próprio Smart View leva. A cadeia
-     * de fallback existe porque fabricantes remontam essas telas: sem a de
-     * Cast, cai na de Tela; sem ela, nas Configurações.
+     * Seletor de **espelhamento de tela** (Smart View / Screen mirroring /
+     * Wireless display) — não o Google Cast.
+     *
+     * Os dois convivem no Android e são coisas diferentes: o Google Cast envia
+     * uma URL para o dispositivo tocar sozinho; o espelhamento manda a imagem
+     * da tela, que é o que este app precisa quando não há Presentation. A ação
+     * pública `Settings.ACTION_CAST_SETTINGS` cai no **Google Cast** em vários
+     * aparelhos (foi o que aconteceu na Samsung testada) — por isso ela é o
+     * último recurso, não o primeiro.
+     *
+     * Não existe API pública para o *popup* das configurações rápidas: o
+     * `Settings.Panel` só cobre internet, wifi, nfc e volume. O que dá para
+     * fazer é procurar, entre alvos conhecidos, o primeiro que **existe neste
+     * aparelho e não é o Google Cast** — daí a ordem abaixo e o filtro por
+     * pacote resolvido. As entradas da Samsung não são API documentada; se o
+     * aparelho não as tiver, `resolveActivity` devolve null e a cadeia segue.
+     *
+     * `resolveActivity` só enxerga esses alvos por causa do bloco `<queries>`
+     * no AndroidManifest (visibilidade de pacotes do Android 11+).
      */
     override fun openCastPicker() {
         runOnUiThread {
-            val candidates = listOf(
-                Settings.ACTION_CAST_SETTINGS,
-                Settings.ACTION_DISPLAY_SETTINGS,
-                Settings.ACTION_SETTINGS,
-            )
-            for (action in candidates) {
+            val chosen = pickCastIntent()
+            if (chosen != null) {
+                try {
+                    startActivity(chosen.first.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                    return@runOnUiThread
+                } catch (e: Exception) {
+                    Log.w(TAG, "espelhamento recusou abrir: ${chosen.second}", e)
+                }
+            }
+            // Nada de espelhamento neste aparelho: melhor abrir o seletor de
+            // Cast (ou as Configurações) do que o botão não fazer nada.
+            for (action in listOf(Settings.ACTION_CAST_SETTINGS, Settings.ACTION_DISPLAY_SETTINGS, Settings.ACTION_SETTINGS)) {
                 try {
                     startActivity(Intent(action).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
                     return@runOnUiThread
                 } catch (e: Exception) {
-                    Log.w(TAG, "seletor de cast indisponível: $action", e)
+                    Log.w(TAG, "seletor indisponível: $action", e)
                 }
             }
         }
     }
+
+    /**
+     * Para onde o botão de cast vai abrir, em texto — mostrado no popup de
+     * Exibição. Como os alvos de espelhamento variam por fabricante e não são
+     * API documentada, o operador (e quem for depurar) precisa poder VER o que
+     * o aparelho ofereceu, em vez de descobrir só ao tocar.
+     */
+    override fun describeCastTarget(): String {
+        val chosen = pickCastIntent() ?: return "Google Cast (sem espelhamento neste aparelho)"
+        return chosen.second
+    }
+
+    /**
+     * Primeiro alvo de espelhamento que existe neste aparelho e **não é** o
+     * Google Cast. Devolve o intent e um rótulo legível, ou null.
+     */
+    private fun pickCastIntent(): Pair<Intent, String>? {
+        for (intent in castCandidates()) {
+            val target = packageManager.resolveActivity(intent, 0)?.activityInfo ?: continue
+            // O alvo do Google Cast mora no Play Services. Pular aqui é o que
+            // impede a cadeia de "resolver" num seletor de Cast quando ainda há
+            // um de espelhamento a tentar depois.
+            if (target.packageName == GMS_PACKAGE) continue
+            return intent to castLabel(target.packageName)
+        }
+        return null
+    }
+
+    private fun castLabel(pkg: String): String = when {
+        pkg == SAMSUNG_MIRROR_PACKAGE -> "Smart View"
+        pkg.startsWith("com.samsung") -> "Espelhamento (Samsung)"
+        pkg.startsWith("com.android.settings") -> "Espelhamento (Configurações)"
+        else -> pkg
+    }
+
+    /** Alvos de espelhamento, do mais específico ao mais genérico. */
+    private fun castCandidates(): List<Intent> = listOf(
+        // Samsung Smart View — o popup que o operador conhece. Componente
+        // explícito: o nome da activity não é documentado, então se estiver
+        // errado (ou não exportado) o resolveActivity simplesmente falha e a
+        // cadeia segue, sem quebrar nada.
+        Intent().setClassName(SAMSUNG_MIRROR_PACKAGE, "$SAMSUNG_MIRROR_PACKAGE.CastDialog"),
+        Intent("com.samsung.wfd.LAUNCH_WFD_PICKER"),
+        // AOSP: a tela de "Wireless display / Transmitir tela". Ação legada,
+        // ainda declarada pelo app de Configurações em muitos aparelhos.
+        Intent("android.settings.WIFI_DISPLAY_SETTINGS"),
+    )
 
     override fun takePendingShare(): JSONObject? {
         val s = pendingShare
@@ -440,5 +505,7 @@ class MainActivity : ComponentActivity(), BridgeHost {
 
     companion object {
         private const val TAG = "AvIasd"
+        private const val GMS_PACKAGE = "com.google.android.gms"
+        private const val SAMSUNG_MIRROR_PACKAGE = "com.samsung.android.smartmirroring"
     }
 }

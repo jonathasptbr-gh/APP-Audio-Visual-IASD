@@ -970,6 +970,8 @@ main {
 .display-status.connected {
   background: var(--success-soft); border-color: var(--success); color: var(--success);
 }
+/* Alvo do botão de cast da preview — informativo, discreto. */
+.cast-target { display: block; text-align: center; font-size: .72rem; color: var(--muted); padding-top: .4rem; }
 
 /* ---------- Botão de pasta no picker ---------- */
 .folder-pick-btn {

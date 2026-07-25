@@ -29,8 +29,11 @@ interface BridgeHost {
     /** Telas de apresentação conectadas agora. */
     fun listDisplays(): JSONArray
 
-    /** Abre o seletor de espelhamento/transmissão do Android. */
+    /** Abre o seletor de espelhamento de tela do Android. */
     fun openCastPicker()
+
+    /** Rótulo do alvo de espelhamento disponível neste aparelho. */
+    fun describeCastTarget(): String
 
     /** Consome (uma única vez) um compartilhamento recebido por intent. */
     fun takePendingShare(): JSONObject?
@@ -60,7 +63,7 @@ class NativeBridge(
          * exijam mais do que o shell instalado oferece (ver [WebUpdater]).
          * Subir SEMPRE que a superfície da ponte mudar.
          */
-        const val SHELL_VERSION = 5
+        const val SHELL_VERSION = 6
     }
 
     private val io = Executors.newSingleThreadExecutor()
@@ -135,14 +138,24 @@ class NativeBridge(
     }
 
     /**
-     * Botão de cast da preview: abre o seletor de espelhamento do Android.
-     * Não há API pública para o *popup* das configurações rápidas — o que
-     * existe é a tela de Cast das Configurações, que é o mesmo seletor de
-     * telas usado pelo Smart View. Ver [BridgeHost.openCastPicker].
+     * Botão de cast da preview: abre o seletor de **espelhamento de tela**
+     * (Smart View / Wireless display), não o Google Cast — ver
+     * [BridgeHost.openCastPicker], que explica por que os dois não são a mesma
+     * coisa e como o alvo é escolhido.
      */
     @JavascriptInterface
     fun openCast() {
         host?.openCastPicker()
+    }
+
+    /**
+     * Para onde `openCast()` vai abrir, em texto. O popup de Exibição mostra
+     * isso: os alvos de espelhamento variam por fabricante e não são API
+     * documentada, então o operador precisa poder ver o que o aparelho tem.
+     */
+    @JavascriptInterface
+    fun castTarget(callId: String) {
+        resolve(callId, JSONObject().put("label", host?.describeCastTarget() ?: "").toString())
     }
 
     // ---------- compartilhamento (substitui o share_target do SW) ----------

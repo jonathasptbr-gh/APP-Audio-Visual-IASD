@@ -23,6 +23,7 @@ const standaloneToggleEl = document.getElementById('standaloneToggle');
 const lyricsBgToggleEl = document.getElementById('lyricsBgToggle');
 const openDisplayBtnEl = document.getElementById('openDisplayBtn');
 const displayStatusTextEl = document.getElementById('displayStatusText');
+const castTargetLineEl = document.getElementById('castTargetLine');
 
 const pvWallEl = document.getElementById('pvWall');
 const pvImgEl = document.getElementById('pvImg');
@@ -58,7 +59,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '4.89';
+const WEB_VERSION = '4.90';
 
 function renderVersionLabel() {
   // __SHELL_NAME__ = versionName do APK (ver native.js). Vazio no navegador e
@@ -4275,6 +4276,15 @@ if (window.__NATIVE__) {
   };
   AVNative.displays().then(renderDisplayStatus);
   AVNative.onDisplayChange(renderDisplayStatus);
+  // Para onde o botão de cast da preview abre neste aparelho. Espelhamento de
+  // tela não é Google Cast, e o alvo muda por fabricante (Smart View na
+  // Samsung, "Wireless display" no AOSP) sem API documentada — então o app
+  // mostra o que encontrou em vez de deixar isso invisível.
+  AVNative.castTarget().then((label) => {
+    if (!label) return;
+    castTargetLineEl.hidden = false;
+    castTargetLineEl.textContent = 'Espelhar abre: ' + label;
+  });
 } else {
   displayStatusTextEl.textContent = 'Abrir tela do Display';
   openDisplayBtnEl.addEventListener('click', () => window.open('../display/', '_blank'));

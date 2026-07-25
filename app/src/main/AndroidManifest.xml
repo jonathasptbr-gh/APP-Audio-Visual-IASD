@@ -22,6 +22,20 @@
          próprio celular), então a Presentation não é um requisito de hardware. -->
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
 
+    <!-- Visibilidade de pacotes (Android 11+): sem estas entradas,
+         resolveActivity() devolve null para telas de outros apps mesmo quando
+         elas existem, e o botão de cast não teria como SABER para onde cada
+         candidato resolve — que é justamente o critério usado para preferir o
+         espelhamento de tela ao Google Cast (ver MainActivity.openCastPicker).
+         Isto não concede acesso a nada: só permite consultar quem atende. -->
+    <queries>
+        <package android:name="com.samsung.android.smartmirroring" />
+        <intent><action android:name="com.samsung.wfd.LAUNCH_WFD_PICKER" /></intent>
+        <intent><action android:name="android.settings.WIFI_DISPLAY_SETTINGS" /></intent>
+        <intent><action android:name="android.settings.CAST_SETTINGS" /></intent>
+        <intent><action android:name="android.settings.DISPLAY_SETTINGS" /></intent>
+    </queries>
+
     <application
         android:allowBackup="true"
         android:hardwareAccelerated="true"

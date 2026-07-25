@@ -138,7 +138,8 @@ window.AVNative = {
   onDisplayChange(cb),
   keepAwake(bool),     // tela não apaga durante o culto
   keepAlive(bool),     // download em curso — ver "Trabalho em segundo plano"
-  openCast(),          // seletor de espelhamento do Android (botão de cast da preview)
+  openCast(),          // seletor de ESPELHAMENTO DE TELA do Android (≠ Google Cast)
+  castTarget(),        // → rótulo do alvo de espelhamento deste aparelho
 }
 ```
 
@@ -148,7 +149,7 @@ Além disso, `native.js` publica três globais lidas direto (sem Promise):
 APK, que é o **índice de versão do shell exibido ao operador**. Ele não se
 confunde com `__SHELL_VERSION__`: base web e shell atualizam por caminhos
 independentes (OTA × instalar APK), então o cabeçalho do Cronograma mostra os
-dois (`Web v4.89 · Shell v1.7`). Num shell antigo (sem `appVersion()`) a
+dois (`Web v4.90 · Shell v1.8`). Num shell antigo (sem `appVersion()`) a
 string vem vazia e a UI cai em só a versão web — mesma degradação do navegador.
 
 **Princípio: a ponte entrega URLs SERVÍVEIS, não bytes.** Arquivos do
@@ -275,11 +276,45 @@ contextos.
 | Pastas do dispositivo | `showDirectoryPicker()` | **SAF** — a File System Access API **não existe no Android**; este recurso era letra morta no celular e passa a funcionar |
 | Compartilhamento | `share_target` + POST no SW | **`intent-filter` nativo** (`ShareIntake.kt`) |
 | Estado do telão (rodapé de Exibição) | atalho `window.open('../display/')`, útil só para desenvolver | **indicador ao vivo** — a Presentation é criada sozinha |
-| Botão de cast da preview | oculto | `AVNative.openCast()` → seletor de espelhamento do Android |
+| Botão de cast da preview | oculto | `AVNative.openCast()` → seletor de **espelhamento de tela** (ver abaixo) |
 | Fullscreen da preview | `requestFullscreen` + Screen Orientation API | idem, com trava de paisagem **nativa** (`onShowCustomView`) |
 | Botão voltar | — | manda a tarefa para segundo plano (sair por engano derrubaria a projeção) |
 | Download com o app minimizado | a aba continua baixando | **foreground service + wake lock** — sem isso o processo é congelado (ver seção acima) |
 | Atualização da base web | service worker (cache-first + reload) | **OTA** — bundle publicado em `web-latest`, aplicado no próximo lançamento (ver seção acima) |
+
+### Espelhamento de tela ≠ Google Cast
+
+O botão de cast da preview precisa abrir o **espelhamento de tela** (Smart View
+na Samsung, "Wireless display"/"Transmitir tela" no AOSP) — não o **Google
+Cast**, que é outra coisa: o Cast manda uma URL para o dispositivo tocar
+sozinho, o espelhamento manda a imagem da tela, que é o que serve aqui quando
+não há `Presentation`.
+
+A ação pública `Settings.ACTION_CAST_SETTINGS` **cai no Google Cast** em vários
+aparelhos (foi o que aconteceu na Samsung testada), então ela é o último
+recurso, não o primeiro. E não existe API pública para o *popup* das
+configurações rápidas: `Settings.Panel` só cobre internet, wifi, nfc e volume.
+
+`MainActivity.pickCastIntent()` percorre alvos conhecidos, do mais específico
+ao mais genérico, e escolhe o primeiro que **existe neste aparelho e não
+resolve para o Play Services** (`com.google.android.gms`) — é esse filtro, e
+não só a ordem, que impede a cadeia de terminar no seletor de Cast enquanto
+ainda há espelhamento a tentar:
+
+1. `com.samsung.android.smartmirroring/.CastDialog` (componente explícito)
+2. `com.samsung.wfd.LAUNCH_WFD_PICKER`
+3. `android.settings.WIFI_DISPLAY_SETTINGS` (AOSP, ação legada)
+
+**Nenhum desses três é API documentada.** Se um não existir (ou não for
+exportado), `resolveActivity` devolve null / `startActivity` lança, e a cadeia
+segue sem quebrar nada. Por isso `resolveActivity` precisa enxergá-los: daí o
+bloco `<queries>` no `AndroidManifest.xml` (visibilidade de pacotes do Android
+11+) — sem ele tudo resolveria para null e a cadeia cairia direto no fallback.
+
+Como isso é território de fabricante, `describeCastTarget()` devolve o rótulo
+do alvo escolhido e o **popup de Exibição mostra "Espelhar abre: …"**. O
+operador vê o que o aparelho ofereceu antes de tocar, em vez de descobrir na
+hora — e quem for depurar não precisa de logcat.
 
 ### Andaimes do modelo de dois PWAs, removidos
 
@@ -358,4 +393,4 @@ Rodar local: `./gradlew assembleDebug` (exige Android SDK instalado).
   (`#appVersion` em `assets/web/controle/index.html`) **e `version` em
   `assets/web/version.json`** — é este último que faz a atualização chegar
   aos aparelhos por OTA. O `versionCode`/`versionName` do APK vêm do CI.
-  **Versão atual: v4.89** (base web) · **shell 1.7** (`SHELL_VERSION` 5).
+  **Versão atual: v4.90** (base web) · **shell 1.8** (`SHELL_VERSION` 6).
