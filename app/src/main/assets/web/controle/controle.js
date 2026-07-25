@@ -2286,12 +2286,30 @@ function step(delta) {
 // tempo do slide vizinho reaproveitando o comando `seek` já existente — o
 // Display (e a própria preview) sincronizam a letra sozinhos ao reagir ao
 // novo tempo, sem precisar de um comando novo no protocolo.
-function stepSlide(delta) {
-  // Texto manual em cena: os botões de slide passam/voltam versículos/mensagens.
-  if (msgSession) { msgStep(delta); return; }
-  if (bibleSession) { bibleStep(delta); return; }
+// Quem os botões de estrofe controlam AGORA: sempre o elemento que está NO AR,
+// nunca o que apenas existe em memória.
+//
+// A distinção passou a importar quando o toque no versículo virou um toggle:
+// uma sessão de leitura pode continuar aberta com a Escritura FORA do ar (o
+// operador tirou do telão, mas segue navegando a seleção). Antes bastava a
+// sessão existir para os botões pertencerem a ela — e o hino que voltava a
+// aparecer ficava sem controle de estrofe. A ordem abaixo é a mesma da
+// precedência visual: texto manual cobre a letra, e a letra volta a mandar
+// assim que o texto sai.
+function slideTarget() {
+  if (msgSession && msgSession.projecting) return 'message';
+  if (bibleSession && bibleSession.projecting) return 'bible';
   const lyrics = currentItem && Array.isArray(currentItem.lyrics) ? currentItem.lyrics : null;
-  if (!lyrics || lyrics.length === 0) return;
+  if (lyrics && lyrics.length) return 'lyrics';
+  return null;
+}
+
+function stepSlide(delta) {
+  const who = slideTarget();
+  if (who === 'message') { msgStep(delta); return; }
+  if (who === 'bible') { bibleStep(delta); return; }
+  if (who !== 'lyrics') return;
+  const lyrics = currentItem.lyrics;
   const idx = findSlideIndex(lyrics, authoritativeTime());
   const target = Math.min(Math.max(idx + delta, 0), lyrics.length - 1);
   if (target === idx) return;
@@ -2301,15 +2319,16 @@ function stepSlide(delta) {
 // Habilita/desabilita os botões de estrofe conforme o item atual tem letra
 // sincronizada e a posição dentro dela (desabilita no primeiro/último slide).
 function renderSlideNav() {
+  const who = slideTarget(); // o que está NO AR — ver slideTarget()
   // Mensagens: passa/volta entre as mensagens salvas (nos extremos desabilita).
-  if (msgSession) {
+  if (who === 'message') {
     slidePrevBtnEl.disabled = msgSession.idx <= 0;
     slideNextBtnEl.disabled = msgSession.idx >= messages.length - 1;
     return;
   }
   // Leitura bíblica: só desabilita no começo (Gn 1:1) e no fim (Ap, último
   // versículo) da Bíblia — nos limites de capítulo cruza para o vizinho.
-  if (bibleSession) {
+  if (who === 'bible') {
     const s = bibleSession;
     const lastBook = Bible.BOOKS.length - 1;
     slidePrevBtnEl.disabled = (s.bookIdx === 0 && s.chapter === 1 && s.idx === 0);
@@ -2317,12 +2336,12 @@ function renderSlideNav() {
       && s.chapter === Bible.BOOKS[lastBook].chapters && s.idx === s.verses.length - 1);
     return;
   }
-  const lyrics = currentItem && Array.isArray(currentItem.lyrics) ? currentItem.lyrics : null;
-  if (!lyrics || lyrics.length === 0) {
+  if (who !== 'lyrics') {
     slidePrevBtnEl.disabled = true;
     slideNextBtnEl.disabled = true;
     return;
   }
+  const lyrics = currentItem.lyrics;
   const idx = findSlideIndex(lyrics, authoritativeTime());
   slidePrevBtnEl.disabled = idx <= 0;
   slideNextBtnEl.disabled = idx >= lyrics.length - 1;
