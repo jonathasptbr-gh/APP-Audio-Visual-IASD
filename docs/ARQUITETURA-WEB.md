@@ -79,7 +79,16 @@ git push origin main
   leia antes de mexer em service worker, autoplay, `showDirectoryPicker` ou
   `share_target`, que são justamente os pontos de divergência entre os dois
   contextos.
-- **A cada atualização de código, incrementar a versão visual do Controle** (`<span id="appVersion" class="app-version">Controle vX.Y</span>` em `controle/index.html`, no cabeçalho da lista — só aparece ao lado do título da aba Cronograma). Usar versionamento incremental simples (2.6, 2.7, 2.8…). **Versão atual: v4.78.**
+- **A cada atualização de código, incrementar a versão visual do Controle** em
+  **três lugares que precisam bater**: a constante `WEB_VERSION` em
+  `controle/controle.js` (é ela que o cabeçalho renderiza — ver
+  `renderVersionLabel()`), o fallback estático do `<span id="appVersion">` em
+  `controle/index.html` e `version` em `version.json` (é este último que
+  dispara a atualização por OTA nos aparelhos). Versionamento incremental
+  simples (4.85, 4.86, 4.87…). **Versão atual: v4.87.**
+  No app nativo o rótulo mostra os **dois índices** — `Web v4.87 · Shell v1.6`
+  —, porque base web e shell atualizam por caminhos independentes (OTA ×
+  instalar APK); no navegador sai só `Controle v4.87`.
 
 ---
 
@@ -466,6 +475,9 @@ stage.fadeOutToBlack()  // esmaece até o preto e reseta (current=null) sem toca
 stage.getCurrent()     // → registro atual ou null
 stage.getView()        // → 'visual' | 'wallpaper'
 stage.isPlaying()      // → bool
+stage.hasEnded()       // → bool (fim natural, aguardando replay — as camadas
+                       //   paralelas usam isso para não re-renderizar com o
+                       //   currentTime já zerado; ver "Fim natural" na Camada de Texto)
 stage.isTimed()        // → bool (true para vídeo/áudio)
 stage.getTime()        // → currentTime em segundos
 stage.getDuration()    // → duração em segundos
@@ -1392,6 +1404,60 @@ Texto é **desacoplada do ciclo de vida da mídia do stage** — `showText`/
   (a letra pertence a UMA música tocando; um versículo/mensagem manual tem
   precedência sobre a letra do áudio de fundo).
 
+### Entradas e saídas de camada sempre com fade (`fadeLayerIn`/`fadeLayerOut`)
+
+A mídia do stage e a cortina do wallpaper já têm as próprias transições (ver
+`stage.js`). As camadas **paralelas** — letra, texto manual e a imagem de fundo
+das estrofes — não passam por lá, e por isso apareciam/sumiam com corte seco.
+`fadeLayerIn`/`fadeLayerOut` (display.js) e `pvLayerIn`/`pvLayerOut`
+(controle.js) dão a elas o mesmo tratamento, com `LAYER_FADE_MS`/
+`PV_LAYER_FADE_MS` = 320 ms. **Nada entra ou sai da projeção sem transição.**
+
+- `fadeLayerIn` **não repete o fade** se a camada já estava visível (guarda
+  `wasHidden`) — trocar de versículo não faz o cartão inteiro piscar; quem
+  anima aí é só o texto (`animateFadeIn`/`pvFadeIn`, 260 ms).
+- `fadeLayerOut` só esconde no **término natural** da animação (`onfinish`):
+  se um `fadeLayerIn` cancelar o fade no meio (a camada voltou), esconder ali
+  apagaria o que acabou de entrar.
+- **`hideLyrics(fade)` adia o teardown da imagem de fundo** em `LAYER_FADE_MS`.
+  A `<img>` é FILHA da camada: revogar a object URL e escondê-la de imediato
+  faria o fundo sumir por trás de um texto ainda esmaecendo. O `lyricLoadSeq`
+  guarda esse teardown atrasado (se a letra voltar nesse meio tempo, ele é
+  descartado). Mesma coisa em `hidePvLyrics(fade)`.
+- `hideText`/`hidePvText` **não limpam o texto** ao sair: apagá-lo na hora
+  deixaria o cartão vazio visível durante todo o fade. O próximo `showText`
+  sobrescreve.
+- Chamadas com `fade=false` continuam existindo de propósito: quando algo
+  NOVO já assume a cena no mesmo instante, a transição é da mídia que entra.
+
+### Trecho sem letra: a moldura some (`.nolyric`)
+
+Solos, introduções e trechos instrumentais têm slide com tempo mas sem texto a
+cantar. `renderLyricSlide`/`renderPvLyricSlide` ligam a classe `.nolyric` em
+`.lyrics-content`/`.pv-lyrics-content` quando a linha principal está vazia **e**
+o auxiliar está oculto; o CSS esmaece a moldura inteira
+(`.lyrics-content.nolyric .lyrics-box { opacity: 0 }`, com `transition` na
+própria `.lyrics-box`), deixando só a imagem de fundo. Uma caixa escura vazia
+parada no meio do telão durante um solo não comunica nada. Volta esmaecendo
+quando houver o que cantar.
+
+### Fim natural: a capa do hino não pode piscar
+
+No fim da faixa o stage zera o `currentTime` (preparando o replay) e continua
+emitindo tempo. Seguir isso re-renderizaria o slide 0 — a **capa do hino**
+aparecia por um instante antes de o wallpaper cobrir. Duas guardas simétricas:
+
+- **Display**: `sendStatus()` só chama `updateLyricSlide` se `!stage.hasEnded()`
+  (`hasEnded` foi adicionado à API pública de `stage.js`); o `onEnded` esmaece
+  a camada (`fadeLayerOut(lyricsEl)`) mantendo os slides carregados.
+- **Controle**: a flag `pvLyricsEnded` trava `updatePvLyricSlide` — ligada pelo
+  `onEnded` da preview **e** pelo `media-ended` remoto (o Display pode chegar ao
+  fim primeiro), desligada em `cmd()` no próximo `load`/`play`/`seek`.
+
+Terminada a faixa, a letra congela no último slide; o replay a traz de volta
+(`updateLyricSlide`/`updatePvLyricSlide` refazem o `fadeLayerIn` se a camada
+estiver escondida).
+
 O restante desta seção detalha o provedor **Bíblia**; as **Mensagens** são um
 provedor mínimo (CRUD de texto puro em `state.messages` + `projectMessage`/
 `msgStep`, análogos a `startBibleReading`/`bibleStep`), e a **Letra** tem sua
@@ -1575,7 +1641,7 @@ onde estava** quando o texto sai. Antes o `showText` derrubava o player do
 YouTube (`ytDrop()`) para o cartão ficar visível, e não havia como voltar:
 tirar o versículo do ar deixava a cena vazia.
 
-`showText(cmd)` chama apenas `hideLyrics()` — a letra sincronizada é a única
+`showText(cmd)` chama apenas `hideLyrics(true)` — a letra sincronizada é a única
 coisa que sai de cena, porque ela **é** texto e o manual tem precedência — e
 **NÃO chama `stage.clear()`** (o áudio de fundo segue tocando, ver
 "Independência do áudio"); pinta `main`/`sub`, aplica a classe

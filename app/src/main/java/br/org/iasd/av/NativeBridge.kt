@@ -57,7 +57,7 @@ class NativeBridge(
          * exijam mais do que o shell instalado oferece (ver [WebUpdater]).
          * Subir SEMPRE que a superfície da ponte mudar.
          */
-        const val SHELL_VERSION = 3
+        const val SHELL_VERSION = 4
     }
 
     private val io = Executors.newSingleThreadExecutor()
@@ -74,6 +74,20 @@ class NativeBridge(
     /** Versão da base web em uso (embutida no APK ou baixada por OTA). */
     @JavascriptInterface
     fun webVersion(): String = WebUpdater.currentVersion(ctx)
+
+    /**
+     * `versionName` do APK instalado — o índice de versão do SHELL mostrado na
+     * UI. É diferente de [SHELL_VERSION] (contrato interno da ponte, usado pela
+     * válvula `minShell` do OTA): este é legível pelo operador e muda a cada
+     * Release. Shell e base web atualizam por caminhos independentes (instalar
+     * APK × OTA), então precisam ser legíveis à parte.
+     */
+    @JavascriptInterface
+    fun appVersion(): String = try {
+        ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName ?: ""
+    } catch (e: Exception) {
+        ""
+    }
 
     /**
      * A base web carregou por inteiro — desarma o watchdog de boot do OTA.

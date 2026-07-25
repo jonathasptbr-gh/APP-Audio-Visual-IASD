@@ -28,7 +28,11 @@ function sendDisplayStatus(fields) {
 
 function sendStatus() {
   if (yt) return; // com YouTube ativo o status tem fluxo próprio (ytStatus)
-  updateLyricSlide(stage.isTimed() ? stage.getTime() : 0);
+  // No fim natural o stage zera o currentTime (preparando o replay) e continua
+  // emitindo tempo: seguir isso re-renderizaria o slide 0 e a CAPA do hino
+  // piscava por um instante antes do wallpaper cobrir. Terminado, a letra
+  // congela no último slide — e o onEnded a esmaece.
+  if (!stage.hasEnded()) updateLyricSlide(stage.isTimed() ? stage.getTime() : 0);
   const cur = stage.getCurrent();
   sendDisplayStatus({
     mediaId: cur ? cur.id : null,
@@ -56,6 +60,10 @@ const stage = createStage({
   },
   onEnded: () => {
     sendStatus();
+    // A letra sai de cena junto com a música, esmaecendo — ela é uma camada
+    // paralela e não participa do fade do stage. Se um próximo item vier em
+    // seguida (avanço de playlist), o load dele mostra a letra nova.
+    if (currentLyrics) fadeLayerOut(lyricsEl);
     const cur = stage.getCurrent();
     AVDB.sendCommand({ type: 'media-ended', mediaId: cur ? cur.id : null });
   },
@@ -100,15 +108,64 @@ function animateFadeIn(el) {
   el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 260, easing: 'ease' });
 }
 
-function hideLyrics() {
+// ===== Fade das CAMADAS paralelas (letra, texto) =====
+// A cortina do wallpaper e a mídia do stage já têm as próprias transições
+// (ver stage.js). As camadas paralelas não passam por lá, e por isso
+// apareciam/sumiam com corte seco. Estes dois helpers dão a elas o mesmo
+// tratamento: nada entra ou sai da projeção sem transição.
+const LAYER_FADE_MS = 320;
+
+function fadeLayerIn(el) {
+  if (!el) return;
+  const wasHidden = el.hidden;
+  el.hidden = false;
+  el.style.opacity = '';
+  if (!el.animate) return;
+  // Cancela SEMPRE, mesmo que a camada já estivesse visível: pode haver um
+  // fadeLayerOut em curso (ela estava saindo e voltou), e deixá-lo correr
+  // esconderia no `onfinish` justamente o que acabou de entrar.
+  let hadAnim = false;
+  try { el.getAnimations().forEach((a) => { hadAnim = true; a.cancel(); }); } catch (_) {}
+  if (!fadeCfg.in) return;
+  if (!wasHidden && !hadAnim) return; // já em cena e estável: não repete o fade
+  el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: LAYER_FADE_MS, easing: 'ease' });
+}
+
+function fadeLayerOut(el) {
+  if (!el || el.hidden) return;
+  if (!el.animate || !fadeCfg.out) { el.hidden = true; return; }
+  try { el.getAnimations().forEach((a) => a.cancel()); } catch (_) {}
+  const anim = el.animate([{ opacity: 1 }, { opacity: 0 }], { duration: LAYER_FADE_MS, easing: 'ease' });
+  // Só o término natural esconde: se um fadeLayerIn cancelar esta animação no
+  // meio (a camada voltou), esconder aqui apagaria o que acabou de entrar.
+  anim.onfinish = () => { el.hidden = true; el.style.opacity = ''; };
+}
+
+// `fade` = a letra está saindo de cena para o operador ver (fim da música,
+// texto manual assumindo). Sem fade quando outra mídia já vai ocupar o lugar
+// no mesmo instante — aí a transição é da mídia que entra.
+function hideLyrics(fade) {
   currentLyrics = null;
   currentLyricsMeta = null;
   lyricSlideIdx = -1;
-  lyricsEl.hidden = true;
-  if (lyricImgUrl) { URL.revokeObjectURL(lyricImgUrl); lyricImgUrl = null; }
-  lyricImgKey = null;
-  lyricsImgEl.hidden = true;
-  lyricsImgEl.removeAttribute('src');
+  ++lyricLoadSeq; // descarta uma imagem ainda resolvendo (não deve reaparecer)
+  const seq = lyricLoadSeq;
+  // A imagem de fundo é FILHA da camada: desmontá-la agora faria o fundo sumir
+  // de imediato por trás de um texto ainda esmaecendo. Some junto com a camada.
+  const teardown = () => {
+    if (seq !== lyricLoadSeq) return; // a letra voltou nesse meio tempo
+    if (lyricImgUrl) { URL.revokeObjectURL(lyricImgUrl); lyricImgUrl = null; }
+    lyricImgKey = null;
+    lyricsImgEl.hidden = true;
+    lyricsImgEl.removeAttribute('src');
+  };
+  if (fade && !lyricsEl.hidden && lyricsEl.animate && fadeCfg.out) {
+    fadeLayerOut(lyricsEl);
+    setTimeout(teardown, LAYER_FADE_MS);
+  } else {
+    lyricsEl.hidden = true;
+    teardown();
+  }
 }
 
 function showLyrics(rec) {
@@ -118,7 +175,7 @@ function showLyrics(rec) {
   currentLyrics = rec.lyrics;
   currentLyricsMeta = { hymnName: rec.hymnName, hymnTrack: rec.hymnTrack };
   lyricSlideIdx = -1;
-  lyricsEl.hidden = false;
+  fadeLayerIn(lyricsEl);
   renderLyricSlide(0);
 }
 
@@ -140,6 +197,10 @@ function renderLyricSlide(idx) {
     lyricsAuxEl.textContent = slide.auxText || '';
     lyricsAuxEl.hidden = !slide.auxText;
   }
+  // Trecho sem letra (solo, introdução, instrumental): a moldura esmaece e
+  // some, deixando só a imagem de fundo — uma caixa escura vazia no meio da
+  // tela não tem função nenhuma. Volta sozinha quando houver o que cantar.
+  lyricsContentEl.classList.toggle('nolyric', !lyricsLineEl.textContent.trim() && lyricsAuxEl.hidden);
   animateFadeIn(lyricsLineEl);
   if (!lyricsAuxEl.hidden) animateFadeIn(lyricsAuxEl);
 
@@ -158,13 +219,22 @@ function applyLyricsImage(slide) {
   const seq = ++lyricLoadSeq;
   if (!key) {
     lyricImgKey = null;
-    if (lyricImgUrl) { URL.revokeObjectURL(lyricImgUrl); lyricImgUrl = null; }
     // Oculta a <img> (não só limpa o src): sem isso, alguns navegadores
     // renderam o ícone/borda padrão de "imagem quebrada" mesmo sem `src`,
     // aparecendo como uma linha branca de margem sobre o preto de
     // `.lyrics-bg`. Escondida, o preto do próprio `.lyrics-bg` fica exposto.
-    lyricsImgEl.hidden = true;
-    lyricsImgEl.removeAttribute('src');
+    // Sai esmaecendo: desligar o fundo das músicas é uma troca visível na
+    // projeção, não um corte — e por isso a `src` e a object URL só caem
+    // DEPOIS do fade (limpá-las agora exporia o ícone de imagem quebrada
+    // durante toda a transição, que é exatamente o que se quer evitar).
+    const url = lyricImgUrl;
+    lyricImgUrl = null;
+    fadeLayerOut(lyricsImgEl);
+    setTimeout(() => {
+      if (seq !== lyricLoadSeq) return; // outra imagem já assumiu
+      lyricsImgEl.removeAttribute('src');
+      if (url) URL.revokeObjectURL(url);
+    }, LAYER_FADE_MS);
     return;
   }
   AVDB.opfsGetFile(key).then((file) => {
@@ -174,7 +244,10 @@ function applyLyricsImage(slide) {
     lyricImgUrl = url;
     lyricImgKey = key;
     lyricsImgEl.src = url;
-    lyricsImgEl.hidden = false;
+    // Cada imagem de estrofe entra com fade (e a primeira, ao ligar o fundo,
+    // também) — a troca seca entre fotos era o corte mais perceptível da
+    // letra sincronizada.
+    fadeLayerIn(lyricsImgEl);
     if (prevUrl) URL.revokeObjectURL(prevUrl);
   }).catch(() => {
     // falha ao resolver: mantém a imagem anterior em tela (nada pior que
@@ -202,6 +275,9 @@ function applyLyricsBgClass() {
 // Chamado a cada tick de tempo (sendStatus/onTime) — sem timer novo.
 function updateLyricSlide(t) {
   if (!currentLyrics) return;
+  // Replay depois do fim: a letra foi esmaecida no onEnded, mas os slides
+  // continuam carregados — o tempo voltar a correr a traz de volta.
+  if (lyricsEl.hidden) fadeLayerIn(lyricsEl);
   renderLyricSlide(findSlideIndex(currentLyrics, t));
 }
 
@@ -237,9 +313,9 @@ function showText(cmd) {
   // A letra sincronizada é a única exceção: ela É texto, então sai de cena
   // enquanto o texto manual está no ar (precedência do operador). Volta em
   // hideText, no slide correspondente ao instante atual da música.
-  hideLyrics();
+  hideLyrics(true);
   textActive = true;
-  textEl.hidden = false;
+  fadeLayerIn(textEl);
   // Revela conforme a view (wallpaper mantém a cortina por cima).
   if (wallpaper) stage.instantCover(true); else stage.coverOut();
 }
@@ -251,9 +327,9 @@ function showText(cmd) {
 function hideText(restore = true) {
   if (!textActive) return;
   textActive = false;
-  textEl.hidden = true;
-  textMainEl.textContent = '';
-  textSubEl.textContent = '';
+  // Sai esmaecendo — e o texto NÃO é limpo aqui: apagá-lo agora deixaria o
+  // cartão vazio visível durante todo o fade. O próximo showText sobrescreve.
+  fadeLayerOut(textEl);
   if (restore) restoreSceneAfterText();
 }
 
@@ -840,7 +916,7 @@ AVDB.onCommand(async (cmd) => {
     // padrão do loadSeq do stage.js): sem isso, trocar de um hino direto pra
     // um vídeo do YouTube nunca escondia o layer de letra de verdade — só
     // ficava mascarado por sorte de ordem de pintura no DOM.
-    hideLyrics();
+    hideLyrics(true);
     const rec = await AVDB.getMedia(cmd.mediaId);
     if (rec && rec.kind === 'youtube') {
       loadYoutube(rec, cmd.view, cmd.muted, cmd.volume);
@@ -864,7 +940,7 @@ AVDB.onCommand(async (cmd) => {
   }
 
   if (cmd.type === 'stop' || cmd.type === 'clear') {
-    hideLyrics();
+    hideLyrics(true);
     // `++ytSeq` (via stopYoutube quando há player, ou direto) cancela também um
     // loadYoutube em curso entre os awaits (yt ainda null) — sem isto, o vídeo
     // começaria a tocar depois de o operador já ter parado.

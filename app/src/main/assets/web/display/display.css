@@ -168,11 +168,19 @@ html, body {
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   gap: 1.5cqh;
   text-align: center; overflow: hidden;
+  transition: opacity .3s ease;
 }
 .lyrics-content.imgbg .lyrics-box {
   background: var(--lyrics-frame-bg);
   border-color: var(--lyrics-frame-border);
 }
+/* Trecho da música sem letra a cantar (solo, introdução, instrumental): a
+   moldura inteira esmaece e some, deixando a imagem de fundo limpa. Uma caixa
+   escura vazia parada no meio do telão durante um solo não comunica nada — e
+   com fundo preto (modo padrão) ainda por cima nem se justifica como
+   contraste. Volta esmaecendo quando houver o que cantar de novo (a transição
+   está em .lyrics-box, acima). */
+.lyrics-content.nolyric .lyrics-box { opacity: 0; }
 /* white-space:pre-line respeita as quebras de linha reais que já vêm no
    texto (ver normalizeLyricText em controle.js — a API embute `<br>` nas
    letras, convertido pra `\n`), além de continuar quebrando normalmente por
