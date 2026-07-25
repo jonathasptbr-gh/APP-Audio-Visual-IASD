@@ -1535,19 +1535,45 @@ com `load` visual/`stop`/`clear` explícitos).
 
 ### No Display
 
-Layer `#text` (`.text-layer`, `z-index:1` como os demais layers de
-mídia), inserido entre `#lyrics` e `#youtube` — a cortina do wallpaper
-(`z-index:2`) o cobre/revela **de graça**, sem tocar em `stage.js`.
-`showText(cmd)` encerra as outras camadas **visuais concorrentes** (`ytDrop()` +
-`++ytSeq`, `hideLyrics()`) — **mas NÃO chama `stage.clear()`** (o áudio de fundo
-segue tocando, ver "Independência do áudio"); pinta `main`/`sub`, aplica a classe
+Layer `#text` (`.text-layer`), **`z-index:2` — acima de toda a mídia**
+(`z-index:1`), inclusive do iframe do YouTube, que vem depois no DOM e com
+z-index igual pintaria por cima do cartão. A cortina do wallpaper sobe para
+`z-index:3` (nada é colocado sobre o wallpaper) e o escudo do YouTube para
+`4`. Como `.layer` já traz `background:#000`, o cartão é **opaco**: o texto
+manual cobre a cena inteira, que é o que se espera de uma interferência
+direta do operador.
+
+**É essa opacidade que dá continuidade à cena.** Nada precisa ser
+interrompido para o texto aparecer: a mídia segue tocando intacta por baixo —
+áudio audível, vídeo rodando, posição preservada — e **reaparece exatamente
+onde estava** quando o texto sai. Antes o `showText` derrubava o player do
+YouTube (`ytDrop()`) para o cartão ficar visível, e não havia como voltar:
+tirar o versículo do ar deixava a cena vazia.
+
+`showText(cmd)` chama apenas `hideLyrics()` — a letra sincronizada é a única
+coisa que sai de cena, porque ela **é** texto e o manual tem precedência — e
+**NÃO chama `stage.clear()`** (o áudio de fundo segue tocando, ver
+"Independência do áudio"); pinta `main`/`sub`, aplica a classe
 `.mode-message` conforme o `mode` e revela conforme a `view`; um novo `text` já
 em cena só troca o texto (sem piscar). Enquanto `textActive`, o roteamento de
 comandos trata a Camada de Texto como paralela (igual ao YouTube): `view` só
 liga/desliga a cortina (`stage.coverIn/coverOut`); `load` de **áudio** mantém o
 texto (troca o som de fundo), `load` de **visual**/`stop`/`clear` chamam
-`hideText()` e seguem o fluxo; **transporte** (play/pause/seek/volume/mute) cai
-no fluxo do stage (áudio de fundo). O cartão (`.text-box`) usa o mesmo
+`hideText(false)` e seguem o fluxo; **transporte** (play/pause/seek/volume/mute)
+cai no fluxo do stage (áudio de fundo).
+
+**Sair do texto devolve a cena** (`hideText(restore)` → `restoreSceneAfterText()`,
+espelhado por `hidePvText`/`restorePvSceneAfterText` na preview): vídeo, imagem e
+YouTube não precisam de nada — nunca foram interrompidos e reaparecem sozinhos
+assim que o cartão sai da frente. Só a **letra sincronizada** precisa ser
+remontada, e **no slide correspondente ao instante atual** da música
+(`updateLyricSlide(stage.getTime())`; na preview, `authoritativeTime()`), não do
+começo — a música avançou enquanto o versículo estava no ar. O parâmetro
+`restore` é falso justamente quando algo novo já vai assumir a cena (load de
+visual, `stop`, `clear`): restaurar ali faria a cena antiga piscar antes de ser
+substituída. Como `showLyrics` retorna cedo enquanto `textActive`, trocar o
+áudio de fundo com o texto no ar também funciona: ao sair, entra a letra do
+áudio **atual**. O cartão (`.text-box`) usa o mesmo
 redimensionamento por Container Queries da letra (`container-type:size` + `cq*`),
 mas em prosa (caixa-baixa), com a moldura sempre visível (o texto é sempre
 projetado sobre o preto). É de **tamanho FIXO** (`width`/`height` fixos, não

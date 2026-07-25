@@ -41,8 +41,21 @@ html, body {
   z-index: 1;
 }
 
+/* Camada de TEXTO manual (Bíblia/Mensagem): fica ACIMA de toda a mídia
+   (z-index 2), inclusive do iframe do YouTube — que vem depois no DOM e, com
+   o mesmo z-index das demais camadas, pintaria por cima do cartão.
+   O `background:#000` herdado de `.layer` a torna opaca, então o texto manual
+   cobre a cena inteira: é uma interferência direta do operador e tem
+   precedência visual sobre qualquer mídia.
+   É isso que permite a mídia CONTINUAR TOCANDO intacta por baixo (áudio
+   audível, vídeo rodando, posição preservada) e reaparecer exatamente onde
+   estava quando o texto sai — antes o YouTube precisava ser derrubado para o
+   cartão aparecer, e não havia como voltar. */
+.text-layer { z-index: 2; }
+
 /* Wallpaper: cortina que cobre TODA a mídia quando visível — liga/desliga
-   (com fade, se configurado) independente do que estiver tocando por baixo. */
+   (com fade, se configurado) independente do que estiver tocando por baixo.
+   Acima também da camada de texto: nada é colocado sobre o wallpaper. */
 .wallpaper {
   position: fixed;
   inset: 0;
@@ -50,7 +63,7 @@ html, body {
   align-items: center;
   justify-content: center;
   background: var(--wallpaper);
-  z-index: 2;
+  z-index: 3;
 }
 
 .wallpaper-brand {
@@ -259,7 +272,7 @@ html, body {
   object-fit: unset;
   opacity: 0;
   pointer-events: none;
-  z-index: 3;
+  z-index: 4;
 }
 .yt-shield.on { opacity: 1; }
 

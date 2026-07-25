@@ -620,7 +620,7 @@ function cmd(obj) {
     // mantém o texto (independência áudio × texto).
     hidePvLyrics();
     const keepText = pvTextActive && currentItem && currentItem.kind === 'audio';
-    if (!keepText) hidePvText();
+    if (!keepText) hidePvText(false); // o load abaixo já monta a cena nova
     // preview.handle() sempre roda primeiro: mantém preview.getCurrent()/
     // fallback de thumbnail em dia (stage.js já sabe lidar com kind=youtube,
     // só não toca o vídeo) — mesmo quando o player real assume por cima.
@@ -633,7 +633,7 @@ function cmd(obj) {
   }
   if (obj.type === 'stop' || obj.type === 'clear') {
     hidePvLyrics();
-    hidePvText();
+    hidePvText(false); // a cena inteira está sendo encerrada; nada a restaurar
     if (ytPreview) dropYtPreview();
     preview.handle(obj);
     return;
@@ -809,12 +809,27 @@ function applyPvLyricsBg() {
 // muda), como no Display. `mode`: 'verse' (sublinha = referência) | 'message'.
 let pvTextActive = false;
 
-function hidePvText() {
+// `restore` = a cena anterior deve voltar (ver hideText no display.js: mesma
+// regra dos dois lados — 'text-hide' restaura; load visual/stop/clear não,
+// porque algo novo já vai assumir a cena).
+function hidePvText(restore = true) {
   if (!pvTextActive && pvTextEl.hidden) return;
   pvTextActive = false;
   pvTextEl.hidden = true;
   pvTextMainEl.textContent = '';
   pvTextSubEl.textContent = '';
+  if (restore) restorePvSceneAfterText();
+}
+
+// Espelha restoreSceneAfterText() do Display: só a letra sincronizada precisa
+// ser remontada (vídeo/imagem/YouTube nunca pararam e reaparecem sozinhos), e
+// no slide correspondente ao instante atual — por authoritativeTime(), que é
+// a posição do Display quando ele é a fonte de verdade.
+function restorePvSceneAfterText() {
+  const cur = currentItem;
+  if (!cur || cur.kind !== 'audio' || !Array.isArray(cur.lyrics) || !cur.lyrics.length) return;
+  showPvLyrics(cur);
+  updatePvLyricSlide(authoritativeTime());
 }
 
 function showPvText(obj) {
@@ -829,10 +844,11 @@ function showPvText(obj) {
     preview.instantCover(wallpaper);
     return;
   }
+  // O cartão é OPACO e fica acima de toda a mídia (.pv-text, z-index 2): nada
+  // precisa ser interrompido para ele aparecer — nem o player do YouTube, que
+  // antes era derrubado aqui e não tinha como voltar. A letra sincronizada é a
+  // única exceção (ela É texto; volta em hidePvText, no slide certo).
   hidePvLyrics();
-  if (ytPreview) dropYtPreview();
-  // NÃO para o áudio de fundo da preview (independência) — só some com o visual
-  // concorrente (YouTube/letra); o stage da preview segue tocando por baixo.
   pvTextActive = true;
   pvTextEl.hidden = false;
   if (wallpaper) preview.instantCover(true); else preview.coverOut();

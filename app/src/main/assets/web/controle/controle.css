@@ -176,10 +176,16 @@ body {
 }
 /* Mesmo modelo do Display: mídia toca por baixo (z-index menor); o wallpaper
    é a cortina que cobre por cima, ligada/desligada independente da mídia. */
+/* Camada de TEXTO manual: acima de toda a mídia (inclusive do iframe do
+   YouTube, que vem depois no DOM), opaca pelo `background:#000` de .pv-layer.
+   Espelha o Display (.text-layer) — a mídia segue tocando intacta por baixo e
+   reaparece onde estava quando o texto sai. */
+.pv-text { z-index: 2; }
+
 .pv-wall {
   position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
   background: var(--wallpaper);
-  z-index: 2;
+  z-index: 3;
 }
 .pv-brand { font-size: clamp(.7rem, 3.5vw, 1.05rem); font-weight: 700; letter-spacing: .03em; color: rgba(255,255,255,.9); }
 .pv-brand b { color: var(--gold); }

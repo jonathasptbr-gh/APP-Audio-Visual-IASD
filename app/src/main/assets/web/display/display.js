@@ -229,10 +229,14 @@ function showText(cmd) {
     stage.instantCover(wallpaper);
     return;
   }
-  // Some com o YouTube (visual concorrente) e com a letra sincronizada (texto da
-  // mídia), mas NÃO para o áudio do stage — ele segue tocando por baixo.
-  ++ytSeq;
-  ytDrop();
+  // O cartão é OPACO e fica acima de toda a mídia (.text-layer, z-index 2):
+  // nada precisa ser interrompido para ele aparecer. A mídia segue tocando
+  // intacta por baixo — áudio audível, vídeo rodando, posição preservada — e
+  // reaparece exatamente onde estava quando o texto sair (hideText).
+  //
+  // A letra sincronizada é a única exceção: ela É texto, então sai de cena
+  // enquanto o texto manual está no ar (precedência do operador). Volta em
+  // hideText, no slide correspondente ao instante atual da música.
   hideLyrics();
   textActive = true;
   textEl.hidden = false;
@@ -240,12 +244,28 @@ function showText(cmd) {
   if (wallpaper) stage.instantCover(true); else stage.coverOut();
 }
 
-function hideText() {
+// `restore` = a cena anterior deve voltar. Verdadeiro no 'text-hide' (o
+// operador só tirou o texto do ar); falso quando algo NOVO já vai assumir a
+// cena logo em seguida (load de visual, stop, clear) — restaurar ali faria a
+// letra piscar por um instante antes de ser substituída.
+function hideText(restore = true) {
   if (!textActive) return;
   textActive = false;
   textEl.hidden = true;
   textMainEl.textContent = '';
   textSubEl.textContent = '';
+  if (restore) restoreSceneAfterText();
+}
+
+// Devolve a cena ao estado em que ela estava antes do texto manual entrar.
+// Vídeo/imagem/YouTube não precisam de nada: nunca foram interrompidos e
+// reaparecem sozinhos assim que o cartão opaco sai da frente. Só a letra
+// sincronizada precisa ser remontada — e no slide certo, não do começo.
+function restoreSceneAfterText() {
+  const cur = stage.getCurrent();
+  if (!cur || cur.kind !== 'audio' || !Array.isArray(cur.lyrics) || !cur.lyrics.length) return;
+  showLyrics(cur);
+  updateLyricSlide(stage.getTime());
 }
 
 // ===== Áudio sem toque: recuperação automática =====
@@ -780,9 +800,11 @@ AVDB.onCommand(async (cmd) => {
     }
     if (cmd.type === 'load') {
       const rec = await AVDB.getMedia(cmd.mediaId);
-      if (!rec || rec.kind !== 'audio') hideText(); // visual encerra; áudio mantém
+      // Visual encerra; áudio mantém. Sem restaurar: o load logo abaixo já
+      // monta a cena nova (restaurar aqui faria a antiga piscar antes).
+      if (!rec || rec.kind !== 'audio') hideText(false);
     } else if (cmd.type === 'stop' || cmd.type === 'clear') {
-      hideText();
+      hideText(false);
     }
     // demais comandos (play/pause/seek/volume/mute) caem no fluxo normal abaixo.
   }
