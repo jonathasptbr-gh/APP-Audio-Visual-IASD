@@ -79,10 +79,10 @@ git push origin main
   `renderVersionLabel()`), o fallback estático do `<span id="appVersion">` em
   `controle/index.html` e `version` em `version.json` (é este último que
   dispara a atualização por OTA nos aparelhos). Versionamento incremental
-  simples (4.89, 4.90, 4.91…). **Versão atual: v4.91.**
-  No app nativo o rótulo mostra os **dois índices** — `Web v4.91 · Shell v1.9`
+  simples (4.90, 4.91, 4.92…). **Versão atual: v4.92.**
+  No app nativo o rótulo mostra os **dois índices** — `Web v4.92 · Shell v1.9`
   —, porque base web e shell atualizam por caminhos independentes (OTA ×
-  instalar APK); no navegador sai só `Controle v4.91`.
+  instalar APK); no navegador sai só `Controle v4.92`.
 
 ---
 
@@ -1460,6 +1460,14 @@ aberto):
 ### Modos de repetição
 
 Ciclo ao tocar no botão 🔁: `off → all → one → shuffle → off` (persistido em `repeat`).
+
+**Tocar uma música nova zera o `one`** (`replacePlaylistWith`): tanto o toque
+simples na biblioteca quanto o "tocar" de um resultado da busca substituem a
+playlist por aquele item só — e, junto, desligam o `repeat='one'`. Repetir a
+mesma música é uma escolha sobre a música que ESTAVA tocando; mantê-la
+prenderia o item novo em laço, que é o oposto de "escolhi outra coisa para
+tocar". `all` e `shuffle` ficam: são comportamentos da FILA e voltam a valer
+assim que o operador acrescentar itens a ela.
 
 | Modo | Comportamento ao fim do item |
 |---|---|

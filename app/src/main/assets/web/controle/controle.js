@@ -59,7 +59,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '4.91';
+const WEB_VERSION = '4.92';
 
 function renderVersionLabel() {
   // __SHELL_NAME__ = versionName do APK (ver native.js). Vazio no navegador e
@@ -2741,13 +2741,29 @@ function attachRowGestures(row, item) {
   row.addEventListener('pointercancel', () => { clearTimeout(lp); row.style.transform = ''; li.classList.remove('show-left'); pid = null; mode = null; });
 }
 
+// Trocar de música do zero: a playlist passa a ser SÓ este item.
+//
+// Junto vai o `repeat='one'`: repetir a mesma música é uma escolha sobre a
+// música que estava tocando, não uma preferência permanente — mantê-la aqui
+// prenderia o item novo em laço, que é o oposto de "escolhi outra coisa para
+// tocar". `all`/`shuffle` ficam: são comportamentos da FILA, e continuam
+// valendo quando o operador acrescentar itens a ela.
+async function replacePlaylistWith(rec) {
+  await AVDB.listSet('playlist', [rec.id]);
+  plItems = [rec];
+  renderPlaylist();
+  if (repeat === 'one') {
+    repeat = 'off';
+    await AVDB.setState('repeat', repeat);
+    renderRepeat();
+  }
+}
+
 async function onTap(item) {
   if (selectionMode) { toggleSelect(item.id); return; }
   // Toque direto na biblioteca: define a playlist como este item apenas.
   // Swipe para esquerda continua ADICIONANDO à playlist.
-  await AVDB.listSet('playlist', [item.id]);
-  plItems = [item];
-  renderPlaylist();
+  await replacePlaylistWith(item);
   send(item.id);
 }
 
@@ -3768,9 +3784,7 @@ async function playSongVariant(coll, s, variant) {
   if (!id) { flash('Não foi possível tocar (sem internet para baixar)'); return; }
   const rec = await AVDB.getMedia(id);
   if (!rec) { flash('Erro ao carregar mídia'); return; }
-  await AVDB.listSet('playlist', [id]);
-  plItems = [rec];
-  renderPlaylist();
+  await replacePlaylistWith(rec);
   closeHymnSearch();
   dismissFlash();   // fecha o toast "Baixando…" sticky que ensureSongDownloaded pode ter deixado
   send(id);
