@@ -25,6 +25,10 @@
   global.__NATIVE__ = true;
   try { global.__SHELL_VERSION__ = B.shellVersion(); } catch (_) { global.__SHELL_VERSION__ = 0; }
   try { global.__AV_ROLE__ = B.role(); } catch (_) { global.__AV_ROLE__ = ''; }
+  // versionName do APK — o índice de SHELL exibido ao operador (≠
+  // __SHELL_VERSION__, que é o contrato interno da ponte). Vazio num shell
+  // antigo, sem `appVersion()`: a UI então mostra só a versão da base web.
+  try { global.__SHELL_NAME__ = B.appVersion() || ''; } catch (_) { global.__SHELL_NAME__ = ''; }
 
   // ---- confirmação de boot (watchdog do OTA) ----
   // A base web pode ter sido baixada por OTA. Se ela estiver quebrada, o app

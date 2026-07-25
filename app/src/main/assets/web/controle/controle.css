@@ -256,11 +256,16 @@ body {
   border: 1px solid transparent;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2.3cqh;
   text-align: center; overflow: hidden;
+  transition: opacity .3s ease;
 }
 .pv-lyrics-content.imgbg .pv-lyrics-box {
   background: var(--lyrics-frame-bg);
   border-color: var(--lyrics-frame-border);
 }
+/* Trecho da música sem letra a cantar (solo, introdução, instrumental): a
+   moldura esmaece e some, deixando a imagem de fundo limpa — espelha
+   `.lyrics-content.nolyric` do Display. */
+.pv-lyrics-content.nolyric .pv-lyrics-box { opacity: 0; }
 /* white-space:pre-line respeita as quebras reais já embutidas no texto (ver
    normalizeLyricText em controle.js). */
 /* Fonte em cqmin (mesmo motivo do Display — ver .lyrics-line em display.css):

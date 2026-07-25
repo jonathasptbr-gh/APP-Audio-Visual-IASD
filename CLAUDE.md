@@ -141,6 +141,15 @@ window.AVNative = {
 }
 ```
 
+Além disso, `native.js` publica três globais lidas direto (sem Promise):
+`window.__NATIVE__`, `__AV_ROLE__` (`'controle'`/`'display'`), `__SHELL_VERSION__`
+(o inteiro do contrato, ver abaixo) e **`__SHELL_NAME__`** — o `versionName` do
+APK, que é o **índice de versão do shell exibido ao operador**. Ele não se
+confunde com `__SHELL_VERSION__`: base web e shell atualizam por caminhos
+independentes (OTA × instalar APK), então o cabeçalho do Cronograma mostra os
+dois (`Web v4.87 · Shell v1.6`). Num shell antigo (sem `appVersion()`) a
+string vem vazia e a UI cai em só a versão web — mesma degradação do navegador.
+
 **Princípio: a ponte entrega URLs SERVÍVEIS, não bytes.** Arquivos do
 dispositivo e compartilhamentos chegam como
 `https://appassets.androidplatform.net/saf/<token>` e o lado web usa `fetch()`
@@ -325,4 +334,4 @@ Rodar local: `./gradlew assembleDebug` (exige Android SDK instalado).
   (`#appVersion` em `assets/web/controle/index.html`) **e `version` em
   `assets/web/version.json`** — é este último que faz a atualização chegar
   aos aparelhos por OTA. O `versionCode`/`versionName` do APK vêm do CI.
-  **Versão atual: v4.86** (base web) · **shell 1.3** (`SHELL_VERSION` 3).
+  **Versão atual: v4.87** (base web) · **shell 1.6** (`SHELL_VERSION` 4).

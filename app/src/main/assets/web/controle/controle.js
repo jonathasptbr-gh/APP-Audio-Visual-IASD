@@ -50,6 +50,27 @@ const libraryEl = document.getElementById('library');
 const listTitleEl = document.getElementById('listTitle');
 const appVersionEl = document.getElementById('appVersion');
 
+// ===== Índices de versão (base web × shell nativo) =====
+// Os dois atualizam por caminhos INDEPENDENTES — a base web chega por OTA
+// (bundle publicado em `web-latest`, aplicado no lançamento seguinte) e o
+// shell só muda instalando um APK novo. Por isso são exibidos à parte: ver
+// "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
+// (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
+// é ela que dispara (ou não) a atualização nos aparelhos.
+const WEB_VERSION = '4.87';
+
+function renderVersionLabel() {
+  // __SHELL_NAME__ = versionName do APK (ver native.js). Vazio no navegador e
+  // em shells anteriores ao `appVersion()` — aí sai só a versão da base web.
+  const shell = window.__SHELL_NAME__;
+  appVersionEl.textContent = shell
+    ? 'Web v' + WEB_VERSION + ' · Shell v' + shell
+    : 'Controle v' + WEB_VERSION;
+  appVersionEl.title = shell
+    ? 'Base web v' + WEB_VERSION + ' (atualiza por OTA) · shell nativo v' + shell + ' (atualiza instalando o APK)'
+    : 'Base web v' + WEB_VERSION;
+}
+
 const selbarEl = document.getElementById('selbar');
 const selCountEl = document.getElementById('selCount');
 const selCancelEl = document.getElementById('selCancel');
@@ -298,7 +319,15 @@ const preview = createStage({
   // Sem este early-return, se o Display chegar ao fim antes da preview (drift
   // até SYNC_DRIFT), os dois disparariam autoAdvance() e pulariam uma faixa.
   // Mesmo princípio de previewTick/ytPreviewTick.
-  onEnded: () => { if (displayActive()) return; autoAdvance(); },
+  onEnded: () => {
+    // A letra sai de cena junto com a música, esmaecendo (camada paralela: não
+    // participa do fade do stage) — e `pvLyricsEnded` impede o slide de capa de
+    // reaparecer com o currentTime zerado do replay, logo antes do wallpaper.
+    pvLyricsEnded = true;
+    if (pvLyrics) pvLayerOut(pvLyricsEl);
+    if (displayActive()) return;
+    autoAdvance();
+  },
   onError: (e) => {
     const code = e.target.error ? e.target.error.code : '?';
     const src = e.target.src ? e.target.src.slice(-60) : '(sem src)';
@@ -612,6 +641,8 @@ function renderLyricsBgBtn() {
 // áudio da preview muda, a comunicação com o Display permanece normal.
 function cmd(obj) {
   AVDB.sendCommand(obj);
+  // O tempo volta a correr: destrava a letra congelada pelo fim natural.
+  if (obj.type === 'load' || obj.type === 'play' || obj.type === 'seek') pvLyricsEnded = false;
   // Texto manual (Bíblia/Mensagem): overlay independente — espelha na preview.
   if (obj.type === 'text') { showPvText(obj); return; }
   if (obj.type === 'text-hide') { hidePvText(); return; }
@@ -620,7 +651,7 @@ function cmd(obj) {
     // Esconde a letra incondicionalmente (como o Display). O texto manual é um
     // overlay independente: só some ao carregar VISUAL; ÁUDIO toca por baixo e
     // mantém o texto (independência áudio × texto).
-    hidePvLyrics();
+    hidePvLyrics(true);
     const keepText = pvTextActive && currentItem && currentItem.kind === 'audio';
     if (!keepText) hidePvText(false); // o load abaixo já monta a cena nova
     // preview.handle() sempre roda primeiro: mantém preview.getCurrent()/
@@ -634,7 +665,7 @@ function cmd(obj) {
     return;
   }
   if (obj.type === 'stop' || obj.type === 'clear') {
-    hidePvLyrics();
+    hidePvLyrics(true);
     hidePvText(false); // a cena inteira está sendo encerrada; nada a restaurar
     if (ytPreview) dropYtPreview();
     preview.handle(obj);
@@ -698,6 +729,38 @@ function pvFadeIn(el) {
   el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 260, easing: 'ease' });
 }
 
+// ===== Fade das CAMADAS paralelas da preview (letra, texto) =====
+// Espelha fadeLayerIn/fadeLayerOut do display.js — a preview mostra exatamente
+// o que vai ao telão, transições incluídas. A cortina do wallpaper e a mídia do
+// stage já têm as próprias (ver stage.js); estas camadas não passam por lá.
+const PV_LAYER_FADE_MS = 320;
+
+function pvLayerIn(el) {
+  if (!el) return;
+  const wasHidden = el.hidden;
+  el.hidden = false;
+  el.style.opacity = '';
+  if (!el.animate) return;
+  // Cancela SEMPRE, mesmo já visível: pode haver um pvLayerOut em curso (a
+  // camada estava saindo e voltou), e o `onfinish` dele esconderia justamente
+  // o que acabou de entrar.
+  let hadAnim = false;
+  try { el.getAnimations().forEach((a) => { hadAnim = true; a.cancel(); }); } catch (_) {}
+  if (!fadeCfg.in) return;
+  if (!wasHidden && !hadAnim) return; // já em cena e estável: não repete o fade
+  el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: PV_LAYER_FADE_MS, easing: 'ease' });
+}
+
+function pvLayerOut(el) {
+  if (!el || el.hidden) return;
+  if (!el.animate || !fadeCfg.out) { el.hidden = true; return; }
+  try { el.getAnimations().forEach((a) => a.cancel()); } catch (_) {}
+  const anim = el.animate([{ opacity: 1 }, { opacity: 0 }], { duration: PV_LAYER_FADE_MS, easing: 'ease' });
+  // Só o término natural esconde: um pvLayerIn que cancele esta animação no
+  // meio (a camada voltou) não pode ter o elemento escondido por baixo dele.
+  anim.onfinish = () => { el.hidden = true; el.style.opacity = ''; };
+}
+
 // ===== Letra sincronizada na preview — mesma visualização do Display =====
 // A preview já espelha o Display para imagem/vídeo (stage.js) e YouTube
 // (segundo player, ver loadYtPreview) — letra sincronizada segue o mesmo
@@ -709,23 +772,43 @@ let pvLyricSlideIdx = -1;
 let pvLyricLoadSeq = 0;
 let pvLyricImgKey = null;
 let pvLyricImgUrl = null;
+// Fim natural da faixa (local ou reportado pelo Display): trava a troca de
+// slide até o próximo load/play/seek. Sem isso, o `currentTime = 0` que o fim
+// natural produz (preparando o replay) faz o slide de CAPA reaparecer por um
+// instante antes de o wallpaper cobrir — o "piscar da thumbnail" no fim da música.
+let pvLyricsEnded = false;
 
-function hidePvLyrics() {
+// `fade` = a letra está saindo de cena para o operador ver (fim da música,
+// texto manual assumindo). Espelha hideLyrics() do Display, inclusive o
+// adiamento do teardown da imagem de fundo (ela é FILHA da camada: desmontá-la
+// de imediato faria o fundo sumir por trás de um texto ainda esmaecendo).
+function hidePvLyrics(fade) {
   pvLyrics = null;
   pvLyricsMeta = null;
   pvLyricSlideIdx = -1;
-  pvLyricsEl.hidden = true;
-  if (pvLyricImgUrl) { URL.revokeObjectURL(pvLyricImgUrl); pvLyricImgUrl = null; }
-  pvLyricImgKey = null;
-  pvLyricsImgEl.hidden = true;
-  pvLyricsImgEl.removeAttribute('src');
+  ++pvLyricLoadSeq; // descarta uma imagem ainda resolvendo (não deve reaparecer)
+  const seq = pvLyricLoadSeq;
+  const teardown = () => {
+    if (seq !== pvLyricLoadSeq) return; // a letra voltou nesse meio tempo
+    if (pvLyricImgUrl) { URL.revokeObjectURL(pvLyricImgUrl); pvLyricImgUrl = null; }
+    pvLyricImgKey = null;
+    pvLyricsImgEl.hidden = true;
+    pvLyricsImgEl.removeAttribute('src');
+  };
+  if (fade && !pvLyricsEl.hidden && pvLyricsEl.animate && fadeCfg.out) {
+    pvLayerOut(pvLyricsEl);
+    setTimeout(teardown, PV_LAYER_FADE_MS);
+  } else {
+    pvLyricsEl.hidden = true;
+    teardown();
+  }
 }
 
 function showPvLyrics(rec) {
   pvLyrics = rec.lyrics;
   pvLyricsMeta = { hymnName: rec.hymnName, hymnTrack: rec.hymnTrack };
   pvLyricSlideIdx = -1;
-  pvLyricsEl.hidden = false;
+  pvLayerIn(pvLyricsEl);
   applyPvLyricsBgClass();
   renderPvLyricSlide(0);
 }
@@ -755,6 +838,9 @@ function renderPvLyricSlide(idx) {
     pvLyricsAuxEl.textContent = slide.auxText || '';
     pvLyricsAuxEl.hidden = !slide.auxText;
   }
+  // Trecho sem letra (solo, introdução, instrumental): a moldura esmaece e
+  // some, deixando só a imagem de fundo — mesmo comportamento do telão.
+  pvLyricsContentEl.classList.toggle('nolyric', !pvLyricsLineEl.textContent.trim() && pvLyricsAuxEl.hidden);
   pvFadeIn(pvLyricsLineEl);
   if (!pvLyricsAuxEl.hidden) pvFadeIn(pvLyricsAuxEl);
 
@@ -772,13 +858,20 @@ function applyPvLyricsImage(slide) {
   const seq = ++pvLyricLoadSeq;
   if (!key) {
     pvLyricImgKey = null;
-    if (pvLyricImgUrl) { URL.revokeObjectURL(pvLyricImgUrl); pvLyricImgUrl = null; }
     // Oculta a <img> (não só limpa o src) — mesmo motivo do Display: sem
     // isso, alguns navegadores mostram o ícone/borda padrão de "imagem
     // quebrada" mesmo sem `src`, aparecendo como uma linha branca de
-    // margem sobre o preto de .pv-lyrics-bg.
-    pvLyricsImgEl.hidden = true;
-    pvLyricsImgEl.removeAttribute('src');
+    // margem sobre o preto de .pv-lyrics-bg. Sai esmaecendo, e `src`/object
+    // URL só caem DEPOIS do fade (limpá-las agora exporia justamente esse
+    // ícone durante toda a transição).
+    const url = pvLyricImgUrl;
+    pvLyricImgUrl = null;
+    pvLayerOut(pvLyricsImgEl);
+    setTimeout(() => {
+      if (seq !== pvLyricLoadSeq) return; // outra imagem já assumiu
+      pvLyricsImgEl.removeAttribute('src');
+      if (url) URL.revokeObjectURL(url);
+    }, PV_LAYER_FADE_MS);
     return;
   }
   AVDB.opfsGetFile(key).then((file) => {
@@ -788,13 +881,17 @@ function applyPvLyricsImage(slide) {
     pvLyricImgUrl = url;
     pvLyricImgKey = key;
     pvLyricsImgEl.src = url;
-    pvLyricsImgEl.hidden = false;
+    // Cada imagem de estrofe entra com fade — igual ao telão.
+    pvLayerIn(pvLyricsImgEl);
     if (prevUrl) URL.revokeObjectURL(prevUrl);
   }).catch(() => {});
 }
 
 function updatePvLyricSlide(t) {
-  if (!pvLyrics) return;
+  if (!pvLyrics || pvLyricsEnded) return;
+  // Replay depois do fim: a letra foi esmaecida junto com a música, mas os
+  // slides continuam carregados — o tempo voltar a correr a traz de volta.
+  if (pvLyricsEl.hidden) pvLayerIn(pvLyricsEl);
   renderPvLyricSlide(findSlideIndex(pvLyrics, t));
 }
 
@@ -817,9 +914,9 @@ let pvTextActive = false;
 function hidePvText(restore = true) {
   if (!pvTextActive && pvTextEl.hidden) return;
   pvTextActive = false;
-  pvTextEl.hidden = true;
-  pvTextMainEl.textContent = '';
-  pvTextSubEl.textContent = '';
+  // Sai esmaecendo — e o texto NÃO é limpo aqui: apagá-lo agora deixaria o
+  // cartão vazio visível durante todo o fade. O próximo showPvText sobrescreve.
+  pvLayerOut(pvTextEl);
   if (restore) restorePvSceneAfterText();
 }
 
@@ -850,9 +947,9 @@ function showPvText(obj) {
   // precisa ser interrompido para ele aparecer — nem o player do YouTube, que
   // antes era derrubado aqui e não tinha como voltar. A letra sincronizada é a
   // única exceção (ela É texto; volta em hidePvText, no slide certo).
-  hidePvLyrics();
+  hidePvLyrics(true);
   pvTextActive = true;
-  pvTextEl.hidden = false;
+  pvLayerIn(pvTextEl);
   if (wallpaper) preview.instantCover(true); else preview.coverOut();
 }
 
@@ -1104,6 +1201,7 @@ function renderTabs() {
 function renderListTitle() {
   // Indicador de versão: só ao lado do título da aba Cronograma.
   appVersionEl.hidden = activeTab !== 'imports';
+  if (!appVersionEl.hidden) renderVersionLabel();
   if (activeTab === 'messages') {
     backBtnEl.hidden = true; addDirBtnEl.hidden = true; libSearchEl.hidden = true; libSearchEl.value = '';
     listTitleEl.hidden = false; listTitleEl.textContent = 'Mensagens';
@@ -4191,6 +4289,10 @@ AVDB.onCommand((msg) => {
     displayStatusAt = Date.now();
     if (isYoutube) ytEnded = true;
     playing = false;
+    // Mesmo tratamento do onEnded local (o Display pode chegar ao fim primeiro):
+    // a letra esmaece e trava, para o slide de capa não piscar no replay.
+    pvLyricsEnded = true;
+    if (pvLyrics) pvLayerOut(pvLyricsEl);
     autoAdvance();
   }
 });

@@ -550,6 +550,11 @@
       getCurrent: () => current,
       getView: () => view,
       isPlaying: isPlayingNow,
+      // Chegou ao fim natural e está aguardando replay. As camadas paralelas
+      // (letra, texto) precisam disso: no fim o stage zera o currentTime para
+      // preparar o replay, e quem segue o tempo re-renderizaria o slide 0 —
+      // fazendo a capa do hino piscar antes do wallpaper cobrir.
+      hasEnded: () => ended,
       isTimed: () => !!current && (current.kind === 'video' || current.kind === 'audio'),
       getTime: () => video.currentTime,
       getDuration: () => video.duration,
