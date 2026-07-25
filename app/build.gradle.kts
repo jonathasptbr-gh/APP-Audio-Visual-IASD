@@ -1,3 +1,8 @@
+// Import explícito: dentro de um build.gradle.kts o nome `java` é a extensão
+// do plugin Java, que sombreia o pacote `java.*` — `java.util.Base64` não
+// resolve por caminho completo.
+import java.util.Base64
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -39,9 +44,9 @@ android {
             create("release") {
                 // O arquivo é materializado a partir do secret em build time
                 // e fica fora do repositório (ver .gitignore).
-                storeFile = rootProject.file("release.jks").apply {
-                    writeBytes(java.util.Base64.getDecoder().decode(keystoreB64!!.trim()))
-                }
+                val ks = rootProject.file("release.jks")
+                ks.writeBytes(Base64.getDecoder().decode(keystoreB64!!.trim()))
+                storeFile = ks
                 storePassword = keyPasswordEnv
                 keyAlias = keyAliasEnv
                 keyPassword = keyPasswordEnv
