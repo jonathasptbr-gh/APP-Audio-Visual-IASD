@@ -6,11 +6,13 @@ import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.hardware.display.DisplayManager
+import android.media.AudioManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.util.Log
+import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
@@ -80,6 +82,16 @@ class MainActivity : ComponentActivity(), BridgeHost {
     /** Há download em curso? (evita start/stop repetido do serviço) */
     private var backgroundWork = false
 
+    /**
+     * O lado web pediu para receber os botões físicos de volume.
+     *
+     * Ligado por `AVNative.captureVolumeKeys(true)` só depois que o Controle
+     * carrega: se a Activity interceptasse as teclas desde o `onCreate`, uma
+     * falha no JS deixaria o aparelho sem NENHUM controle de volume enquanto o
+     * app estivesse aberto.
+     */
+    private var captureVolumeKeys = false
+
     // Android 13+ exige permissão para MOSTRAR a notificação do serviço de
     // sincronização. Negá-la não impede o serviço de rodar — só esconde o
     // indicador —, por isso o pedido é feito uma vez e sem bloquear nada.
@@ -116,6 +128,11 @@ class MainActivity : ComponentActivity(), BridgeHost {
 
         // A tela do operador não pode apagar no meio do culto.
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+
+        // Volume desta Activity = mídia, sempre. Sem isto o Android escolhe a
+        // stream pelo contexto e, com espelhamento ativo, os botões podem cair
+        // na saída remota (o volume da TV) em vez do áudio do app.
+        volumeControlStream = AudioManager.STREAM_MUSIC
 
         // Decide a base web ANTES de qualquer WebView existir, para Controle e
         // Display servirem sempre o mesmo bundle nesta sessão (e para o
@@ -262,6 +279,42 @@ class MainActivity : ComponentActivity(), BridgeHost {
     private fun notifyDisplayChange() {
         web?.evaluateJavascript("window.__avDisplaysChanged && window.__avDisplaysChanged();", null)
     }
+
+    // ---------- botões físicos de volume ----------
+
+    /**
+     * Os botões de volume passam a mexer no **fader do app**, não na saída do
+     * sistema.
+     *
+     * Era esse o problema durante o espelhamento: o Android roteia os botões
+     * para a saída em uso, e com Miracast/Smart View ativo isso vira o volume
+     * da TV — o operador mexia no botão e o fader do app não saía do lugar.
+     * Consumindo a tecla aqui (`return true`, também no `onKeyUp`, senão o
+     * sistema ainda reage ao evento de soltura) nada disso acontece: o evento
+     * vira um passo no `#volSlider`, exatamente como arrastar o fader.
+     *
+     * **Válvula de escape:** com o fader já no máximo (ou no zero), o lado web
+     * devolve a tecla via `adjustSystemVolume()` e ela volta a valer para o
+     * sistema, com a UI de volume do Android. Sem isso, um aparelho com o
+     * volume de mídia baixo ficaria sem jeito de subir enquanto o app
+     * estivesse aberto.
+     */
+    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+        if (captureVolumeKeys && isVolumeKey(keyCode)) {
+            val step = if (keyCode == KeyEvent.KEYCODE_VOLUME_UP) 1 else -1
+            web?.evaluateJavascript("window.__avVolumeKey && window.__avVolumeKey($step);", null)
+            return true
+        }
+        return super.onKeyDown(keyCode, event)
+    }
+
+    override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
+        if (captureVolumeKeys && isVolumeKey(keyCode)) return true
+        return super.onKeyUp(keyCode, event)
+    }
+
+    private fun isVolumeKey(keyCode: Int) =
+        keyCode == KeyEvent.KEYCODE_VOLUME_UP || keyCode == KeyEvent.KEYCODE_VOLUME_DOWN
 
     // ---------- BridgeHost ----------
 
@@ -414,6 +467,20 @@ class MainActivity : ComponentActivity(), BridgeHost {
         // ainda declarada pelo app de Configurações em muitos aparelhos.
         Intent("android.settings.WIFI_DISPLAY_SETTINGS"),
     )
+
+    override fun setCaptureVolumeKeys(on: Boolean) {
+        runOnUiThread { captureVolumeKeys = on }
+    }
+
+    override fun adjustSystemVolume(step: Int) {
+        runOnUiThread {
+            val am = getSystemService(AudioManager::class.java) ?: return@runOnUiThread
+            val dir = if (step > 0) AudioManager.ADJUST_RAISE else AudioManager.ADJUST_LOWER
+            // FLAG_SHOW_UI: aqui a mudança é do SISTEMA, não do app — o
+            // operador precisa ver que saiu do fader e entrou no volume geral.
+            am.adjustStreamVolume(AudioManager.STREAM_MUSIC, dir, AudioManager.FLAG_SHOW_UI)
+        }
+    }
 
     override fun takePendingShare(): JSONObject? {
         val s = pendingShare

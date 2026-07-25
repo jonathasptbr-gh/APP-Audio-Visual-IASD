@@ -617,29 +617,39 @@ main {
 .net-badge--warn { color: var(--gold); opacity: 1; }
 .storage-usage { font-size: .72rem; opacity: .7; padding: 10px 0; }
 
-/* ---------- Cartão informativo do Hinário 2022 ---------- */
-/* NÃO é uma pasta: é um "check do sistema" — símbolo do hinário, status de
-   sincronização, e estatísticas (sincronizados, peso, Wi-Fi) + ações. Card
-   vertical, mais volumoso que uma linha de pasta, para caber tudo. */
+/* ---------- Card de coleção (álbum / hinário) ---------- */
+/* Uma linha só, e ela É o álbum: tocar abre a LISTA DE MÚSICAS. A manutenção
+   (sincronizar, excluir, estado do download) mora atrás da engrenagem, num
+   bottom-sheet — antes era um acordeão dentro do próprio card, o que fazia o
+   toque no álbum abrir um painel de status em vez das músicas. */
 .hymnal-card {
   flex-shrink: 0;
   border-radius: var(--radius-card);
   background: var(--panel);
   border: 1px solid var(--line);
-  padding: .7rem .8rem;
-  display: flex; flex-direction: column; gap: .6rem;
+  padding: .55rem .7rem;
+  /* Faixa lateral com a cor que o álbum tem no banco (--coll-color, escrita no
+     style pelo JS). Sem cor definida, fica transparente e nada muda. */
+  border-left: 3px solid var(--coll-color, transparent);
 }
-/* Colapsado (padrão): só a barra de uma linha. O padding é o MESMO do card
-   expandido de propósito — a barra (ícone + título + botão de sincronizar) é o
-   elemento persistente entre os dois estados, então precisa ficar exatamente na
-   mesma posição ao expandir/colapsar (mudar o padding a deslocaria). A
-   compactação vem de só a barra aparecer colapsada, não de padding menor. */
 
-/* Barra compacta do card de coleção (sempre visível; clicável p/ expandir).
-   Colapsada mostra só nome + resumo de sincronização; o resto (status/ações/
-   estatísticas) só aparece expandido. */
+/* Cabeçalho de grupo: o nome da CATEGORIA do banco. A aba Álbuns reproduz a
+   hierarquia categoria → álbum; sem isso a lista era um monte plano de
+   dezenas de álbuns em ordem de descoberta. */
+.coll-group {
+  flex-shrink: 0;
+  font-size: .74rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--muted);
+  padding: .7rem .2rem .1rem;
+}
+.coll-group:first-child { padding-top: .2rem; }
+
 .coll-bar { display: flex; align-items: center; gap: .55rem; cursor: pointer; }
 .coll-bar:active { transform: var(--press); }
+.coll-bar-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+/* Subtítulo do PIVÔ categoria↔álbum: o mesmo álbum pode ter subtítulos
+   diferentes conforme a categoria em que aparece. */
+.coll-bar-sub { font-size: .74rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .coll-bar-icon {
   width: 32px; height: 32px; flex-shrink: 0;
   border-radius: var(--radius-btn);
@@ -647,14 +657,22 @@ main {
   display: flex; align-items: center; justify-content: center;
 }
 .coll-bar-icon .msym { font-size: 20px; }
-.coll-bar-name { flex: 1; min-width: 0; font-size: .9rem; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.coll-bar-name { font-size: .95rem; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .coll-bar-sync { flex-shrink: 0; font-size: .78rem; font-weight: 700; color: var(--muted); font-variant-numeric: tabular-nums; }
 .coll-bar-sync.done { color: var(--success); }
 .coll-bar-sync.busy { color: var(--accent); font-weight: 600; font-size: .7rem; max-width: 42%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-/* Botões na barra (Ver músicas + sincronizar), no lugar do antigo chevron —
-   sincronizar é o último, na mesma posição colapsado/expandido; um pouco
-   menores que os botões do detalhe pra caber bem na linha. */
+/* Único botão da linha: a engrenagem das opções. */
 .coll-bar-btn { width: 34px; height: 34px; flex-shrink: 0; }
+.hymnal-card-btn.cfg-btn { background: var(--surface); color: var(--muted); }
+
+/* Conteúdo do bottom-sheet de opções da coleção. */
+.coll-opts { display: flex; flex-direction: column; gap: .6rem; padding: .2rem .9rem .9rem; }
+.coll-opts .hymnal-card-status { white-space: normal; }
+.coll-opts .new-folder-btn.danger {
+  background: var(--danger-soft); border-color: var(--danger); color: var(--danger-text);
+}
+.coll-opts .new-folder-btn svg { display: block; }
+.coll-opts .new-folder-btn.busy svg { animation: hymnal-spin 1s linear infinite; }
 
 .hymnal-card-head { display: flex; align-items: center; gap: .6rem; }
 /* No card expandido o status é filho direto da head (o nome/ícone já estão na

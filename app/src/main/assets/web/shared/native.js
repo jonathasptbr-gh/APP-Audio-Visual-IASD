@@ -141,6 +141,13 @@
     // (num shell sem o método, `call` já resolve null — isto vira string vazia)
     castTarget: () => call((id) => B.castTarget(id)).then((r) => (r && r.label) || ''),
 
+    // Botões físicos de volume: pede que a Activity os intercepte e os entregue
+    // em `window.__avVolumeKey(±1)` — sem isso eles mexem na saída do sistema
+    // (e, com espelhamento ativo, no volume da TV) em vez do fader do app.
+    captureVolumeKeys(on) { try { B.captureVolumeKeys(!!on); } catch (_) { /* shell antigo */ } },
+    // Fader já no limite: devolve o passo ao volume do sistema.
+    systemVolume(step) { try { B.systemVolume(step | 0); } catch (_) { /* shell antigo */ } },
+
     // Sessão de culto.
     keepAwake(on) { try { B.keepAwake(!!on); } catch (_) { /* ignorado */ } },
 

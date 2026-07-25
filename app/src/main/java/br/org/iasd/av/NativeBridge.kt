@@ -35,6 +35,12 @@ interface BridgeHost {
     /** Rótulo do alvo de espelhamento disponível neste aparelho. */
     fun describeCastTarget(): String
 
+    /** Interceptar os botões físicos de volume e mandá-los para o app. */
+    fun setCaptureVolumeKeys(on: Boolean)
+
+    /** Devolver um passo de volume ao SISTEMA (fader já no limite). */
+    fun adjustSystemVolume(step: Int)
+
     /** Consome (uma única vez) um compartilhamento recebido por intent. */
     fun takePendingShare(): JSONObject?
 }
@@ -63,7 +69,7 @@ class NativeBridge(
          * exijam mais do que o shell instalado oferece (ver [WebUpdater]).
          * Subir SEMPRE que a superfície da ponte mudar.
          */
-        const val SHELL_VERSION = 6
+        const val SHELL_VERSION = 7
     }
 
     private val io = Executors.newSingleThreadExecutor()
@@ -156,6 +162,28 @@ class NativeBridge(
     @JavascriptInterface
     fun castTarget(callId: String) {
         resolve(callId, JSONObject().put("label", host?.describeCastTarget() ?: "").toString())
+    }
+
+    // ---------- botões físicos de volume ----------
+
+    /**
+     * Pede que a Activity intercepte os botões de volume e os entregue ao
+     * Controle (`window.__avVolumeKey`). Ligado pelo lado web só depois de
+     * carregar — ver [BridgeHost.setCaptureVolumeKeys].
+     */
+    @JavascriptInterface
+    fun captureVolumeKeys(on: Boolean) {
+        host?.setCaptureVolumeKeys(on)
+    }
+
+    /**
+     * Válvula de escape: com o fader do app já no máximo (ou no zero), a
+     * tecla volta a valer para o volume do sistema. Sem isto, um aparelho com
+     * o volume de mídia baixo ficaria sem como subir com o app aberto.
+     */
+    @JavascriptInterface
+    fun systemVolume(step: Int) {
+        host?.adjustSystemVolume(step)
     }
 
     // ---------- compartilhamento (substitui o share_target do SW) ----------

@@ -16,7 +16,7 @@
     <div class="list-header">
       <button id="backBtn" class="back-btn" hidden><span class="msym">&#xe5c4;</span></button>
       <span class="list-title" id="listTitle">Cronograma</span>
-      <span id="appVersion" class="app-version">Controle v4.90</span>
+      <span id="appVersion" class="app-version">Controle v4.91</span>
       <input id="libSearch" class="lib-search" type="search" placeholder="Buscar na pasta…" hidden>
       <button id="addDirBtn" class="add-dir-btn" hidden title="Sincronizar pasta do dispositivo"><span class="msym">&#xe2c8;</span></button>
     </div>
@@ -278,6 +278,20 @@
              melhor o operador ver antes de tocar. Vazio no navegador. -->
         <span id="castTargetLine" class="cast-target" hidden></span>
       </div>
+    </div>
+  </div>
+
+  <!-- Opções de uma coleção (álbum/hinário). O card em si abre a LISTA de
+       músicas ao toque; tudo que é manutenção (sincronizar, excluir, estado do
+       download) mora aqui, atrás do botão de engrenagem. -->
+  <div id="collPopup" class="popup-backdrop">
+    <div class="popup-sheet">
+      <div class="popup-header">
+        <span class="msym popup-header-icon">&#xe2c7;</span>
+        <span class="popup-title" id="collPopupTitle">Coleção</span>
+        <button id="collPopupClose" class="popup-close" title="Fechar"><span class="msym">&#xe14c;</span></button>
+      </div>
+      <div class="coll-opts" id="collOpts"></div>
     </div>
   </div>
 

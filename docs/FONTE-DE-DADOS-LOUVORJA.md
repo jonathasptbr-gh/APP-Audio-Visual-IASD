@@ -220,7 +220,15 @@ linha:
 | `color` | `string` (hex) | cor de destaque (ex.: `"#385F73"`) | ✅ |
 | `musics` | `Array<objeto>` | faixas do álbum (ver abaixo) | ✅ |
 | `categories` | `Array<string>` | categorias; itens podem ser `"hymnal.{moduleId}"` | ✅ |
-| `albums` | `Array` | (usado por `setAlbumInfo`; subtítulo/track/imagem) | 🔶 |
+| `albums` | — | **não existe aqui.** `setAlbumInfo` lê `albums[]` de **`music_{id}`** (os álbuns a que a MÚSICA pertence), não do registro do álbum — ver §5.1 | ✅ |
+
+> **`subtitle` não é campo do álbum.** Ele só aparece em
+> `{locale}_categories[].albums[]` (§5.5): é um campo do **pivô**
+> categoria↔álbum, junto com `order`. O mesmo álbum pode ter subtítulo e ordem
+> diferentes em cada categoria — é por isso que o app-ja **zera** o `subtitle`
+> ao montar a visão "Todas as Coletâneas", onde os álbuns são deduplicados por
+> `id_album` e a noção de categoria se perde
+> (`src/modules/core/collections/interface/Index.vue`).
 
 **`musics[]`** dentro de um álbum: `id_music`, `track`, `name`, `duration`,
 `has_instrumental_music` — mesmos campos "leves" das listas (§5.3). ✅
@@ -248,6 +256,11 @@ linha:
 > A busca do app-ja (`DataTable.vue`) filtra por `name`, `lyric`, `albums_names`
 > e `track`. Para `track`, quando o item tem `albums`, ela compara
 > `albums[].pivot.track` **apenas** em álbuns cujo `type == "hymnal"`.
+>
+> ⚠️ **O próprio app-ja diverge aqui:** `DataTable.vue` lê `album.pivot.track`,
+> mas `Media.js` (`setAlbumInfo`) lê `album.track` **direto**. Ou o backend
+> manda os dois, ou um dos dois caminhos está quebrado lá. Quem for consumir
+> deve aceitar os dois: `album.pivot?.track ?? album.track`.
 
 ### 5.4 `{locale}_hymnal` e `{locale}_hymnal_1996` — listas de hinários
 
@@ -270,8 +283,26 @@ em `controle.js` lê exatamente estes campos, ✅):
 
 ### 5.5 `{locale}_categories` — coletâneas/categorias e álbuns
 
+**A hierarquia do acervo é de dois níveis e só isso: categoria → álbum →
+música.** Não existe grupo acima da categoria, nem subcategoria, nem
+`id_parent` — verificado no código do app-ja (`src/modules/core/collections/`,
+`src/helpers/Media.js`). O `module_group` que aparece em `src/store/state.js`
+agrupa **módulos do app** na gaveta de aplicativos (`musics`/`bible`/
+`utilities`), não álbuns.
+
+A relação categoria↔álbum é **N:N**: o mesmo `id_album` aparece em `albums[]`
+de mais de uma categoria (é por isso que o app-ja deduplica por `id_album` ao
+montar "Todas as Coletâneas"). `subtitle` e `order` são campos do **pivô** —
+variam conforme a categoria; `name`, `color` e `url_image` são cópias do
+registro do álbum.
+
 `Array` de **categorias**; cada uma agrupa **álbuns** (✅, do módulo
 `collections`):
+
+Campos da **categoria** efetivamente lidos pelo app-ja (✅): `id_category`,
+`name`, `order` (ordena as categorias) e `albums`. **Não** há `url_image`,
+`color`, `subtitle`, `type` nem `id_parent` na categoria — se o backend
+enviar, o app ignora.
 
 ```jsonc
 [

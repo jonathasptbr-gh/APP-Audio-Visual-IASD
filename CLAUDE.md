@@ -140,6 +140,8 @@ window.AVNative = {
   keepAlive(bool),     // download em curso — ver "Trabalho em segundo plano"
   openCast(),          // seletor de ESPELHAMENTO DE TELA do Android (≠ Google Cast)
   castTarget(),        // → rótulo do alvo de espelhamento deste aparelho
+  captureVolumeKeys(bool), // botões físicos de volume vão para o app
+  systemVolume(step),  // devolve um passo ao volume do sistema (fader no limite)
 }
 ```
 
@@ -149,7 +151,7 @@ Além disso, `native.js` publica três globais lidas direto (sem Promise):
 APK, que é o **índice de versão do shell exibido ao operador**. Ele não se
 confunde com `__SHELL_VERSION__`: base web e shell atualizam por caminhos
 independentes (OTA × instalar APK), então o cabeçalho do Cronograma mostra os
-dois (`Web v4.90 · Shell v1.8`). Num shell antigo (sem `appVersion()`) a
+dois (`Web v4.91 · Shell v1.9`). Num shell antigo (sem `appVersion()`) a
 string vem vazia e a UI cai em só a versão web — mesma degradação do navegador.
 
 **Princípio: a ponte entrega URLs SERVÍVEIS, não bytes.** Arquivos do
@@ -278,9 +280,34 @@ contextos.
 | Estado do telão (rodapé de Exibição) | atalho `window.open('../display/')`, útil só para desenvolver | **indicador ao vivo** — a Presentation é criada sozinha |
 | Botão de cast da preview | oculto | `AVNative.openCast()` → seletor de **espelhamento de tela** (ver abaixo) |
 | Fullscreen da preview | `requestFullscreen` + Screen Orientation API | idem, com trava de paisagem **nativa** (`onShowCustomView`) |
+| Botões físicos de volume | o navegador não os recebe | **interceptados** e ligados ao fader do app (ver abaixo) |
 | Botão voltar | — | manda a tarefa para segundo plano (sair por engano derrubaria a projeção) |
 | Download com o app minimizado | a aba continua baixando | **foreground service + wake lock** — sem isso o processo é congelado (ver seção acima) |
 | Atualização da base web | service worker (cache-first + reload) | **OTA** — bundle publicado em `web-latest`, aplicado no próximo lançamento (ver seção acima) |
+
+### Botões físicos de volume
+
+O Android roteia os botões de volume para a **saída em uso** — e com
+espelhamento ativo isso vira o volume da TV. O operador apertava o botão e o
+fader do app não saía do lugar.
+
+`MainActivity.onKeyDown` consome `KEYCODE_VOLUME_UP/DOWN` (e o `onKeyUp`
+correspondente, senão o sistema ainda reage ao evento de soltura) e entrega o
+passo ao Controle em `window.__avVolumeKey(±1)`, que o aplica em
+`applyVolume()` — a mesma função do fader e do gesto de arrasto. Também
+`volumeControlStream = AudioManager.STREAM_MUSIC`, para o caso de o sistema
+chegar a tratar algum evento.
+
+Duas salvaguardas:
+
+- **Só intercepta depois que o lado web pede** (`AVNative.captureVolumeKeys
+  (true)`, chamado no fim do carregamento do Controle). Se a Activity
+  interceptasse desde o `onCreate`, uma falha no JS deixaria o aparelho sem
+  **nenhum** controle de volume enquanto o app estivesse aberto.
+- **Válvula de escape:** com o fader já no máximo (ou no zero), o lado web
+  devolve o passo ao sistema (`AVNative.systemVolume`, que chama
+  `adjustStreamVolume` com `FLAG_SHOW_UI`). Sem isso, um aparelho com o volume
+  de mídia baixo ficaria sem como subir com o app aberto.
 
 ### Espelhamento de tela ≠ Google Cast
 
@@ -393,4 +420,4 @@ Rodar local: `./gradlew assembleDebug` (exige Android SDK instalado).
   (`#appVersion` em `assets/web/controle/index.html`) **e `version` em
   `assets/web/version.json`** — é este último que faz a atualização chegar
   aos aparelhos por OTA. O `versionCode`/`versionName` do APK vêm do CI.
-  **Versão atual: v4.90** (base web) · **shell 1.8** (`SHELL_VERSION` 6).
+  **Versão atual: v4.91** (base web) · **shell 1.9** (`SHELL_VERSION` 7).

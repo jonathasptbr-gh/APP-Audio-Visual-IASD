@@ -59,7 +59,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '4.90';
+const WEB_VERSION = '4.91';
 
 function renderVersionLabel() {
   // __SHELL_NAME__ = versionName do APK (ver native.js). Vazio no navegador e
@@ -98,6 +98,10 @@ const hymnSearchPopupEl = document.getElementById('hymnSearchPopup');
 const hymnSearchCloseEl = document.getElementById('hymnSearchClose');
 const hymnSearchInputEl = document.getElementById('hymnSearchInput');
 const hymnResultsEl = document.getElementById('hymnResults');
+const collPopupEl = document.getElementById('collPopup');
+const collPopupTitleEl = document.getElementById('collPopupTitle');
+const collOptsEl = document.getElementById('collOpts');
+const collPopupCloseEl = document.getElementById('collPopupClose');
 const hymnSearchCountEl = document.getElementById('hymnSearchCount');
 const hymnSearchTitleEl = document.getElementById('hymnSearchTitle');
 const bibleVerPopupEl = document.getElementById('bibleVerPopup');
@@ -192,16 +196,32 @@ const FIXED_COLLECTIONS = [
 // fileIdFull, fileIdPlayback }] }. Fonte de verdade em memória (carregada no
 // init por loadCollections); persistida em state 'coll:<id>'.
 let collState = {};
-// Catálogo de álbuns descobertos (state 'albumCatalog') — [{ id_album, name }].
-// Alimenta os cards de álbum; persistido pra os cards aparecerem offline.
-let albumCatalog = [];
+// Catálogo de álbuns (state 'albumCatalog') — a HIERARQUIA do banco, não uma
+// lista achatada: `{ categories: [{ id_category, name, order, albums: [...] }],
+// albums: [{ id_album, name, color }] }`.
+//
+// O banco do LouvorJA organiza o acervo em **categoria → álbum → música**, e é
+// só isso: não existe grupo acima da categoria nem subcategoria (confirmado no
+// código do app-ja, ver docs/FONTE-DE-DADOS-LOUVORJA.md §5.5). A relação
+// categoria↔álbum é **N:N** — o mesmo álbum aparece em mais de uma categoria —,
+// e `subtitle`/`order` são campos do PIVÔ: mudam conforme a categoria em que o
+// álbum está sendo mostrado. Por isso a lista de categorias é preservada
+// inteira aqui, e `albums` é só o índice deduplicado que dá identidade a cada
+// card (é ele que vira `coll.id`).
+//
+// Antes guardávamos apenas `[{id_album, name}]` achatado — o que jogava fora
+// exatamente a classificação que o operador precisa para achar um álbum.
+let albumCatalog = { categories: [], albums: [] };
 
 // Registro completo de coleções: hinários fixos + um card por álbum do catálogo.
+// `subtitle`/`order` NÃO entram aqui: são do pivô categoria↔álbum e só fazem
+// sentido no contexto de uma categoria (ver renderCollectionsList).
 function allCollections() {
   const cols = FIXED_COLLECTIONS.slice();
-  for (const a of albumCatalog) {
+  for (const a of albumCatalog.albums) {
     cols.push({ id: 'album-' + a.id_album, name: a.name, kind: 'album',
-      source: 'album_' + a.id_album, albumId: a.id_album, iconKey: 'queue' });
+      source: 'album_' + a.id_album, albumId: a.id_album, iconKey: 'queue',
+      color: a.color || null });
   }
   return cols;
 }
@@ -2147,6 +2167,14 @@ function checkIconSvg() {
 function listIconSvg() {
   return '<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>';
 }
+// SVG inline de "engrenagem" — botão de opções do card de coleção (mesmo
+// desenho do botão de configurações que flutua sobre a preview).
+function gearIconSvg() {
+  return '<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+    + '<circle cx="12" cy="12" r="3.2"/>'
+    + '<path d="M19.4 14.2a1.6 1.6 0 0 0 .32 1.77l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.6 1.6 0 0 0-1.77-.32 1.6 1.6 0 0 0-.97 1.47V20a2 2 0 1 1-4 0v-.11a1.6 1.6 0 0 0-1.05-1.46 1.6 1.6 0 0 0-1.77.32l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.6 1.6 0 0 0 .32-1.77 1.6 1.6 0 0 0-1.47-.97H4a2 2 0 1 1 0-4h.11a1.6 1.6 0 0 0 1.46-1.05 1.6 1.6 0 0 0-.32-1.77l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.6 1.6 0 0 0 1.77.32H9.9a1.6 1.6 0 0 0 .97-1.47V4a2 2 0 1 1 4 0v.11a1.6 1.6 0 0 0 .97 1.47 1.6 1.6 0 0 0 1.77-.32l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.6 1.6 0 0 0-.32 1.77v.08a1.6 1.6 0 0 0 1.47.97H20a2 2 0 1 1 0 4h-.11a1.6 1.6 0 0 0-1.47.97z"/>'
+    + '</svg>';
+}
 // SVG inline de "voz" (microfone) — botão de tocar a variante CANTADO (vocal).
 function voiceIconSvg() {
   return '<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="11" rx="3"/><path d="M5 10a7 7 0 0 0 14 0"/><line x1="12" y1="17" x2="12" y2="21"/><line x1="8" y1="21" x2="16" y2="21"/></svg>';
@@ -2159,10 +2187,67 @@ function noteIconSvg() {
 // Lista de cards da aba Álbuns: hinários (fixos) + um card por álbum do
 // catálogo. Cada card é um "check do sistema" (não abre como pasta): símbolo,
 // status, estatísticas e ações.
+// Um álbum que na verdade é hinário não ganha card próprio (os dois hinários
+// já são coleções fixas). O fato vem de `album_{id}.categories` e só se sabe
+// depois de baixar o índice do álbum; até lá, o nome é o palpite disponível.
+function isHymnalAlbum(coll) {
+  if (coll.kind !== 'album') return false;
+  const st = collState[coll.id];
+  if (st && st.isHymnal != null) return !!st.isHymnal;
+  return /hin[aá]rio/i.test(coll.name || '');
+}
+
+// A aba Álbuns espelha a classificação do banco: **categoria → álbum**, na
+// ordem que o próprio banco define (`order`), com os hinários num grupo fixo
+// no topo. Antes era uma lista plana de todos os álbuns em ordem de descoberta
+// — sem categoria, sem subtítulo e sem ordem —, o que tornava impossível achar
+// um álbum específico entre dezenas.
+//
+// A relação categoria↔álbum é N:N, então **o mesmo álbum pode aparecer em mais
+// de uma categoria** — de propósito: é assim no banco e no app original, e o
+// `subtitle` que acompanha o card muda conforme a categoria (é campo de pivô).
 function renderCollectionsList() {
-  const cols = allCollections();
-  cols.forEach((coll) => libraryEl.appendChild(renderCollectionCard(coll)));
-  if (cols.length === 0) {
+  const byId = new Map(allCollections().map((c) => [c.id, c]));
+  let any = false;
+
+  const header = (text) => {
+    const li = document.createElement('li');
+    li.className = 'coll-group';
+    li.textContent = text;
+    libraryEl.appendChild(li);
+  };
+
+  const fixed = FIXED_COLLECTIONS.filter((c) => byId.has(c.id));
+  if (fixed.length) {
+    header('Hinários');
+    fixed.forEach((coll) => { libraryEl.appendChild(renderCollectionCard(coll)); any = true; });
+  }
+
+  for (const cat of albumCatalog.categories) {
+    const cards = [];
+    for (const a of cat.albums) {
+      const coll = byId.get('album-' + a.id_album);
+      if (!coll || isHymnalAlbum(coll)) continue;
+      cards.push(renderCollectionCard(coll, a));
+    }
+    if (!cards.length) continue;
+    header(cat.name);
+    cards.forEach((el) => { libraryEl.appendChild(el); any = true; });
+  }
+
+  // Álbuns conhecidos que nenhuma categoria reivindicou (catálogo antigo,
+  // migrado de uma versão sem categorias, ou álbum removido de todas elas).
+  const claimed = new Set();
+  for (const cat of albumCatalog.categories) for (const a of cat.albums) claimed.add('album-' + a.id_album);
+  const orphans = albumCatalog.albums
+    .map((a) => byId.get('album-' + a.id_album))
+    .filter((c) => c && !claimed.has(c.id) && !isHymnalAlbum(c));
+  if (orphans.length) {
+    header(albumCatalog.categories.length ? 'Outros álbuns' : 'Álbuns');
+    orphans.forEach((coll) => { libraryEl.appendChild(renderCollectionCard(coll)); any = true; });
+  }
+
+  if (!any) {
     const empty = document.createElement('li'); empty.className = 'empty';
     empty.textContent = 'Nenhuma coleção disponível.';
     libraryEl.appendChild(empty);
@@ -2180,65 +2265,110 @@ function renderCollectionsList() {
 // detalhe completo (status, ações, estatísticas). O estado (expandido) é
 // transitório em `ui(coll.id).expanded` (não persistido) — cada abertura do app
 // começa colapsada.
-function renderCollectionCard(coll) {
+// `ctx` = a entrada do álbum DENTRO da categoria sendo renderizada (o pivô:
+// subtitle/order). Nulo para hinários e órfãos.
+function renderCollectionCard(coll, ctx) {
   const total = collSongs(coll.id).length;
   const downloaded = countDownloaded(coll.id);
   const complete = total > 0 && downloaded >= total;
-  const wifiOk = isConfirmedWifi();
   const u = ui(coll.id);
 
   // dispara (fire-and-forget) o recálculo do peso; só re-renderiza se mudar
   updateCollBytes(coll.id);
 
   const li = document.createElement('li');
-  li.className = 'hymnal-card ' + (u.expanded ? 'expanded' : 'collapsed');
+  li.className = 'hymnal-card';
+  // Cor do álbum no banco: uma faixa lateral. É só um traço de identidade
+  // visual, e vem de graça no catálogo — nada é baixado por causa dela.
+  if (coll.color) li.style.setProperty('--coll-color', coll.color);
 
-  // ---- barra compacta (sempre visível; clicável p/ expandir/colapsar) ----
+  // Uma linha só: ícone + nome/subtítulo + resumo + engrenagem. O card deixou
+  // de ser um acordeão de manutenção — TOCAR NELE ABRE A LISTA DE MÚSICAS, que
+  // é o que o operador quer quase sempre. Sincronizar, excluir e o estado do
+  // download moram atrás da engrenagem (openCollectionOptions), fora do
+  // caminho de uso.
   const bar = document.createElement('div'); bar.className = 'coll-bar';
   const barIcon = document.createElement('div'); barIcon.className = 'coll-bar-icon';
   barIcon.appendChild(msym(ICON[coll.iconKey] || ICON.music));
+
+  const info = document.createElement('div'); info.className = 'coll-bar-info';
   const barName = document.createElement('span'); barName.className = 'coll-bar-name'; barName.textContent = coll.name;
-  bar.append(barIcon, barName);
-  if (!u.expanded) {
-    // Resumo de sincronização (só no estado colapsado — no expandido o detalhe
-    // já mostra tudo): progresso ao vivo se sincronizando, senão baixados/total.
-    const summary = document.createElement('span'); summary.className = 'coll-bar-sync';
-    if (u.syncBusy && u.status) {
-      summary.classList.add('busy'); summary.textContent = u.status;
-    } else if (total > 0) {
-      if (complete) summary.classList.add('done');
-      summary.textContent = downloaded + '/' + total;
-    } else {
-      summary.textContent = coll.kind === 'album' ? 'não sincron.' : '—';
-    }
-    bar.appendChild(summary);
+  info.appendChild(barName);
+  const subtitle = ctx && ctx.subtitle;
+  if (subtitle) {
+    const sub = document.createElement('span'); sub.className = 'coll-bar-sub';
+    sub.textContent = subtitle;
+    info.appendChild(sub);
   }
-  // Botões da barra (sempre visíveis, mesmo colapsado): "Ver músicas" (só com
-  // índice carregado) + sincronizar. Ficam à direita, com stopPropagation
-  // (tocar neles não expande/colapsa); o sincronizar é sempre o ÚLTIMO item,
-  // então fica na MESMA posição colapsado e expandido.
-  if (total > 0) {
-    const barList = document.createElement('button');
-    barList.className = 'hymnal-card-btn list-btn coll-bar-btn';
-    barList.title = 'Ver músicas';
-    barList.innerHTML = listIconSvg();
-    barList.addEventListener('click', (e) => { e.stopPropagation(); openCollectionSongs(coll); });
-    bar.appendChild(barList);
+  bar.append(barIcon, info);
+
+  // Resumo de sincronização: progresso ao vivo enquanto sincroniza, senão
+  // baixados/total.
+  const summary = document.createElement('span'); summary.className = 'coll-bar-sync';
+  if (u.syncBusy && u.status) {
+    summary.classList.add('busy'); summary.textContent = u.status;
+  } else if (total > 0) {
+    if (complete) summary.classList.add('done');
+    summary.textContent = downloaded + '/' + total;
+  } else {
+    summary.textContent = coll.kind === 'album' ? 'não sincron.' : '—';
   }
-  const barSync = document.createElement('button');
-  barSync.className = 'hymnal-card-btn sync-btn coll-bar-btn' + (u.syncBusy ? ' busy' : '');
-  barSync.title = 'Atualizar/baixar';
-  barSync.innerHTML = syncIconSvg();
-  barSync.addEventListener('click', (e) => { e.stopPropagation(); syncCollection(coll); });
-  bar.appendChild(barSync);
-  bar.addEventListener('click', () => { u.expanded = !u.expanded; refreshCollectionsIfVisible(); });
+  bar.appendChild(summary);
+
+  const cfg = document.createElement('button');
+  cfg.className = 'hymnal-card-btn coll-bar-btn cfg-btn' + (u.syncBusy ? ' busy' : '');
+  cfg.title = 'Opções de sincronização';
+  cfg.innerHTML = gearIconSvg();
+  cfg.addEventListener('click', (e) => { e.stopPropagation(); openCollectionOptions(coll); });
+  bar.appendChild(cfg);
+
+  // Sem índice ainda não há lista para abrir — o toque leva às opções, que é
+  // justamente onde está o sincronizar que resolve isso.
+  bar.addEventListener('click', () => {
+    if (total > 0) openCollectionSongs(coll); else openCollectionOptions(coll);
+  });
   li.appendChild(bar);
+  return li;
+}
 
-  if (!u.expanded) return li; // colapsado: só a barra
+// ===== Opções de uma coleção (bottom-sheet da engrenagem) =====
+// Tudo que é manutenção: estado do download, sincronizar/atualizar e excluir.
+// Fica fora da lista para que o card volte a ser só "o álbum", clicável.
+let collOptionsFor = null;
 
-  // ---- detalhe (só expandido): status + ações + estatísticas ----
-  const head = document.createElement('div'); head.className = 'hymnal-card-head';
-  const status = document.createElement('span'); status.className = 'hymnal-card-status';
+function openCollectionOptions(coll) {
+  collOptionsFor = coll;
+  collPopupTitleEl.textContent = coll.name;
+  renderCollectionOptions();
+  collPopupEl.classList.add('open');
+}
+
+function closeCollectionOptions() {
+  collOptionsFor = null;
+  collPopupEl.classList.remove('open');
+}
+
+// Re-renderiza o popup se ele estiver aberto na coleção dada — é o que faz o
+// progresso da sincronização aparecer sem fechar e reabrir.
+function refreshCollectionOptions(id) {
+  if (collOptionsFor && (!id || collOptionsFor.id === id) && collPopupEl.classList.contains('open')) {
+    renderCollectionOptions();
+  }
+}
+
+function renderCollectionOptions() {
+  const coll = collOptionsFor;
+  if (!coll) return;
+  const total = collSongs(coll.id).length;
+  const downloaded = countDownloaded(coll.id);
+  const complete = total > 0 && downloaded >= total;
+  const wifiOk = isConfirmedWifi();
+  const u = ui(coll.id);
+  updateCollBytes(coll.id);
+
+  collOptsEl.innerHTML = '';
+
+  const status = document.createElement('div'); status.className = 'hymnal-card-status';
   if (u.status) {
     status.classList.add('sync');
     status.textContent = u.status;
@@ -2251,20 +2381,8 @@ function renderCollectionCard(coll) {
   } else {
     status.textContent = coll.kind === 'album' ? 'Toque em sincronizar para baixar a lista' : 'Não sincronizado';
   }
+  collOptsEl.appendChild(status);
 
-  const actions = document.createElement('div'); actions.className = 'hymnal-card-actions';
-  // (Ver músicas e sincronizar moram na barra — ver acima)
-  if (downloaded > 0 || total > 0) {
-    const rmBtn = document.createElement('button');
-    rmBtn.className = 'hymnal-card-btn del-btn';
-    rmBtn.title = 'Excluir baixado';
-    rmBtn.appendChild(msym(ICON.del));
-    rmBtn.addEventListener('click', (e) => { e.stopPropagation(); deleteCollection(coll); });
-    actions.appendChild(rmBtn);
-  }
-  head.append(status, actions);
-
-  // ---- faixa de estatísticas ----
   const stats = document.createElement('div'); stats.className = 'hymnal-card-stats';
   stats.appendChild(hymnalStat('Sincronizados', total ? downloaded + '/' + total : '—', complete ? 'done' : ''));
   stats.appendChild(hymnalStat('Peso', u.bytes ? fmtBytes(u.bytes) : '—'));
@@ -2280,9 +2398,32 @@ function renderCollectionCard(coll) {
   netVal.appendChild(document.createTextNode(wifiOk ? 'Wi-Fi' : 'Aguardando'));
   net.append(netLabel, netVal);
   stats.appendChild(net);
+  collOptsEl.appendChild(stats);
 
-  li.append(head, stats);
-  return li;
+  const syncBtn = document.createElement('button');
+  syncBtn.className = 'new-folder-btn' + (u.syncBusy ? ' busy' : '');
+  syncBtn.innerHTML = syncIconSvg();
+  syncBtn.appendChild(document.createTextNode(total > 0 ? ' Atualizar e baixar' : ' Sincronizar lista'));
+  syncBtn.addEventListener('click', () => syncCollection(coll));
+  collOptsEl.appendChild(syncBtn);
+
+  if (total > 0) {
+    const listBtn = document.createElement('button');
+    listBtn.className = 'new-folder-btn';
+    listBtn.innerHTML = listIconSvg();
+    listBtn.appendChild(document.createTextNode(' Ver músicas'));
+    listBtn.addEventListener('click', () => { closeCollectionOptions(); openCollectionSongs(coll); });
+    collOptsEl.appendChild(listBtn);
+  }
+
+  if (downloaded > 0 || total > 0) {
+    const rmBtn = document.createElement('button');
+    rmBtn.className = 'new-folder-btn danger';
+    rmBtn.appendChild(msym(ICON.del));
+    rmBtn.appendChild(document.createTextNode(' Excluir baixado'));
+    rmBtn.addEventListener('click', () => deleteCollection(coll));
+    collOptsEl.appendChild(rmBtn);
+  }
 }
 
 // Monta um "chip" de estatística (rótulo em cima, valor embaixo).
@@ -2299,6 +2440,9 @@ function hymnalStat(label, value, extraClass) {
 // evita custo de DOM à toa enquanto o operador está em outra aba durante o download.
 function refreshCollectionsIfVisible() {
   if (activeTab === 'albums') renderLibrary();
+  // O popup de opções mostra o mesmo estado (progresso, baixados/total): se
+  // estiver aberto, precisa acompanhar sem o operador fechar e reabrir.
+  refreshCollectionOptions();
 }
 
 function renderFolderList() {
@@ -3035,33 +3179,54 @@ async function loadCollections() {
   const has2022 = await AVDB.getState('coll:' + HYMNAL_2022_ID);
   if (legacy && !has2022) await AVDB.setState('coll:' + HYMNAL_2022_ID, legacy);
 
-  albumCatalog = (await AVDB.getState('albumCatalog')) || [];
+  // Migração: até a v4.90 o catálogo era um ARRAY achatado [{id_album,name}].
+  // Um array antigo é aceito como o índice de álbuns, sem categorias — a
+  // próxima `fetchAlbumCatalog` (roda ao abrir o app) traz a hierarquia.
+  const savedCatalog = await AVDB.getState('albumCatalog');
+  albumCatalog = Array.isArray(savedCatalog)
+    ? { categories: [], albums: savedCatalog }
+    : (savedCatalog && Array.isArray(savedCatalog.albums) ? savedCatalog : { categories: [], albums: [] });
   const cols = allCollections();
   const states = await Promise.all(cols.map((c) => AVDB.getState('coll:' + c.id)));
   collState = {};
   cols.forEach((c, i) => { collState[c.id] = states[i] || { indexSyncedAt: 0, songs: [] }; });
 }
 
-// Descobre os álbuns disponíveis no banco (pt_categories → álbuns de cada
-// categoria) e persiste um catálogo leve [{id_album, name}] — alimenta os
+// Descobre os álbuns disponíveis no banco (pt_categories) e persiste a
+// hierarquia categoria → álbum (com subtítulo, cor e ordem) — alimenta os
 // cards de álbum da aba Álbuns (um por álbum), visíveis offline. Álbuns cujo
 // nome parece de hinário são pulados: já têm card dedicado (evita duplicar).
 // Lança em falha (sem rede/resposta inválida).
 async function fetchAlbumCatalog() {
   const cats = await Louvorja.fetchList(Louvorja.CATEGORIES_FILE);
   if (!Array.isArray(cats)) throw new Error('Resposta inválida (categorias)');
-  const seen = new Set();
-  const albums = [];
+  const seen = new Map();
+  const categories = [];
   for (const cat of cats) {
-    const catAlbums = Array.isArray(cat && cat.albums) ? cat.albums : [];
-    for (const a of catAlbums) {
-      if (!a || a.id_album == null || seen.has(a.id_album)) continue;
-      if (/hin[aá]rio/i.test(a.name || '')) continue; // hinário tem card próprio
-      seen.add(a.id_album);
-      albums.push({ id_album: a.id_album, name: a.name || ('Álbum ' + a.id_album) });
+    if (!cat || cat.id_category == null) continue;
+    const catAlbums = [];
+    for (const a of (Array.isArray(cat.albums) ? cat.albums : [])) {
+      if (!a || a.id_album == null) continue;
+      const name = a.name || ('Álbum ' + a.id_album);
+      // subtitle/order vêm do PIVÔ (variam por categoria) — ficam na entrada
+      // da categoria; name/color são do álbum e vão pro índice deduplicado.
+      catAlbums.push({
+        id_album: a.id_album,
+        subtitle: a.subtitle || '',
+        order: Number(a.order) || 0,
+      });
+      if (!seen.has(a.id_album)) seen.set(a.id_album, { id_album: a.id_album, name, color: a.color || null });
     }
+    catAlbums.sort((x, y) => x.order - y.order);
+    categories.push({
+      id_category: cat.id_category,
+      name: cat.name || 'Sem categoria',
+      order: Number(cat.order) || 0,
+      albums: catAlbums,
+    });
   }
-  albumCatalog = albums;
+  categories.sort((x, y) => x.order - y.order);
+  albumCatalog = { categories, albums: Array.from(seen.values()) };
   await AVDB.setState('albumCatalog', albumCatalog);
   // Garante entrada em collState pros álbuns novos (índice vazio até sincronizar).
   for (const coll of allCollections()) {
@@ -3082,6 +3247,15 @@ async function fetchCollectionIndex(coll) {
     : (Array.isArray(raw) ? raw : null);
   if (!list) throw new Error('Resposta inválida do servidor (' + coll.source + ')');
 
+  // Um "álbum" cujo registro traz uma categoria começando com `hymnal.` é, na
+  // verdade, um hinário — o app-ja redireciona a abertura dele para o módulo
+  // do hinário em vez de listar faixas (ver docs/FONTE-DE-DADOS-LOUVORJA.md
+  // §5.2). Aqui os dois hinários já têm card fixo, então marcamos para não
+  // mostrar um card duplicado. É o critério AUTORITATIVO; até o índice do
+  // álbum chegar, `isHymnalAlbum()` se vira com o nome.
+  const isHymnal = coll.kind === 'album' && raw && Array.isArray(raw.categories)
+    && raw.categories.some((c) => String(c).startsWith('hymnal.'));
+
   const byId = new Map(collSongs(coll.id).map((s) => [s.id_music, s]));
   const songs = list.map((row) => {
     const prev = byId.get(row.id_music);
@@ -3095,7 +3269,7 @@ async function fetchCollectionIndex(coll) {
       fileIdPlayback: (prev && prev.fileIdPlayback) || null,
     };
   });
-  collState[coll.id] = { indexSyncedAt: Date.now(), songs };
+  collState[coll.id] = { indexSyncedAt: Date.now(), songs, isHymnal };
   await AVDB.setState('coll:' + coll.id, collState[coll.id]);
   refreshCollectionsIfVisible();
   // Popup de busca aberto durante a atualização: re-renderiza pra refletir a
@@ -4034,16 +4208,47 @@ window.addEventListener('resize', () => {
   apply();
 })();
 
+// Fonte única de "o operador mexeu no volume": o fader, o arrasto vertical na
+// preview em tela cheia e os botões físicos passam todos por aqui, então os
+// três ficam sempre coerentes entre si (e com o mudo, que sai sozinho).
+function applyVolume(v) {
+  volume = Math.max(0, Math.min(1, v));
+  if (volume > 0 && muted) { muted = false; cmd({ type: 'mute', muted }); }
+  cmd({ type: 'volume', volume });
+  volSliderEl.value = Math.round(volume * 100);
+  renderControls();
+}
+
 let volSeeking = false;
 volSliderEl.addEventListener('pointerdown', () => { volSeeking = true; });
 volSliderEl.addEventListener('pointerup', () => { volSeeking = false; });
-volSliderEl.addEventListener('input', () => {
-  volume = parseFloat(volSliderEl.value) / 100;
-  if (volume > 0 && muted) { muted = false; cmd({ type: 'mute', muted }); }
-  cmd({ type: 'volume', volume });
-  renderControls();
-});
+volSliderEl.addEventListener('input', () => applyVolume(parseFloat(volSliderEl.value) / 100));
 volSliderEl.addEventListener('change', () => { volSeeking = false; persistCurrent(); });
+
+// ===== Botões físicos de volume =====
+// No app eles passam a mexer no fader daqui, não na saída do sistema: com
+// espelhamento ativo o Android roteia esses botões para a TV, e o operador
+// apertava sem que o volume do app saísse do lugar. A Activity intercepta a
+// tecla e chama esta função (ver MainActivity.onKeyDown).
+const VOL_KEY_STEP = 0.05;
+if (window.__NATIVE__) {
+  window.__avVolumeKey = (step) => {
+    // Já no limite do fader: devolve a tecla ao sistema (com a UI de volume do
+    // Android), senão um aparelho com o volume de mídia baixo ficaria sem como
+    // subir enquanto o app estivesse aberto.
+    if ((step > 0 && volume >= 1) || (step < 0 && volume <= 0)) {
+      AVNative.systemVolume(step);
+      return;
+    }
+    applyVolume(volume + step * VOL_KEY_STEP);
+    persistCurrent();
+  };
+  // Só agora — com o handler de pé — a Activity pode consumir as teclas.
+  AVNative.captureVolumeKeys(true);
+}
+
+collPopupCloseEl.addEventListener('click', closeCollectionOptions);
+collPopupEl.addEventListener('click', (e) => { if (e.target === collPopupEl) closeCollectionOptions(); });
 
 plBtnEl.addEventListener('click', openPlPopup);
 plPopupCloseEl.addEventListener('click', closePlPopup);
@@ -4173,15 +4378,6 @@ hymnSearchInputEl.addEventListener('input', () => renderSearchResults(hymnSearch
     if (!document.fullscreenElement) { try { screen.orientation && screen.orientation.unlock && screen.orientation.unlock(); } catch (_) {} }
   });
 
-  // volume (mesma lógica do fader #volSlider), reusável pelo gesto
-  function gSetVolume(v) {
-    volume = Math.max(0, Math.min(1, v));
-    if (volume > 0 && muted) { muted = false; cmd({ type: 'mute', muted }); }
-    cmd({ type: 'volume', volume });
-    volSliderEl.value = Math.round(volume * 100);
-    renderControls();
-  }
-
   // ---- reconhecedor de gestos (só em fullscreen) ----
   const TAP_MOVE = 14, SWIPE_MIN = 45, VOL_MIN = 12;
   let sx = 0, sy = 0, third = 'center', volActive = false, volStart = 1;
@@ -4208,7 +4404,7 @@ hymnSearchInputEl.addEventListener('input', () => renderSearchResults(hymnSearch
     if (third === 'right' && Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > VOL_MIN) {
       volActive = true;
       const h = previewEl.getBoundingClientRect().height || 1;
-      gSetVolume(volStart + (-dy / (h * 0.6))); // arrastar pra cima aumenta
+      applyVolume(volStart + (-dy / (h * 0.6))); // arrastar pra cima aumenta
     }
   });
 

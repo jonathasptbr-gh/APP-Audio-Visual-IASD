@@ -79,10 +79,10 @@ git push origin main
   `renderVersionLabel()`), o fallback estático do `<span id="appVersion">` em
   `controle/index.html` e `version` em `version.json` (é este último que
   dispara a atualização por OTA nos aparelhos). Versionamento incremental
-  simples (4.88, 4.89, 4.90…). **Versão atual: v4.90.**
-  No app nativo o rótulo mostra os **dois índices** — `Web v4.90 · Shell v1.8`
+  simples (4.89, 4.90, 4.91…). **Versão atual: v4.91.**
+  No app nativo o rótulo mostra os **dois índices** — `Web v4.91 · Shell v1.9`
   —, porque base web e shell atualizam por caminhos independentes (OTA ×
-  instalar APK); no navegador sai só `Controle v4.90`.
+  instalar APK); no navegador sai só `Controle v4.91`.
 
 ---
 
@@ -224,7 +224,7 @@ O campo `kind` é derivado do `type` (ou definido pelo chamador para itens de UR
 | `messages` | `[{ id, text }]` — mensagens de texto puro da aba Mensagens (ver "Camada de Texto") |
 | `opfs-folders` | `[{ id, name, count, syncedAt, handle? }]` — pastas sincronizadas no OPFS (`handle` acelera re-sync) |
 | `coll:<id>` | `{ indexSyncedAt, songs: [{ id_music, track, name, duration, has_instrumental_music, fileIdFull, fileIdPlayback }] }` — índice offline de UMA coleção do LouvorJA (`coll:hymnal-2022`, `coll:hymnal-1996`, `coll:album-<id>`) — ver "Coleções de mídia (LouvorJA)" |
-| `albumCatalog` | `[{ id_album, name }]` — catálogo de álbuns descobertos em `pt_categories` (um card por álbum na aba Álbuns) |
+| `albumCatalog` | `{ categories: [{ id_category, name, order, albums: [{ id_album, subtitle, order }] }], albums: [{ id_album, name, color }] }` — a hierarquia categoria → álbum de `pt_categories` (ver "Classificação" nas Coleções). Formato antigo (array achatado) é migrado na leitura |
 | `bibleVersions` | `[{ id, name }]` — versões/traduções da Bíblia (de `pt_bible_version`), baixadas na 1ª vez — ver "Bíblia" |
 | `bibleBooks` | `[{ id, name }]` — livros da Bíblia (de `pt_bible_book`) para casar o `id_bible_book` real; a estrutura de exibição (abreviações/nº de capítulos) é offline em `bible.js` |
 | `bibleVersion` | id da versão da Bíblia selecionada pelo operador |
@@ -621,6 +621,22 @@ wallpaper, no topo. Cada botão tem `flex:1` dentro da própria fatia — top
 (1 botão) e bottom (1 de cada vez) preenchem a fatia inteira; mid (3
 botões) a divide em partes iguais.
 
+**Fonte única do volume (`applyVolume`)**: o fader, o arrasto vertical no
+terço direito da preview em tela cheia e os **botões físicos de volume** (no
+app) passam todos pela mesma função — que aplica o clamp, desliga o mudo se o
+volume subir de 0, envia o comando e atualiza o fader. Antes a lógica estava
+duplicada entre o `input` do fader e o `gSetVolume` do gesto.
+
+**Botões físicos** (só no app; `window.__avVolumeKey`): a Activity intercepta
+`KEYCODE_VOLUME_UP/DOWN` e entrega o passo aqui, em vez de deixar o Android
+tratá-los. Era esse o problema durante o espelhamento: o sistema roteia esses
+botões para a **saída em uso**, e com Miracast/Smart View ativo isso vira o
+volume da TV — o operador apertava e o fader do app não saía do lugar. **Com o
+fader já no máximo (ou no zero)**, o passo é devolvido ao sistema
+(`AVNative.systemVolume`, com a UI de volume do Android), senão um aparelho
+com o volume de mídia baixo ficaria sem como subir enquanto o app estivesse
+aberto. Ver "Divergências" em `../CLAUDE.md`.
+
 Tocar no botão de volume liga a classe `.vol-open` no `#mixer`, que troca
 **top + mid** (os 4 botões: visual/fundo da letra/mesa de som/mudo) pelo
 **fader vertical** (`.fader-wrap`, posicionado via `grid-row: 1 / 3` — ocupa
@@ -1003,7 +1019,8 @@ Dois tipos:
   `pt_hymnal_1996`) que já é o índice completo de hinos. Sempre visíveis; o
   índice leve é atualizado sozinho (`autoRefreshCollections`).
 - **`album`** (dinâmicas): descobertas em `pt_categories`
-  (`fetchAlbumCatalog` → `state.albumCatalog`, um card por álbum). O índice de
+  (`fetchAlbumCatalog` → `state.albumCatalog`, um card por álbum, agrupados
+  por categoria). O índice de
   cada álbum vem de `album_{id}.musics` e é buscado **automaticamente**
   (`autoRefreshCollections`, fase 2 — só metadados, sem áudio), com
   concorrência limitada e um TTL (`ALBUM_INDEX_TTL`, 12 h) pra não refazer N
@@ -1023,8 +1040,8 @@ continuam válidos). UI transitória (sync em andamento, status, peso) fica em
 `collUI` (não persistida).
 
 **Aba Álbuns** (`data-tab="albums"`): `renderCollectionsList` renderiza um card
-por coleção (`renderCollectionCard`) — os dois hinários + um por álbum do
-catálogo. O card do Hinário **saiu da aba Pastas** (que voltou a ser só pastas
+por coleção (`renderCollectionCard`), **agrupados por categoria** — os dois
+hinários num grupo fixo no topo, depois cada categoria do banco. O card do Hinário **saiu da aba Pastas** (que voltou a ser só pastas
 do dispositivo/virtuais).
 
 Os mecanismos abaixo (sincronização/download/letra/Wi-Fi/busca) valem **por
@@ -1045,43 +1062,74 @@ coleção**, exatamente como antes valiam só pro Hinário 2022.
    "Pastas" acima), só que a fonte da sincronização é uma API remota em vez
    de `showDirectoryPicker()`.
 
-**UI — cartão informativo, NÃO uma pasta** (`renderCollectionCard()` +
-`.hymnal-card` no CSS): na aba **Álbuns** aparece um **cartão de "check do
-sistema"** por coleção (não uma linha de pasta), sempre visível mesmo antes da
-1ª sincronização. Ele **não abre como pasta ao tocar** (o operador acessa/toca
-as músicas pela **busca do acervo**, botão de lupa) — é deliberadamente um
-painel de status. **Colapsado por padrão** (deixa a lista compacta): mostra só
-uma barra `.coll-bar` de uma linha — símbolo + nome + **resumo de sincronização**
-(`baixados/total`, ou o progresso ao vivo enquanto sincroniza) + os botões
-**Ver músicas** e **sincronizar** (`.coll-bar-btn`; no lugar do antigo chevron).
-Tocar nesses botões dispara a ação (`stopPropagation`); tocar no **resto da
-barra** **expande** o card (estado transitório em `ui(coll.id).expanded`, não
-persistido — cada abertura começa colapsada) revelando o detalhe completo. A
-barra (símbolo + nome + botões) é o **elemento persistente** entre os dois
-estados — o botão de sincronizar é sempre o último item da barra, então fica na
-**mesma posição** colapsado e expandido; e `.hymnal-card.collapsed` usa o
-**mesmo padding** do card expandido de propósito (mudar o padding deslocaria o
-ícone/título; a compactação vem de só a barra aparecer colapsada). Ficam na
-**barra** (sempre visíveis, mesmo colapsado): o símbolo (`ICON[coll.iconKey]` —
-nota musical pros hinários, fila de músicas pros álbuns), o título
-(`coll.name`), o botão **Ver músicas** (`openCollectionSongs(coll)`, ícone de
-lista SVG inline, neutro `.list-btn` — só aparece com índice carregado; abre a
-lista de músicas da coleção, ver "Busca/lista" abaixo) e o botão de
-**sincronizar** (`syncCollection(coll)`, ícone de setas circulares SVG inline,
-preenchido de accent `.sync-btn`, gira com `.busy`). O detalhe expandido
-acrescenta: **linha de status** (progresso via `setCollStatus`, ou "✓ Completo
-offline" em verde quando `downloaded === total`, ou "Parcial…"/"Não
-sincronizado") e, se já houver algo baixado/indexado, botão de **excluir**
-(`deleteCollection(coll)`, azul sobre superfície `.del-btn`).
-Abaixo, uma faixa de
-**estatísticas** (chips `.hymnal-stat`, cada um `flex:1 1 auto`):
-**Sincronizados** (`downloaded/total`), **Peso** (`fmtBytes(ui(coll.id).bytes)` —
-somatório dos `size` do catálogo OPFS via `updateCollBytes`, recalculado sob
-demanda e cacheado) e **Rede** (Wi-Fi confirmado × "Aguardando", ícone de Wi-Fi
-SVG inline — ver `isConfirmedWifi`). Sincronização é **aditiva e resumível**:
-interromper e sincronizar de novo só baixa o que falta (`fileGet` reconfirma que
-o arquivo catalogado ainda existe de fato antes de pular — cobre até exclusões
-manuais feitas por dentro da pasta via seleção múltipla).
+**UI — o card É o álbum; a manutenção mora atrás da engrenagem**
+(`renderCollectionCard()` + `.hymnal-card` no CSS): cada coleção é uma **linha
+só** — símbolo + nome (+ subtítulo da categoria) + **resumo de sincronização**
+(`baixados/total`, ou o progresso ao vivo enquanto sincroniza) + um botão de
+**engrenagem**. **Tocar no card abre a LISTA DE MÚSICAS** (`openCollectionSongs`),
+que é o que o operador quer quase sempre; sem índice ainda, o toque leva às
+opções, que é justamente onde está o sincronizar que resolve isso.
+
+O card ganha uma **faixa lateral** com a `color` que o álbum tem no banco
+(`--coll-color`, escrita no `style` pelo JS) — identidade visual que vem de
+graça no catálogo, sem baixar nada.
+
+> Antes o card era um **acordeão de "check do sistema"**: tocar nele expandia
+> um painel de status, e as músicas só eram alcançáveis por um botão "Ver
+> músicas" na barra ou pela busca do acervo. Ou seja, o toque natural no álbum
+> fazia a coisa menos útil. O acordeão (`ui(coll.id).expanded`) e o botão de
+> sincronizar da barra deixaram de existir.
+
+**Opções da coleção** (`openCollectionOptions` → bottom-sheet `#collPopup`):
+tudo que é manutenção, fora do caminho de uso — **linha de status** (progresso
+via `setCollStatus`, ou "✓ Completo offline" em verde quando `downloaded ===
+total`, ou "Parcial…"/"Não sincronizado"), a faixa de **estatísticas** (chips
+`.hymnal-stat`): **Sincronizados** (`downloaded/total`), **Peso**
+(`fmtBytes(ui(coll.id).bytes)` — somatório dos `size` do catálogo OPFS via
+`updateCollBytes`, recalculado sob demanda e cacheado) e **Rede** (Wi-Fi
+confirmado × "Aguardando", ícone de Wi-Fi SVG inline — ver `isConfirmedWifi`);
+e os botões **Sincronizar/Atualizar** (`syncCollection`), **Ver músicas** e
+**Excluir baixado** (`deleteCollection`). `refreshCollectionOptions()` é
+chamado por `refreshCollectionsIfVisible()`, então o progresso da
+sincronização aparece no popup aberto sem fechar e reabrir.
+
+Sincronização é **aditiva e resumível**: interromper e sincronizar de novo só
+baixa o que falta (`fileGet` reconfirma que o arquivo catalogado ainda existe
+de fato antes de pular — cobre até exclusões manuais feitas por dentro da
+pasta via seleção múltipla).
+
+#### Classificação: categoria → álbum (a hierarquia do banco)
+
+O acervo do LouvorJA tem **dois níveis, e só isso: categoria → álbum →
+música** — não há grupo acima da categoria nem subcategoria (confirmado no
+código do app-ja; ver `docs/FONTE-DE-DADOS-LOUVORJA.md` §5.5). A relação
+categoria↔álbum é **N:N**, e `subtitle`/`order` são campos do **pivô**: variam
+conforme a categoria em que o álbum é mostrado.
+
+`state.albumCatalog` guarda essa hierarquia inteira —
+`{ categories: [{ id_category, name, order, albums: [{ id_album, subtitle,
+order }] }], albums: [{ id_album, name, color }] }`. `albums` é o índice
+deduplicado que dá identidade a cada card (vira `coll.id`); `categories`
+preserva a classificação. **Até a v4.90 isto era um array achatado
+`[{id_album, name}]`** — que jogava fora exatamente a classificação que o
+operador precisa para achar um álbum entre dezenas. `loadCollections()` aceita
+o formato antigo e a próxima `fetchAlbumCatalog()` traz a hierarquia.
+
+`renderCollectionsList()` renderiza **cabeçalhos de categoria** (`.coll-group`)
+na ordem do banco (`category.order`), com os álbuns de cada uma também na
+ordem do banco (`album.order` do pivô), e os **hinários num grupo fixo no
+topo**. Como a relação é N:N, **o mesmo álbum aparece em mais de uma
+categoria** — de propósito, é assim no banco e no app original, e o subtítulo
+muda junto. Álbuns que nenhuma categoria reivindica (catálogo migrado, ou
+álbum removido de todas) caem num grupo "Outros álbuns", em vez de sumirem.
+
+**Álbum que é hinário disfarçado** (`isHymnalAlbum`): se
+`album_{id}.categories` contém uma string começando com `hymnal.`, aquele
+"álbum" é na verdade um hinário — o app-ja redireciona a abertura dele para o
+módulo do hinário. Como os dois hinários já têm card fixo aqui, o card
+duplicado é omitido. Esse é o critério **autoritativo**, gravado como
+`collState[id].isHymnal` quando o índice do álbum chega; até lá vale um
+palpite pelo nome (`/hin[aá]rio/i`), que era o único critério antes.
 
 **Índices sempre em dia, automaticamente** (`fetchCollectionIndex` /
 `autoRefreshCollections`): sem esperar o operador apertar "sincronizar", ao
@@ -2216,7 +2264,8 @@ PASTA, os três botões flutuantes da preview (**engrenagem**, **cast** e
 **expandir** — `#pvSettingsBtn`/`#pvCastBtn`/`#pvFullBtn`),
 e nos **cards de coleção** as **setas circulares** de sincronizar
 (`syncIconSvg`), o **check** verde de "completo offline" (`checkIconSvg`) e o
-ícone de **lista** do botão "Ver músicas" (`listIconSvg`); e nos
+ícone de **lista** do botão "Ver músicas" (`listIconSvg`) e a **engrenagem** de
+opções da coleção (`gearIconSvg`); e nos
 resultados da busca os botões de tocar **voz/microfone** (Cantado, `voiceIconSvg`)
 e **nota musical** (Playback, `noteIconSvg`); e o **livro com uma cruz** da aba
 **Bíblia** (`.tab[data-tab="bible"]`).
