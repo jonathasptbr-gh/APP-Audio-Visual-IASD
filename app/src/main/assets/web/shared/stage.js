@@ -201,10 +201,18 @@
     // natural (preparando o replay) mostraria um salto pro primeiro frame
     // antes da cortina (se for o caso) cobrir — preto é sempre mais correto
     // que esse salto.
+    //
+    // ÁUDIO NÃO MOSTRA O <video>: ele é só o "sink" de som, não há um único
+    // pixel a exibir. Mantê-lo visível fazia o navegador desenhar o
+    // placeholder de mídia (retângulo claro com botão de play) por cima do
+    // preto — invisível durante o hino, porque a camada de letra o cobria, e
+    // aparecendo justamente no FIM, quando a letra esmaece e o descobre. É o
+    // mesmo placeholder que já perseguimos na troca de mídia; aqui a fonte era
+    // o próprio elemento estar em cena sem nada para mostrar.
     function applyMedia() {
       const kind = current ? current.kind : null;
       img.hidden = !(kind === 'image');
-      video.hidden = !(kind === 'video' || kind === 'audio') || ended;
+      video.hidden = kind !== 'video' || ended;
       video.muted = forceMuted ? true : muted;
       if (!forceMuted) video.volume = volume;
     }
@@ -442,6 +450,15 @@
         video.muted = forceMuted ? true : muted;
         if (!forceMuted) video.volume = volume;
         play();
+        // ENTRADA COM RAMPA, espelhando a saída. Isto não existia: o volume
+        // era escrito direto no alvo e a mídia entrava no talo enquanto o
+        // visual ainda esmaecia — a saída tinha rampa, a entrada não, e a
+        // assimetria era audível a cada troca de hino. `play()` restaura o
+        // volume alvo (e limpa o rampTimer), então a rampa só pode vir DEPOIS
+        // dele; ela mesma escreve o 0 inicial.
+        if (fadeIn && !forceMuted && !video.muted && volume > 0) {
+          rampVolume(0, volume, fadeTime);
+        }
       }
       applyMedia();
       // Revela (esconde a cortina) se a view pedir e ainda estiver coberto —

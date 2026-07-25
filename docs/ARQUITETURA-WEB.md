@@ -79,10 +79,10 @@ git push origin main
   `renderVersionLabel()`), o fallback estático do `<span id="appVersion">` em
   `controle/index.html` e `version` em `version.json` (é este último que
   dispara a atualização por OTA nos aparelhos). Versionamento incremental
-  simples (4.92, 4.93, 4.94…). **Versão atual: v4.94.**
-  No app nativo o rótulo mostra os **dois índices** — `Web v4.94 · Shell v1.10`
+  simples (4.93, 4.94, 4.95…). **Versão atual: v4.95.**
+  No app nativo o rótulo mostra os **dois índices** — `Web v4.95 · Shell v1.10`
   —, porque base web e shell atualizam por caminhos independentes (OTA ×
-  instalar APK); no navegador sai só `Controle v4.94`.
+  instalar APK); no navegador sai só `Controle v4.95`.
 
 ---
 
@@ -412,6 +412,23 @@ próximo item vem em seguida).
 
 Duas transições **independentes** quando fade está ativo:
 
+**Áudio nunca mostra o `<video>`** (`applyMedia`: `video.hidden = kind !==
+'video' || ended`). O elemento é só o "sink" de som — em áudio puro não há um
+pixel a exibir. Mantê-lo em cena fazia o navegador desenhar o **placeholder de
+mídia** (retângulo claro com botão de play) por cima do preto: invisível
+durante o hino, porque a camada de letra o cobria, e aparecendo justamente no
+FIM, quando a letra esmaece e o descobre. É o mesmo placeholder já perseguido
+na troca de mídia (ver `resetMediaDom`/`load`), mas com outra origem — ali era
+um `<video>` sem `src`, aqui é um `<video>` com `src` e nada a mostrar. Um
+elemento `display:none` continua tocando áudio normalmente.
+
+**A entrada tem rampa de volume, como a saída.** Isto não existia: `load()`
+escrevia o volume direto no alvo e a mídia entrava no talo enquanto o visual
+ainda esmaecia — a saída tinha rampa, a entrada não, e a assimetria era audível
+a cada troca de hino. Agora, com `fadeIn` ligado, `rampVolume(0, volume,
+fadeTime)` roda **depois** de `play()` (que restaura o volume alvo e limpa o
+`rampTimer`, e por isso não pode vir depois da rampa).
+
 - **Fade de CONTEÚDO** (`runFadeOut(rampAudio)` + `mediaReady`/fade-in): troca
   de item enquanto já visível (ex: vídeo A → vídeo B com a cortina já aberta),
   fim natural (`ended`) e troca de TIPO de conteúdo (mídia local ↔ YouTube via
@@ -685,9 +702,11 @@ YouTube, `cmd()` também dirige um segundo `YT.Player` próprio da preview (mudo
 qualidade mínima) — ver seção do YouTube no Display para os detalhes.
 
 **Botões flutuantes sobre a preview** (`#pvFabs`, `setupPreviewGestures`):
-três botões semitransparentes nos cantos, **escondidos por padrão**. Um
-**toque na preview só mostra/esconde** os três (some sozinho em 4 s); a ação é
-de quem tocar no botão. Antes essas mesmas ações eram **gestos invisíveis** —
+quatro botões semitransparentes nos cantos, **visíveis por padrão** — são a
+única indicação de que essas ações existem, e a preview fica na base da tela o
+tempo todo; escondê-los por omissão devolvia o problema dos gestos invisíveis.
+Um **toque na preview os esconde** (para ver a miniatura limpa) e outro os traz
+de volta; **não somem sozinhos** nem ao serem usados. Antes essas mesmas ações eram **gestos invisíveis** —
 toque = tela cheia, toque longo (~500 ms) = popup de Exibição —, que nada na
 tela anunciava e que o toque longo errava com frequência.
 
@@ -696,6 +715,7 @@ tela anunciava e que o toque longo errava com frequência.
 | `#pvSettingsBtn` (engrenagem) | topo esquerdo | popup de **Exibição** (`openFadePopup`) |
 | `#pvCastBtn` (cast) | topo direito | seletor de espelhamento do Android (`AVNative.openCast()`) — **só no app nativo**; oculto no navegador |
 | `#pvFullBtn` (expandir) | base direita | **tela cheia** da preview (`requestFullscreen` + trava de paisagem) |
+| `#pvMsgBtn` (balão / X) | base esquerda | **mensagem na tela** — abre a lista, ou tira do ar a que está projetada (ver "Camada de Texto") |
 
 Os FABs ficam **sempre ocultos em tela cheia** (`.preview:fullscreen .pv-fabs
 { display:none }`): sem TV conectada, a tela cheia É a projeção, e um botão

@@ -16,7 +16,7 @@
     <div class="list-header">
       <button id="backBtn" class="back-btn" hidden><span class="msym">&#xe5c4;</span></button>
       <span class="list-title" id="listTitle">Cronograma</span>
-      <span id="appVersion" class="app-version">Controle v4.94</span>
+      <span id="appVersion" class="app-version">Controle v4.95</span>
       <input id="libSearch" class="lib-search" type="search" placeholder="Buscar na pasta…" hidden>
       <button id="addDirBtn" class="add-dir-btn" hidden title="Sincronizar pasta do dispositivo"><span class="msym">&#xe2c8;</span></button>
     </div>
@@ -107,12 +107,12 @@
               </div>
             </div>
           </div>
-          <!-- Botões flutuantes sobre a preview: semitransparentes, escondidos
-               por padrão. Um toque na preview mostra/esconde os três (ver
-               setupPreviewGestures). Ficam SEMPRE ocultos em tela cheia — é a
-               tela cheia que vai ao telão quando não há TV conectada, e um
-               botão sobreposto seria projetado junto. -->
-          <div class="pv-fabs" id="pvFabs" hidden>
+          <!-- Botões flutuantes sobre a preview: semitransparentes e VISÍVEIS
+               por padrão (um toque na preview os esconde, e outro os traz de
+               volta — ver setupPreviewGestures). Ficam SEMPRE ocultos em tela
+               cheia: é a tela cheia que vai ao telão quando não há TV
+               conectada, e um botão sobreposto seria projetado junto. -->
+          <div class="pv-fabs" id="pvFabs">
             <button id="pvSettingsBtn" class="pv-fab pv-fab--tr" title="Configurações de exibição">
               <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <circle cx="12" cy="12" r="3.2"/>

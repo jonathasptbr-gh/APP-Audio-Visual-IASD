@@ -59,7 +59,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '4.94';
+const WEB_VERSION = '4.95';
 
 function renderVersionLabel() {
   // __SHELL_NAME__ = versionName do APK (ver native.js). Vazio no navegador e
@@ -4519,23 +4519,22 @@ hymnSearchInputEl.addEventListener('input', () => renderSearchResults(hymnSearch
   // Agora cada uma tem seu botão semitransparente num canto, e o toque na
   // preview só MOSTRA/ESCONDE esses botões. Some sozinho depois de um tempo
   // para não tampar a projeção em miniatura.
+  // Visíveis por padrão: são a única indicação de que essas ações existem, e a
+  // preview fica na base da tela o tempo todo — esconder por omissão devolvia
+  // o problema dos gestos invisíveis. O toque na preview os esconde (para ver
+  // a miniatura limpa) e outro toque os traz de volta; não somem sozinhos.
   const fabsEl = document.getElementById('pvFabs');
-  const FAB_AUTOHIDE_MS = 4000;
-  let fabTimer = null;
-  function showFabs(on) {
-    clearTimeout(fabTimer); fabTimer = null;
-    fabsEl.hidden = !on;
-    if (on) fabTimer = setTimeout(() => { fabsEl.hidden = true; }, FAB_AUTOHIDE_MS);
-  }
-  document.getElementById('pvSettingsBtn').addEventListener('click', () => { showFabs(false); openFadePopup(); });
-  document.getElementById('pvFullBtn').addEventListener('click', () => { showFabs(false); enterFullscreen(); });
+  function showFabs(on) { fabsEl.hidden = !on; }
+  // Os botões NÃO se escondem ao serem usados: são o estado padrão da preview.
+  document.getElementById('pvSettingsBtn').addEventListener('click', openFadePopup);
+  document.getElementById('pvFullBtn').addEventListener('click', enterFullscreen);
   // Cast: só existe com o shell nativo (é um intent do Android). No navegador
   // o botão nem aparece — regra geral do projeto: o web é o padrão, o nativo
   // é a exceção que se declara.
   const castBtnEl = document.getElementById('pvCastBtn');
   if (window.__NATIVE__) {
     castBtnEl.hidden = false;
-    castBtnEl.addEventListener('click', () => { showFabs(false); AVNative.openCast(); });
+    castBtnEl.addEventListener('click', () => AVNative.openCast());
   }
 
   async function enterFullscreen() {
@@ -4547,10 +4546,10 @@ hymnSearchInputEl.addEventListener('input', () => renderSearchResults(hymnSearch
   }
   function exitFullscreen() { try { if (document.exitFullscreen) document.exitFullscreen(); } catch (_) {} }
   document.addEventListener('fullscreenchange', () => {
-    // Voltar da tela cheia sem os botões acesos: o CSS já os esconde enquanto
-    // ela dura, mas o estado precisa acompanhar (senão eles reapareceriam
-    // sozinhos ao sair, sem ninguém ter tocado).
-    showFabs(false);
+    // Fora da tela cheia os botões são o padrão; dentro dela o CSS os esconde
+    // de qualquer forma (nada de UI sobre a projeção). Sincronizar o estado
+    // aqui evita sair da tela cheia com eles apagados sem motivo.
+    showFabs(!document.fullscreenElement);
     if (!document.fullscreenElement) { try { screen.orientation && screen.orientation.unlock && screen.orientation.unlock(); } catch (_) {} }
   });
 
