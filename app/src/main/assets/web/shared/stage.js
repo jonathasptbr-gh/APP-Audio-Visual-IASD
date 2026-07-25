@@ -351,6 +351,11 @@
       clearInterval(rampTimer);
       clearTimeout(muteApplyTimer);
       img.hidden = true; img.removeAttribute('src');
+      // Idem: esconder o <video> faz parte de limpar a fonte, não é detalhe
+      // do applyMedia() que vem depois. Entre esta linha e ele há repaint
+      // suficiente para o placeholder (retângulo claro + play) aparecer ao
+      // parar ou limpar a mídia.
+      video.hidden = true;
       clearFadeStyle(video); clearFadeStyle(img);
       video.pause(); video.removeAttribute('src'); video.load();
       _revokeUrl();
@@ -376,6 +381,12 @@
         // Esconde as camadas ainda esmaecidas ANTES de restaurar a opacidade
         // (evita a mídia antiga reaparecer durante o getMedia).
         img.hidden = true; img.removeAttribute('src');
+        // O <video> tem que ser escondido JUNTO com a remoção da fonte: um
+        // elemento de vídeo visível e sem `src` é pintado pelo navegador como
+        // um retângulo claro com botão de play. Como o `getMedia`/`opfsGetFile`
+        // logo abaixo são assíncronos, essa janela dura o suficiente para o
+        // placeholder piscar na tela a cada troca de mídia.
+        video.hidden = true;
         video.pause(); video.removeAttribute('src'); video.load();
         clearFadeStyle(video); clearFadeStyle(img);
       }
@@ -387,6 +398,10 @@
       _revokeUrl();
 
       img.hidden = true; img.removeAttribute('src');
+      // Escondido junto com a fonte (mesmo motivo de cima): sem `src` o
+      // <video> visível vira um placeholder claro com botão de play.
+      // applyMedia(), no fim deste load, revela conforme o kind que entrar.
+      video.hidden = true;
       video.pause(); video.removeAttribute('src'); video.load();
       // Nenhum estilo de fade anterior pode sobrar na mídia que vai entrar
       // (ex: opacity 0 de um fade-in descartado com a config já alterada).

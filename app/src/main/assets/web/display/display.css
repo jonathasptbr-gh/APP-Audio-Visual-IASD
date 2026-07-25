@@ -23,6 +23,15 @@
   --lyrics-frame-border: rgba(255, 255, 255, .85);
 }
 
+/* `hidden` sempre esconde, sem exceção. O Controle já tinha esta regra; o
+   Display dependia só da folha do navegador, que qualquer seletor de classe
+   com `display` pode vencer — foi exatamente assim que a <img> da letra
+   apareceu como "imagem quebrada" (ver `.lyrics-bg img[hidden]` abaixo). Como
+   `hidden` é o que esconde as camadas de mídia sem fonte (img/video no
+   stage.js), uma exceção dessas vira placeholder claro com botão de play
+   piscando na projeção. */
+[hidden] { display: none !important; }
+
 html, body {
   height: 100%;
   background: #000;
