@@ -857,6 +857,44 @@ main {
 .bible-read-foot { display: flex; align-items: center; justify-content: center; gap: .5rem; flex-wrap: wrap; margin-top: .3rem; }
 .bible-read-foot .bible-ver-btn { align-self: auto; }
 
+/* ---------- Microfone (push-to-talk) ---------- */
+/* Um alvo grande e central: é para ser encontrado e segurado sem olhar, no
+   meio do culto. */
+.mic-wrap {
+  flex: 1; min-height: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 1rem; padding: 1rem .5rem;
+}
+.mic-btn {
+  width: 168px; height: 168px; flex-shrink: 0;
+  border-radius: 50%;
+  border: 2px solid var(--line); background: var(--panel); color: var(--text);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .5rem;
+  cursor: pointer; appearance: none; -webkit-appearance: none;
+  /* O dedo fica parado em cima: nada de rolagem ou menu de contexto durante
+     o push-to-talk. */
+  touch-action: none;
+  transition: background .12s ease, border-color .12s ease, color .12s ease;
+}
+.mic-btn svg { display: block; }
+.mic-btn-label { font-size: .82rem; font-weight: 700; }
+/* No ar: vermelho pleno e pulsante — quem está falando precisa ver de longe
+   que o microfone está aberto. */
+.mic-btn.live {
+  background: var(--danger); border-color: var(--danger); color: #fff;
+  animation: mic-pulse 1.1s ease-in-out infinite;
+}
+@keyframes mic-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 var(--danger-soft); }
+  50% { box-shadow: 0 0 0 14px rgba(229, 57, 53, 0); }
+}
+.mic-note { font-size: .88rem; font-weight: 600; color: var(--text); text-align: center; }
+.mic-note.err { color: var(--gold-text); }
+.mic-help {
+  font-size: .74rem; color: var(--muted); line-height: 1.5; text-align: center;
+  max-width: 34ch;
+}
+
 /* ---------- Mensagens (texto puro) ---------- */
 /* Vivem num bottom-sheet aberto pelo botão flutuante da preview (`.msg-opts`),
    não numa aba: um aviso de texto é uma interrupção rápida, não uma seção da

@@ -142,6 +142,7 @@ window.AVNative = {
   castTarget(),        // → rótulo do alvo de espelhamento deste aparelho
   captureVolumeKeys(bool), // botões físicos de volume vão para o app
   systemVolume(step),  // devolve um passo ao volume do sistema (fader no limite)
+  requestMic(),        // → bool: permissão RECORD_AUDIO (push-to-talk)
 }
 ```
 
@@ -151,7 +152,7 @@ Além disso, `native.js` publica três globais lidas direto (sem Promise):
 APK, que é o **índice de versão do shell exibido ao operador**. Ele não se
 confunde com `__SHELL_VERSION__`: base web e shell atualizam por caminhos
 independentes (OTA × instalar APK), então o cabeçalho do Cronograma mostra os
-dois (`Web v4.95 · Shell v1.10`). Num shell antigo (sem `appVersion()`) a
+dois (`Web v4.96 · Shell v1.11`). Num shell antigo (sem `appVersion()`) a
 string vem vazia e a UI cai em só a versão web — mesma degradação do navegador.
 
 **Princípio: a ponte entrega URLs SERVÍVEIS, não bytes.** Arquivos do
@@ -281,9 +282,48 @@ contextos.
 | Botão de cast da preview | oculto | `AVNative.openCast()` → seletor de **espelhamento de tela** (ver abaixo) |
 | Fullscreen da preview | `requestFullscreen` + Screen Orientation API | idem, com trava de paisagem **nativa** (`onShowCustomView`) |
 | Botões físicos de volume | o navegador não os recebe | **interceptados** e ligados ao fader do app (ver abaixo) |
+| Microfone (`getUserMedia`) | o navegador pergunta | `MicChromeClient` + permissão `RECORD_AUDIO` (ver abaixo) |
 | Botão voltar | — | manda a tarefa para segundo plano (sair por engano derrubaria a projeção) |
 | Download com o app minimizado | a aba continua baixando | **foreground service + wake lock** — sem isso o processo é congelado (ver seção acima) |
 | Atualização da base web | service worker (cache-first + reload) | **OTA** — bundle publicado em `web-latest`, aplicado no próximo lançamento (ver seção acima) |
+
+### Microfone ao vivo (push-to-talk)
+
+O operador segura um botão no Controle e a voz sai **na projeção**, ao vivo.
+
+**A captura acontece no WebView do Display**, não no do Controle — e isso não é
+detalhe de implementação: um `MediaStream` **não atravessa o
+BroadcastChannel** (não é clonável), então mandar o áudio "pela ponte" não
+existe como opção. O que atravessa é o comando `mic`; quem abre o microfone é
+quem vai reproduzi-lo. No navegador, onde Display e Controle são páginas
+separadas, essa também é a única escolha correta.
+
+Do lado nativo, duas peças:
+
+- **`MicChromeClient`** (usado pelo WebView da `StagePresentation`). Um WebView
+  **nega `getUserMedia` em silêncio** se ninguém tratar `onPermissionRequest`:
+  a promise é rejeitada e não há erro no console que explique. É o mesmo padrão
+  do `onShowFileChooser` (invariante 6). Ele concede **só**
+  `RESOURCE_AUDIO_CAPTURE` — qualquer outro recurso é negado, porque o sistema
+  de projeção não tem uso para eles — e **só se o app já tiver `RECORD_AUDIO`**;
+  conceder ao WebView uma permissão que o processo não tem apenas adiaria a
+  falha para um ponto sem sinal claro.
+- **`requestMicPermission`** (`AVNative.requestMic()`), pedido **sob demanda**,
+  no primeiro toque no botão. Não na abertura do app: um pedido de gravar áudio
+  sem contexto, no primeiro lançamento, é o tipo de coisa que se nega por
+  reflexo — e aí o recurso fica quebrado sem motivo.
+
+O caminho de áudio no Display é `getUserMedia → MediaStreamSource → GainNode →
+destination`, com rampa de 0,12 s na entrada e na saída (cortar no meio de uma
+palavra estala na caixa de som). `echoCancellation` fica **ligado**: num culto
+um ganho realimentado é um estrago imediato e público, e vale mais que a
+fidelidade extra de desligar o processamento. Ainda assim, se a saída de áudio
+for o próprio celular e não a TV, o risco de microfonia continua — é do
+formato, não do código. A latência do WebView (~0,1–0,3 s) é inerente.
+
+O microfone fecha sozinho ao soltar o botão, ao **trocar de aba** e quando o
+app vai para **segundo plano**: push-to-talk que sobrevive ao botão vira um
+microfone esquecido ligado.
 
 ### Botões físicos de volume
 
@@ -432,4 +472,4 @@ Rodar local: `./gradlew assembleDebug` (exige Android SDK instalado).
   (`#appVersion` em `assets/web/controle/index.html`) **e `version` em
   `assets/web/version.json`** — é este último que faz a atualização chegar
   aos aparelhos por OTA. O `versionCode`/`versionName` do APK vêm do CI.
-  **Versão atual: v4.95** (base web) · **shell 1.10** (`SHELL_VERSION` 7).
+  **Versão atual: v4.96** (base web) · **shell 1.11** (`SHELL_VERSION` 8).

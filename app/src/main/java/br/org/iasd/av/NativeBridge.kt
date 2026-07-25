@@ -41,6 +41,9 @@ interface BridgeHost {
     /** Devolver um passo de volume ao SISTEMA (fader já no limite). */
     fun adjustSystemVolume(step: Int)
 
+    /** Pede a permissão de microfone ao Android (push-to-talk). */
+    fun requestMicPermission(onResult: (Boolean) -> Unit)
+
     /** Consome (uma única vez) um compartilhamento recebido por intent. */
     fun takePendingShare(): JSONObject?
 }
@@ -69,7 +72,7 @@ class NativeBridge(
          * exijam mais do que o shell instalado oferece (ver [WebUpdater]).
          * Subir SEMPRE que a superfície da ponte mudar.
          */
-        const val SHELL_VERSION = 7
+        const val SHELL_VERSION = 8
     }
 
     private val io = Executors.newSingleThreadExecutor()
@@ -184,6 +187,21 @@ class NativeBridge(
     @JavascriptInterface
     fun systemVolume(step: Int) {
         host?.adjustSystemVolume(step)
+    }
+
+    // ---------- microfone (push-to-talk) ----------
+
+    /**
+     * Garante a permissão `RECORD_AUDIO` do Android antes de o lado web
+     * chamar `getUserMedia`. Sem ela, o [MicChromeClient] nega o pedido do
+     * WebView de propósito — conceder ao WebView uma permissão que o processo
+     * não tem só adiaria a falha para um ponto sem sinal claro.
+     */
+    @JavascriptInterface
+    fun requestMic(callId: String) {
+        val h = host
+        if (h == null) { resolve(callId, "false"); return }
+        h.requestMicPermission { granted -> resolve(callId, if (granted) "true" else "false") }
     }
 
     // ---------- compartilhamento (substitui o share_target do SW) ----------

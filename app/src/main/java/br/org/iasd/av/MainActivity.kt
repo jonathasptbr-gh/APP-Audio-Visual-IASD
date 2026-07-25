@@ -99,6 +99,21 @@ class MainActivity : ComponentActivity(), BridgeHost {
         ActivityResultContracts.RequestPermission(),
     ) { /* concedida ou não, o app segue igual */ }
 
+    /**
+     * Permissão do microfone (push-to-talk). Pedida **sob demanda**, quando o
+     * operador abre a função — e não na abertura do app: um pedido de gravar
+     * áudio logo no primeiro lançamento, sem contexto, é o tipo de coisa que
+     * as pessoas negam por reflexo, e aí o recurso fica quebrado sem motivo.
+     */
+    private var pendingMicPermission: ((Boolean) -> Unit)? = null
+    private val micPermission = registerForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        val cb = pendingMicPermission
+        pendingMicPermission = null
+        cb?.invoke(granted)
+    }
+
     private val folderPicker = registerForActivityResult(
         ActivityResultContracts.OpenDocumentTree(),
     ) { uri ->
@@ -502,6 +517,20 @@ class MainActivity : ComponentActivity(), BridgeHost {
             .map { it.name }
     } catch (_: Exception) {
         emptyList()
+    }
+
+    override fun requestMicPermission(onResult: (Boolean) -> Unit) {
+        runOnUiThread {
+            if (MicChromeClient.hasRecordAudio(this)) { onResult(true); return@runOnUiThread }
+            pendingMicPermission = onResult
+            try {
+                micPermission.launch(android.Manifest.permission.RECORD_AUDIO)
+            } catch (e: Exception) {
+                Log.w(TAG, "não foi possível pedir a permissão de microfone", e)
+                pendingMicPermission = null
+                onResult(false)
+            }
+        }
     }
 
     override fun setCaptureVolumeKeys(on: Boolean) {

@@ -59,7 +59,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '4.95';
+const WEB_VERSION = '4.96';
 
 function renderVersionLabel() {
   // __SHELL_NAME__ = versionName do APK (ver native.js). Vazio no navegador e
@@ -1243,6 +1243,11 @@ function renderListTitle() {
   // Indicador de versão: só ao lado do título da aba Cronograma.
   appVersionEl.hidden = activeTab !== 'imports';
   if (!appVersionEl.hidden) renderVersionLabel();
+  if (activeTab === 'mic') {
+    backBtnEl.hidden = true; addDirBtnEl.hidden = true; libSearchEl.hidden = true; libSearchEl.value = '';
+    listTitleEl.hidden = false; listTitleEl.textContent = 'Microfone';
+    return;
+  }
   if (activeTab === 'bible') {
     backBtnEl.hidden = bibleScreen === 'books';
     addDirBtnEl.hidden = true;
@@ -2073,6 +2078,97 @@ async function deleteMessage(id) {
   refreshMsgPopup();
 }
 
+// ===== Microfone ao vivo (push-to-talk) =====
+// Segurar o botão abre o microfone e a voz sai NA PROJEÇÃO, ao vivo. A captura
+// acontece no Display, não aqui: um MediaStream não atravessa o
+// BroadcastChannel, então quem reproduz é quem abre o microfone (ver startMic
+// em display.js). Daqui só sai o comando.
+//
+// O comando vai por `AVDB.sendCommand`, **não** por `cmd()`: `cmd()` também
+// aplica na preview, e a preview é este mesmo aparelho, a centímetros do
+// microfone — reproduzir aqui seria realimentação garantida.
+let micOn = false;          // o Display confirmou que está captando
+let micPressed = false;     // o dedo está no botão agora
+let micError = '';
+
+function sendMic(on) {
+  micPressed = on;
+  AVDB.sendCommand({ type: 'mic', on });
+  renderMicUI();
+}
+
+function renderMicUI() {
+  const btn = document.getElementById('micBtn');
+  if (!btn) return;
+  const live = micOn || micPressed;
+  btn.classList.toggle('live', live);
+  const note = document.getElementById('micNote');
+  if (note) {
+    note.textContent = micError
+      ? micErrorText(micError)
+      : (live ? 'No ar — sua voz está saindo na projeção.' : 'Segure para falar.');
+    note.classList.toggle('err', !!micError);
+  }
+}
+
+function micErrorText(err) {
+  if (err === 'NotAllowedError' || err === 'SecurityError') {
+    return 'Permissão de microfone negada. Autorize o app nas configurações do Android.';
+  }
+  if (err === 'NotFoundError') return 'Nenhum microfone encontrado neste aparelho.';
+  if (err === 'unsupported') return 'Este aparelho não expõe captura de áudio ao app.';
+  if (err === 'NotReadableError') return 'O microfone está em uso por outro app.';
+  return 'Não foi possível abrir o microfone (' + err + ').';
+}
+
+function renderMic() {
+  const wrap = document.createElement('div'); wrap.className = 'mic-wrap';
+
+  const btn = document.createElement('button');
+  btn.type = 'button'; btn.id = 'micBtn'; btn.className = 'mic-btn';
+  btn.innerHTML = '<svg viewBox="0 0 24 24" width="64" height="64" fill="none" stroke="currentColor"'
+    + ' stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+    + '<rect x="9" y="2" width="6" height="11" rx="3"/><path d="M5 10a7 7 0 0 0 14 0"/>'
+    + '<line x1="12" y1="17" x2="12" y2="21"/><line x1="8" y1="21" x2="16" y2="21"/></svg>';
+  const label = document.createElement('span'); label.className = 'mic-btn-label';
+  label.textContent = 'Segure para falar';
+  btn.appendChild(label);
+
+  // Push-to-talk: abre no pointerdown e fecha em QUALQUER forma de soltar.
+  // `setPointerCapture` mantém o evento de soltura vindo para cá mesmo se o
+  // dedo escorregar para fora do botão — sem isso o microfone ficaria aberto.
+  btn.addEventListener('pointerdown', async (e) => {
+    e.preventDefault();
+    try { btn.setPointerCapture(e.pointerId); } catch (_) {}
+    micError = '';
+    // A permissão do Android é pedida AQUI, no primeiro uso — não na abertura
+    // do app, onde um pedido de gravar áudio sem contexto seria negado por
+    // reflexo. No navegador não existe ponte: o getUserMedia do Display pede.
+    if (window.__NATIVE__) {
+      const ok = await AVNative.requestMic();
+      if (!ok) { micError = 'NotAllowedError'; renderMicUI(); return; }
+      if (!micPressed && !btn.hasPointerCapture(e.pointerId)) return; // já soltou
+    }
+    sendMic(true);
+  });
+  const release = () => { if (micPressed || micOn) sendMic(false); };
+  btn.addEventListener('pointerup', release);
+  btn.addEventListener('pointercancel', release);
+  wrap.appendChild(btn);
+
+  const note = document.createElement('div'); note.id = 'micNote'; note.className = 'mic-note';
+  wrap.appendChild(note);
+
+  const help = document.createElement('div'); help.className = 'mic-help';
+  help.textContent = 'A voz é capturada e reproduzida ao vivo na projeção, com o '
+    + 'pequeno atraso do aparelho. Nada é gravado. Cuidado com microfonia se a '
+    + 'saída de áudio for o próprio celular.';
+  wrap.appendChild(help);
+
+  libraryEl.appendChild(wrap);
+  renderMicUI();
+}
+
 // ===== Mensagens: botão flutuante na preview + popup =====
 // Deixou de ser uma aba: um aviso de texto é uma interrupção rápida ("bem-vindos",
 // "desliguem o celular"), não uma seção da biblioteca que se navega. Vive como
@@ -2143,6 +2239,11 @@ function renderLibrary() {
 
   if (activeTab === 'bible') {
     renderBible();
+    return;
+  }
+
+  if (activeTab === 'mic') {
+    renderMic();
     return;
   }
 
@@ -4425,7 +4526,7 @@ plPopupEl.addEventListener('click', (e) => { if (e.target === plPopupEl) closePl
 // direita, e vice-versa).
 // Pastas e Mensagens não têm aba, mas Pastas ainda é uma TELA (activeTab) e
 // precisa de posição aqui para a direção do deslize sair certa.
-const TAB_ORDER = ['imports', 'folders', 'albums', 'bible'];
+const TAB_ORDER = ['imports', 'folders', 'albums', 'bible', 'mic'];
 const prefersReducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 // Anima a entrada da lista ao trocar de aba: leve deslize direcional + fade.
@@ -4455,6 +4556,9 @@ function switchTab(tab) {
   // Mantém a posição: guarda o scroll da aba atual e NÃO reseta a pasta
   // aberta — voltar para Pastas retorna exatamente onde estava.
   rememberScroll();
+  // Sair da aba com o microfone aberto o deixaria captando sem nada na tela
+  // que mostrasse isso. O botão é push-to-talk: sem o botão, sem microfone.
+  if (activeTab === 'mic' && (micPressed || micOn)) sendMic(false);
   activeTab = tab;
   if (selectionMode) exitSelection();
   load();
@@ -4702,6 +4806,15 @@ AVDB.onCommand((msg) => {
       : 'Áudio do Display ativo');
     renderControls();
   }
+  // Microfone: camada de áudio independente da mídia — precisa ser tratado
+  // ANTES do filtro por `mediaId` abaixo, que descarta tudo que não é sobre o
+  // item em exibição.
+  if (msg.type === 'mic-status') {
+    micOn = !!msg.on;
+    micError = msg.error || '';
+    if (activeTab === 'mic') renderMicUI();
+    return;
+  }
   if (!currentItem || msg.mediaId !== currentId) return;
   const isYoutube = currentItem.kind === 'youtube';
   const isTimedLocal = currentItem.kind === 'audio' || currentItem.kind === 'video';
@@ -4772,7 +4885,13 @@ if (!window.__NATIVE__ && 'serviceWorker' in navigator) {
 // metadados, sem áudio — barato pra rodar a cada retomada, mantém a busca e os
 // cards em dia).
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState !== 'visible') return;
+  if (document.visibilityState !== 'visible') {
+    // App em segundo plano: o botão de falar não está mais sob o dedo, então
+    // o microfone não pode continuar aberto. Push-to-talk que sobrevive ao
+    // app sair da frente vira um microfone esquecido ligado.
+    if (micPressed || micOn) sendMic(false);
+    return;
+  }
   if (swReg) swReg.update().catch(() => {});
   autoRefreshCollections();
 });

@@ -79,10 +79,10 @@ git push origin main
   `renderVersionLabel()`), o fallback estático do `<span id="appVersion">` em
   `controle/index.html` e `version` em `version.json` (é este último que
   dispara a atualização por OTA nos aparelhos). Versionamento incremental
-  simples (4.93, 4.94, 4.95…). **Versão atual: v4.95.**
-  No app nativo o rótulo mostra os **dois índices** — `Web v4.95 · Shell v1.10`
+  simples (4.94, 4.95, 4.96…). **Versão atual: v4.96.**
+  No app nativo o rótulo mostra os **dois índices** — `Web v4.96 · Shell v1.11`
   —, porque base web e shell atualizam por caminhos independentes (OTA ×
-  instalar APK); no navegador sai só `Controle v4.95`.
+  instalar APK); no navegador sai só `Controle v4.96`.
 
 ---
 
@@ -306,6 +306,7 @@ Todos os comandos são objetos com um campo `type`.
 | `wallpaper` | — | Avisa que a imagem do wallpaper mudou. **Sem payload**: o blob mora no state `wallpaper`, que os dois apps compartilham — o Display relê do IDB (ver "Wallpaper personalizado") |
 | `text` | `main, sub, mode, view` | Projeta/atualiza a **Camada de Texto** manual (Bíblia OU Mensagem — ver "Camada de Texto"). `main`=texto principal, `sub`=referência (dourada, abaixo; vazio nas mensagens), `mode`=`'verse'`\|`'message'`. Um novo `text` troca o conteúdo em cena; `view` só liga/desliga a cortina compartilhada. **Independente do áudio**: um `text` NÃO para a mídia do stage — o áudio segue tocando por baixo |
 | `text-hide` | — | Encerra a Camada de Texto (Bíblia/Mensagem) sem tocar na mídia de fundo |
+| `mic` | `on` (bool) | **Microfone ao vivo** (push-to-talk): o Display abre o microfone e reproduz a voz na projeção. Camada de ÁUDIO independente — não toca na mídia, no texto nem na cortina. Enviado por `AVDB.sendCommand` direto, **nunca** por `cmd()`: a preview é o mesmo aparelho, a centímetros do microfone |
 | `audio-retry` | — | Retentativa imediata de liberar o áudio bloqueado (botão de mudo do Controle no estado "sem áudio") |
 
 #### Display → Controle
@@ -315,6 +316,7 @@ Todos os comandos são objetos com um campo `type`.
 | `display-ready` | — | Display pronto; Controle reenvia o estado atual (se estiver tocando) |
 | `display-status` | `mediaId, view, muted, volume, playing, currentTime, duration, audioBlocked` | Estado do Display a cada evento de tempo/estado (`audioBlocked`: navegador bloqueou som sem gesto; o Controle avisa o operador) |
 | `media-ended` | `mediaId` | Vídeo/áudio chegou ao fim |
+| `mic-status` | `on`, `error` | Resultado da abertura do microfone (permissão negada, sem microfone, em uso por outro app…) |
 
 ---
 

@@ -9,6 +9,11 @@
          CPU não pode dormir no meio de uma sincronização. -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
+    <!-- Microfone: a função de "falar no telão" (push-to-talk) captura o
+         microfone no WebView do Display e o reproduz ao vivo. Só é usada
+         enquanto o operador segura o botão; nada é gravado. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
     <!-- Serviço em primeiro plano durante downloads: sem ele o Android
          congela o processo ao minimizar o app e a sincronização de hinos,
          álbuns, Bíblia ou pastas para no meio (ver SyncService). -->

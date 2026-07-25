@@ -148,6 +148,12 @@
     // Fader já no limite: devolve o passo ao volume do sistema.
     systemVolume(step) { try { B.systemVolume(step | 0); } catch (_) { /* shell antigo */ } },
 
+    // Microfone (push-to-talk): garante a permissão RECORD_AUDIO do Android
+    // ANTES do getUserMedia. Sem ela o WebView nega a captura de propósito
+    // (ver MicChromeClient). Num shell antigo resolve false — e o lado web
+    // tenta o getUserMedia mesmo assim, que é o caminho do navegador.
+    requestMic: () => call((id) => B.requestMic(id)).then((r) => r === true),
+
     // Sessão de culto.
     keepAwake(on) { try { B.keepAwake(!!on); } catch (_) { /* ignorado */ } },
 

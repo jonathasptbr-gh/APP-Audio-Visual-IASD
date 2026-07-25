@@ -61,6 +61,11 @@ class StagePresentation(
 
         val loader = WebViewFactory.assetLoader(context)
         val w = WebViewFactory.create(context, loader)
+        // O microfone (push-to-talk) é capturado AQUI, no telão, não no
+        // Controle: é a projeção que deve reproduzi-lo, e no navegador — onde
+        // Display e Controle são páginas separadas — essa é a única escolha
+        // correta. Sem este client o WebView nega getUserMedia em silêncio.
+        w.webChromeClient = MicChromeClient(context)
         // O telão não recebe toques (o Miracast não propaga toque, e um
         // toque acidental jamais pode alterar a projeção).
         w.isFocusable = false

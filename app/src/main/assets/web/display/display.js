@@ -351,6 +351,103 @@ function restoreSceneAfterText() {
   updateLyricSlide(stage.getTime());
 }
 
+// ===== Microfone ao vivo (push-to-talk) =====
+// O operador segura o botão no Controle e a voz sai na PROJEÇÃO, ao vivo.
+//
+// A captura acontece AQUI, no Display, não no Controle — e não é detalhe de
+// implementação: um `MediaStream` não atravessa o BroadcastChannel (não é
+// clonável), então mandar o áudio "pela ponte" não existe como opção. O que
+// atravessa é o comando; quem abre o microfone é quem vai reproduzi-lo.
+//
+// Caminho de áudio: getUserMedia → MediaStreamSource → GainNode →
+// destination. É o menor atraso disponível na plataforma; ainda assim há a
+// latência do WebView (tipicamente ~0,1–0,3 s), inerente e não removível daqui.
+//
+// ATENÇÃO — REALIMENTAÇÃO: microfone e alto-falante no mesmo ambiente apitam.
+// `echoCancellation` fica LIGADO de propósito: num culto, um ganho realimentado
+// é um estrago imediato e público, e vale mais que a fidelidade extra de
+// desligar o processamento. Mesmo assim, se a saída de áudio for o próprio
+// celular (e não a TV), o risco continua — é do formato, não do código.
+let micStream = null;
+let micCtx = null;
+let micSrc = null;
+let micGain = null;
+const MIC_RAMP = 0.12; // s — entrada/saída sem estalo
+
+function micStatus(on, error) {
+  AVDB.sendCommand({ type: 'mic-status', on: !!on, error: error || '' });
+}
+
+async function startMic() {
+  if (micStream) return; // já no ar
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    micStatus(false, 'unsupported');
+    return;
+  }
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      video: false,
+    });
+  } catch (e) {
+    micStatus(false, (e && e.name) || 'error');
+    return;
+  }
+  // O operador pode ter soltado o botão enquanto a permissão era resolvida:
+  // aí este stream já nasceu obsoleto e não pode virar áudio no telão.
+  if (!micWanted) { stream.getTracks().forEach((t) => t.stop()); return; }
+  micStream = stream;
+  try {
+    micCtx = micCtx || new (window.AudioContext || window.webkitAudioContext)();
+    if (micCtx.state === 'suspended') { try { await micCtx.resume(); } catch (_) {} }
+    micSrc = micCtx.createMediaStreamSource(micStream);
+    micGain = micCtx.createGain();
+    micGain.gain.value = 0;
+    micSrc.connect(micGain);
+    micGain.connect(micCtx.destination);
+    micGain.gain.linearRampToValueAtTime(1, micCtx.currentTime + MIC_RAMP);
+    micStatus(true);
+  } catch (e) {
+    stopMic();
+    micStatus(false, (e && e.name) || 'audio-error');
+  }
+}
+
+function stopMic() {
+  if (!micStream) return;
+  const stream = micStream, src = micSrc, gain = micGain;
+  micStream = null; micSrc = null; micGain = null;
+  // Desliga em rampa e só então derruba a fonte — cortar no meio de uma
+  // palavra produz um estalo bem audível numa caixa de som.
+  const drop = () => {
+    try { if (src) src.disconnect(); } catch (_) {}
+    try { if (gain) gain.disconnect(); } catch (_) {}
+    stream.getTracks().forEach((t) => t.stop());
+  };
+  if (gain && micCtx) {
+    try {
+      gain.gain.cancelScheduledValues(micCtx.currentTime);
+      gain.gain.setValueAtTime(gain.gain.value, micCtx.currentTime);
+      gain.gain.linearRampToValueAtTime(0, micCtx.currentTime + MIC_RAMP);
+    } catch (_) {}
+    setTimeout(drop, MIC_RAMP * 1000 + 40);
+  } else {
+    drop();
+  }
+  micStatus(false);
+}
+
+// Intenção do operador (o botão está pressionado?). Guardada à parte de
+// `micStream` porque a captura é assíncrona: sem isso, soltar o botão antes de
+// a permissão resolver deixaria o microfone aberto sozinho.
+let micWanted = false;
+
+function setMic(on) {
+  micWanted = !!on;
+  if (micWanted) startMic(); else stopMic();
+}
+
 // ===== Wallpaper personalizado =====
 // A cortina do telão aceita uma imagem escolhida pelo operador no lugar do
 // gradiente padrão. A imagem vem do state `wallpaper` (blob), gravada pelo
@@ -895,6 +992,9 @@ AVDB.onCommand(async (cmd) => {
   if (cmd.type === 'text-hide') { hideText(); return; }
   // Wallpaper trocado no Controle: a imagem já está no state compartilhado.
   if (cmd.type === 'wallpaper') { applyWallpaper(); return; }
+  // Microfone ao vivo: camada de ÁUDIO independente — não toca na mídia, no
+  // texto nem na cortina. Convive com qualquer coisa em cena.
+  if (cmd.type === 'mic') { setMic(cmd.on); return; }
   // Enquanto o texto manual está em cena, ele é um OVERLAY independente:
   //  - 'view' liga/desliga a cortina do wallpaper por cima do texto;
   //  - transporte (play/pause/seek/volume/mute) segue pro stage — controla o
