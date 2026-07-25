@@ -77,6 +77,7 @@ app/src/main/
 │   ├── SyncService.kt           # foreground service: downloads com o app minimizado
 │   ├── WebUpdater.kt            # OTA da base web (watchdog, minShell, sha256)
 │   ├── WebPathHandler.kt        # serve o bundle OTA, com fallback pro APK
+│   ├── MicChromeClient.kt       # onPermissionRequest: microfone no WebView do telão
 │   └── MessageBus.kt            # relay de comandos entre os dois WebViews
 └── res/                         # ícones (rasterizados dos SVGs do PWA), tema
 docs/
@@ -152,7 +153,7 @@ Além disso, `native.js` publica três globais lidas direto (sem Promise):
 APK, que é o **índice de versão do shell exibido ao operador**. Ele não se
 confunde com `__SHELL_VERSION__`: base web e shell atualizam por caminhos
 independentes (OTA × instalar APK), então o cabeçalho do Cronograma mostra os
-dois (`Web v5.01 · Shell v1.11`). Num shell antigo (sem `appVersion()`) a
+dois (`Web v5.02 · Shell v1.11`). Num shell antigo (sem `appVersion()`) a
 string vem vazia e a UI cai em só a versão web — mesma degradação do navegador.
 
 **Princípio: a ponte entrega URLs SERVÍVEIS, não bytes.** Arquivos do
@@ -472,4 +473,4 @@ Rodar local: `./gradlew assembleDebug` (exige Android SDK instalado).
   (`#appVersion` em `assets/web/controle/index.html`) **e `version` em
   `assets/web/version.json`** — é este último que faz a atualização chegar
   aos aparelhos por OTA. O `versionCode`/`versionName` do APK vêm do CI.
-  **Versão atual: v5.01** (base web) · **shell 1.11** (`SHELL_VERSION` 8).
+  **Versão atual: v5.02** (base web) · **shell 1.11** (`SHELL_VERSION` 8).

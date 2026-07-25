@@ -805,17 +805,6 @@ main {
   background: var(--accent); border-radius: var(--radius-pill);
   min-height: 28px;
 }
-/* Seletor de versão: um botão com a versão atual que abre o popup de versões
-   (a lista não fica mais toda exposta em chips). */
-.bible-ver-btn {
-  display: flex; align-items: center; gap: .5rem; align-self: flex-start;
-  border: 1px solid var(--line); background: var(--surface-2); color: var(--text);
-  border-radius: var(--radius-btn); padding: .4rem .7rem; font-size: .82rem; font-weight: 700;
-  cursor: pointer; appearance: none; -webkit-appearance: none; max-width: 100%;
-}
-.bible-ver-btn:active { transform: var(--press); }
-.bible-ver-btn .bible-ver-label { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.bible-ver-btn .bible-ver-caret { color: var(--muted); flex-shrink: 0; display: flex; }
 /* linha de uma versão no popup */
 .bible-ver-row.selected { color: var(--accent); }
 .bible-ver-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
@@ -888,21 +877,23 @@ main {
 
 /* ---------- Bíblia: tela de leitura (versículo anterior/atual/próximo) ---------- */
 .bible-read { display: flex; flex-direction: column; gap: .5rem; padding-bottom: .6rem; }
-/* rodapé: seletor de versão + navegação da referência (livro/capítulo/versículo) */
-.bible-read-foot { display: flex; align-items: center; justify-content: center; gap: .5rem; flex-wrap: wrap; margin-top: .3rem; }
-.bible-read-foot .bible-ver-btn { align-self: auto; }
-
-/* Referência em TRÊS botões — livro, capítulo e versículo —, cada um levando
-   ao seletor da sua parte. Emendados como um segmento só, para continuarem
-   lendo como uma referência ("João · 3 · 16") e não como três ações soltas. */
-.bible-ref-nav { display: flex; align-items: stretch; gap: 1px; }
+/* Rodapé: um controle segmentado só, com as QUATRO coordenadas do que está
+   sendo lido — versão · livro · capítulo · versículo. Emendados, continuam
+   lendo como uma referência ("ARA · João · 3 · 16") em vez de quatro ações
+   soltas. Sem `flex-wrap`: o conjunto é uma linha; quem cede espaço é o nome
+   do livro (o único de largura variável), não a quebra de linha. */
+.bible-read-foot { display: flex; align-items: center; justify-content: center; margin-top: .3rem; }
+.bible-ref-nav { display: flex; align-items: stretch; gap: 1px; max-width: 100%; }
 .bible-ref-part {
   display: flex; flex-direction: column; align-items: center; gap: 1px;
   border: 1px solid var(--line); background: var(--surface-2); color: var(--text);
-  padding: .3rem .6rem; cursor: pointer; appearance: none; -webkit-appearance: none;
-  min-width: 0;
+  padding: .3rem .55rem; cursor: pointer; appearance: none; -webkit-appearance: none;
+  min-width: 0; flex-shrink: 0;
 }
-.bible-ref-part:first-child { border-radius: var(--radius-btn) 0 0 var(--radius-btn); max-width: 46vw; }
+/* O nome do livro é o único de largura imprevisível ("1 Tessalonicenses"): é
+   ele que encolhe quando a linha aperta, com reticências. */
+.bible-ref-part--book { flex-shrink: 1; min-width: 3.5rem; }
+.bible-ref-part:first-child { border-radius: var(--radius-btn) 0 0 var(--radius-btn); }
 .bible-ref-part:last-child { border-radius: 0 var(--radius-btn) var(--radius-btn) 0; }
 .bible-ref-part:active { transform: var(--press); }
 .bible-ref-label { font-size: .56rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }

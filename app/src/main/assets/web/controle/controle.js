@@ -59,7 +59,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.01';
+const WEB_VERSION = '5.02';
 
 function renderVersionLabel() {
   // __SHELL_NAME__ = versionName do APK (ver native.js). Vazio no navegador e
@@ -1775,6 +1775,24 @@ function bibleVersionName(id) {
   return v ? v.name : '';
 }
 
+// Sigla da versão, para caber no seletor ao lado de livro/capítulo/versículo.
+// Nomes como "Almeida Revista e Atualizada" ocupam a linha inteira; a sigla
+// que todo mundo já usa (ARA) diz a mesma coisa em três letras. As regras, em
+// ordem: um acrônimo entre parênteses no próprio nome é a melhor resposta
+// possível; um nome de uma palavra já é a sigla; senão, as iniciais das
+// palavras significativas (ignorando "e", "de", "na"…).
+const BIBLE_ABBR_STOP = new Set(['e', 'de', 'da', 'do', 'das', 'dos', 'na', 'no', 'em', 'a', 'o', 'as', 'os', 'para', 'com']);
+function bibleVersionAbbr(id) {
+  const name = bibleVersionName(id);
+  if (!name) return 'Versão';
+  const paren = name.match(/\(([A-Za-zÀ-ÿ0-9]{2,6})\)/);
+  if (paren) return paren[1].toUpperCase();
+  const words = name.split(/[\s\-–]+/).filter(Boolean).filter((w) => !BIBLE_ABBR_STOP.has(w.toLowerCase()));
+  if (!words.length) return name.slice(0, 5).toUpperCase();
+  if (words.length === 1) return words[0].slice(0, 5).toUpperCase();
+  return words.map((w) => w[0]).join('').toUpperCase().slice(0, 5);
+}
+
 // Troca a versão da Bíblia (do seletor na tela de leitura). Recarrega o
 // capítulo atual na nova versão, mantendo o versículo; reexibe se estava
 // exibindo.
@@ -1986,42 +2004,36 @@ function renderBibleReading(wrap) {
   read.appendChild(mkSection(1, 'adj'));
   read.appendChild(mkSection(2, 'adj'));
 
-  // Rodapé: seletor de versão + referência atual (lado a lado). O status
-  // offline/progresso NÃO fica mais aqui — só dentro do popup de versões.
+  // Rodapé: um controle segmentado só, com as QUATRO coordenadas do que está
+  // sendo lido — versão · livro · capítulo · versículo —, cada uma levando ao
+  // seu próprio seletor. A versão entra pela SIGLA (ver bibleVersionAbbr):
+  // "Almeida Revista e Atualizada" ocupava a linha inteira e empurrava a
+  // referência para baixo. Antes a referência era um botão só, que sempre
+  // voltava à grade de livros: trocar só o capítulo custava passar pela
+  // seleção de livro de novo. Capítulo e versículo levam à mesma tela porque
+  // as duas grades convivem nela (ver "Seleção em tabela periódica").
   const foot = document.createElement('div'); foot.className = 'bible-read-foot';
-  if (bibleVersions.length) {
-    const verBtn = document.createElement('button'); verBtn.type = 'button'; verBtn.className = 'bible-ver-btn';
-    const label = document.createElement('span'); label.className = 'bible-ver-label';
-    label.textContent = bibleVersionName(bibleVersionId) || 'Versão';
-    const caret = document.createElement('span'); caret.className = 'bible-ver-caret';
-    caret.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>';
-    verBtn.append(label, caret);
-    verBtn.addEventListener('click', openBibleVerPopup);
-    foot.appendChild(verBtn);
-  }
-  // A referência virou TRÊS botões — livro, capítulo e versículo —, cada um
-  // levando ao seletor da sua parte. Antes era um botão só, que sempre voltava
-  // à grade de livros: trocar só o capítulo custava passar pela seleção de
-  // livro de novo. Capítulo e versículo levam à mesma tela porque as duas
-  // grades convivem nela (ver "Seleção em tabela periódica").
   const v = s.verses[s.idx];
   const nav = document.createElement('div'); nav.className = 'bible-ref-nav';
-  const part = (label, value, screen) => {
-    const b = document.createElement('button'); b.type = 'button'; b.className = 'bible-ref-part';
+  const part = (label, value, onClick, cls) => {
+    const b = document.createElement('button'); b.type = 'button';
+    b.className = 'bible-ref-part' + (cls ? ' ' + cls : '');
     const l = document.createElement('span'); l.className = 'bible-ref-label'; l.textContent = label;
     const t = document.createElement('span'); t.className = 'bible-ref-value'; t.textContent = value;
     b.append(l, t);
-    b.addEventListener('click', () => {
-      // A seleção acompanha a leitura antes de abrir a grade, senão ela
-      // abriria no que o operador escolheu por último, não no que está no ar.
-      bibleSel = { bookIdx: s.bookIdx, chapter: s.chapter };
-      gotoBibleScreen(screen);
-    });
+    b.addEventListener('click', onClick);
     nav.appendChild(b);
   };
-  part('Livro', s.bookName, 'books');
-  part('Capítulo', String(s.chapter), 'chapters');
-  part('Versículo', String(v.n), 'chapters');
+  // A seleção acompanha a leitura antes de abrir a grade, senão ela abriria no
+  // que o operador escolheu por último, não no que está no ar.
+  const goto = (screen) => () => {
+    bibleSel = { bookIdx: s.bookIdx, chapter: s.chapter };
+    gotoBibleScreen(screen);
+  };
+  if (bibleVersions.length) part('Versão', bibleVersionAbbr(bibleVersionId), openBibleVerPopup);
+  part('Livro', s.bookName, goto('books'), 'bible-ref-part--book');
+  part('Capítulo', String(s.chapter), goto('chapters'));
+  part('Versículo', String(v.n), goto('chapters'));
   foot.appendChild(nav);
   read.appendChild(foot);
   wrap.appendChild(read);

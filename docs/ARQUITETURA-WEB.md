@@ -79,10 +79,10 @@ git push origin main
   `renderVersionLabel()`), o fallback estático do `<span id="appVersion">` em
   `controle/index.html` e `version` em `version.json` (é este último que
   dispara a atualização por OTA nos aparelhos). Versionamento incremental
-  simples (4.99, 5.00, 5.01…). **Versão atual: v5.01.**
-  No app nativo o rótulo mostra os **dois índices** — `Web v5.01 · Shell v1.11`
+  simples (5.00, 5.01, 5.02…). **Versão atual: v5.02.**
+  No app nativo o rótulo mostra os **dois índices** — `Web v5.02 · Shell v1.11`
   —, porque base web e shell atualizam por caminhos independentes (OTA ×
-  instalar APK); no navegador sai só `Controle v5.01`.
+  instalar APK); no navegador sai só `Controle v5.02`.
 
 ---
 
@@ -1790,15 +1790,27 @@ projecting }`) e abre a tela `'reading'` — **mas NÃO projeta nada ainda**
 mostra **quatro seções empilhadas** — versículo **anterior · atual · próximo ·
 seguinte** (`.bible-vsec`): um atrás e **dois à frente**, porque sobrava espaço
 e ler adiante é o que o operador faz (ele precisa saber o que vem para
-acompanhar a leitura, não o que já passou). Embaixo, um **rodapé**
-(`.bible-read-foot`) com o **seletor de versão** ao lado da referência atual em
-**três botões** (`.bible-ref-nav`: Livro · Capítulo · Versículo), cada um
-levando ao seletor da sua parte — antes era um botão só, que sempre voltava à
-grade de livros, então trocar só o capítulo custava passar pela seleção de
-livro de novo. Capítulo e Versículo levam à mesma tela porque as duas grades
-convivem nela. Cada botão sincroniza `bibleSel` com a leitura antes de navegar,
-senão a grade abriria no que o operador escolheu por último, e não no que está
-no ar. O status offline **não** fica aqui
+acompanhar a leitura, não o que já passou). Embaixo, um **rodapé** (`.bible-read-foot`) com um **controle segmentado
+único** (`.bible-ref-nav`) trazendo as quatro coordenadas do que está sendo
+lido — **Versão · Livro · Capítulo · Versículo** —, cada uma levando ao seu
+próprio seletor. Emendados, continuam lendo como uma referência
+("ARA · João · 3 · 16") em vez de quatro ações soltas.
+
+A **versão entra pela sigla** (`bibleVersionAbbr`): "Almeida Revista e
+Atualizada" ocupava a linha inteira e empurrava a referência para baixo, e a
+sigla que todo mundo já usa diz a mesma coisa em três letras. As regras, em
+ordem: um acrônimo entre parênteses no próprio nome é a melhor resposta
+possível; um nome de uma palavra já é a sigla; senão, as iniciais das palavras
+significativas (ignorando "e", "de", "na"…) — o que dá ARA, ARC, NVI, NAA,
+NTLH, ACF. Sem `flex-wrap`: quem cede espaço quando a linha aperta é o **nome
+do livro** (`.bible-ref-part--book`, o único de largura imprevisível), com
+reticências.
+
+Antes a referência era um botão só, que sempre voltava à grade de livros —
+trocar só o capítulo custava passar pela seleção de livro de novo. Capítulo e
+Versículo levam à mesma tela porque as duas grades convivem nela. Cada botão
+sincroniza `bibleSel` com a leitura antes de navegar, senão a grade abriria no
+que o operador escolheu por último, e não no que está no ar. O status offline **não** fica aqui
 (só no popup de versões — ver acima). Nos **limites de capítulo/livro**,
 as seções anterior/próximo mostram o versículo do **capítulo vizinho** (cruzando
 pro livro seguinte/anterior), com um **badge indicador** (`.bible-vsec-cross`,
