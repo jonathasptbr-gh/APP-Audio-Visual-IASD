@@ -79,10 +79,10 @@ git push origin main
   `renderVersionLabel()`), o fallback estático do `<span id="appVersion">` em
   `controle/index.html` e `version` em `version.json` (é este último que
   dispara a atualização por OTA nos aparelhos). Versionamento incremental
-  simples (4.90, 4.91, 4.92…). **Versão atual: v4.92.**
-  No app nativo o rótulo mostra os **dois índices** — `Web v4.92 · Shell v1.9`
+  simples (4.91, 4.92, 4.93…). **Versão atual: v4.93.**
+  No app nativo o rótulo mostra os **dois índices** — `Web v4.93 · Shell v1.9`
   —, porque base web e shell atualizam por caminhos independentes (OTA ×
-  instalar APK); no navegador sai só `Controle v4.92`.
+  instalar APK); no navegador sai só `Controle v4.93`.
 
 ---
 
@@ -1163,7 +1163,11 @@ TOPO** (CSS: `#hymnSearchPopup` com `align-items:flex-start`, `.popup-sheet` com
 `translateY(-100%)` e cantos arredondados embaixo) — além de ser o pedido de UX,
 casa com o teclado, que sobe da base sem cobrir os resultados. O campo de busca
 usa `.lib-search`, hoje com `appearance:none` + supressão das pseudo-partes
-`::-webkit-search-*` (mata o visual nativo do `type="search"`). Resultados vêm
+`::-webkit-search-*` (mata o visual nativo do `type="search"`). **Escopado a uma coleção, a lista sai INTEIRA** (sem teto): ali o operador
+está folheando um álbum, não filtrando o acervo, e cortar em 60 escondia o fim
+de qualquer hinário. A busca **global** mantém o teto de 60 — ela varre
+milhares de músicas de todos os álbuns, e renderizar tudo a cada tecla
+travaria o campo. Resultados vêm
 dos índices já em memória (`collState`, filtro em memória, `normalizeForSearch`
 ignora acentuação; o subtítulo do resultado mostra a coleção de origem) —
 funciona sem rede assim que os índices já tiverem sido buscados pelo menos uma
@@ -1518,6 +1522,15 @@ Texto é **desacoplada do ciclo de vida da mídia do stage** — `showText`/
   `showLyrics`/`showPvLyrics` retornam cedo se um texto manual estiver em cena
   (a letra pertence a UMA música tocando; um versículo/mensagem manual tem
   precedência sobre a letra do áudio de fundo).
+- **Sair do texto sem nada em cena volta ao WALLPAPER, não ao preto**
+  (`restoreSceneAfterText`/`restorePvSceneAfterText`). `showText` abre a
+  cortina para o cartão aparecer; se não há mídia carregada — ou a que havia já
+  terminou (item só na playlist, ou tocado antes) — ninguém a fechava de volta,
+  e o telão ficava preto. Agora, quando não há YouTube tocando e
+  `!getCurrent() || hasEnded()`, a cortina sobe (`coverIn(false)`). No Controle
+  a fonte disso é o **stage** (`preview.getCurrent()`), não `currentItem`: este
+  último é o item SELECIONADO e continua apontando para a música terminada — era
+  exatamente ele que fazia a preview achar que ainda havia algo em cena.
 
 ### Entradas e saídas de camada sempre com fade (`fadeLayerIn`/`fadeLayerOut`)
 
@@ -1639,33 +1652,51 @@ pra grade). Persistido em `state.bibleVersion`; trocar (`changeBibleVersion`)
 recarrega o capítulo atual na nova versão (mantendo o versículo) e dispara o
 download da nova versão inteira.
 
-### Seleção em "tabela periódica" (quatro telas)
+### Seleção em "tabela periódica" (três telas)
 
-`renderBible()` despacha por `bibleScreen`
-(`'books'`|`'chapters'`|`'verses'`|`'reading'`), renderizando dentro de `#library`
-uma **grade de células no estilo de uma tabela periódica** (`.bible-grid` +
-`.bible-cell`): cada célula é um "símbolo" (a abreviação do livro, ou o número do
-capítulo/versículo). Os **blocos de livro são preenchidos por inteiro com a cor
-do grupo/divisão canônica** (campo `g` em `bible.js` → classe `.bg-<g>`: `lei`,
-`historicos`, `poeticos`, `pmaiores`, `pmenores`, `evangelhos`, `atos`,
-`paulinas`, `gerais`, `apocalipse` — os mesmos agrupamentos da tabela de
-referência, cores próprias) — **sem** número de índice e **só a abreviação**
-(sem o nome completo, fonte maior). A grade de livros (`.bible-grid--books`, no
-wrap `.bible-wrap--fit`) **preenche a altura disponível** (11 linhas em `1fr`,
-células retangulares compactas) pra caber **sem scroll**; as demais telas rolam
-se precisarem. Capítulos e versículos (`.bible-cell--num`) ganham **tons
-distintos** pra separar bem os dois níveis: capítulos em tom frio/azulado
-(`.bible-grid--chapters`), versículos em tom quente/dourado
-(`.bible-grid--verses`). Fluxo: **livros → capítulos → versículos → leitura**; o
-botão voltar (`#backBtn`) recua uma tela (`navigateBack` é `bible`-aware,
-`gotoBibleScreen`), e cada troca de tela faz um **leve slide direcional**
+`renderBible()` despacha por `bibleScreen` (`'books'`|`'chapters'`|`'reading'`),
+renderizando dentro de `#library` uma **grade de células no estilo de uma
+tabela periódica** (`.bible-grid` + `.bible-cell`): cada célula é um "símbolo"
+(a abreviação do livro, ou o número do capítulo/versículo). Os **blocos de
+livro são preenchidos por inteiro com a cor do grupo/divisão canônica** (campo
+`g` em `bible.js` → classe `.bg-<g>`: `lei`, `historicos`, `poeticos`,
+`pmaiores`, `pmenores`, `evangelhos`, `atos`, `paulinas`, `gerais`,
+`apocalipse`) — **sem** número de índice e **só a abreviação** (sem o nome
+completo, fonte maior). A grade de livros (`.bible-grid--books`) **preenche a
+altura disponível** (11 linhas em `1fr`) pra caber **sem scroll**.
+
+**Capítulo e versículo convivem numa tela só** (`'chapters'`), dividida ao meio
+na vertical (`.bible-split`, `grid-template-rows: minmax(0,1fr) minmax(0,1fr)`
+— o mínimo em 0 impede que os 150 capítulos de Salmos estiquem a faixa e comam
+a outra metade): em cima a grade de **capítulos**, embaixo a de **versículos**
+do capítulo escolhido (`bibleVersesPane()`, que também rende os estados "Escolha
+um capítulo acima." / "Baixando versículos…" / erro / capítulo vazio). Cada
+metade rola por conta própria. O **nome do livro fica em destaque no topo**
+(`.bible-book-head`) — sem ele, uma tela só de números não diz em que livro o
+operador está.
+
+As duas grades marcam a seleção atual (`.bible-cell.active`: fundo accent +
+anel branco), e é isso que faz **voltar da leitura mostrar de imediato o
+capítulo E o versículo que estão no ar**, sem o operador ter que se localizar.
+`scrollActiveIntoView()` ainda rola cada grade até a célula marcada, já que
+elas podem ser longas.
+
+Capítulos e versículos mantêm **tons distintos** (`.bible-grid--chapters` em
+tom frio/azulado, `.bible-grid--verses` em tom quente/dourado) pra separar bem
+os dois níveis. Fluxo: **livros → capítulo+versículo → leitura**; o botão
+voltar (`#backBtn`) recua uma tela (`navigateBack` é `bible`-aware,
+`gotoBibleScreen`), e cada troca faz um **leve slide direcional**
 (`animateTabSwitch` reaproveitado; `BIBLE_SCREENS` dá a direção).
 
-Tocar num **capítulo** dispara `loadBibleChapter()`, que lê o cache ou **baixa o
-capítulo na hora** (`Bible.fetchChapter`, gravado em `state`) — com estados de
-"Baixando versículos…" / erro ("Sem internet…") na própria tela
-(`.bible-note`). Guarda de sequência (`bibleLoadSeq`) descarta downloads
-obsoletos numa troca rápida.
+> Antes eram **quatro** telas — capítulo e versículo eram passos separados. Um
+> versículo tem duas coordenadas dentro do mesmo livro; separá-las em telas
+> obrigava a voltar uma tela só para trocar de capítulo, e ao voltar da leitura
+> só se via a grade de versículos, sem pista de qual capítulo era.
+
+Tocar num **capítulo** dispara `loadBibleChapter()`, que lê o cache ou **baixa
+o capítulo na hora** (`Bible.fetchChapter`, gravado em `state`) — sem trocar de
+tela: a metade de baixo mostra o estado enquanto isso. Guarda de sequência
+(`bibleLoadSeq`) descarta downloads obsoletos numa troca rápida.
 
 ### Tela de leitura + projeção e navegação por slide
 
@@ -1779,15 +1810,21 @@ começo — a música avançou enquanto o versículo estava no ar. O parâmetro
 visual, `stop`, `clear`): restaurar ali faria a cena antiga piscar antes de ser
 substituída. Como `showLyrics` retorna cedo enquanto `textActive`, trocar o
 áudio de fundo com o texto no ar também funciona: ao sair, entra a letra do
-áudio **atual**. O cartão (`.text-box`) usa o mesmo
-redimensionamento por Container Queries da letra (`container-type:size` + `cq*`),
-mas em prosa (caixa-baixa), com a moldura sempre visível (o texto é sempre
-projetado sobre o preto). É de **tamanho FIXO** (`width`/`height` fixos, não
-`max-*`) e o menor razoável, pra ocupar pouco da tela/imagem de fundo; no modo
-`verse` a **referência (`#textSub`) fica ABAIXO do texto** (ordem no DOM,
-`hidden` quando vazia — mensagens não têm referência) e conteúdos muito longos
-são cortados com reticências (`-webkit-line-clamp` + `overflow:hidden`); o modo
-`message` (`.text-content.mode-message`) usa fonte maior e mais linhas.
+áudio **atual**. O texto (`.text-box`) usa o mesmo redimensionamento por Container Queries da
+letra (`container-type:size` + `cq*`), mas em prosa (caixa-baixa) e **SEM
+moldura, ocupando a tela inteira**. A moldura da letra sincronizada existe para
+dar contraste contra a imagem de fundo da estrofe; aqui o texto é sempre
+projetado sobre o preto, então a borda seria só uma caixa desenhada à toa — e,
+pior, uma caixa FIXA e menor que a tela, que apertava textos bíblicos (bem mais
+longos que uma estrofe) num espaço pequeno enquanto sobrava tela vazia em
+volta. Agora o texto ocupa o que tiver, com margens generosas
+(`padding: 7cqh 7cqw` no container) e **fonte bem maior** (`6.4cqmin`, contra
+`4.8cqmin` da caixa antiga; `7.4cqmin` no modo mensagem). No modo `verse` a
+**referência (`#textSub`) fica ABAIXO do texto** (ordem no DOM, `hidden` quando
+vazia — mensagens não têm referência) e conteúdos muito longos continuam sendo
+cortados com reticências (`-webkit-line-clamp: 8` + `overflow:hidden`), que é a
+garantia final contra vazamento. A preview espelha tudo isso em
+`.pv-text-*`.
 
 ---
 

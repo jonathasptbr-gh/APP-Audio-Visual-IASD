@@ -59,7 +59,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '4.92';
+const WEB_VERSION = '4.93';
 
 function renderVersionLabel() {
   // __SHELL_NAME__ = versionName do APK (ver native.js). Vazio no navegador e
@@ -232,7 +232,7 @@ function collSongs(id) { return (collState[id] && collState[id].songs) || []; }
 // "tabela periódica" em três telas (livros → capítulos → versículos); a
 // estrutura dos livros é offline (Bible.BOOKS), só o TEXTO de cada capítulo
 // (e a lista de versões/livros com ids reais) vem da rede.
-let bibleScreen = 'books';       // 'books' | 'chapters' | 'verses'
+let bibleScreen = 'books';       // 'books' | 'chapters' (capítulo + versículo) | 'reading'
 let bibleVersions = [];          // [{ id, name }] baixadas (state 'bibleVersions')
 let bibleBooksOnline = null;     // [{ id, name }] do banco (state 'bibleBooks') — casa o id_bible_book real
 let bibleVersionId = null;       // versão selecionada (state 'bibleVersion')
@@ -947,8 +947,19 @@ function hidePvText(restore = true) {
 // no slide correspondente ao instante atual — por authoritativeTime(), que é
 // a posição do Display quando ele é a fonte de verdade.
 function restorePvSceneAfterText() {
-  const cur = currentItem;
-  if (!cur || cur.kind !== 'audio' || !Array.isArray(cur.lyrics) || !cur.lyrics.length) return;
+  // YouTube segue tocando por baixo do cartão e reaparece sozinho.
+  if (ytPreview) return;
+  const cur = preview.getCurrent();
+  // NADA de fato em cena — nenhuma mídia carregada, ou a que havia já terminou
+  // (só na playlist, ou tocada antes). O ponto de repouso é o WALLPAPER, não o
+  // preto: showPvText abriu a cortina para o cartão aparecer, e sem isto ela
+  // ficava aberta sobre o vazio quando o texto saía. Note que a fonte aqui é o
+  // STAGE (`preview.getCurrent()`), não `currentItem`: este último é o item
+  // SELECIONADO, que continua apontando para uma música só da playlist ou já
+  // terminada — era justamente ele que fazia a preview achar que havia algo em
+  // cena quando não havia.
+  if (!cur || preview.hasEnded()) { preview.coverIn(false); return; }
+  if (cur.kind !== 'audio' || !Array.isArray(cur.lyrics) || !cur.lyrics.length) return;
   showPvLyrics(cur);
   updatePvLyricSlide(authoritativeTime());
 }
@@ -1464,7 +1475,10 @@ function refreshBibleDl() {
 }
 
 // Ordem das telas da Bíblia (pra direção do slide de transição).
-const BIBLE_SCREENS = ['books', 'chapters', 'verses', 'reading'];
+// Capítulo e versículo convivem numa tela só (`chapters`, dividida ao meio na
+// vertical): escolher o capítulo e o versículo é um gesto só, e voltar da
+// leitura mostra os dois de uma vez, marcados na grade.
+const BIBLE_SCREENS = ['books', 'chapters', 'reading'];
 
 // Navega entre as telas da Bíblia sem recarregar o IDB inteiro (só re-render):
 // guarda o scroll, volta ao topo e faz um leve slide direcional (fundo → frente
@@ -1482,9 +1496,12 @@ function renderBible() {
   const wrap = document.createElement('div');
   // A tela de livros preenche a altura disponível (grade compacta, sem scroll);
   // as demais rolam normalmente se precisarem (ex.: Salmos, 150 capítulos).
-  wrap.className = 'bible-wrap' + (bibleScreen === 'books' ? ' bible-wrap--fit' : '');
+  // Livros e a tela de capítulo+versículo preenchem a altura disponível (a
+  // segunda é dividida ao meio, então precisa de altura definida); a leitura
+  // rola normalmente.
+  wrap.className = 'bible-wrap'
+    + (bibleScreen === 'books' || bibleScreen === 'chapters' ? ' bible-wrap--fit' : '');
   if (bibleScreen === 'chapters') renderBibleChapters(wrap);
-  else if (bibleScreen === 'verses') renderBibleVerses(wrap);
   else if (bibleScreen === 'reading') renderBibleReading(wrap);
   else renderBibleBooks(wrap);
   libraryEl.appendChild(wrap);
@@ -1517,42 +1534,91 @@ function renderBibleBooks(wrap) {
   wrap.appendChild(grid);
 }
 
+// Capítulo e versículo na MESMA tela, dividida ao meio na vertical: em cima a
+// grade de capítulos, embaixo a de versículos do capítulo escolhido. O nome do
+// livro fica em destaque no topo — sem ele, uma tela só de números não diz em
+// que livro o operador está.
+//
+// As duas grades marcam a seleção atual (`.active`), então **voltar da leitura
+// mostra de imediato o capítulo E o versículo que estão no ar**, sem o
+// operador ter que se localizar.
 function renderBibleChapters(wrap) {
   const book = Bible.BOOKS[bibleSel.bookIdx];
   if (!book) { gotoBibleScreen('books'); return; }
-  const grid = document.createElement('div'); grid.className = 'bible-grid bible-grid--num bible-grid--chapters';
-  for (let c = 1; c <= book.chapters; c++) {
-    const cell = bibleCell(String(c), { cls: 'bible-cell--num' });
-    cell.addEventListener('click', () => { bibleSel.chapter = c; gotoBibleScreen('verses'); loadBibleChapter(); });
-    grid.appendChild(cell);
+
+  const head = document.createElement('div'); head.className = 'bible-book-head';
+  const nm = document.createElement('span'); nm.className = 'bible-book-name'; nm.textContent = book.name;
+  head.appendChild(nm);
+  if (bibleSel.chapter) {
+    const ref = document.createElement('span'); ref.className = 'bible-book-ref';
+    ref.textContent = 'Capítulo ' + bibleSel.chapter;
+    head.appendChild(ref);
   }
-  wrap.appendChild(grid);
+  wrap.appendChild(head);
+
+  const split = document.createElement('div'); split.className = 'bible-split';
+
+  // ---- metade de cima: capítulos ----
+  const top = document.createElement('div'); top.className = 'bible-half';
+  const cGrid = document.createElement('div'); cGrid.className = 'bible-grid bible-grid--num bible-grid--chapters';
+  for (let c = 1; c <= book.chapters; c++) {
+    const cell = bibleCell(String(c), { cls: 'bible-cell--num', active: bibleSel.chapter === c });
+    cell.addEventListener('click', () => {
+      if (bibleSel.chapter === c) return;
+      bibleSel.chapter = c;
+      renderLibrary();          // marca o capítulo já; a metade de baixo mostra "Baixando…"
+      loadBibleChapter();
+    });
+    cGrid.appendChild(cell);
+  }
+  top.appendChild(cGrid);
+
+  // ---- metade de baixo: versículos ----
+  const bottom = document.createElement('div'); bottom.className = 'bible-half';
+  bottom.appendChild(bibleVersesPane());
+
+  split.append(top, bottom);
+  wrap.appendChild(split);
+  // A grade rolável precisa mostrar o que está selecionado sem o operador
+  // procurar — vale para o capítulo (Salmos tem 150) e para o versículo.
+  requestAnimationFrame(() => {
+    scrollActiveIntoView(cGrid);
+    scrollActiveIntoView(bottom.querySelector('.bible-grid--verses'));
+  });
 }
 
-function renderBibleVerses(wrap) {
-  const book = Bible.BOOKS[bibleSel.bookIdx];
-  if (!book || !bibleSel.chapter) { gotoBibleScreen('books'); return; }
-  if (bibleChapterLoading) {
-    const n = document.createElement('div'); n.className = 'bible-note'; n.textContent = 'Baixando versículos…';
-    wrap.appendChild(n); return;
-  }
-  if (bibleChapterError) {
-    const n = document.createElement('div'); n.className = 'bible-note err'; n.textContent = bibleChapterError;
-    wrap.appendChild(n); return;
-  }
+function scrollActiveIntoView(grid) {
+  const active = grid && grid.querySelector('.bible-cell.active');
+  if (active && active.scrollIntoView) active.scrollIntoView({ block: 'center' });
+}
+
+// A metade de baixo: grade de versículos do capítulo selecionado, ou o estado
+// em que ela está (nada escolhido / baixando / erro / capítulo vazio).
+function bibleVersesPane() {
+  const note = (text, err) => {
+    const n = document.createElement('div');
+    n.className = 'bible-note' + (err ? ' err' : '');
+    n.textContent = text;
+    return n;
+  };
+  if (!bibleSel.chapter) return note('Escolha um capítulo acima.');
+  if (bibleChapterLoading) return note('Baixando versículos…');
+  if (bibleChapterError) return note(bibleChapterError, true);
   const verses = bibleChapterData && bibleChapterData.verses ? bibleChapterData.verses : [];
-  if (!verses.length) {
-    const n = document.createElement('div'); n.className = 'bible-note'; n.textContent = 'Nenhum versículo neste capítulo.';
-    wrap.appendChild(n); return;
-  }
-  const onThisChapter = bibleSession && bibleSession.bookIdx === bibleSel.bookIdx && bibleSession.chapter === bibleSel.chapter;
+  if (!verses.length) return note('Nenhum versículo neste capítulo.');
+
+  const onThisChapter = bibleSession
+    && bibleSession.bookIdx === bibleSel.bookIdx && bibleSession.chapter === bibleSel.chapter;
   const grid = document.createElement('div'); grid.className = 'bible-grid bible-grid--num bible-grid--verses';
   verses.forEach((v, i) => {
-    const cell = bibleCell(String(v.n), { cls: 'bible-cell--num', active: onThisChapter && bibleSession.idx === i });
+    const cell = bibleCell(String(v.n), {
+      cls: 'bible-cell--num',
+      active: onThisChapter && bibleSession.idx === i,
+    });
     cell.addEventListener('click', () => startBibleReading(i));
     grid.appendChild(cell);
   });
-  wrap.appendChild(grid);
+  return grid;
 }
 
 // Baixa (ou lê do cache) o texto do capítulo selecionado. Cacheado em
@@ -1592,7 +1658,7 @@ async function loadBibleChapter() {
   if (seq !== bibleLoadSeq) return;
   bibleChapterData = cached;
   bibleChapterLoading = false;
-  if (activeTab === 'bible' && bibleScreen === 'verses') renderLibrary();
+  if (activeTab === 'bible' && bibleScreen === 'chapters') renderLibrary();
 }
 
 // Inicia a leitura a partir do versículo `i` (índice na lista do capítulo):
@@ -1682,7 +1748,7 @@ function projectBibleVerse(idx) {
 // Re-render só da tela de leitura (destaque do versículo central), preservando
 // o scroll — usado tanto ao projetar quanto ao só mover o central.
 function bibleRenderReading() {
-  if (activeTab === 'bible' && (bibleScreen === 'reading' || bibleScreen === 'verses')) {
+  if (activeTab === 'bible' && (bibleScreen === 'reading' || bibleScreen === 'chapters')) {
     const sp = libraryEl.scrollTop;
     renderLibrary();
     libraryEl.scrollTop = sp;
@@ -1920,8 +1986,8 @@ function clearBibleSession() {
   if (!bibleSession) return;
   bibleSession = null;
   bibleAdjCache = {};
-  // A tela de leitura depende da sessão: sem ela, volta pra seleção de versículos.
-  if (bibleScreen === 'reading') bibleScreen = 'verses';
+  // A tela de leitura depende da sessão: sem ela, volta pra seleção.
+  if (bibleScreen === 'reading') bibleScreen = 'chapters';
   renderSlideNav();
   renderNowPlaying();
   if (activeTab === 'bible') { renderLibrary(); renderListTitle(); }
@@ -2903,8 +2969,7 @@ function openFolder(folder) {
 
 function navigateBack() {
   if (activeTab === 'bible') {
-    if (bibleScreen === 'reading') gotoBibleScreen('verses');
-    else if (bibleScreen === 'verses') gotoBibleScreen('chapters');
+    if (bibleScreen === 'reading') gotoBibleScreen('chapters');
     else if (bibleScreen === 'chapters') gotoBibleScreen('books');
     return;
   }
@@ -3662,7 +3727,12 @@ function renderSearchResults(query) {
     hymnResultsEl.innerHTML = '<li class="empty">Nenhuma música encontrada.</li>';
     return;
   }
-  const LIMIT = 60;
+  // Escopado a UMA coleção (botão "Ver músicas" / toque no card): a lista sai
+  // INTEIRA, quantos itens tenha. Ali o operador está folheando um álbum, não
+  // filtrando o acervo — cortar em 60 escondia o fim de qualquer hinário.
+  // A busca GLOBAL mantém o teto: ela varre milhares de músicas de todos os
+  // álbuns, e renderizar tudo a cada tecla travaria o campo.
+  const LIMIT = searchScope ? Infinity : 60;
   matches.slice(0, LIMIT).forEach((m) => hymnResultsEl.appendChild(hymnResultRow(m.coll, m.song)));
   if (matches.length > LIMIT) {
     const li = document.createElement('li'); li.className = 'empty';

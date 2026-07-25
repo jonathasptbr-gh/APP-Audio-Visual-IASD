@@ -338,8 +338,15 @@ function hideText(restore = true) {
 // reaparecem sozinhos assim que o cartão opaco sai da frente. Só a letra
 // sincronizada precisa ser remontada — e no slide certo, não do começo.
 function restoreSceneAfterText() {
+  // YouTube segue tocando por baixo do cartão e reaparece sozinho.
+  if (yt) return;
   const cur = stage.getCurrent();
-  if (!cur || cur.kind !== 'audio' || !Array.isArray(cur.lyrics) || !cur.lyrics.length) return;
+  // NADA de fato em cena — nenhuma mídia carregada, ou a que havia já terminou
+  // (só na playlist, ou tocada antes). O ponto de repouso do telão é o
+  // WALLPAPER, não o preto: `showText` abriu a cortina para o cartão aparecer,
+  // e sem isto ela ficava aberta sobre o vazio quando o texto saía.
+  if (!cur || stage.hasEnded()) { stage.coverIn(false); return; }
+  if (cur.kind !== 'audio' || !Array.isArray(cur.lyrics) || !cur.lyrics.length) return;
   showLyrics(cur);
   updateLyricSlide(stage.getTime());
 }

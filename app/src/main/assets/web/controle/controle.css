@@ -736,9 +736,31 @@ main {
    número atômico). Renderizadas dentro de #library (ver renderBible em
    controle.js). */
 .bible-wrap { display: flex; flex-direction: column; gap: .6rem; padding-bottom: .6rem; }
-/* Tela de livros: preenche a altura disponível pra caber sem scroll (ver
-   .bible-grid--books). As demais telas mantêm altura automática (rolam). */
+/* Telas de livros e de capítulo+versículo: preenchem a altura disponível — a
+   primeira pra caber sem scroll (ver .bible-grid--books), a segunda porque é
+   dividida ao meio e precisa de altura definida. A leitura rola normalmente. */
 .bible-wrap--fit { flex: 1; min-height: 0; padding-bottom: 0; }
+
+/* Nome do livro em destaque no topo da tela de capítulo+versículo: sem ele,
+   uma tela só de números não diz em que livro o operador está. */
+.bible-book-head {
+  flex-shrink: 0; display: flex; align-items: baseline; gap: .5rem;
+  padding: .1rem .1rem .3rem;
+}
+.bible-book-name { font-size: 1.15rem; font-weight: 800; color: var(--text); }
+.bible-book-ref { font-size: .8rem; color: var(--muted); font-weight: 600; }
+
+/* Capítulo e versículo dividem a área ao meio, na vertical: em cima a grade de
+   capítulos, embaixo a de versículos. Cada metade rola por conta própria
+   (`minmax(0,1fr)` — sem o mínimo em 0 uma grade grande, como os 150 capítulos
+   de Salmos, esticaria a faixa e comeria a outra metade). */
+.bible-split {
+  flex: 1; min-height: 0;
+  display: grid; grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); gap: .5rem;
+}
+.bible-half { min-height: 0; overflow-y: auto; }
+/* Separador entre as duas metades — deixa claro que são dois níveis. */
+.bible-half + .bible-half { border-top: 1px solid var(--line); padding-top: .5rem; }
 
 /* Seletor de versão: um botão com a versão atual que abre o popup de versões
    (a lista não fica mais toda exposta em chips). */
@@ -791,9 +813,16 @@ main {
 .bible-cell--num { background: var(--panel-2); color: var(--text); }
 .bible-grid--chapters .bible-cell--num { background: #2f3d54; color: #dbe6f5; }
 .bible-grid--verses .bible-cell--num { background: #4a3f24; color: #f3e6c8; }
-/* célula em foco/seleção atual (versículo projetado agora) */
+/* Célula selecionada agora — o capítulo aberto e o versículo em leitura. É o
+   que faz voltar da leitura já mostrar onde se está, sem procurar. O anel
+   externo destaca mesmo quando a grade rola e a célula fica meio cortada. */
 .bible-cell.active { outline: 2px solid #fff; outline-offset: -2px; }
-.bible-cell--num.active { background: var(--accent); color: #fff; outline: none; }
+.bible-cell--num.active {
+  background: var(--accent); color: #fff;
+  outline: 2px solid #fff; outline-offset: -2px;
+  box-shadow: 0 0 0 2px var(--accent-soft);
+  font-weight: 800;
+}
 .bible-cell-sym { font-size: 1.05rem; font-weight: 800; line-height: 1; }
 .bible-cell--num .bible-cell-sym { font-weight: 700; font-variant-numeric: tabular-nums; }
 .bible-cell-name { font-size: .5rem; opacity: .82; margin-top: 3px; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -874,22 +903,23 @@ main {
   container-type: size;
   position: absolute; inset: 0;
   display: flex; align-items: center; justify-content: center;
-  padding: 5cqh 5cqw; box-sizing: border-box; font-family: system-ui, sans-serif;
+  padding: 6cqh 6cqw; box-sizing: border-box; font-family: system-ui, sans-serif;
 }
-/* Tamanho FIXO (espelha o Display) — sublinha (referência) ABAIXO do texto. */
+/* SEM moldura e usando a área toda (espelha o Display): o texto é sempre
+   projetado sobre o preto, então a borda seria uma caixa desenhada à toa — e,
+   fixa e menor que a tela, apertava textos bíblicos num espaço pequeno com
+   tela vazia em volta. Sublinha (referência) ABAIXO do texto. */
 .pv-text-box {
-  width: 88cqw; height: 66cqh; box-sizing: border-box;
-  padding: 3.5cqh 4.5cqw;
-  background: var(--lyrics-frame-bg); border: 1px solid var(--lyrics-frame-border);
+  width: 100%; height: 100%; box-sizing: border-box;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 1.8cqh; text-align: center; overflow: hidden;
+  gap: 2.4cqh; text-align: center; overflow: hidden;
 }
 .pv-text-main {
-  color: #fff; font-weight: 500; font-size: 6cqmin; line-height: 1.3; white-space: pre-line;
-  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 5; overflow: hidden;
+  color: #fff; font-weight: 500; font-size: 7.4cqmin; line-height: 1.32; white-space: pre-line;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 8; overflow: hidden;
 }
-.pv-text-sub { color: var(--gold); font-weight: 700; font-size: 5.2cqmin; line-height: 1.15; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
-.pv-text-content.mode-message .pv-text-main { font-size: 6.8cqmin; -webkit-line-clamp: 7; font-weight: 600; }
+.pv-text-sub { color: var(--gold); font-weight: 700; font-size: 5.4cqmin; line-height: 1.15; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.pv-text-content.mode-message .pv-text-main { font-size: 8.4cqmin; -webkit-line-clamp: 7; font-weight: 600; }
 .pv-text-sub:empty { display: none; }
 
 /* fundo de ação do swipe */
