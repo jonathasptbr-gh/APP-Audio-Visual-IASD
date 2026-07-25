@@ -127,7 +127,7 @@ html, body {
    escala junto, sempre.
    SEM padding percentual aqui (só a margem de segurança de gestos, em px):
    `.lyrics-box` já é dimensionado como fração deste mesmo container
-   (80cqw/36cqh) e o espaço que sobra vira margem automaticamente via
+   (76cqw/32cqh) e o espaço que sobra vira margem automaticamente via
    `align-items`/`justify-content: center`. Um padding em cq* aqui além
    disso encolheria o content-box do container, e `.lyrics-box` (também em
    cq*, mas relativo a esse content-box já encolhido) ficaria menor que o

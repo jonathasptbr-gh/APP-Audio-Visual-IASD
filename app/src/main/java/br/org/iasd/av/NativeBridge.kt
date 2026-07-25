@@ -10,15 +10,12 @@ import org.json.JSONObject
 import java.util.concurrent.Executors
 
 /**
- * Serviços que só a Activity pode prestar (SAF, telas, wake lock, share).
+ * Serviços que só a Activity pode prestar (SAF, telas, volume, mic, share).
  * O Display não tem host — seu WebView só usa o barramento de mensagens.
  */
 interface BridgeHost {
     /** Abre o seletor de pasta do sistema (ACTION_OPEN_DOCUMENT_TREE). */
     fun requestFolderPick(onResult: (Uri?) -> Unit)
-
-    /** Mantém a tela ligada durante o culto. */
-    fun setKeepAwake(on: Boolean)
 
     /**
      * Declara ao sistema que há download em andamento, para o processo não
@@ -72,7 +69,7 @@ class NativeBridge(
          * exijam mais do que o shell instalado oferece (ver [WebUpdater]).
          * Subir SEMPRE que a superfície da ponte mudar.
          */
-        const val SHELL_VERSION = 8
+        const val SHELL_VERSION = 9
     }
 
     private val io = Executors.newSingleThreadExecutor()
@@ -85,10 +82,6 @@ class NativeBridge(
     /** `"controle"` ou `"display"` — o web usa para saber qual papel executa. */
     @JavascriptInterface
     fun role(): String = role
-
-    /** Versão da base web em uso (embutida no APK ou baixada por OTA). */
-    @JavascriptInterface
-    fun webVersion(): String = WebUpdater.currentVersion(ctx)
 
     /**
      * `versionName` do APK instalado — o índice de versão do SHELL mostrado na
@@ -122,11 +115,6 @@ class NativeBridge(
     }
 
     // ---------- sessão de culto ----------
-
-    @JavascriptInterface
-    fun keepAwake(on: Boolean) {
-        host?.setKeepAwake(on)
-    }
 
     /**
      * Ligado enquanto houver QUALQUER download em curso (hinos, álbuns,

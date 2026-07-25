@@ -22,6 +22,63 @@
   // Rampa curta ao mutar/desmutar (evita corte abrupto de áudio). Fonte única
   // compartilhada com display.js e controle.js (via createStage.MUTE_RAMP_TIME).
   const MUTE_RAMP_TIME = 0.25;
+  // Transições são INERENTES ao sistema: sempre ligadas, duração fixa, sem UI
+  // nem state. Fonte ÚNICA (via createStage.FADE) — antes o mesmo objeto estava
+  // escrito à mão nos dois apps e podia divergir sem ninguém notar.
+  const FADE = { in: true, out: true, time: 0.6 };
+  // Duração dos fades de CAMADA (letra, texto, YouTube): entrar/sair de uma
+  // camada paralela, em ms. Também compartilhada pelos dois apps.
+  const LAYER_FADE_MS = 320;
+
+  // ---- fades de camada paralela (letra/texto) ----
+  // Estas três são idênticas nos dois apps (o Display as usa em #lyrics/#text,
+  // o Controle em #pvLyrics/#pvText) e não têm nenhuma calibração própria —
+  // por isso vivem aqui, e não duplicadas. As camadas COM calibração própria
+  // (tamanhos em cq*) continuam separadas, no CSS de cada app.
+
+  // Fade curto de conteúdo dentro de uma camada já visível (troca de texto).
+  function fadeContentIn(el) {
+    if (!el || !el.animate || !FADE.in) return;
+    try { el.getAnimations().forEach((a) => a.cancel()); } catch (_) {}
+    el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 260, easing: 'ease' });
+  }
+
+  // Revela a camada inteira.
+  function fadeLayerIn(el) {
+    if (!el) return;
+    const wasHidden = el.hidden;
+    el.hidden = false;
+    el.style.opacity = '';
+    if (!el.animate) return;
+    // Cancela SEMPRE, mesmo que a camada já estivesse visível: pode haver um
+    // fadeLayerOut em curso (ela estava saindo e voltou), e deixá-lo correr
+    // esconderia no `onfinish` justamente o que acabou de entrar.
+    let hadAnim = false;
+    try { el.getAnimations().forEach((a) => { hadAnim = true; a.cancel(); }); } catch (_) {}
+    if (!FADE.in) return;
+    if (!wasHidden && !hadAnim) return; // já em cena e estável: não repete o fade
+    el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: LAYER_FADE_MS, easing: 'ease' });
+  }
+
+  // Esconde a camada inteira.
+  function fadeLayerOut(el) {
+    if (!el || el.hidden) return;
+    if (!el.animate || !FADE.out) { el.hidden = true; return; }
+    try { el.getAnimations().forEach((a) => a.cancel()); } catch (_) {}
+    const anim = el.animate([{ opacity: 1 }, { opacity: 0 }], { duration: LAYER_FADE_MS, easing: 'ease' });
+    // Só o término natural esconde: se um fadeLayerIn cancelar esta animação no
+    // meio (a camada voltou), esconder aqui apagaria o que acabou de entrar.
+    anim.onfinish = () => { el.hidden = true; el.style.opacity = ''; };
+  }
+
+  // Índice do slide de letra vigente num instante (último com time <= t).
+  function findSlideIndex(lyrics, time) {
+    let idx = -1;
+    for (let i = 0; i < lyrics.length; i++) {
+      if (lyrics[i].time <= time) idx = i; else break;
+    }
+    return idx < 0 ? 0 : idx;
+  }
   // Passo-a-passo genérico de volume: from→to (0..1) ao longo de `dur` s,
   // chamando apply(v) a cada passo (v já clampado em 0..1). Retorna o id do
   // interval — o chamador guarda para poder cancelar. Compartilhado pelos três
@@ -56,6 +113,7 @@
     let isBlobUrl = false;
     let ended = false;
     let loadSeq = 0;
+    let viewSeq = 0; // troca de view (cortina) — independente do loadSeq
     // Transições de entrada/saída (config vem do Controle via comando 'fade').
     let fadeIn = false;
     let fadeOut = false;
@@ -238,36 +296,33 @@
       });
     }
     function pause() { video.pause(); }
-    function stop() { video.pause(); video.currentTime = 0; }
-    // stop com fade-out (cobre com a cortina); descartado se um load/clear
-    // mais novo chegar durante o fade.
-    async function stopFaded() {
-      const seq = ++loadSeq;
-      await coverIn(true);
-      if (seq !== loadSeq) return;
-      stop();
-      // 'stop' volta ao wallpaper (protocolo): ended tira a mídia de cena
-      // mantendo current — play() recarrega a visão e reproduz do início.
-      ended = true;
-      if (!forceMuted) video.volume = volume;
-      applyMedia();
-    }
     function seek(t) { if (isFinite(t)) video.currentTime = t; }
     function setView(v) { view = v; instantCover(computeCover()); applyMedia(); }
     // Troca de view com transição: visual→wallpaper cobre; wallpaper→visual
     // revela. Só a CORTINA transiciona — o áudio (que continua tocando com o
     // visual desligado) fica intocado, sem rampa que terminaria num salto de
     // volume.
+    // A cortina é ORTOGONAL ao conteúdo, então esta função tem contador
+    // PRÓPRIO (viewSeq) — usar o loadSeq aqui fazia um toque em "visual on/off"
+    // durante o load() (que fica assíncrono de 0,7 s a 3 s: fade-out + OPFS +
+    // mediaReady) descartar o carregamento em curso: a mídia anterior já tinha
+    // ido a opacity 0 e volume 0, o src novo nunca era aplicado, e o telão
+    // ficava preto e mudo. Só ações exclusivas (load/clear) podem cancelar um
+    // load; trocar a view, não.
     async function setViewFaded(v) {
       if (v === view) return;
-      const seq = ++loadSeq;
+      const seq = ++viewSeq;
+      const lseq = loadSeq;
       view = v;
       if (v === 'wallpaper') {
         await coverIn(false);
       } else {
         await coverOut();
       }
-      if (seq !== loadSeq) return;
+      // Um setViewFaded mais novo, ou um load/clear que assumiu a cena no meio
+      // do fade, mandam mais que este: nos dois casos quem chegou depois já
+      // decidiu o estado final da cortina.
+      if (seq !== viewSeq || lseq !== loadSeq) return;
       instantCover(computeCover());
     }
     function isPlayingNow() {
@@ -523,10 +578,8 @@
         case 'volume': if (typeof cmd.volume === 'number') setVolume(cmd.volume); break;
         case 'play': play(); break;
         case 'pause': pause(); break;
-        case 'stop': return stopFaded();
         case 'seek': seek(cmd.time); break;
         case 'clear': return clearFaded();
-        case 'fade': setFade(cmd); break;
         case 'fit': setFit(cmd.fit); break;
       }
     }
@@ -561,7 +614,7 @@
     setFit(fit); // aplica o valor inicial (default 'contain') via style, já na criação
 
     return {
-      handle, load, clear, play, pause, stop, seek, setView, setMute, setVolume, setFade, setFit,
+      handle, load, clear, play, pause, seek, setView, setMute, setVolume, setFade, setFit,
       setForceMuted,
       coverIn, coverOut, instantCover, fadeOutToBlack,
       getCurrent: () => current,
@@ -587,4 +640,12 @@
   // arquivo antes dos seus): fonte única da rampa de volume e da sua duração.
   createStage.rampSteps = rampSteps;
   createStage.MUTE_RAMP_TIME = MUTE_RAMP_TIME;
+  // Transições: config fixa do sistema + os fades de camada paralela, idênticos
+  // nos dois apps (ver bloco no topo).
+  createStage.FADE = FADE;
+  createStage.LAYER_FADE_MS = LAYER_FADE_MS;
+  createStage.fadeContentIn = fadeContentIn;
+  createStage.fadeLayerIn = fadeLayerIn;
+  createStage.fadeLayerOut = fadeLayerOut;
+  createStage.findSlideIndex = findSlideIndex;
 })(this);

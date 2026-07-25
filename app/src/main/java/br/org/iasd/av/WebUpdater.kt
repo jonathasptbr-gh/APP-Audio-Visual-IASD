@@ -81,6 +81,7 @@ object WebUpdater {
             Log.w(TAG, "bundle $active não confirmou o boot anterior — descartando")
             dir.deleteRecursively()
             p.edit().remove(KEY_ACTIVE).remove(KEY_PENDING).apply()
+            cleanup(ctx, keep = emptySet())
             sessionRoot = null
             return null
         }
@@ -92,12 +93,17 @@ object WebUpdater {
         if (!dir.isDirectory || installed == null || compareVersions(embedded, installed) >= 0) {
             dir.deleteRecursively()
             p.edit().remove(KEY_ACTIVE).remove(KEY_PENDING).apply()
+            cleanup(ctx, keep = emptySet())
             sessionRoot = null
             return null
         }
 
         p.edit().putBoolean(KEY_PENDING, true).apply()
         sessionRoot = dir
+        // Ponto único e seguro para recolher bundles antigos: nenhum WebView
+        // existe ainda, então nada está sendo servido. É aqui que sai o diretório
+        // que o `check()` da sessão anterior preservou de propósito.
+        cleanup(ctx, keep = setOf(dir.name))
         Log.i(TAG, "servindo bundle OTA $installed (embutido: $embedded)")
         return dir
     }
@@ -184,7 +190,13 @@ object WebUpdater {
             // KEY_PENDING fica false: o watchdog só arma quando este bundle
             // for de fato servido, no próximo lançamento.
             p.edit().putString(KEY_ACTIVE, target.name).putBoolean(KEY_PENDING, false).apply()
-            cleanup(ctx, keep = target.name)
+            // Preserva TAMBÉM o bundle que esta sessão está servindo agora: os dois
+            // WebViews leem dele ao vivo, e apagá-lo faria todo recurso ainda não
+            // carregado (e qualquer recarga do telão, que é evento esperado quando o
+            // dongle reconecta) cair no fallback do APK — versão mais antiga, no meio
+            // do culto. O diretório velho sai no `beginSession()` do próximo
+            // lançamento, que é o único ponto que decide o que a sessão vai servir.
+            cleanup(ctx, keep = setOfNotNull(target.name, sessionRoot?.name))
             Log.i(TAG, "base web $version pronta — entra no próximo lançamento")
         } finally {
             tmpZip.delete()
@@ -196,8 +208,8 @@ object WebUpdater {
     private fun baseDir(ctx: Context): File =
         File(ctx.filesDir, "web-ota").apply { mkdirs() }
 
-    private fun cleanup(ctx: Context, keep: String) {
-        baseDir(ctx).listFiles()?.forEach { if (it.name != keep) it.deleteRecursively() }
+    private fun cleanup(ctx: Context, keep: Set<String>) {
+        baseDir(ctx).listFiles()?.forEach { if (it.name !in keep) it.deleteRecursively() }
     }
 
     // ---------- versões ----------

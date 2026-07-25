@@ -154,9 +154,6 @@
     // tenta o getUserMedia mesmo assim, que é o caminho do navegador.
     requestMic: () => call((id) => B.requestMic(id)).then((r) => r === true),
 
-    // Sessão de culto.
-    keepAwake(on) { try { B.keepAwake(!!on); } catch (_) { /* ignorado */ } },
-
     // Downloads em andamento: sem isto o Android congela o processo quando o
     // app é minimizado e a sincronização para no meio — justamente o que
     // acontece no uso normal, já que ninguém fica olhando a tela enquanto um

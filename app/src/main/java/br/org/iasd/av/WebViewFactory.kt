@@ -3,6 +3,9 @@ package br.org.iasd.av
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Color
+import android.util.Log
+import android.view.ViewGroup
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
@@ -27,6 +30,8 @@ import java.io.ByteArrayInputStream
  */
 object WebViewFactory {
 
+    private const val TAG = "WebViewFactory"
+
     const val ORIGIN = "https://appassets.androidplatform.net"
     const val URL_CONTROLE = "$ORIGIN/web/controle/index.html"
     const val URL_DISPLAY = "$ORIGIN/web/display/index.html"
@@ -48,8 +53,18 @@ object WebViewFactory {
             .addPathHandler("/", WebPathHandler(ctx.applicationContext))
             .build()
 
+    /**
+     * @param onRendererGone chamado quando o processo do renderer morre. O
+     *   WebView já foi desligado do barramento e destruído; cabe ao dono
+     *   construir um novo no lugar. Sem callback, a página simplesmente some
+     *   — mas o app continua vivo, que é o ponto.
+     */
     @SuppressLint("SetJavaScriptEnabled")
-    fun create(ctx: Context, loader: WebViewAssetLoader): WebView {
+    fun create(
+        ctx: Context,
+        loader: WebViewAssetLoader,
+        onRendererGone: (() -> Unit)? = null,
+    ): WebView {
         val web = WebView(ctx)
         web.setBackgroundColor(Color.BLACK)
         // O telão e a UI do operador nunca rolam a página inteira — o layout
@@ -104,6 +119,29 @@ object WebViewFactory {
                 // segue no WebView; qualquer outra coisa é link externo e
                 // não deve sequestrar a tela de projeção.
                 return !(url.toString().startsWith(ORIGIN))
+            }
+
+            /**
+             * A implementação padrão devolve `false` — e aí o framework MATA o
+             * processo do app. Com dois WebViews no mesmo processo, `largeHeap`,
+             * um vídeo grande no telão e um player do YouTube, uma morte do
+             * renderer por OOM levaria junto o Controle na mão do operador e a
+             * projeção na TV, no meio do culto.
+             *
+             * Devolver `true` diz ao framework que o app tratou a perda: o
+             * WebView morto sai do barramento e é destruído, e o dono recria a
+             * página — o mesmo caminho que a reconexão do dongle já usa.
+             */
+            override fun onRenderProcessGone(
+                view: WebView,
+                detail: RenderProcessGoneDetail,
+            ): Boolean {
+                Log.w(TAG, "renderer morreu (crash=${detail.didCrash()}) — recriando o WebView")
+                MessageBus.detach(view)
+                (view.parent as? ViewGroup)?.removeView(view)
+                view.destroy()
+                onRendererGone?.invoke()
+                return true
             }
         }
 

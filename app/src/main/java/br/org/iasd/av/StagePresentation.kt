@@ -34,6 +34,9 @@ class StagePresentation(
     var web: WebView? = null
         private set
 
+    /** Depois de [release] nada mais é remontado (ex.: renderer morto no fim). */
+    private var released = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -59,8 +62,22 @@ class StagePresentation(
                 or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
             )
 
+        setContentView(root)
+        buildWebView(root)
+    }
+
+    /**
+     * Monta (ou remonta) o WebView do telão dentro de [root]. É chamado de novo
+     * quando o renderer morre: recarregar `/display/` dispara `display-ready` e
+     * o Controle reenvia a cena — o mesmo caminho da reconexão do dongle.
+     */
+    private fun buildWebView(root: FrameLayout) {
+        if (released) return
         val loader = WebViewFactory.assetLoader(context)
-        val w = WebViewFactory.create(context, loader)
+        val w = WebViewFactory.create(context, loader) {
+            web = null
+            root.post { buildWebView(root) }
+        }
         // O microfone (push-to-talk) é capturado AQUI, no telão, não no
         // Controle: é a projeção que deve reproduzi-lo, e no navegador — onde
         // Display e Controle são páginas separadas — essa é a única escolha
@@ -86,7 +103,6 @@ class StagePresentation(
                 ViewGroup.LayoutParams.MATCH_PARENT,
             ),
         )
-        setContentView(root)
 
         web = w
         MessageBus.attach(w)
@@ -100,6 +116,7 @@ class StagePresentation(
 
     /** Derruba o WebView do telão sem deixar o barramento com cliente morto. */
     fun release() {
+        released = true
         val w = web ?: return
         web = null
         MessageBus.detach(w)

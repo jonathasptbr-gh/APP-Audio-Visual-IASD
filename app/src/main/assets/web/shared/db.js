@@ -110,6 +110,18 @@
     const s = await store(STORE_STATE, 'readonly');
     return asPromise(s.get(key));
   }
+  // Chaves de `state` que começam com `prefix`, numa transação só e sem
+  // desserializar valor nenhum. Existe para testar PRESENÇA em massa: a Bíblia
+  // precisa saber quais dos 1189 capítulos já estão em cache, e fazer isso com
+  // 1189 `getState` significava 1189 transações lendo o capítulo inteiro (~30
+  // versículos de texto) só para descartar o conteúdo.
+  async function stateKeys(prefix) {
+    const s = await store(STORE_STATE, 'readonly');
+    // '￿' é maior que qualquer caractere possível no sufixo, então o
+    // intervalo cobre exatamente as chaves que começam com o prefixo.
+    const range = IDBKeyRange.bound(prefix, prefix + '￿', false, false);
+    return asPromise(s.getAllKeys(range));
+  }
 
   // ---- media ----
   // Insere o registro em "media" E o adiciona à lista numa ÚNICA transação
@@ -411,7 +423,7 @@
   }
 
   global.AVDB = {
-    openDB, setState, getState,
+    openDB, setState, getState, stateKeys,
     addMedia, addUrlMedia, getMedia, storeUrlTemp, storeMediaTemp, deleteMedia, renameMedia,
     listIds, listSet, listItems, listHas, listAdd, listRemove, gc,
     fileAdd, fileGet, fileDelete, filesByFolder, filesAll,
