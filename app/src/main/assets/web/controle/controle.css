@@ -880,9 +880,28 @@ main {
 
 /* ---------- Bíblia: tela de leitura (versículo anterior/atual/próximo) ---------- */
 .bible-read { display: flex; flex-direction: column; gap: .5rem; padding-bottom: .6rem; }
-/* rodapé: seletor de versão + referência atual lado a lado */
+/* rodapé: seletor de versão + navegação da referência (livro/capítulo/versículo) */
 .bible-read-foot { display: flex; align-items: center; justify-content: center; gap: .5rem; flex-wrap: wrap; margin-top: .3rem; }
 .bible-read-foot .bible-ver-btn { align-self: auto; }
+
+/* Referência em TRÊS botões — livro, capítulo e versículo —, cada um levando
+   ao seletor da sua parte. Emendados como um segmento só, para continuarem
+   lendo como uma referência ("João · 3 · 16") e não como três ações soltas. */
+.bible-ref-nav { display: flex; align-items: stretch; gap: 1px; }
+.bible-ref-part {
+  display: flex; flex-direction: column; align-items: center; gap: 1px;
+  border: 1px solid var(--line); background: var(--surface-2); color: var(--text);
+  padding: .3rem .6rem; cursor: pointer; appearance: none; -webkit-appearance: none;
+  min-width: 0;
+}
+.bible-ref-part:first-child { border-radius: var(--radius-btn) 0 0 var(--radius-btn); max-width: 46vw; }
+.bible-ref-part:last-child { border-radius: 0 var(--radius-btn) var(--radius-btn) 0; }
+.bible-ref-part:active { transform: var(--press); }
+.bible-ref-label { font-size: .56rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.bible-ref-value {
+  font-size: .86rem; font-weight: 700; color: var(--accent);
+  max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 
 /* ---------- Microfone (push-to-talk) ---------- */
 /* Um alvo grande e central: é para ser encontrado e segurado sem olhar, no
@@ -915,12 +934,8 @@ main {
   0%, 100% { box-shadow: 0 0 0 0 var(--danger-soft); }
   50% { box-shadow: 0 0 0 14px rgba(229, 57, 53, 0); }
 }
-.mic-note { font-size: .88rem; font-weight: 600; color: var(--text); text-align: center; }
-.mic-note.err { color: var(--gold-text); }
-.mic-help {
-  font-size: .74rem; color: var(--muted); line-height: 1.5; text-align: center;
-  max-width: 34ch;
-}
+/* Só aparece com ERRO (permissão negada, sem microfone…) — é diagnóstico. */
+.mic-note { font-size: .84rem; font-weight: 600; color: var(--gold-text); text-align: center; max-width: 34ch; line-height: 1.45; }
 
 /* ---------- Mensagens (texto puro) ---------- */
 /* Vivem num bottom-sheet aberto pelo botão flutuante da preview (`.msg-opts`),
@@ -959,9 +974,10 @@ main {
 .bible-vsec-ref { font-size: .64rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
 .bible-vsec.cur .bible-vsec-ref { color: var(--accent); }
 /* dica enquanto a exibição não foi ativada */
-.bible-read-hint { text-align: center; font-size: .74rem; color: var(--muted); padding: .1rem 0 .2rem; }
-.bible-vsec-text { font-size: .9rem; line-height: 1.4; color: var(--text); }
-.bible-vsec.adj .bible-vsec-text { font-size: .82rem; }
+/* Fonte maior: os versículos são o que se lê nesta tela, e havia espaço
+   sobrando mesmo depois de acrescentar a quarta seção. */
+.bible-vsec-text { font-size: 1.02rem; line-height: 1.42; color: var(--text); }
+.bible-vsec.adj .bible-vsec-text { font-size: .92rem; }
 /* botão com a referência atual — volta pra seleção de livros ao tocar */
 .bible-read-ref {
   margin-top: .2rem; align-self: center;

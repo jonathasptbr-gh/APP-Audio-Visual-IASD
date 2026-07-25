@@ -79,10 +79,10 @@ git push origin main
   `renderVersionLabel()`), o fallback estático do `<span id="appVersion">` em
   `controle/index.html` e `version` em `version.json` (é este último que
   dispara a atualização por OTA nos aparelhos). Versionamento incremental
-  simples (4.95, 4.96, 4.97…). **Versão atual: v4.97.**
-  No app nativo o rótulo mostra os **dois índices** — `Web v4.97 · Shell v1.11`
+  simples (4.96, 4.97, 4.98…). **Versão atual: v4.98.**
+  No app nativo o rótulo mostra os **dois índices** — `Web v4.98 · Shell v1.11`
   —, porque base web e shell atualizam por caminhos independentes (OTA ×
-  instalar APK); no navegador sai só `Controle v4.97`.
+  instalar APK); no navegador sai só `Controle v4.98`.
 
 ---
 
@@ -1773,10 +1773,18 @@ Tocar num **versículo** (`startBibleReading`) inicia uma **sessão de leitura**
 (`bibleSession = { versionId, bookIdx, bookId, bookName, chapter, verses, idx,
 projecting }`) e abre a tela `'reading'` — **mas NÃO projeta nada ainda**
 (`projecting:false`). A tela de leitura (`renderBibleReading`, `.bible-read`)
-mostra **três seções empilhadas** — versículo **anterior / atual / próximo**
-(`.bible-vsec`) — e, embaixo, um **rodapé** (`.bible-read-foot`) com o **seletor
-de versão** ao lado da **referência atual num botão** (`.bible-read-ref`, que
-**volta direto para a seleção de livros**). O status offline **não** fica aqui
+mostra **quatro seções empilhadas** — versículo **anterior · atual · próximo ·
+seguinte** (`.bible-vsec`): um atrás e **dois à frente**, porque sobrava espaço
+e ler adiante é o que o operador faz (ele precisa saber o que vem para
+acompanhar a leitura, não o que já passou). Embaixo, um **rodapé**
+(`.bible-read-foot`) com o **seletor de versão** ao lado da referência atual em
+**três botões** (`.bible-ref-nav`: Livro · Capítulo · Versículo), cada um
+levando ao seletor da sua parte — antes era um botão só, que sempre voltava à
+grade de livros, então trocar só o capítulo custava passar pela seleção de
+livro de novo. Capítulo e Versículo levam à mesma tela porque as duas grades
+convivem nela. Cada botão sincroniza `bibleSel` com a leitura antes de navegar,
+senão a grade abriria no que o operador escolheu por último, e não no que está
+no ar. O status offline **não** fica aqui
 (só no popup de versões — ver acima). Nos **limites de capítulo/livro**,
 as seções anterior/próximo mostram o versículo do **capítulo vizinho** (cruzando
 pro livro seguinte/anterior), com um **badge indicador** (`.bible-vsec-cross`,

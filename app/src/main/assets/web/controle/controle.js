@@ -59,7 +59,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '4.97';
+const WEB_VERSION = '4.98';
 
 function renderVersionLabel() {
   // __SHELL_NAME__ = versionName do APK (ver native.js). Vazio no navegador e
@@ -1636,7 +1636,7 @@ function fitBibleGrids(split) {
   const rows = r1 + r2;
   if (!rows) return;
 
-  // A metade sem grade (só um aviso: "Escolha um capítulo", "Baixando…") não
+  // A metade sem grade (só um aviso de estado: sem capítulo, "Baixando…") não
   // entra na proporção — recebe o mínimo necessário para o texto.
   split.style.gridTemplateRows = (r1 ? r1 + 'fr' : 'auto') + ' ' + (r2 ? r2 + 'fr' : 'auto');
 
@@ -1659,7 +1659,7 @@ function bibleVersesPane() {
     n.textContent = text;
     return n;
   };
-  if (!bibleSel.chapter) return note('Escolha um capítulo acima.');
+  if (!bibleSel.chapter) return note('Nenhum capítulo selecionado.');
   if (bibleChapterLoading) return note('Baixando versículos…');
   if (bibleChapterError) return note(bibleChapterError, true);
   const verses = bibleChapterData && bibleChapterData.verses ? bibleChapterData.verses : [];
@@ -1871,7 +1871,9 @@ async function fetchBibleChapterCached(versionId, bookIdx, chapter) {
 }
 
 // Move a sessão de leitura para outro capítulo (cruza livro nos extremos),
-// baixando o texto se necessário. want: 'first' | 'last'.
+// baixando o texto se necessário.
+// `want`: 'first' | 'last' | um índice (podendo ser NEGATIVO, contado a partir
+// do fim — é como um salto de -2 que estourou o começo do capítulo chega aqui).
 async function bibleGotoChapter(bookIdx, chapter, want) {
   const s = bibleSession;
   if (!s) return;
@@ -1881,9 +1883,14 @@ async function bibleGotoChapter(bookIdx, chapter, want) {
   if (!bibleSession || bibleSession !== s) return; // a sessão trocou durante o await
   const book = Bible.BOOKS[bookIdx];
   const wasProjecting = s.projecting;
+  let idx;
+  if (want === 'last') idx = verses.length - 1;
+  else if (typeof want === 'number') idx = want < 0 ? verses.length + want : want;
+  else idx = 0;
+  idx = Math.max(0, Math.min(verses.length - 1, idx));
   bibleSession = {
     versionId: s.versionId, bookIdx, bookId: bibleBookId(bookIdx),
-    bookName: book.name, chapter, verses, idx: want === 'last' ? verses.length - 1 : 0,
+    bookName: book.name, chapter, verses, idx,
     projecting: wasProjecting,
   };
   // A seleção acompanha a leitura (grid de versículos e título seguem o capítulo).
@@ -1904,12 +1911,14 @@ async function bibleStep(delta) {
   if (!s) return;
   const t = s.idx + delta;
   if (t >= 0 && t < s.verses.length) { bibleSetIdx(t); return; }
+  // Cruzando o limite: `want` leva o quanto sobrou do salto, para um pulo de
+  // +2 no último versículo cair no segundo do capítulo seguinte.
   if (delta > 0) {
     const nx = nextChapterRef(s.bookIdx, s.chapter);
-    if (nx) await bibleGotoChapter(nx.bookIdx, nx.chapter, 'first');
+    if (nx) await bibleGotoChapter(nx.bookIdx, nx.chapter, t - s.verses.length);
   } else {
     const pv = prevChapterRef(s.bookIdx, s.chapter);
-    if (pv) await bibleGotoChapter(pv.bookIdx, pv.chapter, 'last');
+    if (pv) await bibleGotoChapter(pv.bookIdx, pv.chapter, t);
   }
 }
 
@@ -1933,7 +1942,14 @@ function bibleAdjacentVerse(delta) {
   const book = Bible.BOOKS[ref.bookIdx];
   const cachedKey = s.versionId + '_' + ref.bookIdx + '_' + ref.chapter;
   const cached = bibleAdjCache[cachedKey];
-  const v = (cached && cached.length) ? (delta > 0 ? cached[0] : cached[cached.length - 1]) : null;
+  // Índice DENTRO do capítulo vizinho: com mais de um versículo de preview à
+  // frente, um `delta` de +2 no último versículo cai no SEGUNDO do capítulo
+  // seguinte, não no primeiro. `t` já é o índice absoluto que estourou.
+  let v = null;
+  if (cached && cached.length) {
+    const j = delta > 0 ? (t - s.verses.length) : (cached.length + t);
+    v = cached[Math.max(0, Math.min(cached.length - 1, j))];
+  }
   return {
     bookIdx: ref.bookIdx, chapter: ref.chapter, bookName: book.name, v,
     cross: true, crossBook: ref.bookIdx !== s.bookIdx, chapterRef: ref,
@@ -2005,17 +2021,13 @@ function renderBibleReading(wrap) {
     if (info.cross && !info.v && info.chapterRef) ensureAdjLoaded(info.chapterRef);
     return sec;
   };
+  // Um versículo atrás e DOIS à frente: sobrava espaço na tela, e ler adiante
+  // é o que o operador faz — ele precisa saber o que vem para acompanhar a
+  // leitura, não o que já passou.
   read.appendChild(mkSection(-1, 'adj'));
   read.appendChild(mkSection(0, 'cur'));
   read.appendChild(mkSection(1, 'adj'));
-
-  // Dica do que o toque no central faz agora — o gesto é o mesmo nos dois
-  // sentidos, então a dica acompanha o estado em vez de sumir após o 1º uso.
-  const hint = document.createElement('div'); hint.className = 'bible-read-hint';
-  hint.textContent = s.projecting
-    ? 'Toque no versículo central para tirar do telão'
-    : 'Toque no versículo central para exibir no telão';
-  read.appendChild(hint);
+  read.appendChild(mkSection(2, 'adj'));
 
   // Rodapé: seletor de versão + referência atual (lado a lado). O status
   // offline/progresso NÃO fica mais aqui — só dentro do popup de versões.
@@ -2030,11 +2042,30 @@ function renderBibleReading(wrap) {
     verBtn.addEventListener('click', openBibleVerPopup);
     foot.appendChild(verBtn);
   }
+  // A referência virou TRÊS botões — livro, capítulo e versículo —, cada um
+  // levando ao seletor da sua parte. Antes era um botão só, que sempre voltava
+  // à grade de livros: trocar só o capítulo custava passar pela seleção de
+  // livro de novo. Capítulo e versículo levam à mesma tela porque as duas
+  // grades convivem nela (ver "Seleção em tabela periódica").
   const v = s.verses[s.idx];
-  const refBtn = document.createElement('button'); refBtn.type = 'button'; refBtn.className = 'bible-read-ref';
-  refBtn.textContent = s.bookName + ' ' + s.chapter + ':' + v.n;
-  refBtn.addEventListener('click', () => gotoBibleScreen('books'));
-  foot.appendChild(refBtn);
+  const nav = document.createElement('div'); nav.className = 'bible-ref-nav';
+  const part = (label, value, screen) => {
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'bible-ref-part';
+    const l = document.createElement('span'); l.className = 'bible-ref-label'; l.textContent = label;
+    const t = document.createElement('span'); t.className = 'bible-ref-value'; t.textContent = value;
+    b.append(l, t);
+    b.addEventListener('click', () => {
+      // A seleção acompanha a leitura antes de abrir a grade, senão ela
+      // abriria no que o operador escolheu por último, não no que está no ar.
+      bibleSel = { bookIdx: s.bookIdx, chapter: s.chapter };
+      gotoBibleScreen(screen);
+    });
+    nav.appendChild(b);
+  };
+  part('Livro', s.bookName, 'books');
+  part('Capítulo', String(s.chapter), 'chapters');
+  part('Versículo', String(v.n), 'chapters');
+  foot.appendChild(nav);
   read.appendChild(foot);
   wrap.appendChild(read);
 }
@@ -2150,12 +2181,14 @@ function renderMicUI() {
   if (!btn) return;
   const live = micOn || micPressed;
   btn.classList.toggle('live', live);
+  const label = btn.querySelector('.mic-btn-label');
+  if (label) label.textContent = live ? 'No ar' : 'Microfone';
+  // A nota só existe para ERRO (permissão negada, sem microfone…) — é
+  // diagnóstico, não instrução de uso.
   const note = document.getElementById('micNote');
   if (note) {
-    note.textContent = micError
-      ? micErrorText(micError)
-      : (live ? 'No ar — sua voz está saindo na projeção.' : 'Segure para falar.');
-    note.classList.toggle('err', !!micError);
+    note.textContent = micError ? micErrorText(micError) : '';
+    note.hidden = !micError;
   }
 }
 
@@ -2179,7 +2212,7 @@ function renderMic() {
     + '<rect x="9" y="2" width="6" height="11" rx="3"/><path d="M5 10a7 7 0 0 0 14 0"/>'
     + '<line x1="12" y1="17" x2="12" y2="21"/><line x1="8" y1="21" x2="16" y2="21"/></svg>';
   const label = document.createElement('span'); label.className = 'mic-btn-label';
-  label.textContent = 'Segure para falar';
+  label.textContent = 'Microfone';
   btn.appendChild(label);
 
   // Push-to-talk: abre no pointerdown e fecha em QUALQUER forma de soltar.
@@ -2204,14 +2237,8 @@ function renderMic() {
   btn.addEventListener('pointercancel', release);
   wrap.appendChild(btn);
 
-  const note = document.createElement('div'); note.id = 'micNote'; note.className = 'mic-note';
+  const note = document.createElement('div'); note.id = 'micNote'; note.className = 'mic-note'; note.hidden = true;
   wrap.appendChild(note);
-
-  const help = document.createElement('div'); help.className = 'mic-help';
-  help.textContent = 'A voz é capturada e reproduzida ao vivo na projeção, com o '
-    + 'pequeno atraso do aparelho. Nada é gravado. Cuidado com microfonia se a '
-    + 'saída de áudio for o próprio celular.';
-  wrap.appendChild(help);
 
   libraryEl.appendChild(wrap);
   renderMicUI();
@@ -2255,7 +2282,7 @@ function renderMsgList() {
   msgOptsEl.appendChild(addBtn);
   if (!messages.length) {
     const empty = document.createElement('div'); empty.className = 'empty';
-    empty.textContent = 'Nenhuma mensagem. Toque em "Nova mensagem" para criar.';
+    empty.textContent = 'Nenhuma mensagem.';
     msgOptsEl.appendChild(empty);
     return;
   }
@@ -2715,9 +2742,9 @@ function renderCollectionOptions() {
     status.innerHTML = checkIconSvg();
     status.appendChild(document.createTextNode(' Completo offline'));
   } else if (total > 0) {
-    status.textContent = 'Parcial — sincronize para completar';
+    status.textContent = 'Parcial';
   } else {
-    status.textContent = coll.kind === 'album' ? 'Toque em sincronizar para baixar a lista' : 'Não sincronizado';
+    status.textContent = 'Não sincronizado';
   }
   collOptsEl.appendChild(status);
 
@@ -3727,7 +3754,7 @@ async function syncCollection(coll) {
         okText: 'Usar dados móveis', cancelText: 'Só no Wi-Fi',
       });
       if (!proceed) {
-        setCollStatus(coll.id, 'Lista atualizada — baixa por música ao usar', 5000);
+        setCollStatus(coll.id, 'Lista atualizada', 5000);
         return;
       }
     }
@@ -4002,8 +4029,8 @@ function renderSearchResults(query) {
   hymnResultsEl.innerHTML = '';
   if (totalIndexed === 0) {
     hymnResultsEl.innerHTML = searchScope
-      ? '<li class="empty">Lista ainda não carregada.<br>Abra o app com internet ou sincronize esta coleção.</li>'
-      : '<li class="empty">Índice do acervo ainda não carregado.<br>Abra o app com internet uma vez para baixar a lista completa.</li>';
+      ? '<li class="empty">Lista ainda não carregada.<br>Precisa de internet na primeira vez.</li>'
+      : '<li class="empty">Índice do acervo ainda não carregado.<br>Precisa de internet na primeira vez.</li>';
     return;
   }
   if (matches.length === 0) {
