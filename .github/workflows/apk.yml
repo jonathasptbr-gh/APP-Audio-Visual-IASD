@@ -9,12 +9,16 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: 'Publicar Release com esta tag (ex: v1.0). Vazio = só compila.'
+        description: 'Publicar Release com esta tag (ex: v1.1). Vazio = só compila.'
         required: false
         default: ''
 
 permissions:
   contents: write
+
+env:
+  # Publicar uma Release: por tag `v*` ou por disparo manual com release_tag.
+  PUBLISH: ${{ startsWith(github.ref, 'refs/tags/v') || github.event.inputs.release_tag != '' }}
 
 jobs:
   apk:
@@ -34,29 +38,70 @@ jobs:
       - name: Permissão de execução do wrapper
         run: chmod +x ./gradlew
 
-      - name: Build (debug)
-        run: ./gradlew --no-daemon assembleDebug
-
-      - name: Build (release, não assinado)
-        if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.release_tag != ''
-        run: ./gradlew --no-daemon assembleRelease
-
-      # Numa release o arquivo leva o nome da versão (v1.0); fora dela, o SHA
-      # curto — assim dá para saber de que commit veio um APK avulso.
-      - name: Nomear o APK
+      # A versão sai da tag (v1.1 → versionName 1.1) e o versionCode do
+      # número da execução, que só cresce — o Android recusa instalar por
+      # cima de um versionCode igual ou maior.
+      - name: Definir versão
         env:
           RELEASE_TAG: ${{ github.event.inputs.release_tag }}
         run: |
-          mkdir -p dist
           if [ -n "$RELEASE_TAG" ]; then
-            NAME="$RELEASE_TAG"
+            TAG="$RELEASE_TAG"
           elif [ "$GITHUB_REF_TYPE" = "tag" ]; then
-            NAME="$GITHUB_REF_NAME"
+            TAG="$GITHUB_REF_NAME"
           else
-            NAME="${GITHUB_SHA::7}"
+            TAG=""
           fi
-          cp app/build/outputs/apk/debug/app-debug.apk \
-             "dist/audio-visual-iasd-${NAME}.apk"
+          if [ -n "$TAG" ]; then
+            echo "APK_NAME=$TAG" >> "$GITHUB_ENV"
+            echo "VERSION_NAME=${TAG#v}" >> "$GITHUB_ENV"
+          else
+            echo "APK_NAME=${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+            echo "VERSION_NAME=0.0-${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+          fi
+          echo "VERSION_CODE=${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
+
+      - name: Build (debug)
+        run: ./gradlew --no-daemon assembleDebug
+
+      # Assinado com a keystore fixa quando os secrets existem — é o que
+      # permite atualizar por cima sem desinstalar (e sem perder a biblioteca
+      # do app: Cronograma, pastas sincronizadas, hinos e Bíblia baixados).
+      # Sem os secrets, o build.gradle.kts cai na assinatura de debug e o
+      # workflow segue funcionando.
+      - name: Build (release assinado)
+        if: env.PUBLISH == 'true'
+        env:
+          KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: ./gradlew --no-daemon assembleRelease
+
+      # Numa release o arquivo leva o nome da versão (v1.1); fora dela, o SHA
+      # curto — assim dá para saber de que commit veio um APK avulso.
+      # A Release recebe o APK ASSINADO; fora dela, o de debug.
+      - name: Nomear o APK
+        run: |
+          mkdir -p dist
+          if [ "$PUBLISH" = "true" ] && [ -f app/build/outputs/apk/release/app-release.apk ]; then
+            SRC=app/build/outputs/apk/release/app-release.apk
+            echo "SIGNED=true" >> "$GITHUB_ENV"
+          else
+            SRC=app/build/outputs/apk/debug/app-debug.apk
+            echo "SIGNED=false" >> "$GITHUB_ENV"
+          fi
+          cp "$SRC" "dist/audio-visual-iasd-${APK_NAME}.apk"
+          echo "APK publicado a partir de: $SRC"
+
+      # Sem os secrets o Gradle gera app-release-unsigned.apk em vez de
+      # app-release.apk — falhar aqui é melhor que publicar uma Release com
+      # um APK que o Android nem instala.
+      - name: Conferir assinatura da Release
+        if: env.PUBLISH == 'true' && env.SIGNED != 'true'
+        run: |
+          echo "::error::Release pedida, mas o APK assinado não foi gerado."
+          echo "Confira os secrets KEYSTORE_B64, KEY_ALIAS e KEY_PASSWORD."
+          exit 1
 
       - uses: actions/upload-artifact@v4
         with:
@@ -65,11 +110,10 @@ jobs:
           if-no-files-found: error
 
       # Uma Release dá link DIRETO para o .apk — instalar pelo artifact
-      # exigiria descompactar um .zip no celular. Ela sai de uma tag `v*`
-      # OU de um disparo manual com `release_tag` preenchido (nesse caso a
-      # action cria a tag apontando para o commit construído).
+      # exigiria descompactar um .zip no celular. Num disparo manual, a
+      # action cria a tag apontando para o commit construído.
       - uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.release_tag != ''
+        if: env.PUBLISH == 'true'
         with:
           tag_name: ${{ github.event.inputs.release_tag || github.ref_name }}
           files: dist/*.apk
@@ -83,7 +127,10 @@ jobs:
             espelhar a tela do celular. Sem TV conectada, a projeção continua
             sendo a preview do Controle em tela cheia.
 
-            > **Assinatura de debug.** A chave muda entre execuções do CI, então
-            > o Android pode recusar instalar por cima de uma versão anterior —
-            > nesse caso, desinstale antes. Para uso contínuo no culto, migrar
-            > para release assinado com keystore fixa.
+            > **Atualiza por cima.** A partir da v1.1 o APK é assinado com
+            > keystore fixa: instale sobre a versão anterior sem desinstalar —
+            > a biblioteca do app (Cronograma, pastas sincronizadas, hinos e
+            > Bíblia baixados) é preservada.
+            >
+            > Vindo da **v1.0**, que saiu com assinatura de debug, esta única
+            > troca ainda exige desinstalar antes.

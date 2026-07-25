@@ -188,11 +188,24 @@ SDK; nenhuma infraestrutura externa.
 | Artifact | Actions → run → *Artifacts* | vem como **.zip**; precisa descompactar no celular |
 | **Release** ⭐ | `git tag v1.0 && git push --tags` | **link direto para o .apk**; instala pelo Chrome do celular |
 
-**Assinatura:** hoje o APK sai com a keystore de **debug** — imediato, mas a
-chave muda entre runners, então o Android pode recusar atualizar por cima
-(desinstale e reinstale). Para uso contínuo, migrar para release assinado com
-keystore única em secrets (`KEYSTORE_B64`, `KEY_ALIAS`, `KEY_PASSWORD`) —
-atualiza por cima sem desinstalar.
+**Assinatura.** As Releases saem **assinadas com keystore fixa**, guardada nos
+secrets do repositório (`KEYSTORE_B64` — o `.jks` em base64 —, `KEY_ALIAS` e
+`KEY_PASSWORD`). É isso que permite **atualizar por cima sem desinstalar**, e
+por consequência **sem perder a biblioteca do app**: o Cronograma, as pastas
+sincronizadas, os hinos do LouvorJA e a Bíblia baixada vivem em IndexedDB/OPFS,
+que o Android apaga junto com o app numa desinstalação.
+
+- O `.jks` **nunca é versionado** (`.gitignore`); o build o materializa a
+  partir do secret e o descarta com o runner.
+- Sem os secrets (build local, PR de terceiro, clone), o `build.gradle.kts` cai
+  na assinatura de **debug** e tudo continua compilando — só não serve para
+  atualizar por cima. Se uma Release for pedida nesse estado, o workflow
+  **falha de propósito** em vez de publicar um APK que o Android recusaria.
+- `versionCode` vem do número da execução do CI (sempre crescente) e
+  `versionName` da tag — o Android recusa instalar sobre um `versionCode` igual
+  ou maior, então isso não pode ser manual.
+- Perder a keystore é irreversível: sem ela, toda atualização futura volta a
+  exigir desinstalação. Guarde com backup.
 
 Rodar local: `./gradlew assembleDebug` (exige Android SDK instalado).
 
