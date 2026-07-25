@@ -79,10 +79,10 @@ git push origin main
   `renderVersionLabel()`), o fallback estático do `<span id="appVersion">` em
   `controle/index.html` e `version` em `version.json` (é este último que
   dispara a atualização por OTA nos aparelhos). Versionamento incremental
-  simples (4.97, 4.98, 4.99…). **Versão atual: v4.99.**
-  No app nativo o rótulo mostra os **dois índices** — `Web v4.99 · Shell v1.11`
+  simples (4.98, 4.99, 5.00…). **Versão atual: v5.00.**
+  No app nativo o rótulo mostra os **dois índices** — `Web v5.00 · Shell v1.11`
   —, porque base web e shell atualizam por caminhos independentes (OTA ×
-  instalar APK); no navegador sai só `Controle v4.99`.
+  instalar APK); no navegador sai só `Controle v5.00`.
 
 ---
 
@@ -703,13 +703,22 @@ local comanda a barra de progresso e o avanço automático da playlist. Para ite
 YouTube, `cmd()` também dirige um segundo `YT.Player` próprio da preview (mudo,
 qualidade mínima) — ver seção do YouTube no Display para os detalhes.
 
-**Barra de botões sobre a preview** (`#pvFabs`, `setupPreviewGestures`):
-quatro botões semitransparentes numa **fileira única alinhada à base**,
-**visíveis por padrão**. Antes cada um morava num canto — dispersos, o olho
-tinha que procurar os quatro em lugares diferentes, e o do topo tampava
-justamente a parte da miniatura onde costuma estar o texto projetado.
+**Coluna de botões sobre a preview** (`#pvFabs`, `setupPreviewGestures`):
+quatro botões semitransparentes numa **coluna colada à direita**, de cima para
+baixo, **visíveis por padrão**. Cada um é `flex:1`, então a coluna se reparte
+sozinha pela altura da preview — inclusive quando o de cast não existe
+(navegador), onde os três restantes ficam mais altos. O tamanho do ícone vem do
+CSS (`17px`), não do atributo do `<svg>`: a altura de cada botão é fração da
+preview, e um ícone de 20px estouraria a caixa.
 
-| Ordem | Botão | Ação |
+Passaram por dois arranjos antes deste. Primeiro **um em cada canto** —
+dispersos, o olho procurava os quatro em lugares diferentes, e o do topo
+tampava justamente a parte da miniatura onde costuma estar o texto projetado.
+Depois **uma fileira na base** — que sobrava vazio dos dois lados, já que quatro
+botões não chegam perto da largura da preview. Em pé, à direita, eles usam a
+altura inteira, que é a dimensão apertada aqui (a linha do deck tem 130px).
+
+| Ordem (de cima) | Botão | Ação |
 |---|---|---|
 | 1 | `#pvSettingsBtn` (engrenagem) | popup de **Exibição** (`openFadePopup`) |
 | 2 | `#pvCastBtn` (cast) | seletor de espelhamento do Android (`AVNative.openCast()`) — **só no app nativo**; oculto no navegador |

@@ -175,20 +175,22 @@ body {
   touch-action: none;
 }
 /* ---------- Botões sobre a preview ---------- */
-/* Uma fileira única alinhada à BASE: configurações · cast · mensagem · tela
-   cheia. Antes cada um morava num canto — dispersos, o olho tinha que
-   procurar os quatro em lugares diferentes, e o do topo tampava justamente a
-   parte da miniatura onde costuma estar o texto projetado.
+/* Uma COLUNA colada à direita: configurações · cast · mensagem · tela cheia,
+   de cima para baixo. Deitados na base sobravam vazios dos dois lados; em
+   pé eles usam a altura inteira da preview, que é a dimensão apertada aqui
+   (a linha do deck tem 130px). Cada botão é `flex:1`, então a coluna se
+   reparte sozinha — inclusive quando o de cast não existe (navegador), onde
+   os três restantes simplesmente ficam mais altos.
    Substituíram os gestos invisíveis que existiam antes (toque = tela cheia,
    toque longo = popup), que nada na tela anunciava. Agora o toque na preview
-   só mostra/esconde a fileira; a ação é de quem tocar no botão.
+   só mostra/esconde a coluna; a ação é de quem tocar no botão.
    `.pv-fabs` não intercepta toques fora dos botões (pointer-events:none),
-   senão a barra cobriria a preview e o toque nunca chegaria ao reconhecedor
-   de gestos. */
+   senão a coluna cobriria uma faixa da preview e o toque nunca chegaria ao
+   reconhecedor de gestos. */
 .pv-fabs {
-  position: absolute; left: 0; right: 0; bottom: 5px;
+  position: absolute; top: 4px; bottom: 4px; right: 4px;
   z-index: 5; pointer-events: none;
-  display: flex; justify-content: center; gap: 6px;
+  display: flex; flex-direction: column; gap: 4px;
   transition: opacity .18s ease;
 }
 /* Escondidos: `display` continua flex (senão não há o que transicionar) e a
@@ -196,14 +198,16 @@ body {
 .pv-fabs[hidden] { display: flex; opacity: 0; visibility: hidden; }
 .pv-fab {
   pointer-events: auto;
-  width: 34px; height: 34px; padding: 0; flex-shrink: 0;
+  flex: 1; min-height: 0; width: 30px; padding: 0;
   border: 1px solid rgba(255, 255, 255, .22); border-radius: var(--radius-btn);
   background: rgba(0, 0, 0, .45); color: rgba(255, 255, 255, .92);
   backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px);
   display: flex; align-items: center; justify-content: center; cursor: pointer;
   appearance: none; -webkit-appearance: none;
 }
-.pv-fab svg { display: block; }
+/* O tamanho do ícone vem daqui, não do atributo do <svg>: a altura de cada
+   botão agora é fração da preview, e um ícone de 20px estouraria a caixa. */
+.pv-fab svg { display: block; width: 17px; height: 17px; }
 .pv-fab:active { transform: var(--press); }
 /* Mensagem no ar: o mesmo botão vira o X de desligar, em vermelho para não se
    confundir com "abrir a lista". */
