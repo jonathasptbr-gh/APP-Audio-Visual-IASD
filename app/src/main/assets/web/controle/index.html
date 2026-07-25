@@ -5,9 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content">
   <meta name="theme-color" content="#0a0a0a">
   <title>Controle AV</title>
-  <link rel="manifest" href="manifest.json">
-  <link rel="icon" href="icons/icon-192.svg">
-  <link rel="apple-touch-icon" href="icons/icon-192.svg">
+  <!-- Sem manifest/ícones de PWA: aqui o Controle é uma tela hospedada pelo
+       shell nativo (WebView), não um app instalável pelo navegador. Ícone,
+       nome e orientação vêm do APK (res/ + AndroidManifest.xml). -->
   <link rel="stylesheet" href="../shared/material-symbols.css">
   <link rel="stylesheet" href="controle.css">
 </head>
@@ -16,29 +16,20 @@
     <div class="list-header">
       <button id="backBtn" class="back-btn" hidden><span class="msym">&#xe5c4;</span></button>
       <span class="list-title" id="listTitle">Cronograma</span>
-      <span id="appVersion" class="app-version">Controle v4.87</span>
+      <span id="appVersion" class="app-version">Controle v4.88</span>
       <input id="libSearch" class="lib-search" type="search" placeholder="Buscar na pasta…" hidden>
       <button id="addDirBtn" class="add-dir-btn" hidden title="Sincronizar pasta do dispositivo"><span class="msym">&#xe2c8;</span></button>
     </div>
 
     <ul id="library" class="lib-list"></ul>
+    <!-- Seletor de arquivos: mora aqui, solto, e é MOVIDO para dentro da
+         linha "Importar arquivos" no fim do Cronograma a cada render (ver
+         appendImportRow em controle.js) — assim sobrevive ao innerHTML=''
+         que reconstrói a lista, sem perder o listener de `change`. -->
+    <input id="file" type="file" accept="image/*,video/*,audio/*" multiple hidden>
 
     <!-- abas na base da seção de listas -->
     <div class="tabs">
-      <label class="tab-add" title="Importar arquivos">
-        <!-- Ícone "arquivos+" (SVG inline, fora do subset da fonte): documento
-             com um "+", diferenciando importar ARQUIVOS de sincronizar PASTA
-             (que usa o ícone de pasta). O desenho preenche o viewBox (x5..19,
-             y3..21) para ter o mesmo peso visual dos demais ícones da aba
-             (lupa e glifos da fonte), que também preenchem a própria caixa. -->
-        <svg viewBox="0 0 24 24" width="23" height="23" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M7 3h7l5 5v11a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/>
-          <path d="M14 3v5h5"/>
-          <line x1="12" y1="12" x2="12" y2="17.6"/>
-          <line x1="9.2" y1="14.8" x2="14.8" y2="14.8"/>
-        </svg>
-        <input id="file" type="file" accept="image/*,video/*,audio/*" multiple hidden>
-      </label>
       <button class="tab active" data-tab="imports" title="Cronograma"><span class="msym">&#xe413;</span></button>
       <button class="tab" data-tab="folders" title="Pastas"><span class="msym">&#xe2c7;</span></button>
       <button class="tab" data-tab="albums" title="Álbuns"><span class="msym">&#xe03d;</span></button>
@@ -125,6 +116,38 @@
               </div>
             </div>
           </div>
+          <!-- Botões flutuantes sobre a preview: semitransparentes, escondidos
+               por padrão. Um toque na preview mostra/esconde os três (ver
+               setupPreviewGestures). Ficam SEMPRE ocultos em tela cheia — é a
+               tela cheia que vai ao telão quando não há TV conectada, e um
+               botão sobreposto seria projetado junto. -->
+          <div class="pv-fabs" id="pvFabs" hidden>
+            <button id="pvSettingsBtn" class="pv-fab pv-fab--tl" title="Configurações de exibição">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="3.2"/>
+                <path d="M19.4 14.2a1.6 1.6 0 0 0 .32 1.77l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.6 1.6 0 0 0-1.77-.32 1.6 1.6 0 0 0-.97 1.47V20a2 2 0 1 1-4 0v-.11a1.6 1.6 0 0 0-1.05-1.46 1.6 1.6 0 0 0-1.77.32l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.6 1.6 0 0 0 .32-1.77 1.6 1.6 0 0 0-1.47-.97H4a2 2 0 1 1 0-4h.11a1.6 1.6 0 0 0 1.46-1.05 1.6 1.6 0 0 0-.32-1.77l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.6 1.6 0 0 0 1.77.32H9.9a1.6 1.6 0 0 0 .97-1.47V4a2 2 0 1 1 4 0v.11a1.6 1.6 0 0 0 .97 1.47 1.6 1.6 0 0 0 1.77-.32l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.6 1.6 0 0 0-.32 1.77v.08a1.6 1.6 0 0 0 1.47.97H20a2 2 0 1 1 0 4h-.11a1.6 1.6 0 0 0-1.47.97z"/>
+              </svg>
+            </button>
+            <!-- Cast: abre o seletor de espelhamento do Android (Smart View /
+                 Transmitir). Só faz sentido no app nativo — escondido no
+                 navegador (ver setupPreviewFabs). -->
+            <button id="pvCastBtn" class="pv-fab pv-fab--tr" title="Espelhar na TV" hidden>
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M3 19a2 2 0 0 1 2 2"/>
+                <path d="M3 15.5a5.5 5.5 0 0 1 5.5 5.5"/>
+                <path d="M3 12a9 9 0 0 1 9 9"/>
+                <path d="M8.5 5h10A2.5 2.5 0 0 1 21 7.5v9a2.5 2.5 0 0 1-2.5 2.5H16"/>
+              </svg>
+            </button>
+            <button id="pvFullBtn" class="pv-fab pv-fab--br" title="Tela cheia">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M4 9V5.5A1.5 1.5 0 0 1 5.5 4H9"/>
+                <path d="M15 4h3.5A1.5 1.5 0 0 1 20 5.5V9"/>
+                <path d="M20 15v3.5a1.5 1.5 0 0 1-1.5 1.5H15"/>
+                <path d="M9 20H5.5A1.5 1.5 0 0 1 4 18.5V15"/>
+              </svg>
+            </button>
+          </div>
         </div>
         <button id="slideNextBtn" class="slide-nav-btn" title="Próxima estrofe" disabled><span class="msym">&#xe044;</span></button>
       </div>
@@ -146,32 +169,36 @@
            volume recolhível (vira fader ao abrir, ocupando top+mid). -->
       <div class="mixer" id="mixer">
         <div class="mixer-slot mixer-top">
-          <button id="viewToggle" class="ctl-btn view-btn fill-btn" title="Alternar Visual / Wallpaper"><span class="msym">&#xe251;</span></button>
+          <div class="mixer-stack">
+            <button id="viewToggle" class="ctl-btn view-btn fill-btn" title="Alternar Visual / Wallpaper"><span class="msym">&#xe251;</span></button>
+          </div>
         </div>
         <div class="mixer-slot mixer-mid">
-          <button id="lyricsBgToggle" class="ctl-btn lyricsbg-btn fill-btn" title="Fundo preto atrás da letra (toque para usar as imagens dos slides)">
-            <!-- Ícone de flor (SVG inline, fora do subset da fonte): rosácea de
-                 6 pétalas com miolo, o indicador do fundo da letra. -->
-            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true">
-              <circle cx="12" cy="5.9" r="3.1"/>
-              <circle cx="12" cy="18.1" r="3.1"/>
-              <circle cx="6.7" cy="8.95" r="3.1"/>
-              <circle cx="17.3" cy="8.95" r="3.1"/>
-              <circle cx="6.7" cy="15.05" r="3.1"/>
-              <circle cx="17.3" cy="15.05" r="3.1"/>
-            </svg>
-          </button>
-          <button id="standaloneToggle" class="ctl-btn standalone-btn fill-btn" title="Ouvir o áudio aqui / mesa de som (áudio independente do Display)">
-            <!-- Ícone de fone de ouvido (SVG inline, fora do subset da fonte):
-                 deixa claro que este botão faz o áudio sair no próprio aparelho
-                 (ouvir/mesa de som), distinto do ícone de nota musical. -->
-            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M4 13v-1a8 8 0 0 1 16 0v1"/>
-              <path d="M4 15a2 2 0 0 1 2-2h1v6H6a2 2 0 0 1-2-2z"/>
-              <path d="M20 15a2 2 0 0 0-2-2h-1v6h1a2 2 0 0 0 2-2z"/>
-            </svg>
-          </button>
-          <button id="muteToggle" class="ctl-btn mute-btn fill-btn" title="Mudo (liga/desliga)"><span class="msym">&#xe050;</span></button>
+          <div class="mixer-stack">
+            <button id="lyricsBgToggle" class="ctl-btn lyricsbg-btn fill-btn" title="Fundo preto atrás da letra (toque para usar as imagens dos slides)">
+              <!-- Ícone de flor (SVG inline, fora do subset da fonte): rosácea de
+                   6 pétalas com miolo, o indicador do fundo da letra. -->
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true">
+                <circle cx="12" cy="5.9" r="3.1"/>
+                <circle cx="12" cy="18.1" r="3.1"/>
+                <circle cx="6.7" cy="8.95" r="3.1"/>
+                <circle cx="17.3" cy="8.95" r="3.1"/>
+                <circle cx="6.7" cy="15.05" r="3.1"/>
+                <circle cx="17.3" cy="15.05" r="3.1"/>
+              </svg>
+            </button>
+            <button id="standaloneToggle" class="ctl-btn standalone-btn fill-btn" title="Ouvir o áudio aqui / mesa de som (áudio independente do Display)">
+              <!-- Ícone de fone de ouvido (SVG inline, fora do subset da fonte):
+                   deixa claro que este botão faz o áudio sair no próprio aparelho
+                   (ouvir/mesa de som), distinto do ícone de nota musical. -->
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M4 13v-1a8 8 0 0 1 16 0v1"/>
+                <path d="M4 15a2 2 0 0 1 2-2h1v6H6a2 2 0 0 1-2-2z"/>
+                <path d="M20 15a2 2 0 0 0-2-2h-1v6h1a2 2 0 0 0 2-2z"/>
+              </svg>
+            </button>
+            <button id="muteToggle" class="ctl-btn mute-btn fill-btn" title="Mudo (liga/desliga)"><span class="msym">&#xe050;</span></button>
+          </div>
         </div>
         <!-- estado aberto: fader ocupa o lugar de top+mid (mesma posição/altura) -->
         <div class="fader-wrap">
@@ -180,15 +207,17 @@
         <!-- base da grade: abrir o volume (ícone de mixer). Fica na MESMA
              posição do botão de ocultar (✕), que aparece aqui no estado aberto -->
         <div class="mixer-slot mixer-bottom">
-          <button id="volToggle" class="ctl-btn vol-btn" title="Volume (mixer)">
-            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
-              <line x1="6" y1="4" x2="6" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/><line x1="18" y1="4" x2="18" y2="20"/>
-              <rect x="3.5" y="7" width="5" height="3" rx="1.5" fill="currentColor" stroke="none"/>
-              <rect x="9.5" y="13" width="5" height="3" rx="1.5" fill="currentColor" stroke="none"/>
-              <rect x="15.5" y="9" width="5" height="3" rx="1.5" fill="currentColor" stroke="none"/>
-            </svg>
-          </button>
-          <button id="volClose" class="ctl-btn vol-close" title="Ocultar volume"><span class="msym">&#xe14c;</span></button>
+          <div class="mixer-stack">
+            <button id="volToggle" class="ctl-btn vol-btn" title="Volume (mixer)">
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+                <line x1="6" y1="4" x2="6" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/><line x1="18" y1="4" x2="18" y2="20"/>
+                <rect x="3.5" y="7" width="5" height="3" rx="1.5" fill="currentColor" stroke="none"/>
+                <rect x="9.5" y="13" width="5" height="3" rx="1.5" fill="currentColor" stroke="none"/>
+                <rect x="15.5" y="9" width="5" height="3" rx="1.5" fill="currentColor" stroke="none"/>
+              </svg>
+            </button>
+            <button id="volClose" class="ctl-btn vol-close" title="Ocultar volume"><span class="msym">&#xe14c;</span></button>
+          </div>
         </div>
       </div>
     </div>
@@ -236,9 +265,13 @@
           </div>
         </div>
       </div>
+      <!-- Estado do telão. Não há mais "Abrir Display": o Display é a
+           `Presentation` que o shell cria sozinho na TV (e recria quando o
+           dongle cai e volta) — não existe o que abrir. No navegador, onde
+           não há Presentation, vira o atalho para a tela do Display. -->
       <div class="popup-footer">
-        <button id="openDisplayBtn" class="new-folder-btn">
-          <span class="msym">&#xe251;</span> Abrir Display
+        <button id="openDisplayBtn" class="display-status">
+          <span class="msym">&#xe251;</span> <span id="displayStatusText">Telão</span>
         </button>
       </div>
     </div>

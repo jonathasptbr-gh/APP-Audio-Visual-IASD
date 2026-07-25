@@ -1,27 +1,28 @@
 # Claude Code — Audio Visual IASD
 
-Sistema de projeção de mídia para culto (IASD), dividido em dois PWAs no mesmo
-origin — **Controle** (celular do operador) e **Display** (telão via Miracast) —
-em JavaScript puro, sem frameworks nem dependências de build. Funciona 100%
-offline após a primeira carga.
+A **base web** do sistema de projeção de mídia para culto (IASD): duas telas no
+mesmo origin — **Controle** (celular do operador) e **Display** (o telão) — em
+JavaScript puro, sem frameworks nem dependências de build. Funciona 100%
+offline.
+
+> Este documento cobre **só a base web** (`app/src/main/assets/web/`). A casca
+> Android que a hospeda — Presentation, ponte `AVNative`, SAF, OTA, serviço de
+> segundo plano — está em [`../CLAUDE.md`](../CLAUDE.md).
 
 ## Índice
 
 1. [Regra obrigatória após qualquer alteração](#regra-obrigatória-após-qualquer-alteração) — fluxo de git/merge
 2. [Regras de desenvolvimento](#regras-de-desenvolvimento) — invariantes do projeto
-3. [A ideia](#a-ideia) — por que dois PWAs
+3. [A ideia](#a-ideia-duas-telas-um-só-estado) — duas telas, um só estado
 4. [Estrutura de arquivos](#estrutura-de-arquivos)
 5. [Modelo de dados (`shared/db.js`)](#modelo-de-dados-shareddbjs) — IDB, OPFS, BroadcastChannel
 6. [Motor de renderização (`shared/stage.js`)](#motor-de-renderização-sharedstagejs) — cortina, fades, concorrência
-7. [PWA Controle](#pwa-controle) — layout, mixer, biblioteca, coleções (LouvorJA), letra sincronizada
-8. [PWA Display](#pwa-display) — wallpaper, YouTube, recuperação de áudio
+7. [Controle](#controle) — layout, mixer, biblioteca, coleções (LouvorJA), letra sincronizada
+8. [Display](#display) — wallpaper, YouTube, recuperação de áudio
 9. [Design System (padrões visuais / CSS)](#design-system-padrões-visuais--css) — **tokens de cor/medida/método**
-10. [Servidor (`server.js`)](#servidor-serverjs)
-11. [Service Workers e cache](#service-workers-e-cache)
-12. [Fonte de ícones (Material Symbols)](#fonte-de-ícones-material-symbols)
-13. [Deploy e CI](#deploy-e-ci)
-14. [Rodar localmente](#rodar-localmente)
-15. [Instalar no Android](#instalar-no-android)
+10. [Como esta base é servida](#como-esta-base-é-servida)
+11. [Fonte de ícones (Material Symbols)](#fonte-de-ícones-material-symbols)
+12. [Build, distribuição e instalação](#build-distribuição-e-instalação)
 
 ---
 
@@ -46,11 +47,12 @@ git push origin main
 
 ## Regras de desenvolvimento
 
-- **Contexto de execução fixo: os dois apps SEMPRE rodam como PWA instalado,
-  sem exceções, e sempre em dispositivos móveis (Android).** Não projetar nem
-  otimizar para uso em aba de navegador ou desktop; decisões de UX/autoplay/
-  layout assumem PWA mobile instalado (Display espelhado via Miracast,
-  Controle no celular do operador).
+- **Contexto de execução fixo: as duas telas SEMPRE rodam dentro do app
+  Android**, em dispositivo móvel — o Controle no celular do operador, o
+  Display numa `Presentation` na TV. Não projetar nem otimizar para aba de
+  navegador ou desktop: decisões de UX/autoplay/layout assumem esse contexto.
+  Rodar no navegador continua sendo obrigatório (é como se desenvolve e testa
+  fora do aparelho), mas não é o alvo do desenho.
 - Nunca perder funcionalidades existentes ao refatorar.
 - **Seleção de texto desligada globalmente nos dois apps** (`user-select:
   none !important` + `-webkit-touch-callout: none` +
@@ -62,69 +64,67 @@ git push origin main
   aparelho. Única exceção: `input, textarea` no Controle (`user-select: text
   !important`, que vence o `*` pela maior especificidade) — os campos de busca
   (`#libSearch`/`#hymnSearchInput`) precisam continuar editáveis/selecionáveis.
-- Ao alterar assets estáticos, incrementar a versão nos dois `sw.js` **usando o mesmo número da versão visual** (ex: `controle-v2.6`, `display-v2.6`).
 - Toda operação IDB multi-passo que precise de atomicidade deve usar `storeTx()`.
-- Não introduzir dependências externas — o projeto usa Node puro no servidor e JavaScript puro no cliente. (Exceção já existente: Display **e** Controle carregam a IFrame Player API oficial do YouTube via `<script src="https://www.youtube.com/iframe_api">` em runtime — não é dependência de build/npm, e o recurso YouTube já depende de rede/youtube.com para tocar o vídeo mesmo sem essa API. O Controle usa isso para a preview de vídeos do YouTube — ver seção do YouTube.)
-- Ao atualizar o código, atualizar este CLAUDE.md se a mudança afetar arquitetura, protocolo de comandos ou API pública.
-- **Este `public/` também é hospedado por um app Android nativo, num
-  repositório irmão** (shell em Kotlin com `android.app.Presentation`, para
-  projetar na TV sem espelhar o celular). Os dois produtos — PWA e APK —
-  compartilham **esta única base de código**, sem fork nem cópia. Portanto:
-  (a) todo código novo precisa continuar rodando **no navegador** — caminhos
-  específicos do nativo entram sempre como `if (!window.__NATIVE__) { …web… }`,
-  nunca o inverso; (b) nenhuma linha de código nativo (Kotlin/Gradle) entra
-  neste repositório. O objetivo final, o contrato entre os dois repos e o
-  plano de execução estão em
-  [`docs/ANALISE-APP-NATIVO-ANDROID.md`](docs/ANALISE-APP-NATIVO-ANDROID.md) —
-  leia antes de mexer em service worker, autoplay, `showDirectoryPicker` ou
-  `share_target`, que são justamente os pontos de divergência entre os dois
-  contextos.
+- Não introduzir dependências externas — JavaScript puro no cliente, Kotlin puro + AndroidX oficial no shell. (Exceção já existente: Display **e** Controle carregam a IFrame Player API oficial do YouTube via `<script src="https://www.youtube.com/iframe_api">` em runtime — não é dependência de build/npm, e o recurso YouTube já depende de rede/youtube.com para tocar o vídeo mesmo sem essa API. O Controle usa isso para a preview de vídeos do YouTube — ver seção do YouTube.)
+- Ao atualizar o código, atualizar este documento se a mudança afetar arquitetura, protocolo de comandos ou API pública. Mudanças no shell (Kotlin) vão em `../CLAUDE.md`.
+- **Todo código novo precisa continuar rodando no navegador.** Caminhos
+  específicos do nativo entram sempre como `if (!window.__NATIVE__) { …web… }`
+  — nunca o inverso: o comportamento de navegador é o padrão, e o nativo é a
+  exceção que se declara. Os pontos onde os dois divergem (autoplay, pastas do
+  dispositivo, compartilhamento, fullscreen, atualização) estão tabelados em
+  `../CLAUDE.md`, "Divergências entre o caminho web e o nativo".
 - **A cada atualização de código, incrementar a versão visual do Controle** em
   **três lugares que precisam bater**: a constante `WEB_VERSION` em
   `controle/controle.js` (é ela que o cabeçalho renderiza — ver
   `renderVersionLabel()`), o fallback estático do `<span id="appVersion">` em
   `controle/index.html` e `version` em `version.json` (é este último que
   dispara a atualização por OTA nos aparelhos). Versionamento incremental
-  simples (4.85, 4.86, 4.87…). **Versão atual: v4.87.**
-  No app nativo o rótulo mostra os **dois índices** — `Web v4.87 · Shell v1.6`
+  simples (4.86, 4.87, 4.88…). **Versão atual: v4.88.**
+  No app nativo o rótulo mostra os **dois índices** — `Web v4.88 · Shell v1.7`
   —, porque base web e shell atualizam por caminhos independentes (OTA ×
-  instalar APK); no navegador sai só `Controle v4.87`.
+  instalar APK); no navegador sai só `Controle v4.88`.
 
 ---
 
-## A ideia
+## A ideia: duas telas, um só estado
 
-O Android consegue espelhar via **Miracast** um único app selecionado. Aproveitamos
-isso dividindo o sistema em dois PWAs:
+O sistema é **duas telas** — o **Controle** (celular do operador) e o
+**Display** (o telão) — que rodam no **mesmo origin** e por isso compartilham:
 
-| PWA | Caminho | Papel |
-|-----|---------|-------|
-| **Display** | `/display/` | Tela projetada no telão via Miracast |
-| **Controle** | `/controle/` | Interface do operador, sempre no celular |
-
-Como os dois PWAs estão no **mesmo origin**, eles compartilham:
-
-- **IndexedDB** — metadados, listas e blobs importados, acessíveis pelos dois apps.
+- **IndexedDB** — metadados, listas e blobs importados, visíveis pelas duas.
 - **OPFS** (Origin Private File System) — bytes dos arquivos sincronizados de
-  pastas do dispositivo; acesso permanente sem prompts de permissão.
-- **BroadcastChannel** (`av-iasd`) — o Controle envia comandos em tempo real para o Display.
+  pastas do dispositivo; acesso permanente, sem prompts de permissão.
+- **BroadcastChannel** (`av-iasd`) — o Controle envia comandos em tempo real
+  para o Display.
 
-Cada PWA tem `manifest.json`, `scope` e `start_url` próprios, então o Android os
-instala e trata como **dois apps distintos** — permitindo espelhar só o Display.
+**Onde cada uma roda:** no aparelho, o shell nativo abre as duas em WebViews do
+mesmo processo/origin — o Controle na Activity e o Display numa
+`android.app.Presentation`, que vai **só ele** para a TV. No navegador (só para
+desenvolver) são duas páginas, `/controle/` e `/display/`.
 
-Tudo funciona **100% offline** depois da primeira carga (service workers com
-cache-first) — exceto recursos que dependem de rede por natureza: vídeos do
-YouTube e itens de URL externa.
+> **De onde isso veio.** A arquitetura nasceu como **dois PWAs instaláveis**,
+> porque o Miracast só espelha a tela inteira do celular e a única saída era
+> instalar o Display como app separado para espelhar apenas ele. A
+> `Presentation` resolveu isso de verdade, e os andaimes daquele modelo
+> (`manifest.json`, ícones de WebAPK, service workers, a página com os dois
+> links) **foram removidos** — ver CLAUDE.md, "Andaimes do modelo de dois
+> PWAs". O que ficou é justamente o que era bom: mesmo origin, IDB/OPFS/
+> BroadcastChannel compartilhados e um protocolo de comandos que não mudou.
+
+Tudo funciona **100% offline** — os arquivos vêm do APK (ou do bundle OTA já
+baixado) —, exceto o que depende de rede por natureza: vídeos do YouTube,
+itens de URL externa e a primeira sincronização do acervo LouvorJA.
 
 ---
 
 ## Estrutura de arquivos
 
 ```
-public/
-├── index.html                  # Página inicial com links para os dois PWAs
+app/src/main/assets/web/
+├── version.json                # identidade do bundle OTA (version + minShell)
 ├── shared/
-│   ├── db.js                   # Camada comum: IndexedDB + OPFS + BroadcastChannel
+│   ├── native.js               # ponte AVNative (só existe no app; no-op no navegador)
+│   ├── db.js                   # Camada comum: IndexedDB + OPFS + BroadcastChannel (+ relay nativo)
 │   ├── stage.js                # Motor de renderização compartilhado
 │   ├── material-symbols.css    # Font-face da fonte de ícones (subset offline; só o Controle usa)
 │   └── fonts/
@@ -134,21 +134,18 @@ public/
 │   ├── controle.css            # Estilos do Controle
 │   ├── controle.js             # Lógica do Controle
 │   ├── louvorja.js             # Cliente da API pública do LouvorJA (Coleções de mídia — ver seção própria)
-│   ├── bible.js                # Cliente da parte bíblica do banco LouvorJA (livros/versões/capítulos — ver seção "Bíblia")
-│   ├── icons/                  # icon-{192,512}.svg + .png (PNG obrigatório p/ WebAPK) + icon-maskable-{192,512}.png (ver "Instalar no Android")
-│   ├── manifest.json           # PWA manifest (portrait + share_target)
-│   └── sw.js                   # Service worker (cache: controle-vX.Y)
+│   └── bible.js                # Cliente da parte bíblica do banco LouvorJA (livros/versões/capítulos — ver seção "Bíblia")
 └── display/
     ├── index.html              # UI do Display (inclui iframe #youtube)
     ├── display.css             # Estilos do Display
-    ├── display.js              # Lógica do Display
-    ├── icons/                  # icon-{192,512}.svg + .png (PNG obrigatório p/ WebAPK) + icon-maskable-{192,512}.png (ver "Instalar no Android")
-    ├── manifest.json           # PWA manifest (standalone; orientation:"landscape" — ver "Instalar no Android")
-    └── sw.js                   # Service worker (cache: display-vX.Y)
-server.js                       # Servidor estático mínimo (Node puro, sem deps)
+    └── display.js              # Lógica do Display
 docs/
 └── FONTE-DE-DADOS-LOUVORJA.md  # Referência técnica do banco compartilhado (app-ja/LouvorJA)
 ```
+
+Sem `manifest.json`, sem `icons/`, sem `sw.js` e sem `server.js`: ícone, nome e
+orientação vêm do APK, os arquivos são locais por natureza e a atualização é
+por OTA (ver "Como esta base é servida").
 
 ---
 
@@ -537,7 +534,7 @@ iniciado aplica seu resultado — chamadas anteriores obsoletas são descartadas
 
 ---
 
-## PWA Controle
+## Controle
 
 ### Layout geral
 
@@ -591,7 +588,25 @@ reintroduzindo o desalinhamento.
 o próprio fundo via `.ctl-btn`) — `#mixer` não tem `background`/`border-radius`
 próprios, só posiciona pela grade.
 
-O mixer é dividido em 3 "fatias" (`.mixer-slot`), uma por linha da grade:
+**O mixer NUNCA dita a altura das faixas** — quem dita é sempre a coluna 1
+(nowplaying / preview / transport). Cada `.mixer-slot` é apenas uma caixa de
+posicionamento **vazia no fluxo**, e os botões vivem num `.mixer-stack`
+`position:absolute; inset:0` dentro dela. Um item absoluto sai do fluxo e não
+entra no cálculo de max-content das faixas `auto` do `.deck` — e como o
+`#mixer` é `subgrid`, qualquer coisa que ficasse no fluxo ali contribuiria
+para as faixas do pai.
+
+Era essa contribuição que deformava a caixa de controles ao **abrir o slide de
+volume**: o conteúdo do mixer muda entre os dois estados (top/mid somem, e o
+botão da base troca de ícone — um SVG de 22px por um glifo da fonte, alturas
+intrínsecas diferentes), então as faixas `auto` 1 e 3 mudavam de tamanho e
+levavam junto a altura do deck e da preview. Fora do fluxo, os dois estados
+são indistinguíveis para a grade. (O `min-height: 0` que existia antes
+resolvia só metade do problema: ele zera o mínimo automático, mas uma faixa
+`auto` continua sendo dimensionada pelo max-content dos itens.)
+
+O mixer é dividido em 3 "fatias" (`.mixer-slot` > `.mixer-stack`), uma por
+linha da grade:
 
 | Fatia | Linha da grade | Conteúdo |
 |---|---|---|
@@ -653,20 +668,34 @@ local comanda a barra de progresso e o avanço automático da playlist. Para ite
 YouTube, `cmd()` também dirige um segundo `YT.Player` próprio da preview (mudo,
 qualidade mínima) — ver seção do YouTube no Display para os detalhes.
 
-**Gestos na preview** (`setupPreviewGestures`): **toque simples** coloca a
-**própria preview em tela cheia** (`requestFullscreen` no `#preview`) e **trava
-paisagem** (`screen.orientation.lock('landscape')`, só permitido já em
-fullscreen — padrão de player de vídeo; destravada ao sair, no
-`fullscreenchange`). A preview vira a **projeção direta pelo Controle**: o
-operador espelha a tela cheia do celular (funciona em qualquer aparelho, sem
-depender do Miracast de app isolado). **NÃO abre o app Display** — os dois ficam
-independentes. **Pressionar longo (~500 ms, só fora do fullscreen)** abre o popup
-de **configurações rápidas de exibição** (bottom-sheet `#fadePopup`, título
-"Exibição"): o seletor de **preenchimento da mídia** (`#fitSeg` —
-Ajustar/Preencher/Esticar, ver `stage.setFit()`) e o atalho "Abrir Display". As
-transições (fade) **não têm mais controle aqui** — são inerentes ao sistema
-(sempre ligadas, ver o state `fade`). CSS: `.preview:fullscreen` preenche a tela (cantos retos, sem
-borda, `touch-action:none`; as camadas internas já são `inset:0` + `object-fit`).
+**Botões flutuantes sobre a preview** (`#pvFabs`, `setupPreviewGestures`):
+três botões semitransparentes nos cantos, **escondidos por padrão**. Um
+**toque na preview só mostra/esconde** os três (some sozinho em 4 s); a ação é
+de quem tocar no botão. Antes essas mesmas ações eram **gestos invisíveis** —
+toque = tela cheia, toque longo (~500 ms) = popup de Exibição —, que nada na
+tela anunciava e que o toque longo errava com frequência.
+
+| Botão | Canto | Ação |
+|---|---|---|
+| `#pvSettingsBtn` (engrenagem) | topo esquerdo | popup de **Exibição** (`openFadePopup`) |
+| `#pvCastBtn` (cast) | topo direito | seletor de espelhamento do Android (`AVNative.openCast()`) — **só no app nativo**; oculto no navegador |
+| `#pvFullBtn` (expandir) | base direita | **tela cheia** da preview (`requestFullscreen` + trava de paisagem) |
+
+Os FABs ficam **sempre ocultos em tela cheia** (`.preview:fullscreen .pv-fabs
+{ display:none }`): sem TV conectada, a tela cheia É a projeção, e um botão
+sobreposto iria junto para o telão. `.pv-fabs` é `pointer-events:none` (só os
+botões recebem toque), senão a camada cobriria a preview inteira e o toque
+nunca chegaria ao reconhecedor de gestos.
+
+A **tela cheia** (`requestFullscreen` no `#preview` + `screen.orientation.lock
+('landscape')`, permitida só já em fullscreen — padrão de player de vídeo,
+destravada no `fullscreenchange`) é a **projeção quando não há telão
+conectado**. CSS: `.preview:fullscreen` preenche a tela (cantos retos, sem
+borda, `touch-action:none`; as camadas internas já são `inset:0` +
+`object-fit`). O popup de Exibição guarda o seletor de **preenchimento da
+mídia** (`#fitSeg` — Ajustar/Preencher/Esticar, ver `stage.setFit()`), o
+**wallpaper do telão** e o **estado do telão** no rodapé. As transições (fade)
+**não têm controle ali** — são inerentes ao sistema (ver o state `fade`).
 
 **Controle por gestos invisíveis DENTRO do fullscreen:** a tela inteira vira uma
 superfície de controle **sem desenhar nada no telão** (o operador espelha a tela
@@ -807,29 +836,34 @@ igreja, sem precisar nem abrir o Display).
 - **Não é persistido** — cada abertura do app começa em modo normal (preview
   muda), evitando som inesperado saindo do celular numa sessão nova.
 
-### Abrir o Display a partir do Controle
+### Onde o Display roda
 
-O Controle e o Display são **independentes**: o fluxo principal de projeção é a
-**própria preview em tela cheia** (ver "Gestos na preview"), sem abrir o Display.
-Ainda existe o botão **"Abrir Display"** no popup de Exibição (`#openDisplayBtn`)
-como atalho manual para quem quiser lançar o app Display separado (ex.: usá-lo em
-outro aparelho, ou com Miracast de app isolado): `window.open('../display/',
-'_blank')`. **Não há garantia** de que isso abra o Display como app instalado
-separado — não existe API web para "lançar outro PWA instalado" de forma
-confiável; depende do Android reconhecer a URL como pertencente ao escopo do
-WebAPK do Display (varia por versão do Android/Chrome — pode só abrir uma aba
-comum como fallback). **Não há mais "flip por toque" nem redirecionamento
-automático entre os dois apps** — a projeção acontece no próprio Controle
-(preview em fullscreen) e o Display, quando usado, é autônomo.
+O Display **não é mais um app que se abre**. No aparelho ele é a
+`android.app.Presentation` que o shell nativo cria sozinho na TV assim que uma
+tela de apresentação aparece — e recria quando o dongle cai e volta (o WebView
+recarrega `/display/`, dispara `display-ready` e o Controle reenvia o estado
+atual). Por isso o rodapé do popup de Exibição (`#openDisplayBtn`) é um
+**indicador de estado**, alimentado ao vivo por `AVNative.displays()` +
+`onDisplayChange`: "Telão conectado: <nome> (<w>×<h>)" ou "Nenhum telão
+conectado".
+
+**Sem telão conectado**, a projeção é a **preview em tela cheia** (botão de
+expandir sobre a preview) — o operador espelha a tela inteira do celular, o que
+funciona em qualquer aparelho. É por isso que a tela cheia e seus gestos
+invisíveis continuam existindo.
+
+No **navegador** não há Presentation: o mesmo rodapé volta a ser um atalho
+(`window.open('../display/', '_blank')`) para abrir a tela do Display numa
+janela à parte — útil para desenvolver a base web fora do app, e nada mais.
 
 ### Abas e biblioteca
 
 As abas ficam na **base da seção de listas** (ícones), **mescladas ao fundo
 normal do app** (`.tabs` sem fundo/card próprio — não é mais uma seção isolada
-visualmente). Da esquerda pra direita: **Importar** (`.tab-add`, o `<label>`
-do `#file`) · **Cronograma** · **Pastas** · **Álbuns** · **Bíblia** ·
-**Mensagens** (as 5 `.tab`, `flex:1`) · **buscar no acervo** (`#hymnSearchBtn`,
-`.tab-add`, à direita):
+visualmente). Da esquerda pra direita: **Cronograma** · **Pastas** ·
+**Álbuns** · **Bíblia** · **Mensagens** (as 5 `.tab`, `flex:1`) · **buscar no
+acervo** (`#hymnSearchBtn`, `.tab-add`, à direita). A faixa é **só navegação** —
+importar arquivos saiu dela e virou uma linha no fim do Cronograma (abaixo):
 
 - **Cronograma** (`imports`) — itens importados; ficam até serem excluídos.
   (O recurso de favoritos foi removido — para agrupar mídias, use pastas
@@ -847,7 +881,14 @@ do `#file`) · **Cronograma** · **Pastas** · **Álbuns** · **Bíblia** ·
 - **Mensagens** (`messages`) — lista de mensagens de **texto puro** (avisos,
   boas-vindas etc.) criadas pelo operador (`appPrompt`), projetadas pela mesma
   **Camada de Texto** da Bíblia. Não é uma lista de mídia; ver "Camada de Texto".
-- **Importar** — `<input type="file" multiple accept="image/*,video/*,audio/*">`.
+**Importar arquivos** (`appendImportRow`) é a **última linha da lista do
+Cronograma** (`.import-row` > `.import-btn`, tracejada), não mais um botão na
+faixa de abas: é uma ação sobre ESTA lista, e no lugar onde os arquivos vão
+cair a relação é evidente. O `<input type="file" multiple>` continua sendo o
+mesmo elemento de sempre (`#file`, com o listener de `change` já registrado) —
+ele mora solto no `index.html` e é **movido** para dentro do `<label>` a cada
+render, porque `libraryEl.innerHTML = ''` destruiria um input criado ali. Não
+aparece dentro de pasta nem em modo de seleção múltipla.
 
 **Navegação persistente:** trocar de aba **não** reseta a pasta aberta nem a
 busca — voltar para Pastas retorna exatamente onde estava. A posição de scroll
@@ -1080,14 +1121,22 @@ ignora acentuação; o subtítulo do resultado mostra a coleção de origem) —
 funciona sem rede assim que os índices já tiverem sido buscados pelo menos uma
 vez (hinários e álbuns entram sozinhos via `autoRefreshCollections`); se o popup
 estiver aberto quando um índice atualiza, a lista se re-renderiza na hora.
-Cada resultado tem a **thumb à esquerda** (quadrada de 64px — proporcional à
-altura da coluna ao lado) e, à direita, uma **coluna**
-(`.hymn-main`) com duas linhas: em cima a info (`.hymn-info` — nome +
-subtítulo) e embaixo a **linha de ações** (`.hymn-actions`), só ícones, sem
-texto. As ações são agrupadas por variante (`.hymn-variant`, cada grupo
-`flex:1`); dentro do grupo, tocar/+Cronograma/+Playlist **crescem** (`flex:1`)
-pra preencher a largura disponível. Os grupos são: **Cantado** e **Playback**
-(a 2ª só se
+**Linha compacta, ações reveladas pelo toque** (`hymnResultRow`): o resultado
+é `[thumb 46px] [nome / subtítulo] [duração]` — e nada mais. Tocar na linha
+abre as ações logo abaixo, em **acordeão** (abrir uma fecha a anterior: duas
+abertas ao mesmo tempo empurrariam a lista e tirariam do lugar o que o
+operador estava mirando). Com as ações fora do caminho sobra espaço para uma
+**fonte maior** (`.hymn-name` em `1.02rem`), que é o ponto — a lista precisa
+ser legível de relance no meio do culto. A **duração** virou coluna própria à
+direita (`.hymn-time`, saiu do subtítulo, alinhada entre as linhas), e o
+subtítulo (`.hymn-sub`) ficou só com a coleção de origem, na busca global.
+
+`.hymn-actions` é **irmã** de `.hymn-row` dentro do `<li>` (não filha) — por
+isso um toque num botão de ação não borbulha para o handler da linha e não
+fecha o acordeão, sem precisar de `stopPropagation`. As ações são agrupadas
+por variante (`.hymn-variant`, cada grupo `flex:1`); dentro do grupo,
+tocar/+Cronograma/+Playlist **crescem** (`flex:1`) pra preencher a largura
+disponível. Os grupos são: **Cantado** e **Playback** (a 2ª só se
 `has_instrumental_music`), cada grupo com **três ações** — **tocar**
 (`playSongVariant`, ícone de **voz/microfone** pro Cantado, **nota musical** pro
 Playback — `voiceIconSvg`/`noteIconSvg`; substitui a playlist e exibe, igual ao
@@ -1337,11 +1386,21 @@ none; }` / `.pv-lyrics-bg img[hidden] { display: none; }`. `.lyrics-bg`/
 independente da `<img>`); `applyLyricsImage`/`applyPvLyricsImage` alternam
 `hidden` junto com `src` a cada troca de modo/slide.
 
-### Compartilhamento (Web Share Target)
+### Compartilhamento
 
-O manifest do Controle declara `share_target` (POST multipart em `share-target`,
-arquivos no campo `media`). O SW intercepta o POST, grava `pending-share` no IDB
-e redireciona para o app; `checkPendingShare()` processa no init:
+Compartilhar mídia com o app cai direto no **Cronograma**. Quem recebe é o
+`intent-filter` nativo (`ShareIntake.kt`), que entrega o share à ponte no
+formato `{ files:[{name,type,url}], url, title }` — as URLs são servíveis
+(`/saf/<token>`), nunca bytes. Do lado web, `checkPendingShare()` processa no
+init (e `window.__avShareArrived()` empurra na hora quando o app já está
+aberto):
+
+> Isto substituiu o **Web Share Target** do modelo de PWA: o
+> `manifest.json` do Controle declarava `share_target` (POST multipart em
+> `share-target`, arquivos no campo `media`), o service worker interceptava o
+> POST, gravava `pending-share` no IDB e redirecionava para o app. O formato
+> do `pending-share` e todo o processamento abaixo continuam idênticos — só a
+> entrega mudou.
 
 - **Arquivos** → importados como `addMedia` (com thumbnail).
 - **URL do YouTube** (youtu.be, youtube.com — `watch?v=`, `/shorts/`, `/live/`,
@@ -1676,7 +1735,7 @@ são cortados com reticências (`-webkit-line-clamp` + `overflow:hidden`); o mod
 
 ---
 
-## PWA Display
+## Display
 
 Interface mínima: wallpaper + layer de imagem + layer de vídeo + iframe do YouTube.
 
@@ -1690,21 +1749,19 @@ quem decide se retoma o que estava tocando é o **Controle**, ao receber
 `display-ready` (com base no que ELE sabe que estava tocando, não em algo
 persistido pelo próprio Display).
 
-**Toque único ao abrir (`#startBtn`, "Ligar Sistema"):** a área de toque
-cobre a tela inteira (z-index acima de tudo, inclusive do wallpaper e do
-escudo do YouTube — qualquer toque na tela serve) e some para sempre após o
-primeiro toque; um `.start-pill` central (fundo amarelo, cantos arredondados,
-sombra) é só a pista visual de "isto é clicável" — sem ele o texto flutuando
-no preto não parecia um botão. **O `#startBtn` APENAS ativa o Display** (destrava
-o áudio de terceiros/YouTube com o gesto real) — o Display é **independente**:
-**não abre o Controle nem redireciona pra lugar nenhum** (não há mais o "flip por
-toque" — a projeção principal virou a preview do Controle em fullscreen; ver
-"Gestos na preview"). Continua `display: standalone` no manifest (não `fullscreen`
-— um contexto fullscreen prende popups numa Custom Tab), mas aqui já não há
-nenhum `window.open`. (Chegou a existir uma chamada a `requestFullscreen()` +
-trava de orientação via Screen Orientation API **no Display** — removida: na
-prática regrediu o lançamento do Controle e nunca engajou; ver "Instalar no
-Android". A trava de paisagem só reapareceu, com sucesso, na **preview do
+**Toque único ao abrir (`#startBtn`, "Ligar Sistema") — só no navegador.**
+No app ele fica **oculto** (`window.__NATIVE__`): o WebView roda com
+`mediaPlaybackRequiresUserGesture = false`, e uma TV não recebe toque nenhum.
+No navegador a área de toque cobre a tela inteira (z-index acima de tudo,
+inclusive do wallpaper e do escudo do YouTube — qualquer toque serve) e some
+para sempre após o primeiro toque; um `.start-pill` central (fundo amarelo,
+cantos arredondados, sombra) é só a pista visual de "isto é clicável" — sem
+ele o texto flutuando no preto não parecia um botão. **Ele APENAS ativa o
+Display** (destrava o áudio de terceiros/YouTube com o gesto real): não abre o
+Controle nem redireciona pra lugar nenhum. (Chegou a existir uma chamada a
+`requestFullscreen()` + trava de orientação via Screen Orientation API **no
+Display** — removida: na prática regrediu o lançamento do Controle e nunca
+engajou. A trava de paisagem só reapareceu, com sucesso, na **preview do
 Controle** — lá ela roda já dentro de um `requestFullscreen` de elemento, que é o
 contexto em que a Screen Orientation API é permitida.) Ao tocar, a classe `.confirming` dispara uma
 animação rápida (~0,3s: pill cresce levemente e esmaece, fundo vai a
@@ -1714,7 +1771,7 @@ instante do toque e a ação parecia não ter surtido efeito nenhum. Existe
 porque autoplay com som em conteúdo de
 **terceiros** (o iframe do YouTube) exige um **gesto real do usuário** na
 página — diferente da mídia local do stage (mesma origem), que autoplay com
-som é liberado automaticamente num PWA instalado (ver abaixo). Esse gesto **não
+som é liberado automaticamente (ver abaixo). Esse gesto **não
 pode ser simulado via JS** (é assim que o navegador garante que é uma ação
 real da pessoa) — por isso o botão, em vez de tentar automatizar. O toque é um
 `pointerdown` normal, que já borbulha para o listener de recuperação de áudio
@@ -1730,8 +1787,9 @@ bloqueante para ela. Se a política de autoplay do navegador bloquear
 som sem gesto num vídeo/áudio local, ele **começa mudo** (sempre permitido — o
 conteúdo aparece no telão sem toque) e a recuperação automática religa o áudio
 em retentativas de ~5 s (`setMute(false)`, detectando se o navegador pausou).
-Num **PWA instalado** o navegador costuma liberar autoplay com som — a
-primeira retentativa resolve. **Nada é exibido no telão**: o estado vai no
+**No app este mecanismo é desativado** (`window.__NATIVE__`): sem política de
+gesto no WebView, qualquer detecção seria falso positivo. No navegador, a
+primeira retentativa costuma resolver. **Nada é exibido no telão**: o estado vai no
 campo `audioBlocked` do `display-status`; no **Controle**, além do toast, o
 **botão de mudo do mixer** vira indicador (estado `.blocked`, âmbar pulsante,
 ícone de volume off) e **atalho**: o clique envia `audio-retry` (retentativa
@@ -2022,49 +2080,24 @@ ao fim natural.
 
 ---
 
-## Servidor (`server.js`)
+## Como esta base é servida
 
-- Serve `public/` com tipos MIME corretos.
-- Diretórios sem extensão resolvidos para `index.html`.
-- Proteção contra path traversal: verifica `filePath.startsWith(ROOT + path.sep)`.
-- URLs com percent-encoding inválido retornam HTTP 400.
-- Service workers recebem `Cache-Control: no-cache`.
+Não há servidor nem service worker neste repositório. Os arquivos são servidos
+pelo shell nativo via `WebViewAssetLoader`, em
+`https://appassets.androidplatform.net/` (contexto seguro — é o que faz OPFS e
+IndexedDB funcionarem), e a atualização chega por **OTA**, não por cache-first.
+Ver `CLAUDE.md` (seções "Invariantes do shell" e "OTA da base web").
 
----
+O que isso substituiu, do tempo dos dois PWAs: um `server.js` em Node puro para
+desenvolvimento, dois `sw.js` com cache-first + versão de cache por app, o
+auto-reload no `controllerchange` e o POST em `share-target` interceptado pelo
+SW (hoje um `intent-filter` — ver "Compartilhamento").
 
-## Service Workers e cache
-
-```
-controle/sw.js → const CACHE = 'controle-vX.Y'
-display/sw.js  → const CACHE = 'display-vX.Y'
-```
-
-Estratégia: cache-first (somente no cache próprio do app) com fallback para rede.
-Na ativação apaga caches antigos da mesma palavra-chave sem tocar nos caches do
-outro app. Os dois SWs chamam `skipWaiting()` na instalação e `clients.claim()`
-na ativação — o SW novo assume na hora.
-
-### Auto-atualização (recarrega para a versão nova)
-
-Como os apps rodam sempre como PWA instalado (o operador costuma **retomar** do
-segundo plano em vez de relançar), cada página busca versões novas por conta
-própria: ao carregar e em cada `visibilitychange` visível, chama
-`registration.update()`. Quando um SW novo assume o controle (evento
-`controllerchange`), a página **recarrega** para exibir a versão nova (guarda
-`hadController` evita recarregar na primeira instalação; flag `refreshing` evita
-loop). No **Controle** o reload é imediato (não afeta a projeção — o Display é
-outro app). No **Display** o reload é **adiado enquanto há mídia em cena**
-(`!yt && !stage.isPlaying() && !stage.getCurrent()`) para nunca piscar/
-interromper a projeção ao vivo — recarrega só quando volta ao wallpaper (idle),
-reavaliando a cada 3 s. Observação: como o auto-atualizador vive no JS da
-página (cacheado pelo SW), a **primeira** vez que ele passa a existir exige um
-relançamento manual; a partir daí as atualizações chegam sozinhas.
-
-Além do cache, o SW do **Controle** trata o POST em `share-target` → grava
-`pending-share` no IDB e redireciona `303 ./` (Web Share Target).
-
-**Ao alterar qualquer asset estático, usar o mesmo número da versão visual do Controle nos dois sw.js.**
-Ex: se a versão visual é `v2.6`, os caches ficam `controle-v2.6` e `display-v2.6`.
+Para abrir a base no navegador durante o desenvolvimento basta qualquer
+servidor estático apontado para `app/src/main/assets/web/` (`python3 -m
+http.server`, por exemplo). Sem o shell, `window.__NATIVE__` fica indefinido e
+todo o caminho nativo vira no-op — que é exatamente a regra de escrita do
+projeto.
 
 ---
 
@@ -2152,7 +2185,7 @@ Versão subconjuntada (~3.2 KB woff2): peso 400, 30 glifos no subset (26
 efetivamente usados na UI — referenciados por codepoint via o mapa `ICON` em
 `controle.js` **ou** direto como entidade HTML `&#x…;` no `controle/index.html`).
 **Só o Controle carrega a fonte** — o Display é só wallpaper + mídia, sem
-nenhum glifo (por isso `display/index.html` e `display/sw.js` não incluem
+nenhum glifo (por isso `display/index.html` não inclui
 `material-symbols.css`/`.woff2`).
 
 **Codepoints no subset:**
@@ -2177,8 +2210,10 @@ a cor do botão). Hoje: o botão de **volume** do mixer (`#volToggle`, ícone de
 faders/mixer), a **lupa** da busca do acervo (`#hymnSearchBtn`), a antena de
 **Wi-Fi** dos cards de coleção (`wifiIconEl`), o **fone de ouvido** da mesa de
 som (`#standaloneToggle`), a **flor** do fundo da letra (`#lyricsBgToggle`) e o
-ícone **"arquivos+"** (documento com `+`) do botão de importar da aba
-(`.tab-add` do `#file`), que diferencia importar ARQUIVOS de sincronizar PASTA,
+ícone **"arquivos+"** (documento com `+`) do botão de importar no fim do
+Cronograma (`.import-btn`), que diferencia importar ARQUIVOS de sincronizar
+PASTA, os três botões flutuantes da preview (**engrenagem**, **cast** e
+**expandir** — `#pvSettingsBtn`/`#pvCastBtn`/`#pvFullBtn`),
 e nos **cards de coleção** as **setas circulares** de sincronizar
 (`syncIconSvg`), o **check** verde de "completo offline" (`checkIconSvg`) e o
 ícone de **lista** do botão "Ver músicas" (`listIconSvg`); e nos
@@ -2186,7 +2221,7 @@ resultados da busca os botões de tocar **voz/microfone** (Cantado, `voiceIconSv
 e **nota musical** (Playback, `noteIconSvg`); e o **livro com uma cruz** da aba
 **Bíblia** (`.tab[data-tab="bible"]`).
 
-> **Borda nativa dos `<button>`**: `.tab-add` (e os botões do cartão do Hinário)
+> **Borda nativa dos `<button>`**: `.tab-add`, `.pv-fab` (e os botões do cartão do Hinário)
 > zeram `border`/`appearance` explicitamente — sem isso, um `<button>` (ex.:
 > `#hymnSearchBtn`) herda a **borda 3D bicolor (bevel)** do sistema, fora do
 > padrão do app. O mesmo motivo do `appearance:none` no `.lib-search`
@@ -2194,147 +2229,15 @@ e **nota musical** (Playback, `noteIconSvg`); e o **livro com uma cruz** da aba
 
 ---
 
-## Deploy e CI
+## Build, distribuição e instalação
 
-Push em `main` → GitHub Actions (`.github/workflows/deploy.yml`) publica `public/`
-no GitHub Pages.
+Tudo isso vive no shell, não aqui: o APK é gerado e assinado pelo CI
+(`.github/workflows/apk.yml`) e a base web é publicada como bundle OTA na
+release de tag fixa `web-latest`. Ver `CLAUDE.md`, seções "OTA da base web" e
+"Build e distribuição".
 
-**URL de produção:** `https://jonathasptbr-gh.github.io/Audio-Visual-IASD/`
-
-**Retentativa automática do deploy:** o backend do GitHub Pages falha de forma
-intermitente com "Deployment failed, try again later" (problema conhecido e
-em aberto do lado do GitHub — ver [actions/deploy-pages#406](https://github.com/actions/deploy-pages/issues/406)
-e [#418](https://github.com/actions/deploy-pages/issues/418) — não é causado
-pelo nosso workflow nem pelo aviso de depreciação do Node 20→24 que aparece em
-toda run, sucesso ou falha). `deploy-pages@v4` não tem retentativa própria
-para esse status "failed" definitivo (`error_count` só cobre erros
-transitórios de rede durante o polling de status). O workflow repete a mesma
-action oficial até **3 vezes** (com um `sleep 15` entre tentativas) antes de
-desistir de vez — sem isso, cada falha exigia redisparo manual
-(`workflow_dispatch`).
-
----
-
-## Rodar localmente
-
-```bash
-npm start   # http://localhost:3000
-```
-
-Service workers funcionam em `localhost`. Em produção é necessário HTTPS.
-
----
-
-## Instalar no Android
-
-1. Abrir a URL no Chrome.
-2. Acessar **Display** → "Adicionar à tela inicial" → instalar.
-3. Acessar **Controle** → instalar da mesma forma.
-4. Espelhar o **Display** via Miracast; operar pelo **Controle**.
-
-> Instalar o Display como PWA também libera o autoplay **com som** na maioria
-> dos casos (política de mídia do Chrome para apps instalados) — sem precisar
-> tocar na tela. Se o navegador ainda bloquear, o vídeo começa mudo e o áudio
-> é religado automaticamente (aviso discreto na base da tela enquanto isso).
-
-**Ícones em PNG são obrigatórios para o Android reconhecer o app como
-instalado de verdade** (WebAPK) — com ícones só em SVG, o gerador de WebAPK do
-Chrome falha silenciosamente em alguns casos e o Android volta ao modo
-"atalho" (o app abre dentro do Chrome de fato, e por isso aparece com o ícone
-do Chrome — não o próprio — na tela dividida e na lista de apps recentes; era
-esse o sintoma do Display antes desta correção). Por isso `manifest.json` dos
-dois apps lista os ícones **PNG primeiro** (`icon-192.png`/`icon-512.png`,
-`purpose: "any"`) e as versões SVG depois, como opção extra — os PNGs foram
-gerados a partir dos SVGs existentes (mesmo desenho, só rasterizado) e também
-precisam ser adicionados à lista `ASSETS` do `sw.js` correspondente para
-entrarem no cache offline.
-
-**Ícones `maskable` com margem de segurança** (`icon-maskable-192.png`/
-`icon-maskable-512.png`, `purpose: "maskable"`): o Android pode recortar um
-ícone maskable em formatos adaptativos (círculo, esquadria…), então o conteúdo
-importante precisa caber dentro de uma "safe zone" central (~66% do canvas) —
-usar o mesmo desenho de `icon-512.svg`/`icon-192.svg` sem essa margem faz o
-conteúdo ficar cortado nas bordas em alguns launchers. Os arquivos
-`icon-maskable-*` reaproveitam o mesmo desenho, mas com um `<g transform="…
-scale(0.72)…">` encolhendo o conteúdo em torno do centro e um fundo liso sem
-cantos arredondados próprios (a máscara do SO já aplica a forma) — gerados a
-partir de `icon-maskable-*.svg` (fonte) via rasterização.
-
-**Se `Display → Controle` abrir só uma aba interna (não o app instalado)
-mesmo com os dois PWAs instalados corretamente:** verificar se o Display está
-com `display: standalone` no manifest (não `fullscreen` — um contexto
-fullscreen prende `window.open` numa Custom Tab dentro do próprio app, mesmo
-que o alvo esteja instalado corretamente; ver `#startBtn` na seção do
-Display). Trocar o modo de exibição no manifest **não** atualiza um WebAPK já
-instalado — é necessário **desinstalar e reinstalar** os dois PWAs (não só
-revisitar a URL) para o Android regerar o pacote com o modo novo. Para
-diagnosticar sem depender de tentativa e erro, o Chrome tem uma página interna
-— `chrome://webapks` — que lista os WebAPKs conhecidos do aparelho com
-`Package name`, `Display Mode` e `Update Status` de cada um; abrir/recarregar
-essa página também **dispara uma verificação de atualização na hora** (o
-próprio campo indica isso: "Update Status (Reload page to get new status)").
-Um ícone do Chrome nos apps recentes que **persiste mesmo após reinstalação
-completa e reboots**, com o `chrome://webapks` mostrando um `Package name`
-próprio e `Update Status: Succeeded`, não é mais o sintoma de "atalho" acima —
-é mais provável que seja uma particularidade de exibição do launcher/versão do
-Android para WebAPKs "unbound" (o cartão da tarefa em Recentes mostra o ícone
-do navegador hospedeiro mesmo com o app corretamente instalado); não há
-alavanca conhecida do lado do manifest/PWA para forçar esse ícone específico.
-
-**Os dois PWAs vivem no mesmo domínio, em subpastas próprias** (`/controle/`
-e `/display/`) — cada um com seu `manifest.json`, `scope: "./"` e
-`start_url: "./"` resolvendo para a própria subpasta (escopos não
-sobrepostos: nem um é prefixo do outro) e o service worker registrado sem
-`scope` explícito (`register('sw.js')` a partir de cada `index.html` já
-recebe, por padrão, o escopo = pasta do próprio script). Ambos declaram
-também `id: "./"` — resolvido relativo ao `manifest.json` de cada um (não à
-raiz do domínio), então vira um identificador **distinto por app**
-(`.../controle/` vs `.../display/`), reforçando de forma explícita a
-identidade que o Chrome já deduzia implicitamente do `start_url`. O
-`chrome://webapks` (ver acima) confirma que os dois têm `Package name`,
-`Manifest Id` e `Update Status` **distintos e saudáveis** — não há colisão de
-identidade entre os dois PWAs nesse domínio.
-
-**Teste de elegibilidade a multi-janela (App Pair / painel Edge da Samsung):**
-um teste decisivo (adicionar cada PWA a um App Pair) mostrou que **só o
-Display falha** (tratado como sessão de navegador), enquanto o **Controle
-funciona normalmente** — isso descarta de vez a hipótese de colisão de
-domínio (afetaria os dois igualmente) e aponta para algo assimétrico entre os
-dois manifests. A única diferença funcional relevante entre eles era
-`orientation`: `"portrait"` (Controle) vs `"landscape"` (Display). O Android
-não redimensiona apps de orientação travada em modo multi-janela — e o
-App Pair/painel Edge organiza os painéis em layout retrato, então um app
-travado em paisagem entra em conflito direto com esse layout (ao contrário
-de um travado em portrait, que se encaixa sem atrito). Isso bate exatamente
-com o padrão observado.
-
-**Por isso, por um tempo, o Display deixou de declarar `orientation` fixo no
-manifest** — para o Android considerar a atividade redimensionável (elegível
-a multi-janela). Duas tentativas de compensar isso via JS foram testadas em
-aparelho real e **descartadas** por não funcionarem na prática:
-- `requestFullscreen()` no toque em `#startBtn`, para esconder a barra de
-  status: **regrediu** o lançamento do Controle (a prioridade do projeto na
-  época) — `window.open()` é uma API "consuming" (gasta a ativação
-  transitória do toque) e `requestFullscreen()` é "gating" (só exige, sem
-  gastar); inverter a ordem para proteger o fullscreen fez o `window.open()`
-  seguinte falhar (o Controle voltou a abrir só numa aba interna do
-  Display). Removido.
-- Trava de orientação via Screen Orientation API (`screen.orientation.lock`)
-  no boot + no toque: nunca chegou a engajar de fato no aparelho testado.
-  Removido.
-
-**Decisão revertida**: `orientation: "landscape"` foi **restaurado** no
-manifest do Display — trocando a prioridade de volta para nunca deixar a
-tela de projeção virar sem querer (ex: um esbarrão no aparelho durante o
-culto), aceitando de propósito que isso **reintroduz a falha de elegibilidade
-a multi-janela** descrita acima (o Display volta a não funcionar num App
-Pair/painel Edge — o Controle continua funcionando normalmente, já que
-sempre foi `"portrait"`). Como qualquer mudança de `orientation` no
-manifest, **não** atualiza um WebAPK já instalado por si só — é necessário
-desinstalar e reinstalar o Display (não só revisitar a URL) para o Android
-regerar o pacote com a orientação travada; ver `chrome://webapks` para
-confirmar o `Display Mode` depois.
-
-O CSS já usa dimensões relativas (`inset:0`, 100%), então mesmo que o
-Android insista em abrir em retrato antes do WebAPK atualizar, o layout não
-quebra — só deixa de compor como paisagem larga até a reinstalação.
+Do modelo antigo saíram: o deploy do `public/` no GitHub Pages, a instalação
+dos dois PWAs pelo Chrome ("Adicionar à tela inicial"), os `manifest.json` com
+`scope`/`orientation`/`share_target`, os ícones PNG/maskable exigidos pelo
+gerador de WebAPK e o espelhamento do Display via Miracast de app isolado —
+substituído pela `Presentation`, que manda só o Display para a TV.

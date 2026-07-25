@@ -29,6 +29,9 @@ interface BridgeHost {
     /** Telas de apresentação conectadas agora. */
     fun listDisplays(): JSONArray
 
+    /** Abre o seletor de espelhamento/transmissão do Android. */
+    fun openCastPicker()
+
     /** Consome (uma única vez) um compartilhamento recebido por intent. */
     fun takePendingShare(): JSONObject?
 }
@@ -57,7 +60,7 @@ class NativeBridge(
          * exijam mais do que o shell instalado oferece (ver [WebUpdater]).
          * Subir SEMPRE que a superfície da ponte mudar.
          */
-        const val SHELL_VERSION = 4
+        const val SHELL_VERSION = 5
     }
 
     private val io = Executors.newSingleThreadExecutor()
@@ -129,6 +132,17 @@ class NativeBridge(
     fun displays(callId: String) {
         val list = host?.listDisplays() ?: JSONArray()
         resolve(callId, list.toString())
+    }
+
+    /**
+     * Botão de cast da preview: abre o seletor de espelhamento do Android.
+     * Não há API pública para o *popup* das configurações rápidas — o que
+     * existe é a tela de Cast das Configurações, que é o mesmo seletor de
+     * telas usado pelo Smart View. Ver [BridgeHost.openCastPicker].
+     */
+    @JavascriptInterface
+    fun openCast() {
+        host?.openCastPicker()
     }
 
     // ---------- compartilhamento (substitui o share_target do SW) ----------

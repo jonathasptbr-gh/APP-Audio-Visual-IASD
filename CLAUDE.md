@@ -65,8 +65,8 @@ app/src/main/
 │   ├── version.json             #   identidade do bundle (version + minShell)
 │   ├── shared/native.js         #   ponte AVNative (NOVO — não existe no PWA)
 │   ├── shared/db.js             #   + relay nativo no canal de comandos
-│   ├── controle/                #   (sem sw.js — ver "Divergências")
-│   └── display/                 #   (sem sw.js)
+│   ├── controle/                #   (sem sw.js / manifest / icons — ver abaixo)
+│   └── display/                 #   (idem)
 ├── java/br/org/iasd/av/
 │   ├── MainActivity.kt          # Activity + WebView do Controle + Presentation
 │   ├── StagePresentation.kt     # Presentation + WebView do Display (o telão)
@@ -138,6 +138,7 @@ window.AVNative = {
   onDisplayChange(cb),
   keepAwake(bool),     // tela não apaga durante o culto
   keepAlive(bool),     // download em curso — ver "Trabalho em segundo plano"
+  openCast(),          // seletor de espelhamento do Android (botão de cast da preview)
 }
 ```
 
@@ -147,7 +148,7 @@ Além disso, `native.js` publica três globais lidas direto (sem Promise):
 APK, que é o **índice de versão do shell exibido ao operador**. Ele não se
 confunde com `__SHELL_VERSION__`: base web e shell atualizam por caminhos
 independentes (OTA × instalar APK), então o cabeçalho do Cronograma mostra os
-dois (`Web v4.87 · Shell v1.6`). Num shell antigo (sem `appVersion()`) a
+dois (`Web v4.88 · Shell v1.7`). Num shell antigo (sem `appVersion()`) a
 string vem vazia e a UI cai em só a versão web — mesma degradação do navegador.
 
 **Princípio: a ponte entrega URLs SERVÍVEIS, não bytes.** Arquivos do
@@ -273,11 +274,34 @@ contextos.
 | Recuperação de áudio bloqueado | retentativas de 5 s | **desativada** — sem política de gesto, qualquer detecção seria falso positivo |
 | Pastas do dispositivo | `showDirectoryPicker()` | **SAF** — a File System Access API **não existe no Android**; este recurso era letra morta no celular e passa a funcionar |
 | Compartilhamento | `share_target` + POST no SW | **`intent-filter` nativo** (`ShareIntake.kt`) |
-| "Abrir Display" | `window.open('../display/')` | **indicador de telão conectado** — a Presentation é criada sozinha |
+| Estado do telão (rodapé de Exibição) | atalho `window.open('../display/')`, útil só para desenvolver | **indicador ao vivo** — a Presentation é criada sozinha |
+| Botão de cast da preview | oculto | `AVNative.openCast()` → seletor de espelhamento do Android |
 | Fullscreen da preview | `requestFullscreen` + Screen Orientation API | idem, com trava de paisagem **nativa** (`onShowCustomView`) |
 | Botão voltar | — | manda a tarefa para segundo plano (sair por engano derrubaria a projeção) |
 | Download com o app minimizado | a aba continua baixando | **foreground service + wake lock** — sem isso o processo é congelado (ver seção acima) |
 | Atualização da base web | service worker (cache-first + reload) | **OTA** — bundle publicado em `web-latest`, aplicado no próximo lançamento (ver seção acima) |
+
+### Andaimes do modelo de dois PWAs, removidos
+
+A base web nasceu como **dois PWAs instaláveis** que se comunicavam por
+BroadcastChannel, porque o Miracast só espelha a tela inteira do celular. Com a
+`Presentation` confirmada em aparelho real (o shell manda **só o Display** para
+a TV), esse andaime não tem mais função e saiu do bundle:
+
+- **`web/index.html`** — a página que oferecia "Abrir Controle / Abrir
+  Display". O shell carrega `/web/controle/` e `/web/display/` direto.
+- **`controle/manifest.json` e `display/manifest.json`** — instalação como
+  WebAPK, `scope`, `orientation`, `share_target`. Nada disso existe num
+  WebView: ícone, nome e orientação vêm do APK, e o share chega por
+  `intent-filter`.
+- **`controle/icons/` e `display/icons/`** (~96 KB) — só o manifest e os
+  `<link rel="icon">` os usavam. Os ícones do app estão em `res/`.
+- **"Abrir Display"** — virou indicador de estado (acima).
+
+O que **fica**: a preview em tela cheia (a projeção quando não há TV
+conectada, com os gestos invisíveis) e todas as guardas
+`if (!window.__NATIVE__) { …web… }`. A base precisa continuar rodando no
+navegador — é assim que se desenvolve e se testa fora do aparelho.
 
 ---
 
@@ -334,4 +358,4 @@ Rodar local: `./gradlew assembleDebug` (exige Android SDK instalado).
   (`#appVersion` em `assets/web/controle/index.html`) **e `version` em
   `assets/web/version.json`** — é este último que faz a atualização chegar
   aos aparelhos por OTA. O `versionCode`/`versionName` do APK vêm do CI.
-  **Versão atual: v4.87** (base web) · **shell 1.6** (`SHELL_VERSION` 4).
+  **Versão atual: v4.88** (base web) · **shell 1.7** (`SHELL_VERSION` 5).

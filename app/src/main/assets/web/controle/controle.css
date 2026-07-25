@@ -174,6 +174,41 @@ body {
      interpretar como rolagem/zoom (ver setupPreviewGestures em controle.js) */
   touch-action: none;
 }
+/* ---------- Botões flutuantes sobre a preview ---------- */
+/* Semitransparentes, nos três cantos: configurações (topo esq), cast (topo
+   dir) e tela cheia (base dir). Substituem os gestos que existiam antes no
+   próprio toque (toque = tela cheia, toque longo = popup de Exibição), que
+   eram invisíveis e por isso pouco descobríveis. Agora o toque na preview só
+   mostra/esconde estes botões; a ação fica no botão, explícita.
+   `.pv-fabs` não intercepta toques (pointer-events:none) — só os botões —,
+   senão a camada cobriria a preview inteira e o toque nunca chegaria ao
+   reconhecedor de gestos. */
+.pv-fabs {
+  position: absolute; inset: 0; z-index: 5; pointer-events: none;
+  transition: opacity .18s ease;
+}
+/* Escondidos: `display` continua block (senão não há o que transicionar) e a
+   saída é por opacidade; `visibility` garante que não recebam foco. */
+.pv-fabs[hidden] { display: block; opacity: 0; visibility: hidden; }
+.pv-fab {
+  position: absolute; pointer-events: auto;
+  width: 34px; height: 34px; padding: 0;
+  border: 1px solid rgba(255, 255, 255, .22); border-radius: var(--radius-btn);
+  background: rgba(0, 0, 0, .45); color: rgba(255, 255, 255, .92);
+  backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px);
+  display: flex; align-items: center; justify-content: center; cursor: pointer;
+  appearance: none; -webkit-appearance: none;
+}
+.pv-fab svg { display: block; }
+.pv-fab:active { transform: var(--press); }
+.pv-fab--tl { top: 5px; left: 5px; }
+.pv-fab--tr { top: 5px; right: 5px; }
+.pv-fab--br { bottom: 5px; right: 5px; }
+/* Em tela cheia a preview É a projeção (quando não há TV conectada): nada de
+   UI por cima, ou o botão iria junto para o telão. */
+.preview:fullscreen .pv-fabs,
+.preview:-webkit-full-screen .pv-fabs { display: none !important; }
+
 /* Mesmo modelo do Display: mídia toca por baixo (z-index menor); o wallpaper
    é a cortina que cobre por cima, ligada/desligada independente da mídia. */
 /* Camada de TEXTO manual: acima de toda a mídia (inclusive do iframe do
@@ -351,7 +386,24 @@ body {
   row-gap: .45rem; padding: 0 .35rem;
   position: relative;
 }
-.mixer-slot { display: flex; flex-direction: column; gap: .35rem; min-height: 0; }
+/* O mixer NUNCA dita a altura das faixas — quem dita é sempre a coluna 1
+   (nowplaying / preview / transport). Por isso cada fatia é só uma caixa de
+   posicionamento VAZIA no fluxo, e os botões vivem num `.mixer-stack`
+   ABSOLUTO dentro dela: um item absoluto sai do fluxo e não entra no cálculo
+   de max-content das faixas `auto` do `.deck` (o `.mixer` é
+   `grid-template-rows: subgrid`, então tudo que estivesse no fluxo aqui
+   contribuiria para as faixas do pai).
+   Era essa contribuição que ainda deformava o deck ao abrir o volume: o
+   conteúdo do mixer muda entre os dois estados (top/mid somem, o botão da
+   base troca de ícone — SVG de 22px × glifo da fonte, alturas intrínsecas
+   diferentes), e com isso as faixas `auto` 1 e 3 mudavam de tamanho, mexendo
+   na altura total da caixa de controles e da preview. Fora do fluxo, os dois
+   estados são indistinguíveis para a grade. */
+.mixer-slot { position: relative; min-height: 0; }
+.mixer-stack {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column; gap: .35rem;
+}
 .mixer-top    { grid-row: 1; }
 .mixer-mid    { grid-row: 2; }
 .mixer-bottom { grid-row: 3; }
@@ -489,10 +541,24 @@ main {
 .tab .msym { font-size: 22px; }
 .tab.active { color: var(--text); border-bottom-color: var(--accent); }
 
-/* border:none + appearance:none matam a borda 3D bicolor (bevel nativo) que o
-   <button> ganha do sistema — o #hymnSearchBtn é um <button> (o de importar é
-   um <label>, que não tinha o problema), então sem isto ele saía com a borda
-   diagonal clara/escura do sistema, fora do padrão do app. */
+/* Importar arquivos: fim da lista do Cronograma, não mais na faixa de abas —
+   é uma ação sobre ESTA lista, e no fim dela (onde os arquivos vão cair) a
+   relação fica evidente. Tracejado para se ler como "espaço a preencher", não
+   como mais um item da lista. */
+.import-row { flex-shrink: 0; }
+.import-btn {
+  width: 100%; padding: .75rem;
+  background: transparent; border: 1px dashed rgba(47, 129, 247, .5);
+  border-radius: var(--radius-card); color: var(--accent); font-size: .9rem;
+  display: flex; align-items: center; justify-content: center; gap: .45rem;
+  cursor: pointer;
+}
+.import-btn svg { display: block; }
+.import-btn:active { transform: var(--press); }
+
+/* Buscar no acervo (único .tab-add que restou — o de importar desceu para o
+   fim do Cronograma). border:none + appearance:none matam a borda 3D bicolor
+   (bevel nativo) que um <button> herda do sistema, fora do padrão do app. */
 .tab-add {
   flex: none; width: 44px; height: 42px; border: none;
   appearance: none; -webkit-appearance: none;
@@ -889,6 +955,22 @@ main {
 .new-folder-btn .msym { font-size: 20px; }
 .new-folder-btn:active { transform: var(--press); }
 
+/* Estado do telão (rodapé do popup de Exibição). No app é só um indicador
+   (desabilitado); no navegador continua clicável, como atalho para a tela do
+   Display. Verde quando há TV recebendo a Presentation. */
+.display-status {
+  width: 100%; padding: .6rem;
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--radius-card); color: var(--muted); font-size: .85rem;
+  display: flex; align-items: center; justify-content: center; gap: .4rem;
+  cursor: pointer; appearance: none; -webkit-appearance: none;
+}
+.display-status .msym { font-size: 20px; }
+.display-status:disabled { cursor: default; }
+.display-status.connected {
+  background: var(--success-soft); border-color: var(--success); color: var(--success);
+}
+
 /* ---------- Botão de pasta no picker ---------- */
 .folder-pick-btn {
   width: 100%; padding: .55rem .6rem;
@@ -939,24 +1021,36 @@ main {
    no tamanho nativo, pequeno). Campo mais alto/legível que o de busca da pasta. */
 .hymn-search-bar { display: flex; padding: .5rem .9rem .6rem; flex-shrink: 0; }
 #hymnSearchInput { width: 100%; padding: 11px 14px; font-size: .95rem; }
-/* Resultado: thumb à ESQUERDA + coluna à direita com duas linhas (info em
-   cima, ações embaixo). A thumb é um quadrado maior (64px, ~a altura da coluna
-   info+ações à direita) em vez dos 40px fixos — proporcional ao conteúdo ao
-   lado. Fixa (não aspect-ratio+stretch, que não deriva a largura em flex item
-   de largura baseada em conteúdo). */
-.hymn-row { align-items: center; gap: .5rem; }
-.hymn-result .thumb { width: 64px; height: 64px; flex-shrink: 0; }
-.hymn-result .thumb--icon .msym { font-size: 32px; }
-.hymn-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: .35rem; }
-.hymn-info { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
-.hymn-sub { font-size: .7rem; color: var(--muted); }
+/* Resultado: linha compacta [thumb] [nome / subtítulo] [duração]. As ações
+   ficam escondidas até um toque na linha (acordeão — ver hymnResultRow). Sem
+   elas permanentemente à vista, sobra espaço para uma fonte maior, que é o
+   ponto: a lista precisa ser legível de relance no meio do culto. */
+.hymn-row { align-items: center; gap: .55rem; padding: .5rem .55rem; cursor: pointer; }
+.hymn-result .thumb { width: 46px; height: 46px; flex-shrink: 0; }
+.hymn-result .thumb--icon .msym { font-size: 26px; }
+.hymn-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+/* `flex:none` desfaz o `flex:1` de .row-name: aqui o pai é uma coluna, e
+   crescer significaria esticar na VERTICAL (o nome descolaria do subtítulo). */
+.hymn-name { flex: none; font-size: 1.02rem; font-weight: 500; }
+.hymn-sub { font-size: .78rem; color: var(--muted); }
+/* Duração: coluna própria à direita (saiu do subtítulo) — alinha entre as
+   linhas e deixa o subtítulo livre para a coleção de origem. */
+.hymn-time {
+  flex-shrink: 0; font-size: .84rem; color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.hymn-time:empty { display: none; }
 /* Linha de ações (só ícones): grupos por variante (Cantado/Playback) dividindo
    a largura igualmente; dentro do grupo, tocar/+Cronograma/+Playlist crescem
-   (flex) pra preencher o espaço disponível. */
-.hymn-actions { display: flex; gap: .35rem; }
+   (flex) pra preencher o espaço disponível. Revelada pelo toque. */
+.hymn-actions { display: none; gap: .35rem; padding: 0 .55rem .55rem; }
+.hymn-result.expanded { border-color: var(--accent); background: var(--panel-2); }
+.hymn-result.expanded .hymn-row { background: var(--panel-2); }
+.hymn-result.expanded .hymn-actions { display: flex; animation: hymn-actions-in .18s ease both; }
+@keyframes hymn-actions-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
 .hymn-variant { flex: 1; display: flex; gap: .25rem; min-width: 0; }
 .hymn-play, .hymn-actions .hymn-add {
-  flex: 1; min-width: 0; width: auto; height: 34px;
+  flex: 1; min-width: 0; width: auto; height: 38px;
 }
 .hymn-play {
   display: flex; align-items: center; justify-content: center;
@@ -990,11 +1084,6 @@ main {
 /* Nota: o antigo "toast" flutuante foi removido — as informações agora são
    transmitidas pela própria interface (ver flash() em controle.js, hoje um
    no-op, e o indicador de sincronização no texto da linha do Hinário 2022). */
-
-/* Subtítulo de status na linha do Hinário 2022 (indicador de sincronização —
-   substitui o toast flutuante). Reaproveita .hymn-info/.hymn-sub, já usados
-   nos resultados de busca. */
-.hymn-info .hymn-sub { color: var(--accent); }
 
 /* ---------- Diálogo padrão do app (confirmações / prompts) ---------- */
 /* Substitui os confirm()/prompt() nativos por um modal no tema do app —

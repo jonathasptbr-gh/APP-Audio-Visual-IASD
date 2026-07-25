@@ -9,6 +9,7 @@ import android.hardware.display.DisplayManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import android.util.Log
 import android.view.View
 import android.view.ViewGroup
@@ -320,6 +321,33 @@ class MainActivity : ComponentActivity(), BridgeHost {
             )
         }
         return out
+    }
+
+    /**
+     * Seletor de espelhamento. O Android **não expõe** o popup das
+     * configurações rápidas (o painel de Transmitir/Smart View) a apps de
+     * terceiros — `Settings.Panel` só cobre internet, wifi, nfc e volume. O
+     * mais próximo em API pública é a tela de Cast das Configurações, que
+     * lista as mesmas telas e é para onde o próprio Smart View leva. A cadeia
+     * de fallback existe porque fabricantes remontam essas telas: sem a de
+     * Cast, cai na de Tela; sem ela, nas Configurações.
+     */
+    override fun openCastPicker() {
+        runOnUiThread {
+            val candidates = listOf(
+                Settings.ACTION_CAST_SETTINGS,
+                Settings.ACTION_DISPLAY_SETTINGS,
+                Settings.ACTION_SETTINGS,
+            )
+            for (action in candidates) {
+                try {
+                    startActivity(Intent(action).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                    return@runOnUiThread
+                } catch (e: Exception) {
+                    Log.w(TAG, "seletor de cast indisponível: $action", e)
+                }
+            }
+        }
     }
 
     override fun takePendingShare(): JSONObject? {

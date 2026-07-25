@@ -130,6 +130,12 @@
     displays: () => call((id) => B.displays(id)).then((r) => r || []),
     onDisplayChange(cb) { displaysCb = cb; },
 
+    // Botão de cast da preview: abre o seletor de espelhamento do Android
+    // (a tela de Cast das Configurações — o popup das configurações rápidas
+    // não é exposto a apps de terceiros; ver NativeBridge.openCast).
+    // Num shell antigo, sem o método, não faz nada em vez de quebrar.
+    openCast() { try { B.openCast(); } catch (_) { /* shell antigo */ } },
+
     // Sessão de culto.
     keepAwake(on) { try { B.keepAwake(!!on); } catch (_) { /* ignorado */ } },
 

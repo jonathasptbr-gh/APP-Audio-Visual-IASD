@@ -22,6 +22,7 @@ const volCloseEl = document.getElementById('volClose');
 const standaloneToggleEl = document.getElementById('standaloneToggle');
 const lyricsBgToggleEl = document.getElementById('lyricsBgToggle');
 const openDisplayBtnEl = document.getElementById('openDisplayBtn');
+const displayStatusTextEl = document.getElementById('displayStatusText');
 
 const pvWallEl = document.getElementById('pvWall');
 const pvImgEl = document.getElementById('pvImg');
@@ -57,7 +58,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '4.87';
+const WEB_VERSION = '4.88';
 
 function renderVersionLabel() {
   // __SHELL_NAME__ = versionName do APK (ver native.js). Vazio no navegador e
@@ -2019,7 +2020,8 @@ function renderLibrary() {
   if (items.length === 0) {
     libraryEl.innerHTML = activeTab === 'folders'
       ? (fq ? '<li class="empty">Nenhum arquivo encontrado.</li>' : '<li class="empty">Pasta vazia.</li>')
-      : '<li class="empty">Cronograma vazio.<br>Importe arquivos ou sincronize uma pasta.</li>';
+      : '<li class="empty">Cronograma vazio.</li>';
+    appendImportRow();
     return;
   }
 
@@ -2078,6 +2080,34 @@ function renderLibrary() {
     if (activeTab !== 'folders') attachHandle(handle, item.id, activeTab);
     libraryEl.appendChild(li);
   });
+
+  appendImportRow();
+}
+
+// Importar arquivos vive NO FIM DO CRONOGRAMA, não mais numa aba: é uma ação
+// sobre esta lista específica, e ficando no lugar onde os arquivos vão cair
+// (o fim da lista) a relação fica óbvia. A faixa de abas volta a ser só
+// navegação. O `<input type="file">` continua dentro de um <label>, que é o
+// que dispensa JS pra abrir o seletor.
+function appendImportRow() {
+  if (activeTab !== 'imports' || currentFolder || selectionMode) return;
+  const li = document.createElement('li');
+  li.className = 'import-row';
+  const label = document.createElement('label');
+  label.className = 'import-btn';
+  label.title = 'Importar arquivos';
+  label.innerHTML = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor"'
+    + ' stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+    + '<path d="M7 3h7l5 5v11a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/>'
+    + '<path d="M14 3v5h5"/>'
+    + '<line x1="12" y1="12" x2="12" y2="17.6"/>'
+    + '<line x1="9.2" y1="14.8" x2="14.8" y2="14.8"/></svg>';
+  const txt = document.createElement('span');
+  txt.textContent = 'Importar arquivos';
+  label.appendChild(txt);
+  label.appendChild(fileEl); // o MESMO input de sempre, só reposicionado
+  li.appendChild(label);
+  libraryEl.appendChild(li);
 }
 
 function countDownloaded(id) {
@@ -3450,11 +3480,13 @@ function renderSearchResults(query) {
   }
 }
 
-// Thumb à ESQUERDA; à direita uma coluna com duas linhas — em cima a info
-// (nome + subtítulo), embaixo a linha de ações (só ícones). Cada variante
-// (Cantado/Playback) é um grupo [tocar][+ Cronograma][+ Playlist]; o botão de
-// tocar usa ícone de voz (Cantado) ou nota musical (Playback). Os botões
-// crescem (flex) pra preencher a largura disponível. Playback só se houver.
+// Linha compacta: [thumb] [nome / subtítulo] [duração]. As ações NÃO ficam
+// mais sempre à vista — o toque na linha as revela logo abaixo (acordeão: só
+// uma linha aberta por vez). Com a lista limpa sobra espaço para uma fonte
+// maior, que é o que a torna legível de relance no meio do culto.
+// Cada variante (Cantado/Playback) é um grupo [tocar][+ Cronograma][+
+// Playlist]; o botão de tocar usa ícone de voz (Cantado) ou nota musical
+// (Playback). Playback só aparece se a música tiver.
 function hymnResultRow(coll, s) {
   const li = document.createElement('li');
   li.className = 'lib-item hymn-result';
@@ -3463,23 +3495,37 @@ function hymnResultRow(coll, s) {
   const thumb = document.createElement('div'); thumb.className = 'thumb thumb--icon';
   thumb.appendChild(msym(ICON[coll.iconKey] || ICON.music));
 
-  const main = document.createElement('div'); main.className = 'hymn-main';
   const info = document.createElement('div'); info.className = 'hymn-info';
-  const name = document.createElement('span'); name.className = 'row-name';
+  const name = document.createElement('span'); name.className = 'row-name hymn-name';
   name.textContent = (s.track ? s.track + '. ' : '') + s.name;
-  // Subtítulo: na busca global mostra a coleção de origem (+ duração); escopado
-  // a uma coleção o título já identifica, então mostra só a duração.
-  const sub = document.createElement('span'); sub.className = 'hymn-sub';
-  sub.textContent = (searchScope ? '' : coll.name + (s.duration ? ' · ' : '')) + (s.duration || '');
-  info.append(name, sub);
+  info.appendChild(name);
+  // Subtítulo: a coleção de origem — só na busca global, porque no escopo de
+  // uma coleção o próprio título do popup já diz de onde vem. A duração saiu
+  // daqui e virou coluna própria à direita.
+  if (!searchScope) {
+    const sub = document.createElement('span'); sub.className = 'hymn-sub';
+    sub.textContent = coll.name;
+    info.appendChild(sub);
+  }
+
+  const time = document.createElement('span'); time.className = 'hymn-time';
+  time.textContent = s.duration || '';
+
+  row.append(thumb, info, time);
 
   const actions = document.createElement('div'); actions.className = 'hymn-actions';
   actions.appendChild(hymnVariantEl(coll, s, 'full', 'Cantado'));
   if (s.has_instrumental_music) actions.appendChild(hymnVariantEl(coll, s, 'playback', 'Playback'));
 
-  main.append(info, actions);
-  row.append(thumb, main);
-  li.appendChild(row);
+  row.addEventListener('click', () => {
+    const open = li.classList.contains('expanded');
+    // Acordeão: abrir uma fecha a anterior — duas linhas abertas ao mesmo
+    // tempo empurrariam a lista e tirariam do lugar o que o operador mira.
+    hymnResultsEl.querySelectorAll('.hymn-result.expanded').forEach((el) => el.classList.remove('expanded'));
+    if (!open) li.classList.add('expanded');
+  });
+
+  li.append(row, actions);
   return li;
 }
 
@@ -4084,8 +4130,31 @@ hymnSearchInputEl.addEventListener('input', () => renderSearchResults(hymnSearch
 (function setupPreviewGestures() {
   const previewEl = document.getElementById('preview');
   const isFs = () => document.fullscreenElement === previewEl;
-  let lpTimer = null, lpFired = false;
-  const clearLp = () => { clearTimeout(lpTimer); lpTimer = null; };
+
+  // ---- botões flutuantes (fora do fullscreen) ----
+  // Antes as três ações eram gestos invisíveis sobre a preview (toque = tela
+  // cheia, toque longo = popup de Exibição) — nada na tela dizia que existiam.
+  // Agora cada uma tem seu botão semitransparente num canto, e o toque na
+  // preview só MOSTRA/ESCONDE esses botões. Some sozinho depois de um tempo
+  // para não tampar a projeção em miniatura.
+  const fabsEl = document.getElementById('pvFabs');
+  const FAB_AUTOHIDE_MS = 4000;
+  let fabTimer = null;
+  function showFabs(on) {
+    clearTimeout(fabTimer); fabTimer = null;
+    fabsEl.hidden = !on;
+    if (on) fabTimer = setTimeout(() => { fabsEl.hidden = true; }, FAB_AUTOHIDE_MS);
+  }
+  document.getElementById('pvSettingsBtn').addEventListener('click', () => { showFabs(false); openFadePopup(); });
+  document.getElementById('pvFullBtn').addEventListener('click', () => { showFabs(false); enterFullscreen(); });
+  // Cast: só existe com o shell nativo (é um intent do Android). No navegador
+  // o botão nem aparece — regra geral do projeto: o web é o padrão, o nativo
+  // é a exceção que se declara.
+  const castBtnEl = document.getElementById('pvCastBtn');
+  if (window.__NATIVE__) {
+    castBtnEl.hidden = false;
+    castBtnEl.addEventListener('click', () => { showFabs(false); AVNative.openCast(); });
+  }
 
   async function enterFullscreen() {
     try {
@@ -4096,6 +4165,10 @@ hymnSearchInputEl.addEventListener('input', () => renderSearchResults(hymnSearch
   }
   function exitFullscreen() { try { if (document.exitFullscreen) document.exitFullscreen(); } catch (_) {} }
   document.addEventListener('fullscreenchange', () => {
+    // Voltar da tela cheia sem os botões acesos: o CSS já os esconde enquanto
+    // ela dura, mas o estado precisa acompanhar (senão eles reapareceriam
+    // sozinhos ao sair, sem ninguém ter tocado).
+    showFabs(false);
     if (!document.fullscreenElement) { try { screen.orientation && screen.orientation.unlock && screen.orientation.unlock(); } catch (_) {} }
   });
 
@@ -4120,26 +4193,15 @@ hymnSearchInputEl.addEventListener('input', () => renderSearchResults(hymnSearch
   }
 
   previewEl.addEventListener('pointerdown', (e) => {
-    if (isFs()) {
-      sx = e.clientX; sy = e.clientY; third = zoneOf(e.clientX);
-      volActive = false; volStart = volume;
-      try { previewEl.setPointerCapture(e.pointerId); } catch (_) {}
-      return;
-    }
-    lpFired = false; clearLp();
-    sx = e.clientX; sy = e.clientY; // origem também fora do fullscreen (long press)
-    lpTimer = setTimeout(() => { if (!document.fullscreenElement) { lpFired = true; openFadePopup(); } }, 500);
+    sx = e.clientX; sy = e.clientY;
+    if (!isFs()) return; // fora do fullscreen basta a origem (toque × arrasto)
+    third = zoneOf(e.clientX);
+    volActive = false; volStart = volume;
+    try { previewEl.setPointerCapture(e.pointerId); } catch (_) {}
   });
 
   previewEl.addEventListener('pointermove', (e) => {
-    if (!isFs()) {
-      // Tolerância de movimento: um dedo parado ainda oscila alguns pixels, e
-      // cancelar o long press ao PRIMEIRO pointermove fazia o popup de
-      // Exibição quase nunca abrir. Só desiste quando o movimento passa do
-      // mesmo limiar que separa toque de deslize.
-      if (lpTimer && Math.hypot(e.clientX - sx, e.clientY - sy) > TAP_MOVE) clearLp();
-      return;
-    }
+    if (!isFs()) return;
     const dx = e.clientX - sx, dy = e.clientY - sy;
     // volume: arrasto vertical no terço direito
     if (third === 'right' && Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > VOL_MIN) {
@@ -4167,12 +4229,13 @@ hymnSearchInputEl.addEventListener('input', () => renderSearchResults(hymnSearch
       }
       return;
     }
-    clearLp();
-    if (!lpFired) enterFullscreen(); // fora do fullscreen: toque entra em tela cheia
+    // Fora do fullscreen a preview não tem mais ação própria: o toque só
+    // revela (ou esconde) os botões flutuantes, e a ação é de quem tocar no
+    // botão. Um arrasto não conta como toque.
+    if (Math.hypot(e.clientX - sx, e.clientY - sy) < TAP_MOVE) showFabs(fabsEl.hidden);
   });
 
-  previewEl.addEventListener('pointercancel', () => { clearLp(); volActive = false; });
-  previewEl.addEventListener('pointerleave', clearLp);
+  previewEl.addEventListener('pointercancel', () => { volActive = false; });
 })();
 fadePopupCloseEl.addEventListener('click', closeFadePopup);
 fadePopupEl.addEventListener('click', (e) => { if (e.target === fadePopupEl) closeFadePopup(); });
@@ -4187,34 +4250,31 @@ wallFileEl.addEventListener('change', async () => {
   if (file) await setWallpaper(file);
 });
 wallResetEl.addEventListener('click', () => { setWallpaper(null); });
-// Tenta abrir o PWA do Display instalado. Não há API web pra "lançar outro
-// app instalado" de forma garantida — isso depende do Android reconhecer a
-// URL como pertencente ao escopo do WebAPK do Display e oferecer abrir nele
-// em vez de uma aba do Chrome (comportamento varia por versão do Android/
-// Chrome; pode abrir uma aba comum como fallback).
-// No navegador, "Abrir Display" lança o outro PWA numa janela à parte.
+// Estado do telão, no rodapé do popup de Exibição.
 //
-// No app nativo isso não existe: o Display é uma `Presentation` que o shell
-// cria SOZINHO na TV assim que uma tela de apresentação aparece (e recria
-// quando o dongle cai e volta). Não há o que "abrir" — então o botão vira um
-// indicador do estado da conexão, atualizado ao vivo pela ponte.
+// O Display NÃO é mais um app que se "abre": é a `Presentation` que o shell
+// cria sozinho na TV assim que uma tela de apresentação aparece — e recria
+// quando o dongle cai e volta (o WebView recarrega /display/, dispara
+// `display-ready` e o Controle reenvia o estado atual). Não há o que lançar,
+// então aqui só se informa o que está conectado, ao vivo, pela ponte.
+//
+// No navegador não existe Presentation: o rodapé volta a ser o atalho para a
+// tela do Display, útil para desenvolver a base web fora do app.
 if (window.__NATIVE__) {
   const renderDisplayStatus = (list) => {
     const tv = (list && list[0]) || null;
     openDisplayBtnEl.disabled = true;
-    openDisplayBtnEl.innerHTML = '';
-    const label = document.createElement('span');
-    label.textContent = tv
-      ? 'Telão conectado: ' + (tv.name || 'TV') + ' (' + tv.w + '×' + tv.h + ')'
+    openDisplayBtnEl.classList.toggle('connected', !!tv);
+    displayStatusTextEl.textContent = tv
+      ? 'Telão conectado: ' + (tv.name || 'TV') + ' (' + tv.w + '\u00d7' + tv.h + ')'
       : 'Nenhum telão conectado';
-    openDisplayBtnEl.appendChild(label);
   };
   AVNative.displays().then(renderDisplayStatus);
   AVNative.onDisplayChange(renderDisplayStatus);
 } else {
+  displayStatusTextEl.textContent = 'Abrir tela do Display';
   openDisplayBtnEl.addEventListener('click', () => window.open('../display/', '_blank'));
 }
-
 
 folderPopupCloseEl.addEventListener('click', closeFolderPicker);
 folderPopupEl.addEventListener('click', (e) => { if (e.target === folderPopupEl) closeFolderPicker(); });
