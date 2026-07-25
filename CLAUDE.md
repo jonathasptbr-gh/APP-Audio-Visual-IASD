@@ -119,8 +119,25 @@ Estão codificadas em `WebViewFactory.kt` e são o que sustenta a base web:
 
 **Reconexão vem de graça:** quando o dongle cai e volta, o Android destrói e
 recria a Presentation, o WebView recarrega `/display/` e dispara
-`display-ready` — e o Controle já reenvia o estado atual ao receber isso
-(comportamento que existe desde o PWA). Não invente um mecanismo paralelo.
+`display-ready` — e o Controle reenvia a cena ao receber isso
+(`resendSceneToDisplay` em `controle.js`). Não invente um mecanismo paralelo.
+
+A **cena** é mais do que "mídia tocando": além do `load` da mídia (inclusive
+uma imagem estática, que não tem `playing`), o Controle reenvia o comando
+`text` do versículo ou da mensagem que estiverem projetados — nessa ordem, já
+que no Display um `load` visual encerra a Camada de Texto e um `load` de áudio
+a mantém. Até a v5.03 só mídia com `playing` era restaurada, e um versículo no
+ar durante a pregação sumia do telão para sempre depois de um blip do
+espelhamento, sem nenhum sinal no Controle.
+
+**Morte do renderer também é recuperável:** `WebViewFactory.create` recebe um
+callback `onRendererGone` e o `WebViewClient` devolve `true` em
+`onRenderProcessGone`. Sem isso o padrão do framework é matar o processo — um
+OOM do renderer (dois WebViews, vídeo grande e player do YouTube no mesmo
+processo) derrubaria o Controle e a projeção juntos. Cada dono
+(`MainActivity`, `StagePresentation`) remonta o próprio WebView, e o telão
+recarregado dispara `display-ready`, caindo no mesmo caminho de reconexão
+acima.
 
 ---
 
@@ -137,7 +154,6 @@ window.AVNative = {
   onShare(cb),         // cb({ files:[{name,type,url}], url, title })
   displays(),          // → [{ id, name, w, h, density }]
   onDisplayChange(cb),
-  keepAwake(bool),     // tela não apaga durante o culto
   keepAlive(bool),     // download em curso — ver "Trabalho em segundo plano"
   openCast(),          // seletor de ESPELHAMENTO DE TELA do Android (≠ Google Cast)
   castTarget(),        // → rótulo do alvo de espelhamento deste aparelho
@@ -153,7 +169,7 @@ Além disso, `native.js` publica três globais lidas direto (sem Promise):
 APK, que é o **índice de versão do shell exibido ao operador**. Ele não se
 confunde com `__SHELL_VERSION__`: base web e shell atualizam por caminhos
 independentes (OTA × instalar APK), então o cabeçalho do Cronograma mostra os
-dois (`Web v5.03 · Shell v1.11`). Num shell antigo (sem `appVersion()`) a
+dois (`Web v5.04 · Shell v1.12`). Num shell antigo (sem `appVersion()`) a
 string vem vazia e a UI cai em só a versão web — mesma degradação do navegador.
 
 **Princípio: a ponte entrega URLs SERVÍVEIS, não bytes.** Arquivos do
@@ -242,7 +258,13 @@ SAF, Presentation e o serviço de segundo plano seguem idênticos.
 
 1. **Nunca troca a base no meio de uma sessão.** O download é em segundo
    plano, mas o bundle novo só entra no **próximo lançamento** — o WebView do
-   telão jamais recarrega ao vivo.
+   telão jamais recarrega ao vivo. Isso inclui **não apagar do disco o bundle
+   que a sessão está servindo**: a faxina de bundles antigos preserva tanto o
+   alvo novo quanto o `sessionRoot` em uso, e recolhe o resto no
+   `beginSession()` seguinte, que é o único ponto em que nenhum WebView existe
+   ainda. Sem essa ressalva, ativar uma versão nova durante o culto apagava o
+   diretório vivo: todo recurso ainda não carregado, e qualquer recarga do
+   telão, caíam no fallback do APK — versão mais antiga, no meio da projeção.
 2. **Válvula `minShell`.** Se o bundle exigir uma ponte mais nova que
    `NativeBridge.SHELL_VERSION`, é recusado: o app continua no que já tinha,
    funcionando, até um APK novo chegar. **É por isso que `SHELL_VERSION`
@@ -473,4 +495,4 @@ Rodar local: `./gradlew assembleDebug` (exige Android SDK instalado).
   (`#appVersion` em `assets/web/controle/index.html`) **e `version` em
   `assets/web/version.json`** — é este último que faz a atualização chegar
   aos aparelhos por OTA. O `versionCode`/`versionName` do APK vêm do CI.
-  **Versão atual: v5.03** (base web) · **shell 1.11** (`SHELL_VERSION` 8).
+  **Versão atual: v5.04** (base web) · **shell 1.12** (`SHELL_VERSION` 9).

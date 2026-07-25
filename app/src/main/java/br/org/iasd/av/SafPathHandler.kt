@@ -32,8 +32,6 @@ object SafRegistry {
 
     fun get(token: String): Uri? = byToken[token]
 
-    /** Só cresce com metadados (algumas dezenas de bytes por arquivo). */
-    fun size(): Int = byToken.size
 }
 
 /** Serve os bytes de um documento do SAF em streaming, sob `/saf/<token>`. */

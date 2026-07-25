@@ -79,10 +79,10 @@ git push origin main
   `renderVersionLabel()`), o fallback estático do `<span id="appVersion">` em
   `controle/index.html` e `version` em `version.json` (é este último que
   dispara a atualização por OTA nos aparelhos). Versionamento incremental
-  simples (5.01, 5.02, 5.03…). **Versão atual: v5.03.**
-  No app nativo o rótulo mostra os **dois índices** — `Web v5.03 · Shell v1.11`
+  simples (5.02, 5.03, 5.04…). **Versão atual: v5.04.**
+  No app nativo o rótulo mostra os **dois índices** — `Web v5.04 · Shell v1.12`
   —, porque base web e shell atualizam por caminhos independentes (OTA ×
-  instalar APK); no navegador sai só `Controle v5.03`.
+  instalar APK); no navegador sai só `Controle v5.04`.
 
 ---
 
@@ -215,7 +215,7 @@ O campo `kind` é derivado do `type` (ou definido pelo chamador para itens de UR
 | `imports` / `playlist` | arrays de IDs de mídia |
 | `current` | `{ mediaId, view, muted, volume, at }` — estado de exibição atual |
 | `repeat` | `'off'` \| `'all'` \| `'one'` \| `'shuffle'` |
-| `fade` | legado — as transições visuais (fade in/out) viraram **inerentes ao sistema** (`fadeCfg` fixo `{in:true, out:true, time:0.6}` nos dois apps, não configurável); esta chave **não é mais lida nem gravada** (fica ignorada se existir de versões antigas). Fade em toda troca visual: mídia, cortina do wallpaper (view toggle), letra e texto bíblico |
+| `fade` | legado — as transições visuais (fade in/out) viraram **inerentes ao sistema** (`createStage.FADE`, fixo em `{in:true, out:true, time:0.6}` e compartilhado pelos dois apps, não configurável); esta chave **não é mais lida nem gravada** (fica ignorada se existir de versões antigas). Fade em toda troca visual: mídia, cortina do wallpaper (view toggle), letra e texto bíblico |
 | `fit` | `'contain'` \| `'cover'` \| `'fill'` — preenchimento da mídia (ajustar/preencher/esticar) no Display e na preview |
 | `lyricsBg` | `'black'` (padrão) \| `'image'` — fundo atrás da letra sincronizada: preto ou as imagens dos slides |
 | `wallpaper` | `Blob` da imagem escolhida para a cortina do telão, ou ausente/`null` = gradiente padrão (ver "Wallpaper personalizado") |
@@ -241,6 +241,8 @@ O campo `kind` é derivado do `type` (ou definido pelo chamador para itens de UR
 
 ```js
 openDB, setState, getState
+stateKeys(prefix)             // chaves de `state` com esse prefixo, numa transação
+                              // só e SEM ler valor nenhum — teste de presença em massa
 addMedia(blob, meta)          // cria registro + adiciona a 'imports'
 addUrlMedia(url, meta)        // item de URL externa (blob=null) + adiciona a 'imports'
 storeUrlTemp(url, meta)       // registro temporário de URL, fora de qualquer lista
@@ -294,13 +296,11 @@ Todos os comandos são objetos com um campo `type`.
 | `load` | `mediaId, view, muted, volume` | Carrega e exibe uma mídia |
 | `play` | — | Inicia reprodução |
 | `pause` | — | Pausa |
-| `stop` | — | Para e volta ao wallpaper |
 | `seek` | `time` (segundos) | Pula para o instante indicado |
 | `volume` | `volume` (0.0–1.0) | Altera o volume |
 | `mute` | `muted` (bool) | Liga/desliga mudo |
 | `view` | `view` (`'visual'`\|`'wallpaper'`) | Alterna entre exibir a mídia ou o wallpaper (com fade, se ativo) |
 | `clear` | — | Limpa o Display (volta ao wallpaper, zera `currentId`; com fade-out, se ativo) |
-| `fade` | `fadeIn, fadeOut, time` | Atualiza ao vivo a configuração de transições do stage |
 | `fit` | `fit` (`'contain'`\|`'cover'`\|`'fill'`) | Atualiza ao vivo o preenchimento da mídia (ajustar/preencher/esticar) |
 | `lyricsbg` | `mode` (`'black'`\|`'image'`) | Atualiza ao vivo o fundo atrás da letra sincronizada (preto ou imagens dos slides) |
 | `wallpaper` | — | Avisa que a imagem do wallpaper mudou. **Sem payload**: o blob mora no state `wallpaper`, que os dois apps compartilham — o Display relê do IDB (ver "Wallpaper personalizado") |
@@ -400,7 +400,7 @@ isBlobUrl   → bool — se true, revoga com URL.revokeObjectURL ao trocar/limpa
 loadSeq     → contador para descartar loads/fades concorrentes obsoletos
 coveredNow  → bool — a cortina do wallpaper está cobrindo agora?
 coverSeq    → contador para descartar fades de cortina obsoletos
-fadeIn/fadeOut/fadeTime → transições (definidas via comando 'fade')
+fadeIn/fadeOut/fadeTime → transições (fixas: createStage.FADE, ver abaixo)
 ```
 
 ### Transições (fade)
@@ -477,10 +477,10 @@ fadeTime)` roda **depois** de `play()` (que restaura o volume alvo e limpa o
 stage.handle(cmd)
 stage.load(id, view, muted, volume)
 stage.clear()
-stage.play() / pause() / stop()
+stage.play() / pause()
 stage.seek(seconds)
 stage.setView(v) / setMute(m) / setVolume(vol)
-stage.setFade({ fadeIn, fadeOut, time })
+stage.setFade({ fadeIn, fadeOut, time })  // chamado uma vez, no init, com createStage.FADE
 stage.setFit(v)        // 'contain' (ajustar) | 'cover' (preencher) | 'fill' (esticar)
 stage.setForceMuted(v) // alterna em tempo real se o stage é forçado a ficar sempre mudo
                         // (preview normal) ou toca áudio de verdade (modo "mesa de som"),
@@ -550,6 +550,23 @@ arquivos e podiam divergir. A *orquestração* do mudo (quando mutar de fato,
 
 `load()` é assíncrona. O contador `loadSeq` garante que apenas o **último** `load()`
 iniciado aplica seu resultado — chamadas anteriores obsoletas são descartadas.
+
+**A troca de view tem contador PRÓPRIO (`viewSeq`).** `setViewFaded` usava o
+mesmo `loadSeq`, e isso fazia um toque em "visual on/off" **cancelar um `load()`
+em curso**: o `load` fica assíncrono de 0,7 s a 3 s (fade-out de 0,6 s +
+`getMedia` + `opfsGetFile` + `mediaReady` até 2,5 s), e nessa janela o
+`runFadeOut` já levou a mídia anterior a `opacity:0` e volume 0 — mas o `src`
+novo nunca chegava a ser aplicado. Resultado: telão preto e mudo, com
+`current` ainda apontando para o item antigo. O gesto é natural logo depois de
+escolher um item (e o deslize ↑ da preview em tela cheia faz o mesmo), então
+não é um caso de borda.
+
+A cortina é **ortogonal ao conteúdo** — é o que a própria seção "Duas
+transições independentes" afirma. `setViewFaded` guarda os dois contadores:
+descarta se um `setViewFaded` mais novo assumiu (`viewSeq`) **ou** se um
+`load`/`clear` assumiu a cena no meio do fade (`loadSeq`) — nesses casos quem
+chegou depois já decidiu o estado final da cortina. Ações exclusivas
+(`load`/`clear`) continuam podendo cancelar um `load`; trocar a view, não.
 
 ---
 
@@ -770,10 +787,11 @@ Limiares: toque `<14px`, deslize `>45px`, volume vertical `>12px` (relativo,
 `-dy/(altura*0.6)`). `setPointerCapture` no `pointerdown` garante o rastreio do
 arrasto. O terço direito faz **tap = próxima estrofe**, **arrasto vertical =
 volume** e **deslize horizontal = mídia** (distintos por eixo/movimento); deslize
-vertical no terço direito nunca vira sair/wallpaper (é sempre volume). A config
-de fade é persistida em `state.fade` e a de preenchimento em `state.fit`; ambas
-aplicadas ao vivo via comando (`fade`/`fit`, Display + preview) e recarregadas do
-state ao inicializar (Controle e Display).
+vertical no terço direito nunca vira sair/wallpaper (é sempre volume). A config de
+preenchimento é persistida em `state.fit`, aplicada ao vivo via comando (`fit`,
+Display + preview) e recarregada do state ao inicializar. A de fade **não
+existe mais**: é fixa e compartilhada (`createStage.FADE`), sem state nem
+comando (ver a chave legada `fade`).
 
 ### Wallpaper personalizado
 
@@ -983,6 +1001,16 @@ Itens sem blob local exibem badge `URL` ou `YT`.
 | Segurar e arrastar (⠿) | Reordena o item na lista |
 | Pressionar e segurar | Entra no modo de seleção múltipla |
 
+**O arrasto mede a lista UMA vez** (`measureDrag`, no `pointerdown`; um listener
+de `scroll` remede se a lista rolar, e `endDrag` limpa tudo no fim). Antes, cada
+`pointermove` — 60 a 120 por segundo — fazia um `querySelectorAll` da lista
+inteira e um `getBoundingClientRect` por item, logo depois de escrever
+`li.style.transform`: um **reflow síncrono por evento**, com o arrasto
+engasgando num Cronograma grande. As posições não mudam durante o arrasto (o
+item se move por `transform`, que não altera o layout), então medir uma vez
+basta. `showDropLine` e `dropIndex` leem o mesmo cache — a linha-guia e o
+destino real nunca discordam.
+
 **Modo de seleção múltipla:** barra substitui as abas, com contagem e botões de
 salvar em pasta, renomear (1 item) e excluir. Os itens selecionados são
 indicados **só pelo highlight azul** (`.lib-item.selected` — borda accent), sem
@@ -1130,14 +1158,31 @@ tudo que é manutenção, fora do caminho de uso — **linha de status** (progre
 via `setCollStatus`, ou "✓ Completo offline" em verde quando `downloaded ===
 total`, ou "Parcial…"/"Não sincronizado"), a faixa de **estatísticas** (chips
 `.hymnal-stat`): **Sincronizados** (`downloaded/total`), **Peso**
-(`fmtBytes(ui(coll.id).bytes)` — somatório dos `size` do catálogo OPFS via
-`updateCollBytes`, recalculado sob demanda e cacheado) e **Rede** (Wi-Fi
+(`fmtBytes(ui(coll.id).bytes)`) e **Rede** (Wi-Fi
 confirmado × "Aguardando", ícone de Wi-Fi SVG inline — ver `isConfirmedWifi`);
 e os botões **Sincronizar/Atualizar** (`syncCollection`) e **Excluir baixado**
 (`deleteCollection`). Não há "Ver músicas" aqui: a lista é o **toque no card**,
 e ter duas rotas fazia o popup competir com o gesto principal. `refreshCollectionOptions()` é
 chamado por `refreshCollectionsIfVisible()`, então o progresso da
 sincronização aparece no popup aberto sem fechar e reabrir.
+
+**O peso NÃO é recalculado durante o render.** `updateCollBytes` faz um
+`filesByFolder` — um `getAll` da index que desserializa TODOS os registros da
+pasta, **com thumbnail e letra**, só para somar um campo. Como
+`renderCollectionCard` o chamava, e o valor mudar dispara outro
+`refreshCollectionsIfVisible`, sincronizar uma coleção com a aba aberta
+executava N `getAll` do catálogo (N = número de cards, dezenas a centenas) a
+cada música baixada. Hoje: `downloadCollectionFile` **soma o `blob.size`** ao
+cache (`ui(id).bytes`), sem tocar o IDB, `deleteCollection` zera, e o
+recálculo completo só roda ao **abrir** o popup de opções — uma coleção, uma
+vez.
+
+**E o re-render é coalescido** (`refreshCollectionsIfVisible` agenda,
+`renderCollectionsNow` executa; `COLL_REFRESH_MS` = 400 ms). O progresso chama
+isso uma vez por música: sincronizar o Hinário 2022 reconstruía a lista inteira
+613 vezes. A resposta ao TOQUE continua imediata — `syncCollection` chama
+`renderCollectionsNow()` direto ao ligar o `syncBusy`; só o progresso, que é
+informativo, espera a janela.
 
 Sincronização é **aditiva e resumível**: interromper e sincronizar de novo só
 baixa o que falta (`fileGet` reconfirma que o arquivo catalogado ainda existe
@@ -1188,10 +1233,21 @@ cards, via `fetchAlbumCatalog`); e (fase 2) o **índice leve de CADA álbum**
 (`runLimited`, 5) e TTL (`ALBUM_INDEX_TTL`, 12 h — pula álbuns indexados há
 pouco, mas sempre busca os novos/vazios). `autoRefreshCollections` é
 **silenciosa**: sem rede, só mantém o que já está em cache, sem erro visível.
-`fetchCollectionIndex` faz o merge preservando `fileIdFull`/`fileIdPlayback`/
-`lyrics` já conhecidos — usada tanto por essa atualização automática quanto pela
+`fetchCollectionIndex` faz o merge **mutando os objetos existentes no lugar**,
+em vez de recriá-los — usada tanto por essa atualização automática quanto pela
 fase 1 de `syncCollection`. Assim **todo o acervo** (hinários + todas as músicas
 de todos os álbuns) entra na busca sozinho, baixado ou não.
+
+**Por que in-place, e não objetos novos:** `syncCollection` tira um snapshot do
+array e grava `fileIdFull`/`fileIdPlayback` nos objetos DELE conforme baixa.
+Como esta atualização roda em toda retomada do app — ou seja, exatamente
+durante uma sincronização em massa, que é quando o operador minimiza —,
+recriar os objetos deixava o snapshot apontando para órfãos: os bytes iam pro
+OPFS e pro catálogo, mas os ids eram descartados no `setState` seguinte, o card
+mostrava menos baixados do que existem e a música era rebaixada. Reaproveitar o
+objeto também preserva de graça qualquer campo extra (`lyrics`, `_norm`).
+Complementarmente, `autoRefreshCollections` **pula coleções com `syncBusy`** —
+não há por que competir pela mesma chave durante o trabalho pesado.
 
 **Busca/lista — popup único com dois escopos** (`searchScope`): o mesmo popup
 (`#hymnSearchPopup`) serve tanto pra **busca global** quanto pra **lista de uma
@@ -1214,11 +1270,21 @@ está folheando um álbum, não filtrando o acervo, e cortar em 60 escondia o fi
 de qualquer hinário. A busca **global** mantém o teto de 60 — ela varre
 milhares de músicas de todos os álbuns, e renderizar tudo a cada tecla
 travaria o campo. Resultados vêm
-dos índices já em memória (`collState`, filtro em memória, `normalizeForSearch`
-ignora acentuação; o subtítulo do resultado mostra a coleção de origem) —
+dos índices já em memória (`collState`, filtro em memória; o subtítulo do
+resultado mostra a coleção de origem) —
 funciona sem rede assim que os índices já tiverem sido buscados pelo menos uma
 vez (hinários e álbuns entram sozinhos via `autoRefreshCollections`); se o popup
 estiver aberto quando um índice atualiza, a lista se re-renderiza na hora.
+
+**Nome normalizado uma vez, não por tecla** (`s._norm`, gravado por
+`fetchCollectionIndex` e preenchido sob demanda no filtro): `normalizeForSearch`
+faz `normalize('NFD') + replace + toLowerCase` — três alocações de string sobre
+um valor que nunca muda, antes repetidas para **cada música do acervo a cada
+tecla digitada**. Os dois campos de busca (acervo e pasta) também passaram a ter
+**debounce** (`SEARCH_DEBOUNCE_MS` = 130 ms): a busca dentro de uma pasta OPFS
+refaz a lista inteira com `innerHTML=''` e um object URL novo por miniatura, e
+numa pasta de centenas de arquivos isso acontecia a cada tecla, com a lista
+ainda quase inteira nas primeiras letras.
 **Linha compacta, ações reveladas pelo toque** (`hymnResultRow`): o resultado
 é `[thumb 46px] [nome / subtítulo] [duração]` — e nada mais. Tocar na linha
 abre as ações logo abaixo, em **acordeão** (abrir uma fecha a anterior: duas
@@ -1606,9 +1672,18 @@ Texto é **desacoplada do ciclo de vida da mídia do stage** — `showText`/
 A mídia do stage e a cortina do wallpaper já têm as próprias transições (ver
 `stage.js`). As camadas **paralelas** — letra, texto manual e a imagem de fundo
 das estrofes — não passam por lá, e por isso apareciam/sumiam com corte seco.
-`fadeLayerIn`/`fadeLayerOut` (display.js) e `pvLayerIn`/`pvLayerOut`
-(controle.js) dão a elas o mesmo tratamento, com `LAYER_FADE_MS`/
-`PV_LAYER_FADE_MS` = 320 ms. **Nada entra ou sai da projeção sem transição.**
+`fadeLayerIn`/`fadeLayerOut` dão a elas o mesmo tratamento, com
+`LAYER_FADE_MS` = 320 ms. **Nada entra ou sai da projeção sem transição.**
+
+As quatro funções (`fadeLayerIn`, `fadeLayerOut`, `fadeContentIn` e o
+`findSlideIndex` da letra) vivem em **`shared/stage.js`**, expostas como
+propriedades de `createStage` — mesmo padrão já usado por `rampSteps`/
+`MUTE_RAMP_TIME`. Elas eram idênticas linha a linha nos dois apps (`pvLayerIn`/
+`pvLayerOut`/`pvFadeIn` no Controle) e **não têm calibração própria nenhuma**:
+o que difere entre preview e telão é só o CSS, em `cq*` relativo a cada
+container. Cada app mantém os aliases locais (`pvLayerIn = createStage.
+fadeLayerIn`, etc.) para o resto do código não mudar. As camadas que de fato
+carregam calibração continuam duplicadas, de propósito.
 
 - `fadeLayerIn` **não repete o fade** se a camada já estava visível (guarda
   `wasHidden`) — trocar de versículo não faz o cartão inteiro piscar; quem
@@ -1697,6 +1772,17 @@ aberto), **sem disputar espaço com a leitura**; ao terminar sem falhas marca
 operador de fato abre a aba Bíblia), e a leitura por capítulo
 (`loadBibleChapter`) continua baixando sob demanda como fallback se o operador
 abrir um capítulo antes de o download em massa chegar nele.
+
+**O que já está em cache é descoberto com UMA leitura de chaves**
+(`AVDB.stateKeys('bible:<v>_')` → `Set`), não com 1189 `getState`. Cada
+`getState` abre a própria transação e desserializa o capítulo INTEIRO (~30
+versículos de texto) só para testar existência — e essa varredura era refeita a
+cada entrada na aba enquanto a flag `bibleComplete` não estivesse marcada. Uma
+chave só existe quando o capítulo foi gravado com versículos (os dois pontos de
+escrita conferem `vs.length`), então a presença da chave basta como teste.
+Consequência boa: se a varredura mostrar que **nada falta**, a flag é marcada
+ali mesmo — antes ela só era gravada com `failed === 0`, e uma única falha de
+rede (o Wi-Fi da igreja) condenava a versão a revarrer para sempre.
 
 **Persistência offline (não some entre sessões)**: os capítulos ficam no
 IndexedDB (`state`, durável por natureza — sobrevive a fechar/reabrir o app e a
@@ -1873,6 +1959,18 @@ sessão (não chama `clearManualText`) — é o áudio de fundo. O `viewToggle`
 (`setView`, ciente da sessão de texto) liga/desliga a **cortina compartilhada**
 do wallpaper por cima do texto, sem passar por `preview.handle` (que recobriria —
 não há mídia carregada no stage, a menos que seja o áudio de fundo).
+
+**As guardas da Camada de Texto no Controle usam `pvTextActive`, nunca
+`bibleSession`.** O Display sempre tratou os dois provedores de forma unificada
+(`textActive`); o Controle checava só a Bíblia em dois pontos, e com uma
+**Mensagem** no ar isso dava dois defeitos reais: (a) o `setView` caía no
+caminho genérico → `setViewFaded` → `instantCover(computeCover())`, e como o
+stage da preview está sem `current` a cortina voltava na hora — a mensagem
+sumia da preview enquanto seguia corretamente no telão; (b) o ▶ caía em
+`send(currentId)`, que chama `clearManualText()` e **tirava a mensagem do telão
+no meio do culto**, quando pela documentação deveria ser no-op (e com a Bíblia
+era). `previewTick` já usava o predicado certo — os outros dois pontos agora
+também.
 
 A projeção de texto é **independente da navegação de abas** (como qualquer outra
 mídia): o `load()` (disparado a cada troca de aba) **não chama
@@ -2221,9 +2319,17 @@ anterior) sofria.
     mesmo padrão de "host novo a cada troca" do Display (`ytDrop()`), evita
     que uma mensagem do player anterior seja confundida com a do novo.
   - Comandos `play`/`pause`/`seek` vão para o player real
-    (`ytPreviewHandle()`); `mute`/`volume` nunca chegam até ele (a preview é
-    sempre muda, como já era pra mídia local); `fade`/`view` continuam
-    indo para `preview.handle()` sempre — é a mesma cortina do wallpaper
+    (`ytPreviewHandle()`); `mute`/`volume` só valem no modo **"mesa de som"**
+    (fora dele a preview é sempre muda, como já era pra mídia local) e seguem a
+    MESMA orquestração do `ytHandle` do Display: mutar desce em rampa
+    (`ytPreviewRampVolume`) e só então chama `player.mute()`, no fim
+    (`ytPreviewMuteApplyTimer`, que reconfere a intenção — um mute/unmute mais
+    recente não pode ser desfeito pela aplicação atrasada); desmutar chama
+    `unMute()` na hora e sobe em rampa; e um `volume` do operador **cancela a
+    rampa em curso**. Sem isso, no modo mesa de som — em que esse é o áudio que
+    sai na caixa da igreja — o mudo cortava no talo, e arrastar o fader durante
+    a rampa de entrada era desfeito pelos passos restantes (o fader "voltava"
+    sozinho). `view` continua indo para `preview.handle()` sempre — é a mesma cortina do wallpaper
     compartilhada com a mídia local, e `stage.js` só pula a revelação
     automática no fim de `load()` para `kind='youtube'` (retorna cedo, só
     marca a thumbnail) — por isso `cmd()` chama
@@ -2349,7 +2455,7 @@ medidas repetidas à mão), que foram consolidadas nestes padrões.
 | `--radius-btn` | `8px` | raio de **botões/controles** (unifica os antigos 7/8/9px) |
 | `--radius-card` | `10px` | raio de **cartões/painéis** (preview, itens de lista, popups internos, folhas) |
 | `--radius-pill` | `999px` | badges, chips, pills |
-| `--wallpaper` 🔁 | `radial-gradient(circle at 50% 35%, #14331f, #0a1a10, #050b07)` | cortina do wallpaper (Display + preview) |
+| `--wallpaper` 🔁 | `radial-gradient(circle at 50% 35%, #14331f 0%, #0a1a10 55%, #050b07 100%)` | cortina do wallpaper (Display + preview) |
 | `--lyrics-frame-bg` 🔁 | `rgba(0,0,0,.4)` | fundo da moldura da letra (modo imagem) |
 | `--lyrics-frame-border` 🔁 | `rgba(255,255,255,.85)` | borda da moldura da letra (modo imagem) |
 | `--press` | `scale(.96)` | **feedback de toque padrão**: todo `:active` usa `transform: var(--press)` |
@@ -2360,7 +2466,30 @@ medidas repetidas à mão), que foram consolidadas nestes padrões.
 
 - **Feedback de toque:** todo elemento interativo usa
   `:active { transform: var(--press); }` (antes havia `scale(.95/.96/.97/.98)`
-  misturados — unificados em `.96`).
+  misturados — unificados em `.96`). A regra é **UMA SÓ**, um `:is(...)` com a
+  lista de seletores logo depois do bloco `:root`. Antes ela estava repetida em
+  17 lugares e, ainda assim, nove controles ficavam de fora (voltar, abas,
+  seleção múltipla, botões de linha, fechar popup, escolher pasta,
+  preenchimento, linha de música…): como o `*` zera o tap-highlight, esses
+  ficavam **totalmente mudos ao toque** no aparelho. Com a lista única, um botão
+  novo entra acrescentando um nome — não copiando uma regra.
+- **Tamanho de ícone:** três degraus, e só eles — `--icon-sm` (20px, botões de
+  linha/cabeçalho/popup), `--icon-md` (22px, abas e transporte) e `--icon-lg`
+  (24px, miniatura-ícone e dicas de deslize). Antes havia oito tamanhos
+  (19…27px), cinco deles usados uma única vez.
+- **Alvo de toque:** botão de ícone é **34px** ou mais (`.row-btn`,
+  `.popup-close`, `.back-btn`, `.add-dir-btn`), `.sel-btn` 36, `.hymnal-card-btn`
+  38, `.tab` 42. Nada abaixo disso — o `.back-btn` já teve 20×20 px sendo a
+  única saída da aba Pastas e da navegação da Bíblia.
+- **Receita repetida vira seletor agrupado, não cópia:** os estados de cor são
+  declarados por ESTADO (`.view-blocked`/`.muted`/`.danger` num bloco,
+  `.active` noutro), a coluna "nome + subtítulo" das linhas de lista é uma regra
+  para `.coll-bar-info, .bible-ver-main, .hymn-info`, e `.slide-nav-btn` divide
+  a receita de `.t-btn` em vez de reescrevê-la.
+- **Ordem importa quando a especificidade empata:** `.pv-text { z-index: 2 }`
+  precisa vir DEPOIS de `.pv-layer { z-index: 1 }` (o elemento tem as duas
+  classes). Já esteve antes, e o cartão de texto só ficava acima do iframe do
+  YouTube por acaso, pela ordem no DOM.
 - **Realce de toque:** `-webkit-tap-highlight-color: transparent` e
   `user-select: none` ficam **só no seletor `*`** (topo da folha) — **não
   repetir** por elemento (era redundante em ~12 regras, removido).
@@ -2379,7 +2508,7 @@ medidas repetidas à mão), que foram consolidadas nestes padrões.
 
 1. Existe token pro valor? Use-o. Não existe e o valor se repete? **Crie um token**.
 2. Cor/medida de marca nova → adicionar **nos dois** `:root` (Controle + Display) e marcar 🔁 nesta tabela.
-3. Botão novo → `:active { transform: var(--press); }` e nada de tap-highlight próprio.
+3. Botão novo → acrescentar o seletor à lista `:is(...)` do feedback de toque; nada de tap-highlight nem de `:active` próprio.
 4. Atualizar esta tabela e bumpar a versão visual + caches dos SW.
 
 ---

@@ -70,12 +70,35 @@ input, textarea { user-select: text !important; -webkit-user-select: text !impor
   /* feedback de toque padrão (:active) */
   --press: scale(.96);
 
+  /* Escala de ícones — três degraus, e só eles. Antes havia oito tamanhos
+     (19, 20, 21, 22, 23, 24, 26, 27 px), cinco deles usados uma única vez. */
+  --icon-sm: 20px;   /* botões de linha, cabeçalho, popups */
+  --icon-md: 22px;   /* abas e transporte (alvos maiores) */
+  --icon-lg: 24px;   /* miniatura-ícone e dicas de deslize */
+
   /* altura do teclado virtual (deslocamento com teclado) — atualizado pelo JS
      via VisualViewport quando o navegador NÃO redimensiona o layout sozinho
      (fallback ao interactive-widget=resizes-content do meta viewport). 0 quando
      o teclado está fechado ou o layout já foi redimensionado. */
   --kb: 0px;
 }
+
+/* ---------- Feedback de toque (regra única) ----------
+   Como o `*` acima zera o -webkit-tap-highlight-color, um controle SEM
+   `:active` fica totalmente mudo ao toque no aparelho — o operador não sabe se
+   o toque pegou. A regra estava repetida em 17 seletores e, mesmo assim, nove
+   controles ficavam de fora (voltar, abas, seleção múltipla, botões de linha,
+   fechar popup, escolher pasta, preenchimento, linha de música...).
+   Uma lista só, aqui: um botão novo nasce coberto por omissão. */
+:is(
+  .ctl-btn, .t-btn, .slide-nav-btn, .pv-fab,
+  .tab, .tab-add, .import-btn, .add-dir-btn, .back-btn, .sel-btn,
+  .row-btn, .row-handle, .popup-close, .new-folder-btn, .folder-pick-btn,
+  .coll-pill, .coll-bar, .coll-bar-btn, .hymnal-card-btn,
+  .bible-cell, .bible-ref-part, .bible-vsec, .bible-ver-row,
+  .hymn-row, .msg-add-btn, .msg-item,
+  .fit-opt, .dialog-btn, .lib-item .row
+):active { transform: var(--press); }
 
 html, body { height: 100%; overflow: hidden; }
 /* svh = small viewport height: desconta barras do browser no modo não-PWA.
@@ -150,13 +173,10 @@ body {
    espaço horizontal que sobra na linha. A altura vem da grade (.deck,
    `grid-template-rows: auto 130px auto`), não mais de um `height` próprio. */
 .preview-row { display: flex; align-items: stretch; gap: .4rem; }
-.slide-nav-btn {
-  flex: 1; min-width: 0; border: none; border-radius: var(--radius-btn);
-  background: var(--surface); color: #fff; cursor: pointer;
-  display: flex; align-items: center; justify-content: center;
-}
-.slide-nav-btn .msym { font-size: 22px; }
-.slide-nav-btn:active { transform: var(--press); }
+/* Botão de navegação de estrofe/versículo: a receita visual é a mesma do
+   transporte e vive junto com `.t-btn` (ver "Transporte"). Aqui só o que é
+   próprio desta linha. */
+.slide-nav-btn { min-width: 0; }
 .slide-nav-btn:disabled { opacity: .3; }
 
 /* Preview */
@@ -208,7 +228,6 @@ body {
 /* O tamanho do ícone vem daqui, não do atributo do <svg>: a altura de cada
    botão agora é fração da preview, e um ícone de 20px estouraria a caixa. */
 .pv-fab svg { display: block; width: 17px; height: 17px; }
-.pv-fab:active { transform: var(--press); }
 /* Mensagem no ar: o mesmo botão vira o X de desligar, em vermelho para não se
    confundir com "abrir a lista". */
 .pv-fab.live { background: var(--danger); border-color: var(--danger); color: #fff; }
@@ -219,12 +238,6 @@ body {
 
 /* Mesmo modelo do Display: mídia toca por baixo (z-index menor); o wallpaper
    é a cortina que cobre por cima, ligada/desligada independente da mídia. */
-/* Camada de TEXTO manual: acima de toda a mídia (inclusive do iframe do
-   YouTube, que vem depois no DOM), opaca pelo `background:#000` de .pv-layer.
-   Espelha o Display (.text-layer) — a mídia segue tocando intacta por baixo e
-   reaparece onde estava quando o texto sai. */
-.pv-text { z-index: 2; }
-
 .pv-wall {
   position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
   background: var(--wallpaper);
@@ -236,6 +249,15 @@ body {
 .pv-brand { font-size: clamp(.7rem, 3.5vw, 1.05rem); font-weight: 700; letter-spacing: .03em; color: rgba(255,255,255,.9); }
 .pv-brand b { color: var(--gold); }
 .pv-layer { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; z-index: 1; }
+/* Camada de TEXTO manual: acima de toda a mídia (inclusive do iframe do
+   YouTube), opaca pelo `background:#000` herdado de .pv-layer. Espelha o
+   Display (.text-layer) — a mídia segue tocando intacta por baixo e reaparece
+   onde estava quando o texto sai.
+   PRECISA vir depois de `.pv-layer`: mesma especificidade, então quem é
+   declarado por último vence. Antes esta regra estava ANTES e o z-index:1 de
+   .pv-layer a anulava — o cartão só ficava acima do iframe do YouTube por
+   acaso, pela ordem no DOM. */
+.pv-text { z-index: 2; }
 /* Preview do YouTube: a API cria o <iframe> dentro deste wrapper (mesmo
    padrão do Display). pointer-events:none evita que um toque na preview
    abra os controles/overlays do próprio YouTube.
@@ -262,7 +284,7 @@ body {
    (mais específica que a regra `[hidden]` padrão do navegador) vencia e a
    <img> continuava visível mesmo com `hidden` ligado pelo JS. */
 .pv-lyrics-bg { position: absolute; inset: 0; background: #000; }
-.pv-lyrics-bg img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.pv-lyrics-bg img, .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .pv-lyrics-bg img[hidden] { display: none; }
 /* Container de tamanho — mesmo princípio do Display (`.lyrics-content` em
    display.css): tudo dentro de `.pv-lyrics-content` usa unidades `cq*`
@@ -355,12 +377,6 @@ body {
   0%, 12% { transform: translateX(0); }
   88%, 100% { transform: translateX(var(--np-shift, 0)); }
 }
-/* Legenda leve com a estrofe atual (letra sincronizada) — só um texto de
-   confirmação para o operador, não um mockup do slide projetado. */
-.np-lyric {
-  font-size: .75rem; color: var(--muted); text-align: center;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
 .np-seek { display: flex; align-items: center; gap: .5rem; }
 .np-time { font-size: .7rem; color: var(--muted); min-width: 32px; text-align: center; }
 #seek { flex: 1; accent-color: var(--accent); height: 4px; }
@@ -368,13 +384,15 @@ body {
 
 /* Botões de transporte */
 .transport { display: flex; gap: .35rem; }
-.t-btn {
-  flex: 1; padding: .45rem 0; border: none; border-radius: var(--radius-btn);
+/* Botão-bloco que divide a largura da linha: o transporte e a navegação de
+   estrofe usam a MESMA receita (9 das 11 declarações eram idênticas). */
+.t-btn, .slide-nav-btn {
+  flex: 1; border: none; border-radius: var(--radius-btn);
   background: var(--surface); color: #fff; cursor: pointer;
   display: flex; align-items: center; justify-content: center;
 }
-.t-btn .msym { font-size: 23px; }
-.t-btn:active { transform: var(--press); }
+.t-btn { padding: .45rem 0; }
+.t-btn .msym, .slide-nav-btn .msym { font-size: var(--icon-md); }
 .t-btn:disabled { opacity: .35; }
 #repeat.active { color: var(--accent); }
 
@@ -475,16 +493,18 @@ body {
   border: 2px solid transparent; border-radius: var(--radius-btn); background: var(--surface);
   color: #fff; cursor: pointer; display: flex; align-items: center; justify-content: center;
 }
-.ctl-btn .msym { font-size: 21px; }
-.ctl-btn:active { transform: var(--press); }
+.ctl-btn .msym { font-size: var(--icon-md); }
 .mixer .ctl-btn { width: 100%; padding: .4rem 0; }
-.view-btn.view-blocked { border-color: var(--danger); background: var(--danger-soft); color: var(--danger-text); }
-.mute-btn.muted { border-color: var(--danger); background: var(--danger-soft); color: var(--danger-text); }
-/* Modo "mesa de som" ativo: áudio real sai pelo Controle, independente do Display. */
-.standalone-btn.active { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
-/* Fundo da letra sincronizada: preto é o padrão (botão neutro); ativo = usa
-   as imagens dos slides no lugar do preto. */
-.lyricsbg-btn.active { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+/* Estados dos controles agrupados por ESTADO, não por componente — a mesma
+   receita estava escrita quatro vezes. `.view-blocked` = visual bloqueado,
+   `.muted` = mudo, `.danger` = ação destrutiva; `.active` = mesa de som ligada
+   ou fundo da letra em modo imagem. */
+.view-btn.view-blocked, .mute-btn.muted, .coll-opts .new-folder-btn.danger {
+  border-color: var(--danger); background: var(--danger-soft); color: var(--danger-text);
+}
+.standalone-btn.active, .lyricsbg-btn.active {
+  border-color: var(--accent); background: var(--accent-soft); color: var(--accent);
+}
 /* Sem áudio no Display (bloqueio do navegador): indicador âmbar pulsante;
    o clique pede a liberação do som (comando audio-retry). */
 .mute-btn.blocked {
@@ -507,13 +527,20 @@ main {
 /* ---------- Título da lista ativa ---------- */
 .list-header { flex-shrink: 0; display: flex; align-items: center; gap: .3rem; }
 .list-title { flex: 1; font-size: .72rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
-.add-dir-btn { flex-shrink: 0; width: 30px; height: 30px; border: none; border-radius: var(--radius-btn); background: var(--accent-soft); color: var(--accent); display: flex; align-items: center; justify-content: center; cursor: pointer; }
-.add-dir-btn .msym { font-size: 20px; }
-.back-btn {
-  background: none; border: none; color: var(--accent); cursor: pointer; padding: 0 .2rem 0 0;
-  display: flex; align-items: center;
+/* Os dois botões de ícone do cabeçalho têm a MESMA caixa de toque (34px, o
+   mesmo dos botões de linha e de fechar popup). O voltar tinha só ~20×20 px —
+   o menor alvo do app inteiro, e é a única saída da aba Pastas e da navegação
+   da Bíblia; errar o toque ali caía no #addDirBtn ao lado, que abre o SAF. */
+.add-dir-btn, .back-btn {
+  flex-shrink: 0; width: 34px; height: 34px; padding: 0;
+  border: none; border-radius: var(--radius-btn);
+  display: flex; align-items: center; justify-content: center; cursor: pointer;
 }
-.back-btn .msym { font-size: 20px; }
+.add-dir-btn { background: var(--accent-soft); color: var(--accent); }
+/* O voltar continua "chapado" (sem fundo) — só o alvo cresceu. */
+.back-btn { background: none; color: var(--accent); }
+.add-dir-btn .msym, .back-btn .msym { font-size: var(--icon-sm); }
+.add-dir-btn svg { display: block; }
 
 /* ---------- Abas (ícones) ---------- */
 /* As abas ficam MESCLADAS ao fundo normal do app (sem card/seção isolada) — o
@@ -546,7 +573,7 @@ main {
   background: transparent; color: var(--muted); cursor: pointer;
   display: flex; align-items: center; justify-content: center;
 }
-.tab .msym { font-size: 22px; }
+.tab .msym { font-size: var(--icon-md); }
 .tab.active { color: var(--text); border-bottom-color: var(--accent); }
 
 /* Fim da lista do Cronograma: "Importar arquivos" e "Pastas" lado a lado — as
@@ -565,7 +592,6 @@ main {
 }
 .import-btn svg { display: block; flex-shrink: 0; }
 .import-btn span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.import-btn:active { transform: var(--press); }
 
 /* Buscar no acervo (único .tab-add que restou — o de importar desceu para o
    fim do Cronograma). border:none + appearance:none matam a borda 3D bicolor
@@ -576,8 +602,7 @@ main {
   border-radius: var(--radius-btn); background: var(--accent); color: #fff;
   display: flex; align-items: center; justify-content: center; cursor: pointer;
 }
-.tab-add .msym { font-size: 22px; }
-.tab-add:active { transform: var(--press); }
+.tab-add .msym { font-size: var(--icon-md); }
 
 /* barra de seleção */
 .selbar { flex-shrink: 0; display: flex; align-items: center; gap: .6rem; background: var(--accent-soft); border: 1px solid var(--accent); border-radius: var(--radius-card); padding: .35rem .6rem; }
@@ -586,7 +611,7 @@ main {
 .sel-btn { width: 36px; height: 36px; border: none; border-radius: var(--radius-btn); background: var(--surface-2); color: var(--text); display: flex; align-items: center; justify-content: center; cursor: pointer; }
 .sel-btn:disabled { opacity: .35; }
 .sel-btn.danger { color: var(--danger-text); }
-.sel-btn .msym { font-size: 20px; }
+.sel-btn .msym { font-size: var(--icon-sm); }
 
 /* ---------- Itens (biblioteca) ---------- */
 .lib-list {
@@ -605,8 +630,7 @@ main {
 .lib-item.selected .row, .lib-item.active .row, .row-item.active .row { background: var(--panel-2); }
 
 .thumb { width: 40px; height: 40px; flex-shrink: 0; border-radius: var(--radius-btn); overflow: hidden; background: #060606; display: flex; align-items: center; justify-content: center; }
-.thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.thumb--icon .msym { font-size: 24px; color: var(--muted); }
+.thumb--icon .msym { font-size: var(--icon-lg); color: var(--muted); }
 
 .row-name { flex: 1; min-width: 0; font-size: .9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
@@ -614,7 +638,8 @@ main {
 .yt-badge { background: rgba(255, 0, 0, .18); color: #ff5252; }
 
 .row-btn, .row-handle { width: 34px; height: 34px; flex-shrink: 0; border: none; border-radius: var(--radius-btn); background: var(--surface); color: var(--text); display: flex; align-items: center; justify-content: center; cursor: pointer; }
-.row-btn .msym, .row-handle .msym { font-size: 19px; }
+.row-btn .msym, .row-handle .msym { font-size: var(--icon-sm); }
+.row-btn svg { display: block; }
 .row-handle { background: transparent; color: var(--muted); touch-action: none; cursor: grab; }
 
 /* pastas sincronizadas (OPFS) */
@@ -658,7 +683,6 @@ main {
   padding: .32rem .7rem; font-size: .76rem; font-weight: 700;
   cursor: pointer; appearance: none; -webkit-appearance: none; white-space: nowrap;
 }
-.coll-pill:active { transform: var(--press); }
 .coll-pill.active { background: var(--accent); border-color: var(--accent); color: #fff; }
 
 /* Cabeçalho de grupo: o nome da CATEGORIA do banco. A aba Álbuns reproduz a
@@ -673,8 +697,9 @@ main {
 .coll-group:first-child { padding-top: .2rem; }
 
 .coll-bar { display: flex; align-items: center; gap: .55rem; cursor: pointer; }
-.coll-bar:active { transform: var(--press); }
-.coll-bar-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+/* Coluna nome + subtítulo das linhas de lista (coleção, versão da Bíblia,
+   resultado de busca): a mesma receita, num lugar só. */
+.coll-bar-info, .bible-ver-main, .hymn-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 /* Subtítulo do PIVÔ categoria↔álbum: o mesmo álbum pode ter subtítulos
    diferentes conforme a categoria em que aparece. */
 .coll-bar-sub { font-size: .74rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -684,7 +709,7 @@ main {
   background: var(--accent-soft); color: var(--accent);
   display: flex; align-items: center; justify-content: center;
 }
-.coll-bar-icon .msym { font-size: 20px; }
+.coll-bar-icon .msym { font-size: var(--icon-sm); }
 .coll-bar-name { font-size: .95rem; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .coll-bar-sync { flex-shrink: 0; font-size: .78rem; font-weight: 700; color: var(--muted); font-variant-numeric: tabular-nums; }
 .coll-bar-sync.done { color: var(--success); }
@@ -700,42 +725,19 @@ main {
 /* Conteúdo do bottom-sheet de opções da coleção. */
 .coll-opts { display: flex; flex-direction: column; gap: .6rem; padding: .2rem .9rem .9rem; }
 .coll-opts .hymnal-card-status { white-space: normal; }
-.coll-opts .new-folder-btn.danger {
-  background: var(--danger-soft); border-color: var(--danger); color: var(--danger-text);
-}
 .coll-opts .new-folder-btn svg { display: block; }
 .coll-opts .new-folder-btn.busy svg { animation: hymnal-spin 1s linear infinite; }
-
-.hymnal-card-head { display: flex; align-items: center; gap: .6rem; }
-/* No card expandido o status é filho direto da head (o nome/ícone já estão na
-   barra), então precisa crescer pra empurrar as ações pra direita. */
-.hymnal-card-head > .hymnal-card-status { flex: 1; min-width: 0; }
-.hymnal-card-icon {
-  width: 44px; height: 44px; flex-shrink: 0;
-  border-radius: var(--radius-btn);
-  background: var(--accent-soft); color: var(--accent);
-  display: flex; align-items: center; justify-content: center;
-}
-.hymnal-card-icon .msym { font-size: 27px; }
-.hymnal-card-titles { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.hymnal-card-title { font-size: .95rem; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .hymnal-card-status { font-size: .72rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: .25rem; }
 .hymnal-card-status.sync { color: var(--accent); }
 .hymnal-card-status.done { color: var(--success); }
-.hymnal-card-actions { display: flex; gap: .35rem; flex-shrink: 0; }
+
 .hymnal-card-btn {
   width: 38px; height: 38px; border: none; appearance: none; -webkit-appearance: none;
   border-radius: var(--radius-btn); background: var(--surface); color: var(--text);
   display: flex; align-items: center; justify-content: center; cursor: pointer;
 }
-.hymnal-card-btn:active { transform: var(--press); }
-.hymnal-card-btn .msym { font-size: 20px; }
+.hymnal-card-btn .msym { font-size: var(--icon-sm); }
 .hymnal-card-btn svg { display: block; }
-/* Sincronizar e excluir são ambos AZUIS: sincronizar é o primário (preenchido
-   de accent), excluir é azul sobre superfície (ícone accent) — distintos entre
-   si, mas os dois na cor da marca. */
-.hymnal-card-btn.sync-btn { background: var(--accent); color: #fff; }
-.hymnal-card-btn.del-btn { color: var(--accent); }
 .hymnal-card-btn.busy { opacity: .55; }
 .hymnal-card-btn.busy svg { animation: hymnal-spin 1s linear infinite; }
 @keyframes hymnal-spin { to { transform: rotate(360deg); } }
@@ -806,7 +808,6 @@ main {
 }
 /* linha de uma versão no popup */
 .bible-ver-row.selected { color: var(--accent); }
-.bible-ver-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 .bible-ver-row .row-name { font-weight: 600; }
 .bible-ver-status { font-size: .68rem; color: var(--muted); }
 .bible-ver-status.done { color: var(--success); }
@@ -839,7 +840,6 @@ main {
   cursor: pointer; overflow: hidden; padding: 2px; text-align: center;
   color: #fff;
 }
-.bible-cell:active { transform: var(--press); }
 /* célula de número (capítulo/versículo): superfície neutra por padrão, com
    TONS DISTINTOS por tela pra separar bem "capítulo" de "versículo"
    (percepção da hierarquia): capítulos em tom frio (azulado), versículos em
@@ -898,7 +898,6 @@ main {
 .bible-ref-part--book { flex-shrink: 1; min-width: 3.5rem; }
 .bible-ref-part:first-child { border-radius: var(--radius-btn) 0 0 var(--radius-btn); }
 .bible-ref-part:last-child { border-radius: 0 var(--radius-btn) var(--radius-btn) 0; }
-.bible-ref-part:active { transform: var(--press); }
 .bible-ref-label { font-size: .56rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
 .bible-ref-value {
   font-size: .86rem; font-weight: 700; color: var(--accent);
@@ -948,7 +947,6 @@ main {
   border-radius: var(--radius-card); padding: .7rem; font-size: .9rem; font-weight: 700;
   cursor: pointer; appearance: none; -webkit-appearance: none;
 }
-.msg-add-btn:active { transform: var(--press); }
 .msg-item {
   display: flex; align-items: center; gap: .5rem; border: 2px solid transparent;
   border-radius: var(--radius-card); background: var(--panel); padding: .5rem .6rem;
@@ -974,7 +972,6 @@ main {
 /* O central é o que vai ao telão: recebe metade a mais de altura que os de
    contexto, então é o último a apertar quando o versículo é longo. */
 .bible-vsec.cur { flex: 1.5 1 0; }
-.bible-vsec:active { transform: var(--press); }
 .bible-vsec.adj { opacity: .6; }             /* anterior / próximo (contexto) */
 .bible-vsec.cur { border-color: var(--accent); background: var(--panel-2); opacity: 1; }
 /* central EM EXIBIÇÃO ("no ar") — destaque verde */
@@ -1026,7 +1023,7 @@ main {
 /* fundo de ação do swipe */
 .swipe-bg { position: absolute; inset: 0; z-index: 0; display: flex; align-items: center; justify-content: space-between; padding: 0 18px; }
 .swipe-hint { opacity: .22; }
-.swipe-hint .msym { font-size: 24px; }
+.swipe-hint .msym { font-size: var(--icon-lg); }
 .swipe-hint.right { color: var(--accent); }
 .lib-item.show-left .swipe-hint.right { opacity: 1; }
 
@@ -1072,7 +1069,7 @@ main {
   background: var(--surface-2); color: var(--muted);
   display: flex; align-items: center; justify-content: center; cursor: pointer;
 }
-.popup-close .msym { font-size: 20px; }
+.popup-close .msym { font-size: var(--icon-sm); }
 
 .popup-list {
   flex: 1; overflow-y: auto;
@@ -1101,8 +1098,7 @@ main {
   display: flex; align-items: center; justify-content: center; gap: .4rem;
   cursor: pointer;
 }
-.new-folder-btn .msym { font-size: 20px; }
-.new-folder-btn:active { transform: var(--press); }
+.new-folder-btn .msym { font-size: var(--icon-sm); }
 
 /* Estado do telão (rodapé do popup de Exibição). No app é só um indicador
    (desabilitado); no navegador continua clicável, como atalho para a tela do
@@ -1114,7 +1110,7 @@ main {
   display: flex; align-items: center; justify-content: center; gap: .4rem;
   cursor: pointer; appearance: none; -webkit-appearance: none;
 }
-.display-status .msym { font-size: 20px; }
+.display-status .msym { font-size: var(--icon-sm); }
 .display-status:disabled { cursor: default; }
 .display-status.connected {
   background: var(--success-soft); border-color: var(--success); color: var(--success);
@@ -1130,8 +1126,7 @@ main {
   display: flex; align-items: center; gap: .55rem;
   cursor: pointer;
 }
-.folder-pick-btn .msym { font-size: 22px; color: var(--accent); }
-.folder-pick-btn:active { transform: var(--press); }
+.folder-pick-btn .msym { font-size: var(--icon-md); color: var(--accent); }
 
 /* ---------- Busca (pasta e Hinário) ---------- */
 /* appearance:none mata o visual NATIVO do sistema que o `type="search"` ganha
@@ -1178,8 +1173,6 @@ main {
    ponto: a lista precisa ser legível de relance no meio do culto. */
 .hymn-row { align-items: center; gap: .55rem; padding: .5rem .55rem; cursor: pointer; }
 .hymn-result .thumb { width: 46px; height: 46px; flex-shrink: 0; }
-.hymn-result .thumb--icon .msym { font-size: 26px; }
-.hymn-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 /* `flex:none` desfaz o `flex:1` de .row-name: aqui o pai é uma coluna, e
    crescer significaria esticar na VERTICAL (o nome descolaria do subtítulo). */
 .hymn-name { flex: none; font-size: 1.02rem; font-weight: 500; }
@@ -1200,16 +1193,12 @@ main {
 .hymn-result.expanded .hymn-actions { display: flex; animation: hymn-actions-in .18s ease both; }
 @keyframes hymn-actions-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
 .hymn-variant { flex: 1; display: flex; gap: .25rem; min-width: 0; }
+/* O botão de tocar reusa a receita de `.row-btn` (o irmão `.hymn-add` da mesma
+   linha já a reusava via classe) — aqui fica só o que difere: crescer para
+   dividir a largura do grupo, em vez de ser um quadrado fixo. */
 .hymn-play, .hymn-actions .hymn-add {
   flex: 1; min-width: 0; width: auto; height: 38px;
 }
-.hymn-play {
-  display: flex; align-items: center; justify-content: center;
-  border: none; border-radius: var(--radius-btn); background: var(--surface);
-  color: var(--text); cursor: pointer;
-}
-.hymn-play svg { display: block; }
-.hymn-play:active, .hymn-add:active { transform: var(--press); }
 /* Playback (instrumental) fica em tom accent para diferenciar do Cantado. */
 .hymn-variant[data-variant="playback"] .hymn-play { background: var(--accent-soft); color: var(--accent); }
 
@@ -1269,5 +1258,4 @@ main {
   background: var(--surface-2); color: var(--text);
   font-size: .9rem; font-weight: 600; cursor: pointer; font-family: inherit;
 }
-.dialog-btn:active { transform: var(--press); }
 .dialog-btn.primary { background: var(--accent); color: #fff; }

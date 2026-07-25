@@ -13,11 +13,11 @@ const textContentEl = document.getElementById('textContent');
 const textMainEl = document.getElementById('textMain');
 const textSubEl = document.getElementById('textSub');
 
-// Config de transições espelhada localmente (o stage guarda a dele própria)
-// para animar o player do YouTube, que vive fora do stage. INERENTE ao sistema:
-// toda troca visual é animada com fade, sempre — não há opção de desligar nem
-// ajustar (ver restore()).
-let fadeCfg = { in: true, out: true, time: 0.6 };
+// Config de transições, usada aqui para animar o player do YouTube (que vive
+// fora do stage). INERENTE ao sistema: toda troca visual é animada com fade,
+// sempre — não há opção de desligar nem ajustar. Vem de stage.js para não
+// existirem duas cópias do mesmo objeto (Display e Controle) podendo divergir.
+const fadeCfg = createStage.FADE;
 
 // Fonte única do payload display-status: sendStatus (stage) e ytStatus
 // (YouTube) só preenchem os valores; o `type` e o `audioBlocked` ficam num
@@ -89,57 +89,17 @@ let lyricImgUrl = null;   // object URL em uso, para revogar quando trocar de fa
 // pelo Controle, aplicado ao vivo via comando (ver setLyricsBgMode).
 let lyricsBgMode = 'black';
 
-// Último índice de slide cujo `time` já passou — mesmo algoritmo usado no
-// Controle (previewTick) para manter os dois em sincronia.
-function findSlideIndex(lyrics, time) {
-  let idx = -1;
-  for (let i = 0; i < lyrics.length; i++) {
-    if (lyrics[i].time <= time) idx = i; else break;
-  }
-  return idx < 0 ? 0 : idx;
-}
-
-// Fade-in curto de um elemento (troca de slide/versículo) — respeita a config
-// de transições (fadeCfg.in). Anima só o conteúdo de texto, não a moldura
-// (evita a moldura "piscar"). Cancela uma animação anterior em curso.
-function animateFadeIn(el) {
-  if (!el || !el.animate || !fadeCfg.in) return;
-  try { el.getAnimations().forEach((a) => a.cancel()); } catch (_) {}
-  el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 260, easing: 'ease' });
-}
-
-// ===== Fade das CAMADAS paralelas (letra, texto) =====
-// A cortina do wallpaper e a mídia do stage já têm as próprias transições
-// (ver stage.js). As camadas paralelas não passam por lá, e por isso
-// apareciam/sumiam com corte seco. Estes dois helpers dão a elas o mesmo
-// tratamento: nada entra ou sai da projeção sem transição.
-const LAYER_FADE_MS = 320;
-
-function fadeLayerIn(el) {
-  if (!el) return;
-  const wasHidden = el.hidden;
-  el.hidden = false;
-  el.style.opacity = '';
-  if (!el.animate) return;
-  // Cancela SEMPRE, mesmo que a camada já estivesse visível: pode haver um
-  // fadeLayerOut em curso (ela estava saindo e voltou), e deixá-lo correr
-  // esconderia no `onfinish` justamente o que acabou de entrar.
-  let hadAnim = false;
-  try { el.getAnimations().forEach((a) => { hadAnim = true; a.cancel(); }); } catch (_) {}
-  if (!fadeCfg.in) return;
-  if (!wasHidden && !hadAnim) return; // já em cena e estável: não repete o fade
-  el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: LAYER_FADE_MS, easing: 'ease' });
-}
-
-function fadeLayerOut(el) {
-  if (!el || el.hidden) return;
-  if (!el.animate || !fadeCfg.out) { el.hidden = true; return; }
-  try { el.getAnimations().forEach((a) => a.cancel()); } catch (_) {}
-  const anim = el.animate([{ opacity: 1 }, { opacity: 0 }], { duration: LAYER_FADE_MS, easing: 'ease' });
-  // Só o término natural esconde: se um fadeLayerIn cancelar esta animação no
-  // meio (a camada voltou), esconder aqui apagaria o que acabou de entrar.
-  anim.onfinish = () => { el.hidden = true; el.style.opacity = ''; };
-}
+// ===== Fades de camada paralela (letra, texto) =====
+// A cortina do wallpaper e a mídia do stage já têm as próprias transições; as
+// camadas paralelas não passam por lá, e sem estes helpers apareciam/sumiam
+// com corte seco. Os quatro vivem em stage.js: são idênticos aos do Controle
+// (que os aplica em #pvLyrics/#pvText) e não têm calibração própria nenhuma —
+// só o CSS de cada app é que difere. Ver "fades de camada paralela" lá.
+const LAYER_FADE_MS = createStage.LAYER_FADE_MS;
+const findSlideIndex = createStage.findSlideIndex;
+const animateFadeIn = createStage.fadeContentIn;
+const fadeLayerIn = createStage.fadeLayerIn;
+const fadeLayerOut = createStage.fadeLayerOut;
 
 // `fade` = a letra está saindo de cena para o operador ver (fim da música,
 // texto manual assumindo). Sem fade quando outra mídia já vai ocupar o lugar
@@ -960,16 +920,6 @@ function ytSetView(v) {
 AVDB.onCommand(async (cmd) => {
   if (!cmd) return;
 
-  if (cmd.type === 'fade') {
-    fadeCfg = {
-      in: !!cmd.fadeIn,
-      out: !!cmd.fadeOut,
-      time: (typeof cmd.time === 'number' && cmd.time > 0) ? cmd.time : fadeCfg.time,
-    };
-    stage.handle(cmd);
-    return;
-  }
-
   // Preenchimento (object-fit): sempre vai pro stage, mesmo com YouTube ativo
   // (o iframe não usa isso) — sem esse desvio explícito, cairia em ytHandle()
   // (que ignora 'fit') enquanto um vídeo do YouTube estiver tocando, e o
@@ -1000,7 +950,7 @@ AVDB.onCommand(async (cmd) => {
   //  - transporte (play/pause/seek/volume/mute) segue pro stage — controla o
   //    ÁUDIO DE FUNDO (o texto não é afetado);
   //  - 'load' de ÁUDIO troca o som de fundo mantendo o texto; 'load' de VISUAL
-  //    (vídeo/imagem/YouTube), 'stop' e 'clear' encerram o texto e seguem o fluxo.
+  //    (vídeo/imagem/YouTube) e 'clear' encerram o texto e seguem o fluxo.
   if (textActive) {
     if (cmd.type === 'view') {
       textView = cmd.view === 'wallpaper' ? 'wallpaper' : 'visual';
@@ -1012,7 +962,7 @@ AVDB.onCommand(async (cmd) => {
       // Visual encerra; áudio mantém. Sem restaurar: o load logo abaixo já
       // monta a cena nova (restaurar aqui faria a antiga piscar antes).
       if (!rec || rec.kind !== 'audio') hideText(false);
-    } else if (cmd.type === 'stop' || cmd.type === 'clear') {
+    } else if (cmd.type === 'clear') {
       hideText(false);
     }
     // demais comandos (play/pause/seek/volume/mute) caem no fluxo normal abaixo.
@@ -1046,7 +996,7 @@ AVDB.onCommand(async (cmd) => {
     return;
   }
 
-  if (cmd.type === 'stop' || cmd.type === 'clear') {
+  if (cmd.type === 'clear') {
     hideLyrics(true);
     // `++ytSeq` (via stopYoutube quando há player, ou direto) cancela também um
     // loadYoutube em curso entre os awaits (yt ainda null) — sem isto, o vídeo

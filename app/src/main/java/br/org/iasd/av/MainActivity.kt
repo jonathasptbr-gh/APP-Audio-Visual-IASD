@@ -164,23 +164,9 @@ class MainActivity : ComponentActivity(), BridgeHost {
         root.addView(fullscreenContainer, matchParent())
         setContentView(root)
 
-        val loader = WebViewFactory.assetLoader(this)
-        val w = WebViewFactory.create(this, loader)
-        w.webChromeClient = ControleChromeClient()
-        val bridge = NativeBridge(
-            ctx = applicationContext,
-            role = "controle",
-            host = this,
-            webRef = { web },
-        )
-        w.addJavascriptInterface(bridge, "__AVBridge")
-        webContainer.addView(w, matchParent())
-        web = w
-        MessageBus.attach(w)
-
         pendingShare = ShareIntake.parse(this, intent)
 
-        w.loadUrl(WebViewFactory.URL_CONTROLE)
+        buildControleWebView()
 
         displayManager = getSystemService(DisplayManager::class.java)
         displayManager?.registerDisplayListener(displayListener, null)
@@ -203,6 +189,32 @@ class MainActivity : ComponentActivity(), BridgeHost {
             // sessão (e a Presentation na TV) continua viva.
             moveTaskToBack(true)
         }
+    }
+
+    /**
+     * Monta (ou remonta) o WebView do Controle. A remontagem acontece quando o
+     * renderer morre: sem isso o framework mataria o processo inteiro, levando
+     * junto a projeção na TV.
+     */
+    private fun buildControleWebView() {
+        if (isFinishing || isDestroyed) return
+        val loader = WebViewFactory.assetLoader(this)
+        val w = WebViewFactory.create(this, loader) {
+            web = null
+            webContainer.post { buildControleWebView() }
+        }
+        w.webChromeClient = ControleChromeClient()
+        val bridge = NativeBridge(
+            ctx = applicationContext,
+            role = "controle",
+            host = this,
+            webRef = { web },
+        )
+        w.addJavascriptInterface(bridge, "__AVBridge")
+        webContainer.addView(w, matchParent())
+        web = w
+        MessageBus.attach(w)
+        w.loadUrl(WebViewFactory.URL_CONTROLE)
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -283,9 +295,16 @@ class MainActivity : ComponentActivity(), BridgeHost {
         try {
             p.show()
             presentation = p
-        } catch (e: WindowManager.InvalidDisplayException) {
-            // A tela sumiu entre a consulta e o show() (dongle instável).
+        } catch (e: Exception) {
+            // A tela sumiu entre a consulta e o show() (dongle instável), ou o
+            // WindowManager recusou o token. `show()` roda `onCreate` ANTES do
+            // addView que lança: o WebView do telão já existe, já entrou no
+            // MessageBus e já pediu a URL. Descartar só a referência deixaria
+            // esse WebView vivo recebendo comandos e — com autoplay liberado —
+            // TOCANDO áudio numa janela que ninguém vê. Liberar é obrigatório.
             Log.w(TAG, "tela de apresentação sumiu antes do show()", e)
+            p.release()
+            try { p.dismiss() } catch (_: Exception) { /* nunca chegou a exibir */ }
             presentation = null
         }
         notifyDisplayChange()
@@ -342,16 +361,6 @@ class MainActivity : ComponentActivity(), BridgeHost {
                 Log.w(TAG, "seletor de pasta indisponível", e)
                 pendingFolderPick = null
                 onResult(null)
-            }
-        }
-    }
-
-    override fun setKeepAwake(on: Boolean) {
-        runOnUiThread {
-            if (on) {
-                window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-            } else {
-                window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             }
         }
     }
