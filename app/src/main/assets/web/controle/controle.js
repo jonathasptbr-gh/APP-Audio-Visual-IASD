@@ -1294,7 +1294,9 @@ async function ensureBibleVersionDownloaded(versionId) {
   bibleDl = { versionId, total, done: 0, running: true };
   refreshBibleDl();
 
-  await runLimited(items, 5, async (it) => {
+  // 1189 capítulos: é o download mais longo do app e o que mais sofria com o
+  // congelamento do processo ao minimizar.
+  await withBgWork(() => runLimited(items, 5, async (it) => {
     if (!bibleDl || !bibleDl.running || bibleDl.versionId !== versionId) return; // superado/cancelado
     const key = 'bible:' + versionId + '_' + it.bId + '_' + it.chapter;
     try {
@@ -1307,7 +1309,7 @@ async function ensureBibleVersionDownloaded(versionId) {
     } catch (_) { failed++; }
     done++;
     if (bibleDl && bibleDl.versionId === versionId) { bibleDl.done = done; refreshBibleDl(); }
-  });
+  }));
 
   if (bibleDl && bibleDl.versionId === versionId) {
     bibleDl.running = false;
@@ -1491,12 +1493,33 @@ function bibleSetIdx(idx) {
   else { renderNowPlaying(); renderSlideNav(); bibleRenderReading(); }
 }
 
-// Ativa a visualização a partir do versículo central atual (toque no central).
-function activateBibleVerse() {
+// O toque no versículo CENTRAL alterna a exibição pública: exibe se está
+// fora do ar, tira do ar se está exibindo. É o mesmo gesto nos dois sentidos
+// — quem acabou de projetar um versículo tem o dedo exatamente onde precisa
+// para tirá-lo do telão, sem procurar outro controle.
+//
+// Tirar do ar NÃO encerra a sessão de leitura (diferente do stop ⏹): a
+// seleção, o capítulo e o versículo central continuam onde estavam, e um
+// novo toque volta a exibir. É a diferença entre "esconder" e "sair".
+function toggleBibleVerse() {
   const s = bibleSession;
   if (!s) return;
-  s.projecting = true;
-  projectBibleVerse(s.idx);
+  if (s.projecting) hideBibleVerse();
+  else projectBibleVerse(s.idx);
+}
+
+// Tira a Escritura do telão mantendo a sessão viva.
+function hideBibleVerse() {
+  const s = bibleSession;
+  if (!s || !s.projecting) return;
+  s.projecting = false;
+  // `text-hide` encerra só a Camada de Texto — um áudio de fundo, se houver,
+  // segue tocando (ver "Independência do áudio" na arquitetura da camada).
+  cmd({ type: 'text-hide' });
+  renderControls();
+  renderNowPlaying();
+  renderSlideNav();
+  bibleRenderReading();
 }
 
 // Projeta o versículo de índice `idx` da sessão atual (Display + preview).
@@ -1714,7 +1737,7 @@ function renderBibleReading(wrap) {
     txt.textContent = info.v ? info.v.text : (info.cross ? '…' : '');
     sec.append(ref, txt);
     sec.addEventListener('click', () => {
-      if (role === 'cur') activateBibleVerse();
+      if (role === 'cur') toggleBibleVerse(); // exibe / tira do ar
       else bibleStep(delta); // navega (cruza capítulo/livro nos limites)
     });
     if (info.cross && !info.v && info.chapterRef) ensureAdjLoaded(info.chapterRef);
@@ -1724,12 +1747,13 @@ function renderBibleReading(wrap) {
   read.appendChild(mkSection(0, 'cur'));
   read.appendChild(mkSection(1, 'adj'));
 
-  // Dica enquanto não ativou a exibição.
-  if (!s.projecting) {
-    const hint = document.createElement('div'); hint.className = 'bible-read-hint';
-    hint.textContent = 'Toque no versículo central para exibir no telão';
-    read.appendChild(hint);
-  }
+  // Dica do que o toque no central faz agora — o gesto é o mesmo nos dois
+  // sentidos, então a dica acompanha o estado em vez de sumir após o 1º uso.
+  const hint = document.createElement('div'); hint.className = 'bible-read-hint';
+  hint.textContent = s.projecting
+    ? 'Toque no versículo central para tirar do telão'
+    : 'Toque no versículo central para exibir no telão';
+  read.appendChild(hint);
 
   // Rodapé: seletor de versão + referência atual (lado a lado). O status
   // offline/progresso NÃO fica mais aqui — só dentro do popup de versões.
@@ -2717,6 +2741,9 @@ async function syncDeviceFolder(existing) {
   if (!source) return;
 
   syncBusy = true;
+  // Copiar uma pasta inteira do dispositivo para o OPFS é longo (vídeos
+  // grandes); mesma proteção contra o congelamento ao minimizar.
+  bgWorkBegin();
   try {
     // Pede armazenamento persistente para o browser não descartar os arquivos.
     if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
@@ -2781,6 +2808,7 @@ async function syncDeviceFolder(existing) {
     flash('Erro na sincronização');
   } finally {
     syncBusy = false;
+    bgWorkEnd();
   }
   load();
 }
@@ -3012,7 +3040,9 @@ async function syncCollection(coll) {
         await AVDB.setState('coll:' + coll.id, collState[coll.id]);
       }
     }
-    await Promise.all(Array.from({ length: CONCURRENCY }, worker));
+    // Sincronização em massa: dezenas ou centenas de áudios — o operador
+    // dispara e sai do app. Sem a proteção, parava ao minimizar.
+    await withBgWork(() => Promise.all(Array.from({ length: CONCURRENCY }, worker)));
     setCollStatus(coll.id, 'Atualizado (' + done + ' baixado(s))', 4000);
   } catch (_) {
     setCollStatus(coll.id, 'Erro na sincronização', 5000);
@@ -3359,12 +3389,12 @@ async function ensureSongDownloaded(coll, s) {
 
   const key = coll.id + ':' + s.id_music;
   if (songDownloadInFlight.has(key)) { await songDownloadInFlight.get(key); return; }
-  const p = (async () => {
+  const p = withBgWork(async () => {
     flash('Baixando "' + s.name + '"…', true);
     await downloadCollectionSong(coll, s);
     await AVDB.setState('coll:' + coll.id, collState[coll.id]);
     refreshCollectionsIfVisible();
-  })();
+  });
   songDownloadInFlight.set(key, p);
   try { await p; } finally { songDownloadInFlight.delete(key); }
 }
@@ -3566,6 +3596,37 @@ async function checkPendingShare() {
 // própria UI no ponto de origem (ex: a sincronização do Hinário, abaixo).
 function flash() { /* no-op: alerta flutuante removido (ver comentário acima) */ }
 function dismissFlash() { /* no-op: alerta flutuante removido */ }
+
+// ===== trabalho pesado com o app minimizado =====
+// No app nativo, minimizar faz o Android tratar o processo como descartável e
+// congelá-lo — e a sincronização (hinos, álbuns, Bíblia, pastas) morria no
+// meio. Como ninguém fica olhando a tela enquanto um hinário inteiro baixa,
+// isso acontecia justamente no uso normal.
+//
+// A ponte declara esse trabalho ao sistema (SyncService, um serviço em
+// primeiro plano). Aqui só contamos quantos downloads estão em curso, para
+// ligar no primeiro e desligar no último — dois downloads simultâneos não
+// podem fazer o primeiro a terminar desligar a proteção do outro.
+//
+// No NAVEGADOR tudo isto é no-op: a aba já continua baixando em segundo plano.
+let bgWorkCount = 0;
+
+function bgWorkBegin() {
+  if (!window.__NATIVE__) return;
+  if (++bgWorkCount === 1) AVNative.keepAlive(true);
+}
+
+function bgWorkEnd() {
+  if (!window.__NATIVE__) return;
+  if (bgWorkCount > 0 && --bgWorkCount === 0) AVNative.keepAlive(false);
+}
+
+// Envolve um trecho pesado. O `finally` é o ponto crítico: uma falha de rede
+// no meio do download não pode deixar o serviço (e o wake lock) ligado.
+async function withBgWork(fn) {
+  bgWorkBegin();
+  try { return await fn(); } finally { bgWorkEnd(); }
+}
 
 // ===== Diálogo padrão do app (confirmações / prompts) =====
 // Modal no tema do app que substitui os confirm()/prompt() nativos em TODA

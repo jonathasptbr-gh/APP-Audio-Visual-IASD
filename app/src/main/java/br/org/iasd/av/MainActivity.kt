@@ -3,9 +3,11 @@ package br.org.iasd.av
 import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.pm.ApplicationInfo
+import android.content.pm.PackageManager
 import android.graphics.Color
 import android.hardware.display.DisplayManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.view.View
@@ -49,6 +51,16 @@ class MainActivity : ComponentActivity(), BridgeHost {
 
     /** Share recebido por intent, aguardando o lado web consumir. */
     private var pendingShare: JSONObject? = null
+
+    /** Há download em curso? (evita start/stop repetido do serviço) */
+    private var backgroundWork = false
+
+    // Android 13+ exige permissão para MOSTRAR a notificação do serviço de
+    // sincronização. Negá-la não impede o serviço de rodar — só esconde o
+    // indicador —, por isso o pedido é feito uma vez e sem bloquear nada.
+    private val notifPermission = registerForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { /* concedida ou não, o app segue igual */ }
 
     private val folderPicker = registerForActivityResult(
         ActivityResultContracts.OpenDocumentTree(),
@@ -111,6 +123,13 @@ class MainActivity : ComponentActivity(), BridgeHost {
         displayManager = getSystemService(DisplayManager::class.java)
         displayManager?.registerDisplayListener(displayListener, null)
 
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            notifPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+        }
+
         onBackPressedDispatcher.addCallback(this) {
             // Sair do app por engano durante o culto derrubaria a projeção.
             // O botão voltar apenas manda a tarefa para segundo plano — a
@@ -134,6 +153,12 @@ class MainActivity : ComponentActivity(), BridgeHost {
     }
 
     override fun onDestroy() {
+        // Sem o WebView não há download para proteger — o serviço não pode
+        // sobreviver à Activity segurando um wake lock à toa.
+        if (backgroundWork) {
+            backgroundWork = false
+            try { SyncService.stop(this) } catch (_: Exception) { }
+        }
         displayManager?.unregisterDisplayListener(displayListener)
         presentation?.let {
             it.release()
@@ -224,6 +249,22 @@ class MainActivity : ComponentActivity(), BridgeHost {
                 window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             } else {
                 window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            }
+        }
+    }
+
+    override fun setBackgroundWork(on: Boolean) {
+        runOnUiThread {
+            if (on == backgroundWork) return@runOnUiThread
+            backgroundWork = on
+            try {
+                if (on) SyncService.start(this) else SyncService.stop(this)
+            } catch (e: Exception) {
+                // Um serviço recusado (política do fabricante, app em
+                // background na hora do start) não pode derrubar a
+                // sincronização: ela continua, só sem a proteção extra.
+                Log.w(TAG, "serviço de sincronização indisponível", e)
+                backgroundWork = false
             }
         }
     }

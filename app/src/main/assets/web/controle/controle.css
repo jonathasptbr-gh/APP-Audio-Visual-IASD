@@ -127,14 +127,23 @@ body {
    antigo entre a coluna do mixer e nowplaying/preview/transport). */
 .deck {
   display: grid;
-  grid-template-columns: 1fr 56px;
+  /* `minmax(0, 1fr)` — NÃO `1fr`: uma faixa `1fr` tem mínimo automático igual
+     ao min-content do conteúdo, e o título (#npName, `white-space: nowrap`)
+     tem min-content do tamanho do texto INTEIRO, mesmo já sendo cortado por
+     overflow/ellipsis. Um nome de mídia longo inflava esta coluna e esmagava
+     (ou empurrava para fora) a coluna de 56px do mixer — e a largura da
+     preview passava a depender do título. Com o mínimo em 0, a fração é
+     respeitada e a preview fica estável qualquer que seja o nome. */
+  grid-template-columns: minmax(0, 1fr) 56px;
   grid-template-rows: auto 130px auto;
   column-gap: .6rem;
   row-gap: .45rem;
 }
-.nowplaying  { grid-column: 1; grid-row: 1; }
-.preview-row { grid-column: 1; grid-row: 2; }
-.transport   { grid-column: 1; grid-row: 3; }
+/* `min-width: 0` pelo mesmo motivo, agora nos itens: sem isso cada um deles
+   se recusaria a encolher abaixo do próprio min-content dentro da faixa. */
+.nowplaying  { grid-column: 1; grid-row: 1; min-width: 0; }
+.preview-row { grid-column: 1; grid-row: 2; min-width: 0; }
+.transport   { grid-column: 1; grid-row: 3; min-width: 0; }
 
 /* Linha da preview + navegação manual de estrofe (letra sincronizada): os
    botões flanqueiam a preview (mantida em 16:9) e crescem para ocupar o

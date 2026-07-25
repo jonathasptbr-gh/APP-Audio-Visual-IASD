@@ -20,6 +20,12 @@ interface BridgeHost {
     /** Mantém a tela ligada durante o culto. */
     fun setKeepAwake(on: Boolean)
 
+    /**
+     * Declara ao sistema que há download em andamento, para o processo não
+     * ser congelado com o app minimizado (ver [SyncService]).
+     */
+    fun setBackgroundWork(on: Boolean)
+
     /** Telas de apresentação conectadas agora. */
     fun listDisplays(): JSONArray
 
@@ -50,7 +56,7 @@ class NativeBridge(
          * usar um recurso que dependa da casca (é a válvula `minShell` do
          * contrato). Subir SEMPRE que a superfície da ponte mudar.
          */
-        const val SHELL_VERSION = 1
+        const val SHELL_VERSION = 2
     }
 
     private val io = Executors.newSingleThreadExecutor()
@@ -76,6 +82,16 @@ class NativeBridge(
     @JavascriptInterface
     fun keepAwake(on: Boolean) {
         host?.setKeepAwake(on)
+    }
+
+    /**
+     * Ligado enquanto houver QUALQUER download em curso (hinos, álbuns,
+     * Bíblia, pastas). O lado web conta as tarefas ativas e só desliga na
+     * última — ver `bgWorkBegin`/`bgWorkEnd` em `controle.js`.
+     */
+    @JavascriptInterface
+    fun keepAlive(on: Boolean) {
+        host?.setBackgroundWork(on)
     }
 
     // ---------- telas ----------

@@ -19,9 +19,10 @@ espelhar o celular.
 3. [Invariantes do shell (não quebrar)](#invariantes-do-shell-não-quebrar)
 4. [A ponte `window.AVNative`](#a-ponte-windowavnative)
 5. [Barramento de comandos e o plano B do BroadcastChannel](#barramento-de-comandos-e-o-plano-b-do-broadcastchannel)
-6. [Divergências entre o caminho web e o nativo](#divergências-entre-o-caminho-web-e-o-nativo)
-7. [Build e distribuição](#build-e-distribuição)
-8. [Regras de desenvolvimento](#regras-de-desenvolvimento)
+6. [Trabalho em segundo plano (downloads com o app minimizado)](#trabalho-em-segundo-plano-downloads-com-o-app-minimizado)
+7. [Divergências entre o caminho web e o nativo](#divergências-entre-o-caminho-web-e-o-nativo)
+8. [Build e distribuição](#build-e-distribuição)
+9. [Regras de desenvolvimento](#regras-de-desenvolvimento)
 
 ---
 
@@ -71,6 +72,7 @@ app/src/main/
 │   ├── NativeBridge.kt          # @JavascriptInterface — a ponte
 │   ├── SafPathHandler.kt        # serve arquivos do dispositivo em /saf/<token>
 │   ├── ShareIntake.kt           # intent ACTION_SEND → formato do share web
+│   ├── SyncService.kt           # foreground service: downloads com o app minimizado
 │   └── MessageBus.kt            # relay de comandos entre os dois WebViews
 └── res/                         # ícones (rasterizados dos SVGs do PWA), tema
 docs/
@@ -122,7 +124,8 @@ window.AVNative = {
   onShare(cb),         // cb({ files:[{name,type,url}], url, title })
   displays(),          // → [{ id, name, w, h, density }]
   onDisplayChange(cb),
-  keepAwake(bool),
+  keepAwake(bool),     // tela não apaga durante o culto
+  keepAlive(bool),     // download em curso — ver "Trabalho em segundo plano"
 }
 ```
 
@@ -158,6 +161,32 @@ frequente (`display-status`) já roda a 2 Hz.
 
 ---
 
+## Trabalho em segundo plano (downloads com o app minimizado)
+
+Ao minimizar o app, o Android trata o processo como descartável e pode
+**congelá-lo** — a sincronização de hinos, álbuns, Bíblia ou pastas parava no
+meio. Isso acontecia no uso normal, já que ninguém fica olhando a tela
+enquanto um hinário inteiro baixa.
+
+A correção declara o trabalho ao sistema: enquanto há download, o
+[`SyncService`](app/src/main/java/br/org/iasd/av/SyncService.kt) roda em
+primeiro plano (com a notificação que o Android exige) e segura um wake lock
+parcial — o processo não é congelado e o WebView continua baixando.
+
+**Quem liga e desliga é o lado web**, que é quem sabe o que está em curso:
+`bgWorkBegin()`/`bgWorkEnd()` em `controle.js` contam as tarefas ativas e só
+acionam `AVNative.keepAlive()` no **primeiro** início e no **último** término —
+dois downloads simultâneos não podem fazer o primeiro a terminar desligar a
+proteção do outro. O `finally` de `withBgWork()` é o ponto crítico: uma falha
+de rede não pode deixar o serviço e o wake lock ligados.
+
+Pontos cobertos: `syncCollection` (massa), `ensureSongDownloaded` (avulso),
+`ensureBibleVersionDownloaded` (1189 capítulos) e `syncDeviceFolder` (pastas).
+O wake lock tem timeout de 2 h, para um download travado nunca consumir
+bateria indefinidamente. No navegador tudo isso é no-op.
+
+---
+
 ## Divergências entre o caminho web e o nativo
 
 **Regra de escrita:** toda guarda é `if (!window.__NATIVE__) { …web… }`, nunca
@@ -175,6 +204,7 @@ contextos.
 | "Abrir Display" | `window.open('../display/')` | **indicador de telão conectado** — a Presentation é criada sozinha |
 | Fullscreen da preview | `requestFullscreen` + Screen Orientation API | idem, com trava de paisagem **nativa** (`onShowCustomView`) |
 | Botão voltar | — | manda a tarefa para segundo plano (sair por engano derrubaria a projeção) |
+| Download com o app minimizado | a aba continua baixando | **foreground service + wake lock** — sem isso o processo é congelado (ver seção acima) |
 
 ---
 
@@ -230,4 +260,4 @@ Rodar local: `./gradlew assembleDebug` (exige Android SDK instalado).
 - **A cada atualização, incrementar a versão visual do Controle**
   (`#appVersion` em `assets/web/controle/index.html`) e o `versionCode`/
   `versionName` em `app/build.gradle.kts` quando o shell mudar.
-  **Versão atual: v4.79** (base web) · **shell 1.0** (`SHELL_VERSION` 1).
+  **Versão atual: v4.80** (base web) · **shell 1.1** (`SHELL_VERSION` 2).

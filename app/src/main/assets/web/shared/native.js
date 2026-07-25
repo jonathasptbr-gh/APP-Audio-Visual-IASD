@@ -114,5 +114,11 @@
 
     // Sessão de culto.
     keepAwake(on) { try { B.keepAwake(!!on); } catch (_) { /* ignorado */ } },
+
+    // Downloads em andamento: sem isto o Android congela o processo quando o
+    // app é minimizado e a sincronização para no meio — justamente o que
+    // acontece no uso normal, já que ninguém fica olhando a tela enquanto um
+    // hinário inteiro baixa.
+    keepAlive(on) { try { B.keepAlive(!!on); } catch (_) { /* ignorado */ } },
   };
 })(this);

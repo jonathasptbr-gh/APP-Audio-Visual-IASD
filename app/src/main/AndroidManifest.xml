@@ -5,8 +5,18 @@
          app e as mídias sincronizadas são 100% locais. -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-    <!-- Wake lock: a tela do operador não pode apagar durante o culto. -->
+    <!-- Wake lock: a tela do operador não pode apagar durante o culto, e a
+         CPU não pode dormir no meio de uma sincronização. -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <!-- Serviço em primeiro plano durante downloads: sem ele o Android
+         congela o processo ao minimizar o app e a sincronização de hinos,
+         álbuns, Bíblia ou pastas para no meio (ver SyncService). -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <!-- Android 13+: sem esta permissão o serviço ainda roda, só a
+         notificação não aparece. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!-- Sem TV conectada o app continua útil (preview em tela cheia no
          próprio celular), então a Presentation não é um requisito de hardware. -->
@@ -55,5 +65,10 @@
                 <data android:mimeType="audio/*" />
             </intent-filter>
         </activity>
+
+        <service
+            android:name=".SyncService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
     </application>
 </manifest>
