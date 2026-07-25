@@ -79,10 +79,10 @@ git push origin main
   `renderVersionLabel()`), o fallback estático do `<span id="appVersion">` em
   `controle/index.html` e `version` em `version.json` (é este último que
   dispara a atualização por OTA nos aparelhos). Versionamento incremental
-  simples (4.98, 4.99, 5.00…). **Versão atual: v5.00.**
-  No app nativo o rótulo mostra os **dois índices** — `Web v5.00 · Shell v1.11`
+  simples (4.99, 5.00, 5.01…). **Versão atual: v5.01.**
+  No app nativo o rótulo mostra os **dois índices** — `Web v5.01 · Shell v1.11`
   —, porque base web e shell atualizam por caminhos independentes (OTA ×
-  instalar APK); no navegador sai só `Controle v5.00`.
+  instalar APK); no navegador sai só `Controle v5.01`.
 
 ---
 
@@ -1741,22 +1741,23 @@ estados "Escolha um capítulo acima." / "Baixando versículos…" / erro / capí
 vazio). O **nome do livro fica em destaque no topo** (`.bible-book-head`) — sem
 ele, uma tela só de números não diz em que livro o operador está.
 
-**Sem scroll, e a divisão não é meio a meio** (`fitBibleGrids()`): as células
-encolhem até tudo caber, e a altura vai para a grade que precisa — um livro de
-4 capítulos com 30 versículos dá quase toda a altura aos versículos.
+As duas metades dividem a área **ao meio** e cada uma **rola por conta
+própria** (`minmax(0,1fr)` nas faixas — sem o mínimo em 0, uma grade grande
+como os 150 capítulos de Salmos esticaria a faixa e comeria a outra metade).
 
-O cálculo é em JS porque CSS sozinho não resolve os dois lados: um número de
-células desconhecido tem que caber numa caixa de altura desconhecida.
-`auto-fill` escolhe as colunas pela largura, `1fr` divide a altura entre linhas
-**conhecidas** — dá para ter "sem scroll" OU "célula de tamanho razoável",
-nunca ambos. `fitBibleGrids` escolhe **uma** contagem de colunas (a mesma para
-as duas grades, senão as células saem de tamanhos diferentes) a partir da área
-disponível por célula; daí saem as linhas de cada grade, e a altura é repartida
-na proporção dessas linhas (`grid-template-rows: <r1>fr <r2>fr`). O efeito é
-que **toda célula da tela tem o mesmo tamanho**. A fonte acompanha, via a
-custom property `--bible-sym`. Roda num `requestAnimationFrame` depois do
-render (antes disso o `split` ainda não foi medido) e de novo no `resize`
-(girar o aparelho muda as duas dimensões).
+A **barra de rolagem fica sempre visível** nelas: no Android a barra é
+"overlay" — só aparece durante o gesto e some —, então nada indicava que havia
+mais capítulos ou versículos abaixo. Declarar largura em `::-webkit-scrollbar`
+tira o modo overlay e a barra passa a ocupar espaço de verdade, o que é o que a
+torna permanente (`scrollbar-width`/`scrollbar-color` cobrem o mesmo no padrão
+novo). A grade ganha um `padding-right` para a última coluna não encostar nela.
+
+> Houve uma tentativa de **encaixar tudo sem scroll**, encolhendo as células e
+> repartindo a altura conforme o número de linhas de cada grade
+> (`fitBibleGrids`, calculado em JS). Foi revertida: com Salmos ou o Salmo 119
+> as células ficavam pequenas demais para acertar o toque, e a proporção
+> variável fazia a tela mudar de cara a cada livro. Rolar com uma barra
+> visível é mais previsível.
 
 As duas grades marcam a seleção atual (`.bible-cell.active`: fundo accent +
 anel branco), e é isso que faz **voltar da leitura mostrar de imediato o

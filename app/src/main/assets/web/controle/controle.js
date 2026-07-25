@@ -59,7 +59,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.00';
+const WEB_VERSION = '5.01';
 
 function renderVersionLabel() {
   // __SHELL_NAME__ = versionName do APK (ver native.js). Vazio no navegador e
@@ -1593,61 +1593,18 @@ function renderBibleChapters(wrap) {
 
   split.append(top, bottom);
   wrap.appendChild(split);
-  // Só dá para calcular as grades depois que o navegador mediu o `split` —
-  // por isso no frame seguinte, e não aqui.
-  requestAnimationFrame(() => fitBibleGrids(split));
+  requestAnimationFrame(() => {
+    scrollActiveIntoView(cGrid);
+    scrollActiveIntoView(bottom.querySelector('.bible-grid--verses'));
+  });
 }
 
-// Encaixa capítulos e versículos na tela SEM SCROLL: as células encolhem até
-// tudo caber, e a altura é dividida entre as duas grades **conforme a
-// necessidade de cada uma** — não meio a meio.
-//
-// Por que em JS: um número de células desconhecido precisa caber numa caixa de
-// altura desconhecida. CSS sozinho resolve um dos dois (auto-fill escolhe as
-// colunas pela largura, `1fr` divide a altura entre linhas conhecidas), nunca
-// os dois ao mesmo tempo — dá para ter "sem scroll" OU "célula de tamanho
-// razoável", não ambos.
-//
-// O cálculo é direto: escolhe-se UMA contagem de colunas (a mesma para as duas
-// grades, senão as células saem de tamanhos diferentes) a partir da área
-// disponível por célula; daí saem as linhas de cada grade, e a altura é
-// repartida na proporção dessas linhas. O resultado é que toda célula da tela
-// tem o MESMO tamanho, e um livro de 4 capítulos com 30 versículos dá quase
-// toda a altura aos versículos — que era o pedido.
-function fitBibleGrids(split) {
-  if (!split || !split.isConnected) return;
-  const cGrid = split.querySelector('.bible-grid--chapters');
-  const vGrid = split.querySelector('.bible-grid--verses');
-  const W = split.clientWidth;
-  const H = split.clientHeight;
-  if (!W || !H) return;
-
-  const n1 = cGrid ? cGrid.children.length : 0;
-  const n2 = vGrid ? vGrid.children.length : 0;
-  if (!n1 && !n2) return;
-
-  // Tamanho de célula que faria as N células ocuparem a área toda, se
-  // coubessem perfeitamente — é o teto; as colunas saem dele.
-  const ideal = Math.sqrt((W * H) / Math.max(1, n1 + n2));
-  const cols = Math.max(4, Math.min(14, Math.round(W / Math.max(28, ideal))));
-
-  const r1 = n1 ? Math.ceil(n1 / cols) : 0;
-  const r2 = n2 ? Math.ceil(n2 / cols) : 0;
-  const rows = r1 + r2;
-  if (!rows) return;
-
-  // A metade sem grade (só um aviso de estado: sem capítulo, "Baixando…") não
-  // entra na proporção — recebe o mínimo necessário para o texto.
-  split.style.gridTemplateRows = (r1 ? r1 + 'fr' : 'auto') + ' ' + (r2 ? r2 + 'fr' : 'auto');
-
-  const cellH = Math.floor((H - (rows - 1) * 6) / rows);
-  const sym = Math.max(9, Math.min(20, Math.round(cellH * 0.46)));
-  [cGrid, vGrid].forEach((g) => {
-    if (!g) return;
-    g.style.gridTemplateColumns = 'repeat(' + cols + ', minmax(0, 1fr))';
-    g.style.gridTemplateRows = 'repeat(' + (g === cGrid ? r1 : r2) + ', minmax(0, 1fr))';
-    g.style.setProperty('--bible-sym', sym + 'px');
-  });
+// Rola cada grade até a célula marcada. As duas podem ser longas (Salmos tem
+// 150 capítulos, o 119 tem 176 versículos), e voltar da leitura tem que
+// mostrar onde se está sem o operador procurar.
+function scrollActiveIntoView(grid) {
+  const active = grid && grid.querySelector('.bible-cell.active');
+  if (active && active.scrollIntoView) active.scrollIntoView({ block: 'center' });
 }
 
 // A metade de baixo: grade de versículos do capítulo selecionado, ou o estado
@@ -4573,15 +4530,7 @@ volCloseEl.addEventListener('click', closeVolume);
 let titleResizeTimer = null;
 window.addEventListener('resize', () => {
   clearTimeout(titleResizeTimer);
-  titleResizeTimer = setTimeout(() => {
-    applyTitleMarquee();
-    // As grades da Bíblia são dimensionadas pela altura/largura medidas: girar
-    // o aparelho (ou o teclado abrir/fechar) muda as duas e elas precisam ser
-    // recalculadas, senão voltam a estourar ou a sobrar espaço.
-    if (activeTab === 'bible' && bibleScreen === 'chapters') {
-      fitBibleGrids(libraryEl.querySelector('.bible-split'));
-    }
-  }, 150);
+  titleResizeTimer = setTimeout(applyTitleMarquee, 150);
 });
 
 // ===== Deslocamento com o teclado virtual =====

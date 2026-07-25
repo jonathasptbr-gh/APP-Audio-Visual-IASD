@@ -782,21 +782,29 @@ main {
 .bible-book-name { font-size: 1.15rem; font-weight: 800; color: var(--text); }
 .bible-book-ref { font-size: .8rem; color: var(--muted); font-weight: 600; }
 
-/* Capítulo e versículo dividem a área na vertical: em cima os capítulos,
-   embaixo os versículos. **Sem scroll em nenhuma das duas** — as células
-   encolhem até tudo caber — e a divisão NÃO é meio a meio: a altura vai para
-   quem precisa (um livro de 4 capítulos com 30 versículos dá quase tudo aos
-   versículos). As proporções (`grid-template-rows`), as colunas e o tamanho da
-   fonte são calculados em `fitBibleGrids()` — ver o porquê lá. */
+/* Capítulo e versículo dividem a área ao meio, na vertical: em cima a grade de
+   capítulos, embaixo a de versículos. Cada metade ROLA por conta própria
+   (`minmax(0,1fr)` — sem o mínimo em 0 uma grade grande, como os 150 capítulos
+   de Salmos, esticaria a faixa e comeria a outra metade). */
 .bible-split {
   flex: 1; min-height: 0;
-  display: grid; grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); gap: 6px;
+  display: grid; grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); gap: .5rem;
 }
-.bible-half { min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
-.bible-half > .bible-grid { flex: 1; min-height: 0; }
+.bible-half { min-height: 0; overflow-y: auto; }
 /* Separador entre as duas metades — deixa claro que são dois níveis. */
-.bible-half + .bible-half { border-top: 1px solid var(--line); padding-top: 6px; }
-
+.bible-half + .bible-half { border-top: 1px solid var(--line); padding-top: .5rem; }
+/* Barra de rolagem SEMPRE VISÍVEL nestas duas grades. No Android a barra é
+   "overlay": só aparece durante o gesto e some, então nada indicava que havia
+   mais capítulos/versículos abaixo. Declarar largura em `::-webkit-scrollbar`
+   tira o modo overlay e a barra passa a ocupar espaço de verdade — é o que a
+   torna permanente. `scrollbar-*` cobre o mesmo no padrão novo. */
+.bible-half { scrollbar-width: thin; scrollbar-color: var(--accent) var(--panel); }
+.bible-half::-webkit-scrollbar { width: 7px; }
+.bible-half::-webkit-scrollbar-track { background: var(--panel); border-radius: var(--radius-pill); }
+.bible-half::-webkit-scrollbar-thumb {
+  background: var(--accent); border-radius: var(--radius-pill);
+  min-height: 28px;
+}
 /* Seletor de versão: um botão com a versão atual que abre o popup de versões
    (a lista não fica mais toda exposta em chips). */
 .bible-ver-btn {
@@ -820,14 +828,12 @@ main {
 .bible-note { color: var(--muted); font-size: .82rem; line-height: 1.5; text-align: center; padding: .8rem .4rem; }
 .bible-note.err { color: var(--gold-text); }
 
+/* A barra ocupa espaço; sem esta folga a última coluna encosta nela. */
+.bible-half > .bible-grid { padding-right: 4px; }
+
 .bible-grid { display: grid; gap: 6px; grid-template-columns: repeat(6, 1fr); }
-/* Capítulos/versículos: colunas e linhas vêm do JS (fitBibleGrids), que é
-   quem sabe quantas células há e qual a altura disponível. O valor abaixo é
-   só o estado inicial, antes da primeira medição. */
-.bible-grid--num { grid-template-columns: repeat(auto-fill, minmax(40px, 1fr)); }
-/* Sem aspect-ratio: a altura da célula vem da linha (`1fr` da grade), senão
-   ela voltaria a ser quadrada e estouraria a caixa. */
-.bible-grid--num .bible-cell { aspect-ratio: auto; min-height: 0; padding: 1px; }
+/* capítulos/versículos: células menores (só números), mais colunas. */
+.bible-grid--num { grid-template-columns: repeat(auto-fill, minmax(46px, 1fr)); }
 /* Livros: 66 células em 6×11; as 11 linhas dividem a altura disponível (1fr)
    pra caber TUDO sem scroll. Células retangulares (sem aspect-ratio), compactas. */
 .bible-grid--books { flex: 1; min-height: 0; gap: 4px; grid-template-rows: repeat(11, 1fr); }
@@ -863,9 +869,7 @@ main {
   box-shadow: 0 0 0 2px var(--accent-soft);
   font-weight: 800;
 }
-/* `--bible-sym` é escrito por fitBibleGrids conforme o tamanho que a célula
-   acabou tendo; sem ele (grade de livros) vale o tamanho fixo. */
-.bible-cell-sym { font-size: var(--bible-sym, 1.05rem); font-weight: 800; line-height: 1; }
+.bible-cell-sym { font-size: 1.05rem; font-weight: 800; line-height: 1; }
 .bible-cell--num .bible-cell-sym { font-weight: 700; font-variant-numeric: tabular-nums; }
 .bible-cell-name { font-size: .5rem; opacity: .82; margin-top: 3px; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
