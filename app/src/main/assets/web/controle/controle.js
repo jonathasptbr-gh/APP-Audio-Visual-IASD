@@ -59,7 +59,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.02';
+const WEB_VERSION = '5.03';
 
 function renderVersionLabel() {
   // __SHELL_NAME__ = versionName do APK (ver native.js). Vazio no navegador e
@@ -1510,11 +1510,9 @@ function renderBible() {
   const wrap = document.createElement('div');
   // A tela de livros preenche a altura disponível (grade compacta, sem scroll);
   // as demais rolam normalmente se precisarem (ex.: Salmos, 150 capítulos).
-  // Livros e a tela de capítulo+versículo preenchem a altura disponível (a
-  // segunda é dividida ao meio, então precisa de altura definida); a leitura
-  // rola normalmente.
-  wrap.className = 'bible-wrap'
-    + (bibleScreen === 'books' || bibleScreen === 'chapters' ? ' bible-wrap--fit' : '');
+  // Todas as telas preenchem a altura disponível e cabem sem scroll (ver
+  // .bible-wrap em controle.css).
+  wrap.className = 'bible-wrap';
   if (bibleScreen === 'chapters') renderBibleChapters(wrap);
   else if (bibleScreen === 'reading') renderBibleReading(wrap);
   else renderBibleBooks(wrap);

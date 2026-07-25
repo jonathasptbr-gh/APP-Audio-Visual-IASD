@@ -79,10 +79,10 @@ git push origin main
   `renderVersionLabel()`), o fallback estático do `<span id="appVersion">` em
   `controle/index.html` e `version` em `version.json` (é este último que
   dispara a atualização por OTA nos aparelhos). Versionamento incremental
-  simples (5.00, 5.01, 5.02…). **Versão atual: v5.02.**
-  No app nativo o rótulo mostra os **dois índices** — `Web v5.02 · Shell v1.11`
+  simples (5.01, 5.02, 5.03…). **Versão atual: v5.03.**
+  No app nativo o rótulo mostra os **dois índices** — `Web v5.03 · Shell v1.11`
   —, porque base web e shell atualizam por caminhos independentes (OTA ×
-  instalar APK); no navegador sai só `Controle v5.02`.
+  instalar APK); no navegador sai só `Controle v5.03`.
 
 ---
 
@@ -1788,9 +1788,18 @@ Tocar num **versículo** (`startBibleReading`) inicia uma **sessão de leitura**
 projecting }`) e abre a tela `'reading'` — **mas NÃO projeta nada ainda**
 (`projecting:false`). A tela de leitura (`renderBibleReading`, `.bible-read`)
 mostra **quatro seções empilhadas** — versículo **anterior · atual · próximo ·
-seguinte** (`.bible-vsec`): um atrás e **dois à frente**, porque sobrava espaço
-e ler adiante é o que o operador faz (ele precisa saber o que vem para
-acompanhar a leitura, não o que já passou). Embaixo, um **rodapé** (`.bible-read-foot`) com um **controle segmentado
+seguinte** (`.bible-vsec`): um atrás e **dois à frente**, porque ler adiante é
+o que o operador faz (ele precisa saber o que vem para acompanhar a leitura,
+não o que já passou).
+
+**Cabe na tela sem scroll**: as quatro seções repartem entre si a altura que
+sobra depois do rodapé (`flex: 1 1 0` + `min-height: 0` — é o `min-height` que
+permite encolherem abaixo do próprio conteúdo; sem ele voltariam a empurrar a
+tela). O **central recebe metade a mais** (`flex: 1.5`), então é o último a
+apertar quando o versículo é longo. O texto que não couber é cortado com
+reticências (`-webkit-line-clamp`): a íntegra vai para o telão, aqui basta
+reconhecer o versículo. Rolar para achar o versículo central seria o oposto do
+que essa tela serve. Embaixo, um **rodapé** (`.bible-read-foot`) com um **controle segmentado
 único** (`.bible-ref-nav`) trazendo as quatro coordenadas do que está sendo
 lido — **Versão · Livro · Capítulo · Versículo** —, cada uma levando ao seu
 próprio seletor. Emendados, continuam lendo como uma referência

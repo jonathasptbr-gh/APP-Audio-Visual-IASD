@@ -767,11 +767,10 @@ main {
    (abreviação do livro ou número), com um índice pequeno no canto (como o
    número atômico). Renderizadas dentro de #library (ver renderBible em
    controle.js). */
-.bible-wrap { display: flex; flex-direction: column; gap: .6rem; padding-bottom: .6rem; }
-/* Telas de livros e de capítulo+versículo: preenchem a altura disponível — a
-   primeira pra caber sem scroll (ver .bible-grid--books), a segunda porque é
-   dividida ao meio e precisa de altura definida. A leitura rola normalmente. */
-.bible-wrap--fit { flex: 1; min-height: 0; padding-bottom: 0; }
+/* Todas as telas da Bíblia preenchem a altura disponível e cabem SEM SCROLL:
+   livros (grade 6×11 em `1fr`), capítulo+versículo (duas metades que rolam por
+   dentro) e a leitura (as quatro seções repartem a altura entre si). */
+.bible-wrap { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: .6rem; }
 
 /* Nome do livro em destaque no topo da tela de capítulo+versículo: sem ele,
    uma tela só de números não diz em que livro o operador está. */
@@ -876,13 +875,17 @@ main {
 .bg-apocalipse { background: #a5702c; }  /* Apocalipse   */
 
 /* ---------- Bíblia: tela de leitura (versículo anterior/atual/próximo) ---------- */
-.bible-read { display: flex; flex-direction: column; gap: .5rem; padding-bottom: .6rem; }
+/* A leitura cabe na tela SEM SCROLL: as quatro seções repartem entre si a
+   altura que sobra depois do rodapé. Nada de altura fixa nem de rolagem — o
+   operador precisa ver as quatro de uma vez para acompanhar a leitura, e
+   rolar para achar o versículo central seria o oposto disso. */
+.bible-read { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: .4rem; }
 /* Rodapé: um controle segmentado só, com as QUATRO coordenadas do que está
    sendo lido — versão · livro · capítulo · versículo. Emendados, continuam
    lendo como uma referência ("ARA · João · 3 · 16") em vez de quatro ações
    soltas. Sem `flex-wrap`: o conjunto é uma linha; quem cede espaço é o nome
    do livro (o único de largura variável), não a quebra de linha. */
-.bible-read-foot { display: flex; align-items: center; justify-content: center; margin-top: .3rem; }
+.bible-read-foot { flex-shrink: 0; display: flex; align-items: center; justify-content: center; padding-top: .1rem; }
 .bible-ref-nav { display: flex; align-items: stretch; gap: 1px; max-width: 100%; }
 .bible-ref-part {
   display: flex; flex-direction: column; align-items: center; gap: 1px;
@@ -959,10 +962,18 @@ main {
 /* indicador de salto pro capítulo/livro vizinho (preview anterior/próximo) */
 .bible-vsec.cross { border-style: dashed; }
 .bible-vsec-cross { font-size: .6rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--gold); }
+/* `flex: 1 1 0` com `min-height: 0`: as seções dividem a altura disponível em
+   vez de somarem a altura do próprio texto (que é imprevisível — um versículo
+   pode ter duas linhas ou dez). O `min-height:0` é o que permite encolherem
+   abaixo do conteúdo; sem ele voltariam a empurrar a tela e a exigir scroll. */
 .bible-vsec {
+  flex: 1 1 0; min-height: 0; overflow: hidden;
   border: 1px solid var(--line); border-radius: var(--radius-card); background: var(--panel);
-  padding: .6rem .7rem; cursor: pointer; display: flex; flex-direction: column; gap: .2rem;
+  padding: .5rem .65rem; cursor: pointer; display: flex; flex-direction: column; gap: .15rem;
 }
+/* O central é o que vai ao telão: recebe metade a mais de altura que os de
+   contexto, então é o último a apertar quando o versículo é longo. */
+.bible-vsec.cur { flex: 1.5 1 0; }
 .bible-vsec:active { transform: var(--press); }
 .bible-vsec.adj { opacity: .6; }             /* anterior / próximo (contexto) */
 .bible-vsec.cur { border-color: var(--accent); background: var(--panel-2); opacity: 1; }
@@ -975,17 +986,14 @@ main {
 /* dica enquanto a exibição não foi ativada */
 /* Fonte maior: os versículos são o que se lê nesta tela, e havia espaço
    sobrando mesmo depois de acrescentar a quarta seção. */
-.bible-vsec-text { font-size: 1.02rem; line-height: 1.42; color: var(--text); }
-.bible-vsec.adj .bible-vsec-text { font-size: .92rem; }
-/* botão com a referência atual — volta pra seleção de livros ao tocar */
-.bible-read-ref {
-  margin-top: .2rem; align-self: center;
-  border: 1px solid var(--accent); background: var(--accent-soft); color: var(--accent);
-  border-radius: var(--radius-pill); padding: .5rem 1.1rem; font-size: .9rem; font-weight: 700;
-  cursor: pointer; appearance: none; -webkit-appearance: none;
-  display: inline-flex; align-items: center; gap: .4rem;
+/* O texto ocupa o que sobra da seção e é cortado com reticências quando não
+   cabe — a íntegra vai para o telão, aqui basta reconhecer o versículo. */
+.bible-vsec-text {
+  flex: 1; min-height: 0; font-size: 1.02rem; line-height: 1.42; color: var(--text);
+  overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 6;
 }
-.bible-read-ref:active { transform: var(--press); }
+.bible-vsec.adj .bible-vsec-text { font-size: .92rem; -webkit-line-clamp: 4; }
+.bible-vsec-ref, .bible-vsec-cross { flex-shrink: 0; }
 
 /* ---------- Bíblia: camada de texto na preview (espelha o Display) ---------- */
 /* Mesma estrutura do Display (.bible-content/.bible-box), tamanhos próprios em
