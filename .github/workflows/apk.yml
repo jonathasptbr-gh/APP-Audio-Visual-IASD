@@ -21,6 +21,62 @@ env:
   PUBLISH: ${{ startsWith(github.ref, 'refs/tags/v') || github.event.inputs.release_tag != '' }}
 
 jobs:
+  # Publica a base web como bundle OTA: um push em `main` chega sozinho aos
+  # aparelhos, sem APK novo (ver WebUpdater.kt). O APK continua trazendo a
+  # mesma base embutida, que é o fallback offline e o piso de versão.
+  web-ota:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Empacotar a base web
+        run: |
+          set -euo pipefail
+          ZIP="$GITHUB_WORKSPACE/web-assets.zip"
+          META="$GITHUB_WORKSPACE/version.json"
+          SRC="$GITHUB_WORKSPACE/app/src/main/assets/web/version.json"
+
+          # O zip preserva o prefixo `web/` para que o caminho dentro do
+          # bundle bata 1:1 com a URL servida pelo asset loader.
+          rm -f "$ZIP"
+          (cd "$GITHUB_WORKSPACE/app/src/main/assets" && zip -qr "$ZIP" web)
+
+          SHA=$(sha256sum "$ZIP" | cut -d' ' -f1)
+
+          python3 - "$SRC" "$META" "$SHA" "$GITHUB_REPOSITORY" <<'PY'
+          import json, sys
+          src, out, sha, repo = sys.argv[1:5]
+          meta = json.load(open(src))
+          json.dump({
+              "version": meta["version"],
+              "minShell": int(meta["minShell"]),
+              "sha256": sha,
+              "assets": f"https://github.com/{repo}/releases/download/web-latest/web-assets.zip",
+          }, open(out, "w"), indent=2)
+          PY
+
+          echo "Bundle: $(du -h "$ZIP" | cut -f1)"
+          cat "$META"
+
+      # Tag fixa: a URL do bundle precisa ser estável, porque está compilada
+      # no shell. Cada push substitui os dois arquivos desta mesma release.
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: web-latest
+          name: Base web (canal OTA)
+          prerelease: true
+          files: |
+            web-assets.zip
+            version.json
+          body: |
+            **Infraestrutura — não é para instalar.**
+
+            Canal de atualização da base web: o app consulta o `version.json`
+            aqui e baixa o `web-assets.zip` quando há versão nova, aplicando-a
+            no lançamento seguinte. Os APKs para instalar estão nas releases
+            `v*`.
+
   apk:
     runs-on: ubuntu-latest
     steps:

@@ -26,6 +26,20 @@
   try { global.__SHELL_VERSION__ = B.shellVersion(); } catch (_) { global.__SHELL_VERSION__ = 0; }
   try { global.__AV_ROLE__ = B.role(); } catch (_) { global.__AV_ROLE__ = ''; }
 
+  // ---- confirmação de boot (watchdog do OTA) ----
+  // A base web pode ter sido baixada por OTA. Se ela estiver quebrada, o app
+  // ficaria inutilizável até reinstalar — por isso o shell só considera um
+  // bundle bom depois que ele confirma que carregou por inteiro.
+  //
+  // `load` dispara depois de todos os scripts, e a checagem de `AVDB` é o que
+  // dá sentido à confirmação: um erro de sintaxe em `db.js` deixaria a página
+  // "carregada" mas sem sistema nenhum — nesse caso NÃO confirmamos, e o
+  // lançamento seguinte volta ao bundle embutido no APK.
+  global.addEventListener('load', function () {
+    if (!global.AVDB) return;
+    try { B.otaConfirm(); } catch (_) { /* shell antigo, sem OTA */ }
+  });
+
   // ---- chamadas assíncronas (Promise sobre callbacks do Kotlin) ----
   // O Kotlin resolve chamando window.__avResolve(id, valor) — o valor já
   // chega como objeto/array/null JavaScript, não como string para reparsear.

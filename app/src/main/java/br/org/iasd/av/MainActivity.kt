@@ -92,6 +92,11 @@ class MainActivity : ComponentActivity(), BridgeHost {
         // A tela do operador não pode apagar no meio do culto.
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
+        // Decide a base web ANTES de qualquer WebView existir, para Controle e
+        // Display servirem sempre o mesmo bundle nesta sessão (e para o
+        // watchdog do OTA armar uma única vez).
+        WebUpdater.beginSession(this)
+
         root = FrameLayout(this)
         root.setBackgroundColor(Color.BLACK)
         webContainer = FrameLayout(this)
@@ -129,6 +134,11 @@ class MainActivity : ComponentActivity(), BridgeHost {
         ) {
             notifPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
         }
+
+        // Procura uma base web nova em segundo plano. O que for baixado só
+        // entra em cena no PRÓXIMO lançamento — nunca troca a base no meio de
+        // uma projeção.
+        WebUpdater.checkAsync(this)
 
         onBackPressedDispatcher.addCallback(this) {
             // Sair do app por engano durante o culto derrubaria a projeção.

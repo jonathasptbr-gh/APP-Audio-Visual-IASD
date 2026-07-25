@@ -20,9 +20,10 @@ espelhar o celular.
 4. [A ponte `window.AVNative`](#a-ponte-windowavnative)
 5. [Barramento de comandos e o plano B do BroadcastChannel](#barramento-de-comandos-e-o-plano-b-do-broadcastchannel)
 6. [Trabalho em segundo plano (downloads com o app minimizado)](#trabalho-em-segundo-plano-downloads-com-o-app-minimizado)
-7. [Divergências entre o caminho web e o nativo](#divergências-entre-o-caminho-web-e-o-nativo)
-8. [Build e distribuição](#build-e-distribuição)
-9. [Regras de desenvolvimento](#regras-de-desenvolvimento)
+7. [OTA da base web (atualização sem APK)](#ota-da-base-web-atualização-sem-apk)
+8. [Divergências entre o caminho web e o nativo](#divergências-entre-o-caminho-web-e-o-nativo)
+9. [Build e distribuição](#build-e-distribuição)
+10. [Regras de desenvolvimento](#regras-de-desenvolvimento)
 
 ---
 
@@ -61,6 +62,7 @@ PWA, incluindo os gestos invisíveis).
 app/src/main/
 ├── AndroidManifest.xml          # intent-filter de share, portrait, keep-awake
 ├── assets/web/                  # ← a base web (cópia própria, versionada aqui)
+│   ├── version.json             #   identidade do bundle (version + minShell)
 │   ├── shared/native.js         #   ponte AVNative (NOVO — não existe no PWA)
 │   ├── shared/db.js             #   + relay nativo no canal de comandos
 │   ├── controle/                #   (sem sw.js — ver "Divergências")
@@ -73,6 +75,8 @@ app/src/main/
 │   ├── SafPathHandler.kt        # serve arquivos do dispositivo em /saf/<token>
 │   ├── ShareIntake.kt           # intent ACTION_SEND → formato do share web
 │   ├── SyncService.kt           # foreground service: downloads com o app minimizado
+│   ├── WebUpdater.kt            # OTA da base web (watchdog, minShell, sha256)
+│   ├── WebPathHandler.kt        # serve o bundle OTA, com fallback pro APK
 │   └── MessageBus.kt            # relay de comandos entre os dois WebViews
 └── res/                         # ícones (rasterizados dos SVGs do PWA), tema
 docs/
@@ -187,6 +191,57 @@ bateria indefinidamente. No navegador tudo isso é no-op.
 
 ---
 
+## OTA da base web (atualização sem APK)
+
+No PWA, um push em `main` chegava sozinho ao aparelho. Empacotada num APK, a
+base web passaria a exigir baixar e instalar à mão a cada ajuste de JS/CSS —
+o OTA devolve o comportamento antigo, com mais controle.
+
+**Como funciona:** o job `web-ota` (em todo push para `main`) empacota
+`assets/web/` num `web-assets.zip` (~170 KB) e publica, junto com um
+`version.json`, na release de tag fixa **`web-latest`** — URL estável, porque
+está compilada no shell. O app consulta esse `version.json` na abertura,
+baixa quando há versão nova e passa a servi-la.
+
+**A identidade do bundle é `assets/web/version.json`** (`version` +
+`minShell`), versionado no repositório: o bundle carrega a própria versão,
+seja ele o embutido ou o baixado. O workflow só acrescenta `sha256` e a URL.
+**Atualizar esse arquivo junto com `#appVersion`** — é o que dispara (ou não)
+uma atualização nos aparelhos.
+
+**O OTA não muda o acesso ao nativo.** A ponte é injetada no WebView pelo
+Kotlin (`addJavascriptInterface`), não vem nos arquivos web: um bundle
+baixado enxerga `__AVBridge` exatamente como o embutido, e o
+`WebViewAssetLoader` serve os dois pelo mesmo origin — logo IndexedDB, OPFS,
+SAF, Presentation e o serviço de segundo plano seguem idênticos.
+
+### As três garantias (isto roda em culto)
+
+1. **Nunca troca a base no meio de uma sessão.** O download é em segundo
+   plano, mas o bundle novo só entra no **próximo lançamento** — o WebView do
+   telão jamais recarrega ao vivo.
+2. **Válvula `minShell`.** Se o bundle exigir uma ponte mais nova que
+   `NativeBridge.SHELL_VERSION`, é recusado: o app continua no que já tinha,
+   funcionando, até um APK novo chegar. **É por isso que `SHELL_VERSION`
+   precisa subir toda vez que a superfície da ponte mudar** — sem isso a
+   válvula não protege nada.
+3. **Watchdog de boot.** Servir um bundle arma um `pending`; o lado web o
+   desarma (`AVNative` → `otaConfirm`) no evento `load`, e **só se `AVDB`
+   existir** — um erro de sintaxe em `db.js` deixaria a página "carregada"
+   mas sem sistema. Um bundle que não confirme é descartado no lançamento
+   seguinte e o app volta ao embutido no APK. Sem isso, um bundle quebrado
+   inutilizaria o app até reinstalar.
+
+Um APK novo com base web mais recente também descarta um OTA antigo
+(comparação numérica por componente, não lexical: `4.9` < `4.82`... por isso
+`compareVersions` compara `major.minor` como inteiros). A extração valida
+**zip slip** (entradas com `..` que escapariam do diretório) e o download
+confere o `sha256`; falta do `web/controle/index.html` reprova o bundle antes
+de ativá-lo. O fallback é **por arquivo**: o que faltar no bundle baixado é
+servido do APK.
+
+---
+
 ## Divergências entre o caminho web e o nativo
 
 **Regra de escrita:** toda guarda é `if (!window.__NATIVE__) { …web… }`, nunca
@@ -205,6 +260,7 @@ contextos.
 | Fullscreen da preview | `requestFullscreen` + Screen Orientation API | idem, com trava de paisagem **nativa** (`onShowCustomView`) |
 | Botão voltar | — | manda a tarefa para segundo plano (sair por engano derrubaria a projeção) |
 | Download com o app minimizado | a aba continua baixando | **foreground service + wake lock** — sem isso o processo é congelado (ver seção acima) |
+| Atualização da base web | service worker (cache-first + reload) | **OTA** — bundle publicado em `web-latest`, aplicado no próximo lançamento (ver seção acima) |
 
 ---
 
@@ -258,6 +314,7 @@ Rodar local: `./gradlew assembleDebug` (exige Android SDK instalado).
   arquitetura, protocolo de comandos ou a ponte. Mudanças dentro de
   `assets/web/` que afetem a arquitetura web vão em `docs/ARQUITETURA-WEB.md`.
 - **A cada atualização, incrementar a versão visual do Controle**
-  (`#appVersion` em `assets/web/controle/index.html`) e o `versionCode`/
-  `versionName` em `app/build.gradle.kts` quando o shell mudar.
-  **Versão atual: v4.81** (base web) · **shell 1.1** (`SHELL_VERSION` 2).
+  (`#appVersion` em `assets/web/controle/index.html`) **e `version` em
+  `assets/web/version.json`** — é este último que faz a atualização chegar
+  aos aparelhos por OTA. O `versionCode`/`versionName` do APK vêm do CI.
+  **Versão atual: v4.82** (base web) · **shell 1.2** (`SHELL_VERSION` 3).

@@ -52,11 +52,12 @@ class NativeBridge(
 
     companion object {
         /**
-         * Versão do shell nativo. O lado web pode exigir um mínimo antes de
-         * usar um recurso que dependa da casca (é a válvula `minShell` do
-         * contrato). Subir SEMPRE que a superfície da ponte mudar.
+         * Versão do shell nativo. Um bundle web declara em `minShell` a
+         * versão mínima de que precisa, e o OTA recusa atualizações que
+         * exijam mais do que o shell instalado oferece (ver [WebUpdater]).
+         * Subir SEMPRE que a superfície da ponte mudar.
          */
-        const val SHELL_VERSION = 2
+        const val SHELL_VERSION = 3
     }
 
     private val io = Executors.newSingleThreadExecutor()
@@ -69,6 +70,20 @@ class NativeBridge(
     /** `"controle"` ou `"display"` — o web usa para saber qual papel executa. */
     @JavascriptInterface
     fun role(): String = role
+
+    /** Versão da base web em uso (embutida no APK ou baixada por OTA). */
+    @JavascriptInterface
+    fun webVersion(): String = WebUpdater.currentVersion(ctx)
+
+    /**
+     * A base web carregou por inteiro — desarma o watchdog de boot do OTA.
+     * Sem esta confirmação, um bundle baixado que quebre é descartado no
+     * lançamento seguinte e o app volta ao embutido no APK.
+     */
+    @JavascriptInterface
+    fun otaConfirm() {
+        WebUpdater.confirmBoot(ctx)
+    }
 
     // ---------- barramento de comandos ----------
 

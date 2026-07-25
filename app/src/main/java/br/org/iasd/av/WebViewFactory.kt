@@ -35,13 +35,17 @@ object WebViewFactory {
      * Loader compartilhado pelos dois WebViews.
      *
      * Ordem dos handlers importa: `/saf/` é avaliado ANTES de `/`, senão o
-     * handler de assets (registrado na raiz) engoliria as requisições de
+     * handler da base web (registrado na raiz) engoliria as requisições de
      * arquivos do dispositivo.
+     *
+     * A base web vem do bundle OTA da sessão quando existe um, senão dos
+     * assets do APK — nos dois casos pelo MESMO origin, então IndexedDB,
+     * OPFS e a ponte nativa não notam diferença nenhuma.
      */
     fun assetLoader(ctx: Context): WebViewAssetLoader =
         WebViewAssetLoader.Builder()
             .addPathHandler("/saf/", SafPathHandler(ctx.applicationContext))
-            .addPathHandler("/", WebViewAssetLoader.AssetsPathHandler(ctx.applicationContext))
+            .addPathHandler("/", WebPathHandler(ctx.applicationContext))
             .build()
 
     @SuppressLint("SetJavaScriptEnabled")
