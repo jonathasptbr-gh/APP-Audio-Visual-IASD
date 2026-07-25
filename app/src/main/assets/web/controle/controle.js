@@ -59,7 +59,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '4.96';
+const WEB_VERSION = '4.97';
 
 function renderVersionLabel() {
   // __SHELL_NAME__ = versionName do APK (ver native.js). Vazio no navegador e
@@ -112,7 +112,7 @@ const bibleVerPopupEl = document.getElementById('bibleVerPopup');
 const bibleVerListEl = document.getElementById('bibleVerList');
 const bibleVerCloseEl = document.getElementById('bibleVerClose');
 // Escopo da busca/lista: null = busca global no acervo (botão de lupa);
-// coll.id = lista de músicas de UMA coleção (botão "Ver músicas" do card).
+// coll.id = lista de músicas de UMA coleção (toque no card do álbum).
 let searchScope = null;
 
 const ICON = {
@@ -216,6 +216,10 @@ let collState = {};
 // Antes guardávamos apenas `[{id_album, name}]` achatado — o que jogava fora
 // exatamente a classificação que o operador precisa para achar um álbum.
 let albumCatalog = { categories: [], albums: [] };
+// Filtro da aba Álbuns: null = tudo, 'hymnals' = só os hinários, ou um
+// `id_category` do banco. Estado de UI da sessão — não persistido: cada
+// abertura do app começa mostrando o acervo inteiro.
+let albumFilter = null;
 
 // Registro completo de coleções: hinários fixos + um card por álbum do catálogo.
 // `subtitle`/`order` NÃO entram aqui: são do pivô categoria↔álbum e só fazem
@@ -1589,17 +1593,61 @@ function renderBibleChapters(wrap) {
 
   split.append(top, bottom);
   wrap.appendChild(split);
-  // A grade rolável precisa mostrar o que está selecionado sem o operador
-  // procurar — vale para o capítulo (Salmos tem 150) e para o versículo.
-  requestAnimationFrame(() => {
-    scrollActiveIntoView(cGrid);
-    scrollActiveIntoView(bottom.querySelector('.bible-grid--verses'));
-  });
+  // Só dá para calcular as grades depois que o navegador mediu o `split` —
+  // por isso no frame seguinte, e não aqui.
+  requestAnimationFrame(() => fitBibleGrids(split));
 }
 
-function scrollActiveIntoView(grid) {
-  const active = grid && grid.querySelector('.bible-cell.active');
-  if (active && active.scrollIntoView) active.scrollIntoView({ block: 'center' });
+// Encaixa capítulos e versículos na tela SEM SCROLL: as células encolhem até
+// tudo caber, e a altura é dividida entre as duas grades **conforme a
+// necessidade de cada uma** — não meio a meio.
+//
+// Por que em JS: um número de células desconhecido precisa caber numa caixa de
+// altura desconhecida. CSS sozinho resolve um dos dois (auto-fill escolhe as
+// colunas pela largura, `1fr` divide a altura entre linhas conhecidas), nunca
+// os dois ao mesmo tempo — dá para ter "sem scroll" OU "célula de tamanho
+// razoável", não ambos.
+//
+// O cálculo é direto: escolhe-se UMA contagem de colunas (a mesma para as duas
+// grades, senão as células saem de tamanhos diferentes) a partir da área
+// disponível por célula; daí saem as linhas de cada grade, e a altura é
+// repartida na proporção dessas linhas. O resultado é que toda célula da tela
+// tem o MESMO tamanho, e um livro de 4 capítulos com 30 versículos dá quase
+// toda a altura aos versículos — que era o pedido.
+function fitBibleGrids(split) {
+  if (!split || !split.isConnected) return;
+  const cGrid = split.querySelector('.bible-grid--chapters');
+  const vGrid = split.querySelector('.bible-grid--verses');
+  const W = split.clientWidth;
+  const H = split.clientHeight;
+  if (!W || !H) return;
+
+  const n1 = cGrid ? cGrid.children.length : 0;
+  const n2 = vGrid ? vGrid.children.length : 0;
+  if (!n1 && !n2) return;
+
+  // Tamanho de célula que faria as N células ocuparem a área toda, se
+  // coubessem perfeitamente — é o teto; as colunas saem dele.
+  const ideal = Math.sqrt((W * H) / Math.max(1, n1 + n2));
+  const cols = Math.max(4, Math.min(14, Math.round(W / Math.max(28, ideal))));
+
+  const r1 = n1 ? Math.ceil(n1 / cols) : 0;
+  const r2 = n2 ? Math.ceil(n2 / cols) : 0;
+  const rows = r1 + r2;
+  if (!rows) return;
+
+  // A metade sem grade (só um aviso: "Escolha um capítulo", "Baixando…") não
+  // entra na proporção — recebe o mínimo necessário para o texto.
+  split.style.gridTemplateRows = (r1 ? r1 + 'fr' : 'auto') + ' ' + (r2 ? r2 + 'fr' : 'auto');
+
+  const cellH = Math.floor((H - (rows - 1) * 6) / rows);
+  const sym = Math.max(9, Math.min(20, Math.round(cellH * 0.46)));
+  [cGrid, vGrid].forEach((g) => {
+    if (!g) return;
+    g.style.gridTemplateColumns = 'repeat(' + cols + ', minmax(0, 1fr))';
+    g.style.gridTemplateRows = 'repeat(' + (g === cGrid ? r1 : r2) + ', minmax(0, 1fr))';
+    g.style.setProperty('--bible-sym', sym + 'px');
+  });
 }
 
 // A metade de baixo: grade de versículos do capítulo selecionado, ou o estado
@@ -2400,8 +2448,9 @@ function syncIconSvg() {
 function checkIconSvg() {
   return '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>';
 }
-// SVG inline de "lista" — botão "Ver músicas" (abre a lista de músicas da
-// coleção no popup de busca, escopado à coleção).
+// SVG inline de "lista". Sem uso desde que "Ver músicas" saiu das opções do
+// álbum (a lista é o toque no card); mantido por ser um ícone genérico do
+// conjunto, útil na próxima lista que aparecer.
 function listIconSvg() {
   return '<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>';
 }
@@ -2444,9 +2493,52 @@ function isHymnalAlbum(coll) {
 // A relação categoria↔álbum é N:N, então **o mesmo álbum pode aparecer em mais
 // de uma categoria** — de propósito: é assim no banco e no app original, e o
 // `subtitle` que acompanha o card muda conforme a categoria (é campo de pivô).
+// Pílulas de filtro no topo: Todos · Hinários · uma por categoria do banco.
+// Com dezenas de álbuns em várias categorias, rolar a lista inteira para achar
+// "os CDs oficiais" é lento — a pílula corta direto para o grupo.
+function renderCollectionFilters() {
+  const li = document.createElement('li');
+  li.className = 'coll-filters';
+  const add = (label, value) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'coll-pill' + (albumFilter === value ? ' active' : '');
+    b.textContent = label;
+    b.addEventListener('click', () => {
+      if (albumFilter === value) return;
+      albumFilter = value;
+      renderLibrary();
+      libraryEl.scrollTop = 0;
+    });
+    li.appendChild(b);
+  };
+  add('Todos', null);
+  if (FIXED_COLLECTIONS.length) add('Hinários', 'hymnals');
+  for (const cat of albumCatalog.categories) {
+    // Categoria sem nenhum card visível não vira pílula (levaria a uma lista
+    // vazia) — ex.: uma categoria só de álbuns que são hinários disfarçados.
+    if (categoryCards(cat).length) add(cat.name, cat.id_category);
+  }
+  return li;
+}
+
+// Álbuns de uma categoria que de fato viram card (existem no catálogo e não
+// são hinário disfarçado).
+function categoryCards(cat) {
+  const byId = new Map(allCollections().map((c) => [c.id, c]));
+  const out = [];
+  for (const a of cat.albums) {
+    const coll = byId.get('album-' + a.id_album);
+    if (coll && !isHymnalAlbum(coll)) out.push({ coll, ctx: a });
+  }
+  return out;
+}
+
 function renderCollectionsList() {
   const byId = new Map(allCollections().map((c) => [c.id, c]));
   let any = false;
+
+  libraryEl.appendChild(renderCollectionFilters());
 
   const header = (text) => {
     const li = document.createElement('li');
@@ -2455,27 +2547,35 @@ function renderCollectionsList() {
     libraryEl.appendChild(li);
   };
 
-  const fixed = FIXED_COLLECTIONS.filter((c) => byId.has(c.id));
+  const showHymnals = albumFilter === null || albumFilter === 'hymnals';
+  const fixed = showHymnals ? FIXED_COLLECTIONS.filter((c) => byId.has(c.id)) : [];
   if (fixed.length) {
-    header('Hinários');
+    // Com o filtro em "Hinários" o cabeçalho é redundante (a pílula já diz).
+    if (albumFilter === null) header('Hinários');
     fixed.forEach((coll) => { libraryEl.appendChild(renderCollectionCard(coll)); any = true; });
   }
 
   for (const cat of albumCatalog.categories) {
-    const cards = [];
-    for (const a of cat.albums) {
-      const coll = byId.get('album-' + a.id_album);
-      if (!coll || isHymnalAlbum(coll)) continue;
-      cards.push(renderCollectionCard(coll, a));
-    }
+    if (albumFilter === 'hymnals') break;
+    if (albumFilter !== null && albumFilter !== cat.id_category) continue;
+    const cards = categoryCards(cat);
     if (!cards.length) continue;
-    header(cat.name);
-    cards.forEach((el) => { libraryEl.appendChild(el); any = true; });
+    if (albumFilter === null) header(cat.name);
+    cards.forEach(({ coll, ctx }) => { libraryEl.appendChild(renderCollectionCard(coll, ctx)); any = true; });
   }
 
   // Álbuns conhecidos que nenhuma categoria reivindicou (catálogo antigo,
   // migrado de uma versão sem categorias, ou álbum removido de todas elas).
+  // Só aparecem em "Todos" — não pertencem a categoria nenhuma para filtrar.
   const claimed = new Set();
+  if (albumFilter !== null) {
+    if (!any) {
+      const empty = document.createElement('li'); empty.className = 'empty';
+      empty.textContent = 'Nada nesta seção.';
+      libraryEl.appendChild(empty);
+    }
+    return;
+  }
   for (const cat of albumCatalog.categories) for (const a of cat.albums) claimed.add('album-' + a.id_album);
   const orphans = albumCatalog.albums
     .map((a) => byId.get('album-' + a.id_album))
@@ -2629,7 +2729,7 @@ function renderCollectionOptions() {
   net.className = 'hymnal-stat net ' + (wifiOk ? 'ok' : 'warn');
   net.title = wifiOk
     ? 'Wi-Fi confirmado — sincronização completa liberada'
-    : 'Sem Wi-Fi confirmado — sincronizar baixa só a lista; músicas são baixadas individualmente ao usar (ou force pelo botão)';
+    : 'Sem Wi-Fi confirmado — sincronizar pergunta antes de usar dados móveis (a escolha vale só para este álbum)';
   const netLabel = document.createElement('label'); netLabel.textContent = 'Rede';
   const netVal = document.createElement('b');
   netVal.appendChild(wifiIconEl());
@@ -2644,15 +2744,6 @@ function renderCollectionOptions() {
   syncBtn.appendChild(document.createTextNode(total > 0 ? ' Atualizar e baixar' : ' Sincronizar lista'));
   syncBtn.addEventListener('click', () => syncCollection(coll));
   collOptsEl.appendChild(syncBtn);
-
-  if (total > 0) {
-    const listBtn = document.createElement('button');
-    listBtn.className = 'new-folder-btn';
-    listBtn.innerHTML = listIconSvg();
-    listBtn.appendChild(document.createTextNode(' Ver músicas'));
-    listBtn.addEventListener('click', () => { closeCollectionOptions(); openCollectionSongs(coll); });
-    collOptsEl.appendChild(listBtn);
-  }
 
   if (downloaded > 0 || total > 0) {
     const rmBtn = document.createElement('button');
@@ -3587,6 +3678,17 @@ async function autoRefreshCollections() {
 // grava áudio Cantado + Playback (se houver) + capa/letra no OPFS/catálogo
 // (mesma pasta `folders/<coll.id>/`). Aditiva e resumível: interromper e
 // sincronizar de novo continua de onde parou, sem duplicar.
+// Quanto, mais ou menos, falta baixar — calculado a partir do peso REAL do
+// que já está no disco desta coleção (não de uma média chutada). Sem nada
+// baixado ainda não há de onde tirar, e o diálogo omite o tamanho em vez de
+// inventar um.
+function estimatePendingBytes(coll, pendingCount) {
+  const u = ui(coll.id);
+  const done = countDownloaded(coll.id);
+  if (!u.bytes || done <= 0 || pendingCount <= 0) return 0;
+  return Math.round((u.bytes / done) * pendingCount);
+}
+
 async function syncCollection(coll) {
   const u = ui(coll.id);
   if (u.syncBusy) return; // já em andamento — o status no card já indica
@@ -3607,19 +3709,25 @@ async function syncCollection(coll) {
     }
     if (pending.length === 0) { setCollStatus(coll.id, 'Já completo offline', 4000); return; }
 
-    // Sem Wi-Fi confirmado: não baixa tudo sem avisar (evita estourar dados
-    // móveis) — a lista já foi atualizada acima, e cada música ainda pode ser
-    // baixada individualmente ao ser tocada/adicionada. O operador pode forçar
-    // a sincronização completa mesmo assim, se quiser.
+    // Fora do Wi-Fi a sincronização em massa NÃO é bloqueada — ela pergunta.
+    // Baixar um hinário inteiro pode ser bastante coisa, e só o operador sabe
+    // se o plano dele aguenta; o que o app não pode é decidir sozinho por ele,
+    // em nenhuma das duas direções. A escolha vale **só para esta
+    // sincronização deste álbum**: não vira uma preferência do app, e o
+    // próximo álbum pergunta de novo.
     if (!isConfirmedWifi()) {
+      const est = estimatePendingBytes(coll, pending.length);
       const proceed = await appConfirm({
-        title: 'Sem Wi-Fi confirmado',
-        message: 'Baixar agora ' + pending.length + ' música(s) pendente(s) vai usar dados móveis (pode ser bastante). '
-          + 'Sem confirmar, a lista já foi atualizada — cada música ainda é baixada sozinha quando for tocada ou adicionada.',
-        okText: 'Baixar mesmo assim', cancelText: 'Agora não',
+        title: 'Baixar usando dados móveis?',
+        message: 'Você não está numa rede Wi-Fi confirmada. Baixar ' + pending.length
+          + ' música(s) pendente(s) de "' + coll.name + '" agora vai usar a internet móvel'
+          + (est ? ' (aproximadamente ' + fmtBytes(est) + ')' : '') + '.\n\n'
+          + 'Esta escolha vale só para este álbum, agora. Se preferir esperar o Wi-Fi, a lista '
+          + 'já foi atualizada e cada música continua sendo baixada sozinha quando você tocá-la.',
+        okText: 'Usar dados móveis', cancelText: 'Só no Wi-Fi',
       });
       if (!proceed) {
-        setCollStatus(coll.id, 'Lista atualizada (baixa por música ao usar)', 5000);
+        setCollStatus(coll.id, 'Lista atualizada — baixa por música ao usar', 5000);
         return;
       }
     }
@@ -3855,7 +3963,7 @@ function openHymnSearch() {
   hymnSearchPopupEl.classList.add('open');
   setTimeout(() => hymnSearchInputEl.focus(), 50);
 }
-// Lista de músicas de UMA coleção (botão "Ver músicas" do card): reaproveita o
+// Lista de músicas de UMA coleção (toque no card do álbum): reaproveita o
 // mesmo popup/rows da busca, escopado a essa coleção (mostra tudo por padrão,
 // e o campo filtra dentro dela). Não auto-foca o campo (o operador está
 // navegando a lista, não necessariamente digitando — evita abrir o teclado
@@ -3902,7 +4010,7 @@ function renderSearchResults(query) {
     hymnResultsEl.innerHTML = '<li class="empty">Nenhuma música encontrada.</li>';
     return;
   }
-  // Escopado a UMA coleção (botão "Ver músicas" / toque no card): a lista sai
+  // Escopado a UMA coleção (toque no card do álbum): a lista sai
   // INTEIRA, quantos itens tenha. Ali o operador está folheando um álbum, não
   // filtrando o acervo — cortar em 60 escondia o fim de qualquer hinário.
   // A busca GLOBAL mantém o teto: ela varre milhares de músicas de todos os
@@ -4438,7 +4546,15 @@ volCloseEl.addEventListener('click', closeVolume);
 let titleResizeTimer = null;
 window.addEventListener('resize', () => {
   clearTimeout(titleResizeTimer);
-  titleResizeTimer = setTimeout(applyTitleMarquee, 150);
+  titleResizeTimer = setTimeout(() => {
+    applyTitleMarquee();
+    // As grades da Bíblia são dimensionadas pela altura/largura medidas: girar
+    // o aparelho (ou o teclado abrir/fechar) muda as duas e elas precisam ser
+    // recalculadas, senão voltam a estourar ou a sobrar espaço.
+    if (activeTab === 'bible' && bibleScreen === 'chapters') {
+      fitBibleGrids(libraryEl.querySelector('.bible-split'));
+    }
+  }, 150);
 });
 
 // ===== Deslocamento com o teclado virtual =====

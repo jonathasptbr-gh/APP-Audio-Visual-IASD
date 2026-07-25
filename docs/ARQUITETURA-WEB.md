@@ -79,10 +79,10 @@ git push origin main
   `renderVersionLabel()`), o fallback estático do `<span id="appVersion">` em
   `controle/index.html` e `version` em `version.json` (é este último que
   dispara a atualização por OTA nos aparelhos). Versionamento incremental
-  simples (4.94, 4.95, 4.96…). **Versão atual: v4.96.**
-  No app nativo o rótulo mostra os **dois índices** — `Web v4.96 · Shell v1.11`
+  simples (4.95, 4.96, 4.97…). **Versão atual: v4.97.**
+  No app nativo o rótulo mostra os **dois índices** — `Web v4.97 · Shell v1.11`
   —, porque base web e shell atualizam por caminhos independentes (OTA ×
-  instalar APK); no navegador sai só `Controle v4.96`.
+  instalar APK); no navegador sai só `Controle v4.97`.
 
 ---
 
@@ -1067,7 +1067,13 @@ continuam válidos). UI transitória (sync em andamento, status, peso) fica em
 
 **Aba Álbuns** (`data-tab="albums"`): `renderCollectionsList` renderiza um card
 por coleção (`renderCollectionCard`), **agrupados por categoria** — os dois
-hinários num grupo fixo no topo, depois cada categoria do banco. O card do Hinário **saiu da aba Pastas** (que voltou a ser só pastas
+hinários num grupo fixo no topo, depois cada categoria do banco. No topo, uma
+faixa de **pílulas de filtro** (`.coll-filters`: Todos · Hinários · uma por
+categoria, `albumFilter`): com dezenas de álbuns em várias categorias, rolar a
+lista inteira para achar um grupo é lento. Uma categoria sem nenhum card
+visível não vira pílula (levaria a uma lista vazia), e os álbuns órfãos — os
+que categoria nenhuma reivindica — só aparecem em "Todos". O filtro é estado de
+sessão, não persistido: cada abertura mostra o acervo inteiro. O card do Hinário **saiu da aba Pastas** (que voltou a ser só pastas
 do dispositivo/virtuais).
 
 Os mecanismos abaixo (sincronização/download/letra/Wi-Fi/busca) valem **por
@@ -1114,8 +1120,9 @@ total`, ou "Parcial…"/"Não sincronizado"), a faixa de **estatísticas** (chip
 (`fmtBytes(ui(coll.id).bytes)` — somatório dos `size` do catálogo OPFS via
 `updateCollBytes`, recalculado sob demanda e cacheado) e **Rede** (Wi-Fi
 confirmado × "Aguardando", ícone de Wi-Fi SVG inline — ver `isConfirmedWifi`);
-e os botões **Sincronizar/Atualizar** (`syncCollection`), **Ver músicas** e
-**Excluir baixado** (`deleteCollection`). `refreshCollectionOptions()` é
+e os botões **Sincronizar/Atualizar** (`syncCollection`) e **Excluir baixado**
+(`deleteCollection`). Não há "Ver músicas" aqui: a lista é o **toque no card**,
+e ter duas rotas fazia o popup competir com o gesto principal. `refreshCollectionOptions()` é
 chamado por `refreshCollectionsIfVisible()`, então o progresso da
 sincronização aparece no popup aberto sem fechar e reabrir.
 
@@ -1292,21 +1299,32 @@ sincronizada, igual a um hino baixado em massa.
 #### Wi-Fi vs dados móveis
 
 A sincronização em **massa** (`syncCollection`, baixar todas as músicas
-pendentes de uma coleção de uma vez) é **gated por Wi-Fi confirmado** (`isConfirmedWifi`,
-Network Information API — `navigator.connection.type === 'wifi' || 'ethernet'`;
-sem suporte no navegador cai em `'unknown'`, tratado como Wi-Fi **não**
-confirmado, postura conservadora). Sem Wi-Fi confirmado, o botão de
-sincronizar ainda atualiza a lista leve (metadados, sempre barato), mas
-**pula o download pesado** por padrão — um `confirm()` deixa o operador
-forçar mesmo assim se quiser gastar dados móveis de propósito. Um indicador
-(`.net-badge`, ícone de Wi-Fi inline — fora do subset da fonte) aparece do
-lado do botão de sincronizar em cada card de coleção, atualizado ao vivo
+pendentes de uma coleção de uma vez) fora do Wi-Fi **não é bloqueada — ela
+pergunta**. Baixar um hinário inteiro pode ser bastante coisa, e só o operador
+sabe se o plano dele aguenta; o que o app não pode é decidir sozinho por ele,
+em nenhuma das duas direções.
+
+Sem Wi-Fi confirmado (`isConfirmedWifi`, Network Information API —
+`navigator.connection.type === 'wifi' || 'ethernet'`; sem suporte no navegador
+cai em `'unknown'`, tratado como Wi-Fi **não** confirmado, postura
+conservadora), a lista leve é atualizada sempre (metadados, barato) e o
+download pesado abre um diálogo de duas saídas: **"Usar dados móveis"** ou
+**"Só no Wi-Fi"**. A escolha vale **só para aquela sincronização daquele
+álbum** — não vira preferência do app, e o próximo álbum pergunta de novo.
+
+O diálogo mostra **quanto** falta, quando dá para saber: `estimatePendingBytes`
+extrapola a partir do peso REAL do que já está em disco naquela coleção
+(`bytes / baixados × pendentes`). Sem nada baixado ainda não há de onde tirar,
+e a mensagem omite o tamanho em vez de inventar um número.
+
+Um indicador (`.net-badge`, ícone de Wi-Fi inline — fora do subset da fonte)
+aparece nas opções da coleção, atualizado ao vivo
 (`connection.addEventListener('change', ...)`).
 
-Isso **não afeta** o download individual disparado por tocar/adicionar uma
-música específica (`ensureSongDownloaded`) — esse é sempre permitido,
-independente do tipo de rede: é exatamente o hino que o operador pediu pra
-usar naquele momento, não um download em massa não solicitado. Na prática,
+O download **individual** (tocar/adicionar uma música, `ensureSongDownloaded`)
+não pergunta nada e é sempre permitido, em qualquer rede: é exatamente o hino
+que o operador acabou de pedir — uma música, não um acervo —, e um diálogo a
+cada toque seria só atrito. Na prática,
 sem Wi-Fi o hinário vai sendo baixado aos poucos, só com o que de fato for
 usado em cada culto, em vez de baixar tudo de uma vez usando dados móveis.
 
@@ -1703,21 +1721,34 @@ livro são preenchidos por inteiro com a cor do grupo/divisão canônica** (camp
 completo, fonte maior). A grade de livros (`.bible-grid--books`) **preenche a
 altura disponível** (11 linhas em `1fr`) pra caber **sem scroll**.
 
-**Capítulo e versículo convivem numa tela só** (`'chapters'`), dividida ao meio
-na vertical (`.bible-split`, `grid-template-rows: minmax(0,1fr) minmax(0,1fr)`
-— o mínimo em 0 impede que os 150 capítulos de Salmos estiquem a faixa e comam
-a outra metade): em cima a grade de **capítulos**, embaixo a de **versículos**
-do capítulo escolhido (`bibleVersesPane()`, que também rende os estados "Escolha
-um capítulo acima." / "Baixando versículos…" / erro / capítulo vazio). Cada
-metade rola por conta própria. O **nome do livro fica em destaque no topo**
-(`.bible-book-head`) — sem ele, uma tela só de números não diz em que livro o
-operador está.
+**Capítulo e versículo convivem numa tela só** (`'chapters'`), dividida na
+vertical (`.bible-split`): em cima a grade de **capítulos**, embaixo a de
+**versículos** do capítulo escolhido (`bibleVersesPane()`, que também rende os
+estados "Escolha um capítulo acima." / "Baixando versículos…" / erro / capítulo
+vazio). O **nome do livro fica em destaque no topo** (`.bible-book-head`) — sem
+ele, uma tela só de números não diz em que livro o operador está.
+
+**Sem scroll, e a divisão não é meio a meio** (`fitBibleGrids()`): as células
+encolhem até tudo caber, e a altura vai para a grade que precisa — um livro de
+4 capítulos com 30 versículos dá quase toda a altura aos versículos.
+
+O cálculo é em JS porque CSS sozinho não resolve os dois lados: um número de
+células desconhecido tem que caber numa caixa de altura desconhecida.
+`auto-fill` escolhe as colunas pela largura, `1fr` divide a altura entre linhas
+**conhecidas** — dá para ter "sem scroll" OU "célula de tamanho razoável",
+nunca ambos. `fitBibleGrids` escolhe **uma** contagem de colunas (a mesma para
+as duas grades, senão as células saem de tamanhos diferentes) a partir da área
+disponível por célula; daí saem as linhas de cada grade, e a altura é repartida
+na proporção dessas linhas (`grid-template-rows: <r1>fr <r2>fr`). O efeito é
+que **toda célula da tela tem o mesmo tamanho**. A fonte acompanha, via a
+custom property `--bible-sym`. Roda num `requestAnimationFrame` depois do
+render (antes disso o `split` ainda não foi medido) e de novo no `resize`
+(girar o aparelho muda as duas dimensões).
 
 As duas grades marcam a seleção atual (`.bible-cell.active`: fundo accent +
 anel branco), e é isso que faz **voltar da leitura mostrar de imediato o
-capítulo E o versículo que estão no ar**, sem o operador ter que se localizar.
-`scrollActiveIntoView()` ainda rola cada grade até a célula marcada, já que
-elas podem ser longas.
+capítulo E o versículo que estão no ar**, sem o operador ter que se localizar —
+e sem procurar, já que nada rola.
 
 Capítulos e versículos mantêm **tons distintos** (`.bible-grid--chapters` em
 tom frio/azulado, `.bible-grid--verses` em tom quente/dourado) pra separar bem
