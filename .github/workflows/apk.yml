@@ -172,6 +172,12 @@ jobs:
         if: env.PUBLISH == 'true'
         with:
           tag_name: ${{ github.event.inputs.release_tag || github.ref_name }}
+          # A tag nasce SEMPRE em `main`, explicitamente. Sem isto ela seguia o
+          # SHA que o runner tivesse em mãos e acabava apontando para o commit
+          # da branch de trabalho — mesmo conteúdo (o merge é --no-ff e nada
+          # entra entre os dois), mas o histórico oficial do projeto é `main`,
+          # e uma Release deve apontar para lá sem depender de coincidência.
+          target_commitish: main
           files: dist/*.apk
           generate_release_notes: true
           body: |
