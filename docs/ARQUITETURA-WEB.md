@@ -79,10 +79,10 @@ git push origin main
   `renderVersionLabel()`), o fallback estático do `<span id="appVersion">` em
   `controle/index.html` e `version` em `version.json` (é este último que
   dispara a atualização por OTA nos aparelhos). Versionamento incremental
-  simples (5.02, 5.03, 5.04…). **Versão atual: v5.04.**
-  No app nativo o rótulo mostra os **dois índices** — `Web v5.04 · Shell v1.12`
+  simples (5.03, 5.04, 5.05…). **Versão atual: v5.05.**
+  No app nativo o rótulo mostra os **dois índices** — `Web v5.05 · Shell v1.12`
   —, porque base web e shell atualizam por caminhos independentes (OTA ×
-  instalar APK); no navegador sai só `Controle v5.04`.
+  instalar APK); no navegador sai só `Controle v5.05`.
 
 ---
 
@@ -502,6 +502,45 @@ stage.getVolume()      // → 0.0 – 1.0
 stage.getFit()         // → 'contain' | 'cover' | 'fill'
 stage.isForceMuted()   // → bool
 ```
+
+### Proporção da preview (`--pv-ar`)
+
+A preview é uma **miniatura fiel do telão**, e isso só se sustenta se ela tiver
+a **proporção** do telão. Ela era `aspect-ratio: 16/9` fixo — contra um dongle
+2,17:1 (3120×1440, comum), toda mídia mentia sobre o enquadramento: uma imagem
+16:9 preenchia a preview inteira e ganhava barras laterais de 18% na projeção,
+um vídeo enquadrado aqui aparecia cortado lá, e um versículo que cabe em 3
+linhas no telão aparecia truncado no meio da palavra.
+
+`applyPreviewAspect(tv)` (controle.js) escreve `--pv-ar` em `:root`, e
+`.preview` usa `aspect-ratio: var(--pv-ar, 16 / 9)`. A fonte é
+`AVNative.displays()` — que já devolve `{w, h}` da tela conectada — mais
+`onDisplayChange`, então trocar de TV no meio do culto reajusta a preview
+sozinho. **Sem TV conectada a projeção é a própria preview em tela cheia**, no
+celular: aí o alvo passa a ser a tela do aparelho em paisagem
+(`max(screen.w, screen.h) / min(...)`), que é exatamente o que vai ao
+espelhamento. No navegador, sem ponte, vale sempre esse segundo caminho.
+
+O valor é limitado a `[PV_AR_MIN, PV_AR_MAX]` = `[1.2, 2.4]`: a preview divide
+a linha com os dois botões de estrofe, que precisam continuar sendo alvos de
+toque (`.slide-nav-btn` tem `min-width: 40px`). Telas reais de projeção ficam
+entre 4:3 e ~2,2:1, bem dentro da faixa; um painel 32:9 bate no teto e deixa de
+ser proporcional — troca deliberada, e é o clamp que impede a linha de estourar.
+
+Duas consequências que valem registrar:
+
+- **A calibração deixou de ser duplicada.** Todo o dimensionamento das camadas
+  já era em `cq*`, relativo ao container, logo **invariante de escala**: com a
+  proporção certa, os mesmos números dão a mesma composição em 280px e em
+  3120px. Os valores próprios que a preview tinha (`.pv-text-main` 16% maior,
+  `.pv-lyrics-box` bem maior…) eram compensação empírica para a proporção
+  errada. Hoje `.pv-*` repete literalmente os valores de `.text-*`/`.lyrics-*`,
+  e a fidelidade passa a ser estrutural em vez de ajustada à mão.
+- **A borda virou `outline`.** Com `box-sizing: border-box`, uma `border: 1px`
+  entra no border-box e o `aspect-ratio` passa a valer para a caixa COM a
+  borda — 1px em 128px de altura já desloca a proporção ~0,8%, e a proporção é
+  justamente o que se está tentando acertar. `outline` com `outline-offset:
+  -1px` desenha igual sem ocupar layout.
 
 ### Preenchimento da mídia (`setFit`)
 
@@ -1518,33 +1557,39 @@ anterior (`vh`/`vw` + pisos/tetos em `rem`/`px`) tinha:
   deixava de caber, consumindo sozinha as 2 linhas do clamp e cortando fora
   a segunda linha (autorizada) inteira. `cqmin` encolhe a fonte junto com a
   dimensão mais apertada, sempre.
-- **Padding do container NÃO é percentual**: `.lyrics-content`/
-  `.pv-lyrics-content` não têm padding em `cq*` (só
-  `padding-bottom: env(safe-area-inset-bottom)` no Display, pela margem de
-  gestos) — `.lyrics-box` já é dimensionado como fração desse mesmo
-  container (`76cqw`/`32cqh` no Display, `92cqw`/`60cqh` na preview) e o
-  espaço que sobra vira margem sozinho via `align-items`/
-  `justify-content: center`. Um padding em `cq*` no container encolheria o
-  content-box, e a caixa (também em `cq*`, mas relativa a esse content-box
-  já menor) ficaria menor que o pretendido — um "encolhimento em dobro"
-  (~19% mais estreita que a calibração original) que foi a causa real de um
-  regressão só percebida ao testar em tamanhos de tela variados.
+- **Padding do container NUNCA é em `cq*`** — e o motivo é mais forte do que
+  parecia. Unidades de container escritas NO PRÓPRIO container **não se
+  referem a ele**: resolvem contra o ancestral mais próximo que seja container
+  e, não havendo nenhum, contra o **viewport**. No Display isso passa
+  despercebido (o container preenche o viewport, então os números coincidem);
+  na preview do Controle é destrutivo — a caixa tem ~130px de altura dentro de
+  uma tela de ~980px, então `7cqh` virava 7% da TELA DO CELULAR, ou seja
+  ~137px de padding vertical numa caixa de 128px. O content-box colapsava para
+  zero e, com ele, a fonte (que é `cqmin` do container). **Era essa a causa
+  real de o versículo aparecer espremido e cortado na preview.**
+  A regra era seguida por `.lyrics-content`/`.pv-lyrics-content` mas estava
+  violada por `.text-content`/`.pv-text-content`; hoje as quatro seguem o
+  mesmo modelo: o container não tem padding percentual, a CAIXA é fração dele
+  (`76cqw`/`32cqh` na letra, `86cqw`/`86cqh` no texto) e o que sobra vira
+  margem sozinho via `align-items`/`justify-content: center`.
 
 **Proporções calibradas por medição em pixel** de um vídeo de louvor de
 referência (moldura ~76-80% da largura da tela / ~27-36% da altura; fonte da
 letra com cap-height ~8,3% da altura da tela). Valores atuais: `.lyrics-line`
 em `8cqmin`, `.lyrics-aux` em `4.2cqmin`, capa em `9.5cqmin`, caixa **fixa e
-compacta** em `76cqw`/`32cqh` no Display; na preview (calibrada à parte — sua caixa é
-proporcionalmente mais larga, `92cqw`, então a fonte precisa de uma razão
-menor pra caber) `.pv-lyrics-line` em `9.3cqmin`, `.pv-lyrics-aux` em
-`4.9cqmin`, capa em `10.5cqmin`, caixa em `92cqw`/`60cqh`. `overflow:hidden`
+compacta** em `76cqw`/`32cqh`. **A preview usa EXATAMENTE os mesmos números**
+(ver "Proporção da preview" abaixo): `cq*` é relativo ao container, portanto
+invariante de escala — com a mesma proporção, os mesmos valores dão a mesma
+composição numa caixa de 280px e num telão de 3120px. A preview já teve
+valores próprios (`9.3cqmin`, `92cqw`/`60cqh`…), que eram compensação
+empírica para a proporção errada, não uma necessidade. `overflow:hidden`
 no `.lyrics-box`/`.pv-lyrics-box` junto do `-webkit-line-clamp` em
 `.lyrics-line`/`.lyrics-aux` (`.pv-lyrics-line`/`.pv-lyrics-aux` na preview)
 são a garantia final: qualquer letra maior que o clamp é cortada com
 reticências, nunca estoura a moldura (isso ainda pode acontecer em
 proporções extremas, tipo uma janela de teste em modo retrato — o Display é
-sempre landscape em produção e a preview é sempre `aspect-ratio:16/9`
-travada pela grade, então essa situação não ocorre no uso real).
+sempre landscape em produção e a preview segue a proporção do telão, dentro de
+um clamp, então essa situação não ocorre no uso real).
 
 **Fundo preto sem ícone de "imagem quebrada"**: no modo preto (padrão), a
 `<img>` de fundo (`#lyricsImg`/`#pvLyricsImg`) fica **`hidden`** de
