@@ -500,6 +500,24 @@ Rodar local: `./gradlew assembleDebug` (exige Android SDK instalado).
 
 ## Regras de desenvolvimento
 
+- **SEMPRE fazer merge com `main` ao terminar qualquer alteração.** Trabalhar
+  na branch designada é o meio, não o fim: um commit que fica só na branch não
+  chega a lugar nenhum — o OTA publica a partir de `main` (o job `web-ota` tem
+  `if: github.ref == 'refs/heads/main'`) e as Releases nascem de `main`. O
+  fluxo é sempre o mesmo, e a última linha não é opcional:
+
+  ```bash
+  git add <arquivos>
+  git commit -m "vX.YZ: <descrição>"
+  git push -u origin <branch>
+  git checkout main
+  git merge <branch> --no-ff -m "Merge: <resumo>"
+  git push origin main          # ← sem isto, nada chega aos aparelhos
+  ```
+
+  As tags de Release apontam para `main` por construção
+  (`target_commitish: main` no `apk.yml`) — não confie no SHA que o runner
+  tiver em mãos.
 - **Nunca perder funcionalidades existentes ao refatorar.** A base web tem
   todo o sistema de culto (coleções LouvorJA, letra sincronizada, Bíblia,
   Camada de Texto, playlist, fades) — ver `docs/ARQUITETURA-WEB.md`.
