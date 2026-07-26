@@ -12,6 +12,11 @@ on:
         description: 'Publicar Release com esta tag (ex: v1.1). Vazio = só compila.'
         required: false
         default: ''
+      retag:
+        description: 'Se a tag já existir, MOVER para o commit atual (apaga e recria a Release)'
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: write
@@ -168,6 +173,26 @@ jobs:
       # Uma Release dá link DIRETO para o .apk — instalar pelo artifact
       # exigiria descompactar um .zip no celular. Num disparo manual, a
       # action cria a tag apontando para o commit construído.
+      # Republicar uma tag que já existe. O `action-gh-release` NÃO move uma tag
+      # existente — ela continua apontando para onde nasceu —, então apagar a
+      # Release junto com a tag é o que permite recriá-la no `target_commitish`
+      # abaixo. Fica atrás de um input próprio, desligado por padrão: mover uma
+      # tag é destrutivo e não pode ser efeito colateral de uma publicação
+      # comum, em que a tag nova simplesmente ainda não existe.
+      - name: Mover a tag existente (retag)
+        if: env.PUBLISH == 'true' && github.event.inputs.retag == 'true' && github.event.inputs.release_tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Apagando a Release e a tag $TAG para recriá-las em main…"
+            gh release delete "$TAG" --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag
+          else
+            echo "Tag $TAG não existe — nada a mover."
+          fi
+
       - uses: softprops/action-gh-release@v2
         if: env.PUBLISH == 'true'
         with:

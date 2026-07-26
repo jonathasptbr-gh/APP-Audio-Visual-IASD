@@ -474,6 +474,15 @@ SDK; nenhuma infraestrutura externa.
 |---|---|---|
 | Artifact | Actions → run → *Artifacts* | vem como **.zip**; precisa descompactar no celular |
 | **Release** ⭐ | `git tag v1.0 && git push --tags` | **link direto para o .apk**; instala pelo Chrome do celular |
+| Release (sem push de tag) | Actions → *Build APK* → *Run workflow*, com `release_tag` | mesma coisa pelo disparo manual — a tag é criada pelo próprio workflow |
+
+**A tag nasce em `main`** (`target_commitish: main`): sem isso ela seguia o SHA
+que o runner tivesse em mãos e acabava apontando para o commit da branch de
+trabalho. O input **`retag`** (desligado por padrão) apaga a Release e a tag
+antes de recriá-las — é o único jeito de MOVER uma tag já publicada, já que o
+`action-gh-release` não move tag existente. Fica atrás de um input próprio de
+propósito: mover tag é destrutivo e não pode ser efeito colateral de uma
+publicação comum.
 
 **Assinatura.** As Releases saem **assinadas com keystore fixa**, guardada nos
 secrets do repositório (`KEYSTORE_B64` — o `.jks` em base64 —, `KEY_ALIAS` e
