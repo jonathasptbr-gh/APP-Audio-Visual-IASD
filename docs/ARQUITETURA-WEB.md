@@ -79,10 +79,10 @@ git push origin main
   `renderVersionLabel()`), o fallback estático do `<span id="appVersion">` em
   `controle/index.html` e `version` em `version.json` (é este último que
   dispara a atualização por OTA nos aparelhos). Versionamento incremental
-  simples (5.04, 5.05, 5.06…). **Versão atual: v5.06.**
-  No app nativo o rótulo mostra os **dois índices** — `Web v5.06 · Shell v1.12`
+  simples (5.05, 5.06, 5.07…). **Versão atual: v5.07.**
+  No app nativo o rótulo mostra os **dois índices** — `Web v5.07 · Shell v1.12`
   —, porque base web e shell atualizam por caminhos independentes (OTA ×
-  instalar APK); no navegador sai só `Controle v5.06`.
+  instalar APK); no navegador sai só `Controle v5.07`.
 
 ---
 
@@ -1173,6 +1173,39 @@ do dispositivo/virtuais).
 
 Os mecanismos abaixo (sincronização/download/letra/Wi-Fi/busca) valem **por
 coleção**, exatamente como antes valiam só pro Hinário 2022.
+
+#### Baixar a coleção COMPLETA (`syncGroup`)
+
+O cabeçalho de cada grupo (`.coll-group`) deixou de ser só um rótulo: ele
+carrega o **resumo do grupo inteiro** (`baixados/total`, somando todos os
+álbuns dali) e o botão que **baixa a coleção completa** — "CDs Oficiais/Ano"
+tem uma dúzia de álbuns, e sincronizar um a um pela engrenagem de cada card era
+uma dúzia de idas ao popup. Vale para os três tipos de grupo: os hinários, cada
+categoria do banco e os álbuns órfãos.
+
+Com um filtro de categoria ativo o cabeçalho **omite o nome** (a pílula
+selecionada já diz qual é) mas continua existindo — o que estava lá antes era
+redundante, o que está lá agora é uma ação.
+
+- **Um álbum por vez, nunca em paralelo.** Cada `syncCollection` já baixa 3
+  músicas simultâneas; multiplicar isso por doze álbuns saturaria a rede da
+  igreja sem terminar nenhum deles antes.
+- **A pergunta de rede é feita UMA VEZ para o lote.** Fora do Wi-Fi, um
+  diálogo com a contagem de álbuns e a estimativa somada; a resposta é
+  repassada a cada `syncCollection` via `opts.allowMobile`, então nenhum deles
+  pergunta de novo. Sem isso seriam doze diálogos seguidos, que ninguém lê — e
+  a decisão continua sendo do operador, como manda a política de Wi-Fi.
+- **O lote inteiro é UMA tarefa de segundo plano** (`withBgWork` em volta do
+  laço, não por álbum): senão o `SyncService` seria desligado no fim de cada
+  álbum e o processo podia ser congelado justamente entre um e outro — que é o
+  cenário normal, já que o operador dispara e sai do app.
+- **Cancelável.** Durante o download o botão vira ✕ (vermelho); o toque marca
+  `cancel` e o laço para **antes do próximo álbum** — o que já está baixando
+  termina. O status diz isso com todas as letras ("Cancelando após o álbum
+  atual…"), em vez de fingir uma interrupção imediata que não existe.
+- Estado transitório em `groupUI`/`gui(key)` (não persistido), com
+  `setGroupStatus` espelhando o `setCollStatus` dos cards — logo, o progresso
+  também passa pelo re-render coalescido.
 
 **Duas camadas, independentes** (`state['coll:<id>']`, ver tabela acima):
 

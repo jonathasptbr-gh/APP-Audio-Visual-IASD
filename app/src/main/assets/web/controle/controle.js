@@ -59,7 +59,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.06';
+const WEB_VERSION = '5.07';
 
 function renderVersionLabel() {
   // __SHELL_NAME__ = versionName do APK (ver native.js). Vazio no navegador e
@@ -279,6 +279,80 @@ function bibleBookId(idx) {
 // andamento, mensagem de status e peso (bytes) já baixado.
 const collUI = {};
 function ui(id) { return collUI[id] || (collUI[id] = { syncBusy: false, status: '', statusTimer: null, bytes: 0 }); }
+
+// Estado transitório de UI por GRUPO (categoria, Hinários, Outros): o mesmo
+// papel de `collUI`, mas para o download da coleção inteira — ver syncGroup.
+const groupUI = {};
+function gui(key) {
+  return groupUI[key] || (groupUI[key] = { busy: false, cancel: false, status: '' });
+}
+function setGroupStatus(key, text, autoClearMs) {
+  const g = gui(key);
+  g.status = text || '';
+  clearTimeout(g.statusTimer);
+  if (autoClearMs) {
+    g.statusTimer = setTimeout(() => { g.status = ''; refreshCollectionsIfVisible(); }, autoClearMs);
+  }
+  refreshCollectionsIfVisible();
+}
+
+// Baixar um GRUPO inteiro: "CDs Oficiais/Ano", "Adoradores", os hinários…
+// Um por vez, e não em paralelo: cada `syncCollection` já baixa 3 músicas
+// simultâneas, e multiplicar isso por uma dúzia de álbuns saturaria a rede da
+// igreja sem terminar nenhum deles antes.
+//
+// A pergunta de rede é feita UMA VEZ para o lote — perguntar por álbum
+// significaria doze diálogos seguidos, que ninguém lê. A resposta é repassada
+// a cada `syncCollection` (`allowMobile`), então nenhum deles pergunta de novo.
+async function syncGroup(key, label, colls) {
+  const g = gui(key);
+  if (g.busy) { g.cancel = true; setGroupStatus(key, 'Cancelando após o álbum atual…'); return; }
+  if (!colls.length) return;
+  if (!AVDB.opfsSupported()) { setGroupStatus(key, 'Armazenamento OPFS indisponível', 5000); return; }
+
+  let allowMobile = true;
+  if (!isConfirmedWifi()) {
+    // Estimativa do lote a partir do que JÁ está no disco (mesma base do
+    // álbum avulso) — sem nada baixado ainda não há de onde tirar, e o
+    // diálogo omite o tamanho em vez de inventar um.
+    let est = 0;
+    for (const coll of colls) {
+      const pend = collSongs(coll.id).filter((x) => !x.fileIdFull).length;
+      est += estimatePendingBytes(coll, pend);
+    }
+    allowMobile = await appConfirm({
+      title: 'Baixar usando dados móveis?',
+      message: 'Você não está numa rede Wi-Fi confirmada. Baixar "' + label + '" são '
+        + colls.length + ' álbum(ns)' + (est ? ', aproximadamente ' + fmtBytes(est) : '')
+        + '.\n\nEsta escolha vale só para este download, agora.',
+      okText: 'Usar dados móveis', cancelText: 'Só no Wi-Fi',
+    });
+    if (!allowMobile) { setGroupStatus(key, 'Adiado para o Wi-Fi', 5000); return; }
+  }
+
+  g.busy = true; g.cancel = false;
+  setGroupStatus(key, 'Preparando…');
+  renderCollectionsNow(); // resposta ao toque é imediata; só o progresso é coalescido
+  try {
+    // O lote inteiro conta como UMA tarefa de segundo plano: sem isso o
+    // serviço seria desligado no fim de cada álbum e o processo podia ser
+    // congelado justamente entre um e outro.
+    await withBgWork(async () => {
+      for (let i = 0; i < colls.length; i++) {
+        if (g.cancel) break;
+        const coll = colls[i];
+        setGroupStatus(key, 'Álbum ' + (i + 1) + '/' + colls.length + ' · ' + coll.name);
+        await syncCollection(coll, { allowMobile: true });
+      }
+    });
+    setGroupStatus(key, g.cancel ? 'Cancelado' : 'Coleção completa', 5000);
+  } catch (_) {
+    setGroupStatus(key, 'Erro ao baixar a coleção', 6000);
+  } finally {
+    g.busy = false; g.cancel = false;
+    refreshCollectionsIfVisible();
+  }
+}
 
 // Indicador de sincronização de uma coleção — subtítulo no card
 // (renderCollectionCard). autoClearMs limpa sozinho (mensagens finais/erro);
@@ -2457,6 +2531,21 @@ function syncIconSvg() {
     + '<path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>'
     + '</svg>';
 }
+// SVG inline de "baixar tudo" — seta para baixo sobre uma bandeja, distinta
+// das setas circulares de "sincronizar" (que é por álbum): aqui é a coleção
+// inteira, uma ação de outra escala.
+function downloadAllIconSvg() {
+  return '<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+    + '<path d="M12 3v10"/><polyline points="8 9 12 13 16 9"/>'
+    + '<path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/>'
+    + '</svg>';
+}
+// SVG inline de "cancelar" — o mesmo botão do grupo enquanto o lote roda.
+function closeIconSvg() {
+  return '<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+    + '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>'
+    + '</svg>';
+}
 // SVG inline de "check" (verde), usado no status "Completo offline".
 function checkIconSvg() {
   return '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>';
@@ -2553,18 +2642,47 @@ function renderCollectionsList() {
 
   libraryEl.appendChild(renderCollectionFilters());
 
-  const header = (text) => {
+  // Cabeçalho de grupo: nome + resumo (baixados/total do grupo inteiro) + o
+  // botão que baixa a COLEÇÃO COMPLETA. Com um filtro ativo o nome é omitido
+  // (a pílula selecionada já diz qual é), mas o cabeçalho continua existindo —
+  // ele deixou de ser só um rótulo e passou a ser onde mora a ação.
+  const header = (text, colls, showName) => {
     const li = document.createElement('li');
     li.className = 'coll-group';
-    li.textContent = text;
+    if (showName !== false) {
+      const name = document.createElement('span');
+      name.className = 'coll-group-name';
+      name.textContent = text;
+      li.appendChild(name);
+    }
+    if (colls && colls.length) {
+      const key = 'grp:' + text;
+      const g = gui(key);
+      let downloaded = 0, total = 0;
+      for (const c of colls) { downloaded += countDownloaded(c.id); total += collSongs(c.id).length; }
+      const complete = total > 0 && downloaded >= total;
+
+      const info = document.createElement('span');
+      info.className = 'coll-group-count' + (g.busy ? ' busy' : (complete ? ' done' : ''));
+      info.textContent = g.status || (total ? downloaded + '/' + total : '—');
+      li.appendChild(info);
+
+      const btn = document.createElement('button');
+      btn.className = 'coll-group-btn' + (g.busy ? ' busy' : '');
+      btn.title = g.busy
+        ? 'Cancelar o download da coleção'
+        : 'Baixar a coleção completa (' + colls.length + ' álbum(ns))';
+      btn.innerHTML = g.busy ? closeIconSvg() : downloadAllIconSvg();
+      btn.addEventListener('click', (e) => { e.stopPropagation(); syncGroup(key, text, colls); });
+      li.appendChild(btn);
+    }
     libraryEl.appendChild(li);
   };
 
   const showHymnals = albumFilter === null || albumFilter === 'hymnals';
   const fixed = showHymnals ? FIXED_COLLECTIONS.filter((c) => byId.has(c.id)) : [];
   if (fixed.length) {
-    // Com o filtro em "Hinários" o cabeçalho é redundante (a pílula já diz).
-    if (albumFilter === null) header('Hinários');
+    header('Hinários', fixed, albumFilter === null);
     fixed.forEach((coll) => { libraryEl.appendChild(renderCollectionCard(coll)); any = true; });
   }
 
@@ -2573,7 +2691,7 @@ function renderCollectionsList() {
     if (albumFilter !== null && albumFilter !== cat.id_category) continue;
     const cards = categoryCards(cat);
     if (!cards.length) continue;
-    if (albumFilter === null) header(cat.name);
+    header(cat.name, cards.map((x) => x.coll), albumFilter === null);
     cards.forEach(({ coll, ctx }) => { libraryEl.appendChild(renderCollectionCard(coll, ctx)); any = true; });
   }
 
@@ -2594,7 +2712,7 @@ function renderCollectionsList() {
     .map((a) => byId.get('album-' + a.id_album))
     .filter((c) => c && !claimed.has(c.id) && !isHymnalAlbum(c));
   if (orphans.length) {
-    header(albumCatalog.categories.length ? 'Outros álbuns' : 'Álbuns');
+    header(albumCatalog.categories.length ? 'Outros álbuns' : 'Álbuns', orphans, true);
     orphans.forEach((coll) => { libraryEl.appendChild(renderCollectionCard(coll)); any = true; });
   }
 
@@ -3763,7 +3881,10 @@ function estimatePendingBytes(coll, pendingCount) {
   return Math.round((u.bytes / done) * pendingCount);
 }
 
-async function syncCollection(coll) {
+// `opts.allowMobile`: a pergunta de rede já foi feita para o LOTE (ver
+// syncGroup) — não repetir por álbum.
+async function syncCollection(coll, opts) {
+  const allowMobile = !!(opts && opts.allowMobile);
   const u = ui(coll.id);
   if (u.syncBusy) return; // já em andamento — o status no card já indica
   if (!AVDB.opfsSupported()) { setCollStatus(coll.id, 'Armazenamento OPFS indisponível', 5000); return; }
@@ -3790,7 +3911,7 @@ async function syncCollection(coll) {
     // em nenhuma das duas direções. A escolha vale **só para esta
     // sincronização deste álbum**: não vira uma preferência do app, e o
     // próximo álbum pergunta de novo.
-    if (!isConfirmedWifi()) {
+    if (!isConfirmedWifi() && !allowMobile) {
       const est = estimatePendingBytes(coll, pending.length);
       const proceed = await appConfirm({
         title: 'Baixar usando dados móveis?',
