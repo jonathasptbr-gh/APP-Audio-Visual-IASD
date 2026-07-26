@@ -99,7 +99,7 @@ input, textarea { user-select: text !important; -webkit-user-select: text !impor
   .ctl-btn, .t-btn, .slide-nav-btn, .pv-fab,
   .tab, .tab-add, .import-btn, .add-dir-btn, .back-btn, .sel-btn,
   .row-btn, .row-handle, .popup-close, .new-folder-btn, .folder-pick-btn,
-  .coll-pill, .coll-bar, .coll-bar-btn, .hymnal-card-btn,
+  .coll-pill, .coll-bar, .coll-bar-btn, .coll-group-btn, .hymnal-card-btn,
   .bible-cell, .bible-ref-part, .bible-vsec, .bible-ver-row,
   .hymn-row, .msg-add-btn, .msg-item,
   .fit-opt, .dialog-btn, .lib-item .row
@@ -726,13 +726,37 @@ main {
 /* Cabeçalho de grupo: o nome da CATEGORIA do banco. A aba Álbuns reproduz a
    hierarquia categoria → álbum; sem isso a lista era um monte plano de
    dezenas de álbuns em ordem de descoberta. */
+/* Cabeçalho de grupo — deixou de ser só um rótulo: é onde mora a ação de
+   baixar a COLEÇÃO COMPLETA (todos os álbuns da categoria de uma vez). */
 .coll-group {
   flex-shrink: 0;
+  display: flex; align-items: center; gap: .5rem;
   font-size: .74rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
   color: var(--muted);
   padding: .7rem .2rem .1rem;
 }
 .coll-group:first-child { padding-top: .2rem; }
+.coll-group-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Resumo do grupo (baixados/total) ou o progresso do lote. Sem o nome (filtro
+   ativo) ele é que ocupa a linha. */
+.coll-group-count {
+  flex: 1; min-width: 0; text-align: right;
+  letter-spacing: normal; text-transform: none; font-weight: 600;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.coll-group-name + .coll-group-count { flex: 0 1 auto; }
+.coll-group-count.done { color: var(--success); }
+.coll-group-count.busy { color: var(--accent); }
+.coll-group-btn {
+  flex-shrink: 0; width: 30px; height: 30px; padding: 0;
+  border: none; appearance: none; -webkit-appearance: none;
+  border-radius: var(--radius-btn);
+  background: var(--accent-soft); color: var(--accent);
+  display: flex; align-items: center; justify-content: center; cursor: pointer;
+}
+.coll-group-btn svg { display: block; }
+/* Em andamento o botão vira "cancelar" — muda de papel, então muda de cor. */
+.coll-group-btn.busy { background: var(--danger-soft); color: var(--danger-text); }
 
 .coll-bar { display: flex; align-items: center; gap: .55rem; cursor: pointer; }
 /* Coluna nome + subtítulo das linhas de lista (coleção, versão da Bíblia,
