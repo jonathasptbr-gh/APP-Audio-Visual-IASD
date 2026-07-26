@@ -79,10 +79,10 @@ git push origin main
   `renderVersionLabel()`), o fallback estático do `<span id="appVersion">` em
   `controle/index.html` e `version` em `version.json` (é este último que
   dispara a atualização por OTA nos aparelhos). Versionamento incremental
-  simples (5.05, 5.06, 5.07…). **Versão atual: v5.07.**
-  No app nativo o rótulo mostra os **dois índices** — `Web v5.07 · Shell v1.12`
+  simples (5.06, 5.07, 5.08…). **Versão atual: v5.08.**
+  No app nativo o rótulo mostra os **dois índices** — `Web v5.08 · Shell v1.13`
   —, porque base web e shell atualizam por caminhos independentes (OTA ×
-  instalar APK); no navegador sai só `Controle v5.07`.
+  instalar APK); no navegador sai só `Controle v5.08`.
 
 ---
 
@@ -1206,6 +1206,39 @@ redundante, o que está lá agora é uma ação.
 - Estado transitório em `groupUI`/`gui(key)` (não persistido), com
   `setGroupStatus` espelhando o `setCollStatus` dos cards — logo, o progresso
   também passa pelo re-render coalescido.
+- **A notificação do sistema acompanha o LOTE**, não cada álbum: o total é a
+  soma das músicas pendentes de todos eles, contada uma vez no começo
+  (`bgTaskStart` no `syncGroup`, e `syncCollection` recebe `notifOwned` para
+  não abrir uma tarefa própria). Ver "Progresso em segundo plano".
+
+**Baixar TODO o acervo** é o mesmo mecanismo com todas as coleções: um
+cabeçalho "Todo o acervo" no topo, visível **só em "Todos"** — com um filtro
+ativo "tudo" seria ambíguo (tudo do filtro? tudo mesmo?), e o cabeçalho da
+categoria já cobre o primeiro caso. Ele confirma **sempre**, mesmo no Wi-Fi
+(`opts.confirmScale`), com a contagem de coleções, de músicas pendentes e o
+tamanho estimado: a pergunta de rede é sobre o plano de dados, esta é sobre a
+escala, e são perguntas diferentes. Com tudo já baixado ele não abre diálogo
+nenhum — só responde "Acervo já completo offline".
+
+#### Progresso em segundo plano (`bgTaskStart`/`bgTaskStep`)
+
+Com o app minimizado — o uso normal durante uma sincronização — a notificação
+do `SyncService` é a única janela para o download, e era um texto fixo. Quem
+sabe o progresso é o lado web, então é ele que reporta, por
+`AVNative.bgProgress({label, done, total, etaMs})`.
+
+Instrumentados: `syncCollection` (por música), `syncGroup` (por música, no
+total do lote), `ensureBibleVersionDownloaded` (por capítulo) e
+`syncDeviceFolder` (por arquivo).
+
+- A **estimativa de tempo** sai do ritmo MÉDIO desde o início da tarefa
+  (`decorrido/concluídos × restantes`), não da taxa instantânea: faixas têm
+  tamanhos muito diferentes e a instantânea faria o número pular a cada música.
+- **Intervalo mínimo de `BG_NOTIF_MIN_MS` (700 ms)** entre atualizações: o
+  Android limita a taxa de updates de notificação e passa a descartá-los; sem
+  o freio, uma faixa curta atualizaria várias vezes por segundo e a barra
+  pareceria travada. O estado final é enviado com `force`, ignorando o freio.
+- No navegador, e num shell anterior ao `SHELL_VERSION` 10, é no-op.
 
 **Duas camadas, independentes** (`state['coll:<id>']`, ver tabela acima):
 

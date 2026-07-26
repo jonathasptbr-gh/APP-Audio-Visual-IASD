@@ -59,7 +59,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.07';
+const WEB_VERSION = '5.08';
 
 function renderVersionLabel() {
   // __SHELL_NAME__ = versionName do APK (ver native.js). Vazio no navegador e
@@ -304,11 +304,37 @@ function setGroupStatus(key, text, autoClearMs) {
 // A pergunta de rede é feita UMA VEZ para o lote — perguntar por álbum
 // significaria doze diálogos seguidos, que ninguém lê. A resposta é repassada
 // a cada `syncCollection` (`allowMobile`), então nenhum deles pergunta de novo.
-async function syncGroup(key, label, colls) {
+async function syncGroup(key, label, colls, opts) {
   const g = gui(key);
   if (g.busy) { g.cancel = true; setGroupStatus(key, 'Cancelando após o álbum atual…'); return; }
   if (!colls.length) return;
   if (!AVDB.opfsSupported()) { setGroupStatus(key, 'Armazenamento OPFS indisponível', 5000); return; }
+
+  // "Todo o acervo" confirma SEMPRE, mesmo no Wi-Fi: são milhares de músicas e
+  // vários GB no aparelho. A pergunta de rede (abaixo) é sobre o plano de
+  // dados; esta é sobre a escala, e as duas são perguntas diferentes.
+  if (opts && opts.confirmScale) {
+    let songs = 0, est = 0;
+    for (const c of colls) {
+      const pend = collSongs(c.id).filter((x) => !x.fileIdFull).length;
+      songs += pend;
+      est += estimatePendingBytes(c, pend);
+    }
+    if (songs === 0) { setGroupStatus(key, 'Acervo já completo offline', 5000); return; }
+    const ok = await appConfirm({
+      title: 'Baixar todo o acervo?',
+      // O tamanho sai do peso REAL do que já está no disco (mesma base do
+      // álbum avulso). Sem nada baixado ainda não há de onde estimar, e a
+      // frase omite o número em vez de inventar um.
+      message: 'São ' + colls.length + ' coleções, com ' + songs
+        + ' música(s) ainda não baixada(s)'
+        + (est ? ', aproximadamente ' + fmtBytes(est) : '') + '.'
+        + '\n\nO download continua com o app minimizado, mostra o progresso na notificação '
+        + 'e pode ser cancelado a qualquer momento.',
+      okText: 'Baixar tudo', cancelText: 'Agora não',
+    });
+    if (!ok) return;
+  }
 
   let allowMobile = true;
   if (!isConfirmedWifi()) {
@@ -337,12 +363,25 @@ async function syncGroup(key, label, colls) {
     // O lote inteiro conta como UMA tarefa de segundo plano: sem isso o
     // serviço seria desligado no fim de cada álbum e o processo podia ser
     // congelado justamente entre um e outro.
+    // A notificação acompanha o LOTE, não cada álbum: o total é a soma das
+    // músicas que faltam em todos eles, contada uma vez no começo. Reiniciar a
+    // barra a cada álbum daria doze barras curtas em vez de uma que informa
+    // quanto falta de verdade.
+    let totalPend = 0;
+    for (const coll of colls) totalPend += collSongs(coll.id).filter((x) => !x.fileIdFull).length;
+    let batchDone = 0;
+    bgTaskStart(label, Math.max(1, totalPend));
     await withBgWork(async () => {
       for (let i = 0; i < colls.length; i++) {
         if (g.cancel) break;
         const coll = colls[i];
         setGroupStatus(key, 'Álbum ' + (i + 1) + '/' + colls.length + ' · ' + coll.name);
-        await syncCollection(coll, { allowMobile: true });
+        bgTaskStep(batchDone, label + ' · ' + coll.name);
+        await syncCollection(coll, {
+          allowMobile: true,
+          notifOwned: true,                       // a tarefa da notificação é do lote
+          onSong: () => bgTaskStep(++batchDone),
+        });
       }
     });
     setGroupStatus(key, g.cancel ? 'Cancelado' : 'Coleção completa', 5000);
@@ -1553,6 +1592,7 @@ async function ensureBibleVersionDownloaded(versionId) {
 
   // 1189 capítulos: é o download mais longo do app e o que mais sofria com o
   // congelamento do processo ao minimizar.
+  bgTaskStart('Bíblia · ' + (bibleVersionName(versionId) || 'versão'), missing.length);
   await withBgWork(() => runLimited(missing, 5, async (it) => {
     if (!bibleDl || !bibleDl.running || bibleDl.versionId !== versionId) return; // superado/cancelado
     const key = prefix + it.bId + '_' + it.chapter;
@@ -1564,6 +1604,7 @@ async function ensureBibleVersionDownloaded(versionId) {
       else failed++;
     } catch (_) { failed++; }
     done++;
+    bgTaskStep(done - (total - missing.length));
     if (bibleDl && bibleDl.versionId === versionId) { bibleDl.done = done; refreshBibleDl(); }
   }));
 
@@ -2646,7 +2687,7 @@ function renderCollectionsList() {
   // botão que baixa a COLEÇÃO COMPLETA. Com um filtro ativo o nome é omitido
   // (a pílula selecionada já diz qual é), mas o cabeçalho continua existindo —
   // ele deixou de ser só um rótulo e passou a ser onde mora a ação.
-  const header = (text, colls, showName) => {
+  const header = (text, colls, showName, opts) => {
     const li = document.createElement('li');
     li.className = 'coll-group';
     if (showName !== false) {
@@ -2670,14 +2711,25 @@ function renderCollectionsList() {
       const btn = document.createElement('button');
       btn.className = 'coll-group-btn' + (g.busy ? ' busy' : '');
       btn.title = g.busy
-        ? 'Cancelar o download da coleção'
-        : 'Baixar a coleção completa (' + colls.length + ' álbum(ns))';
+        ? 'Cancelar o download'
+        : (opts && opts.confirmScale)
+          ? 'Baixar TODO o acervo (' + colls.length + ' coleções)'
+          : 'Baixar a coleção completa (' + colls.length + ' álbum(ns))';
       btn.innerHTML = g.busy ? closeIconSvg() : downloadAllIconSvg();
-      btn.addEventListener('click', (e) => { e.stopPropagation(); syncGroup(key, text, colls); });
+      btn.addEventListener('click', (e) => { e.stopPropagation(); syncGroup(key, text, colls, opts); });
       li.appendChild(btn);
     }
     libraryEl.appendChild(li);
   };
+
+  // Baixar TODO o acervo de uma vez: os hinários mais todos os álbuns de todas
+  // as categorias. Só aparece em "Todos" — com um filtro ativo, "tudo" seria
+  // ambíguo (tudo do filtro? tudo mesmo?), e o cabeçalho da categoria já cobre
+  // o primeiro caso.
+  if (albumFilter === null) {
+    const todas = allCollections().filter((c) => !isHymnalAlbum(c));
+    if (todas.length > 1) header('Todo o acervo', todas, true, { confirmScale: true });
+  }
 
   const showHymnals = albumFilter === null || albumFilter === 'hymnals';
   const fixed = showHymnals ? FIXED_COLLECTIONS.filter((c) => byId.has(c.id)) : [];
@@ -3607,9 +3659,11 @@ async function syncDeviceFolder(existing) {
     }
 
     let done = 0, added = 0;
+    bgTaskStart('Pasta · ' + folder.name, entries.length);
     for (const [entry, type] of entries) {
       done++;
       flash('Sincronizando ' + done + '/' + entries.length + '…', true);
+      bgTaskStep(done);
       const name = entry.name;
       let st;
       try { st = await entry.stat(); } catch (_) { continue; }
@@ -3931,12 +3985,18 @@ async function syncCollection(coll, opts) {
     let done = 0;
     const CONCURRENCY = 3;
     let next = 0;
+    // Dentro de um lote (syncGroup) o rótulo da notificação já traz o contexto
+    // do grupo; sozinho, é o nome do álbum.
+    const notifLabel = (opts && opts.notifLabel) || coll.name;
+    if (!(opts && opts.notifOwned)) bgTaskStart(notifLabel, pending.length);
     async function worker() {
       while (next < pending.length) {
         const s = pending[next++];
         await downloadCollectionSong(coll, s);
         done++;
         setCollStatus(coll.id, 'Baixando ' + done + '/' + pending.length + '…');
+        if (opts && opts.onSong) opts.onSong();
+        else bgTaskStep(done);
         await AVDB.setState('coll:' + coll.id, collState[coll.id]);
       }
     }
@@ -4670,7 +4730,50 @@ function bgWorkBegin() {
 
 function bgWorkEnd() {
   if (!window.__NATIVE__) return;
-  if (bgWorkCount > 0 && --bgWorkCount === 0) AVNative.keepAlive(false);
+  if (bgWorkCount > 0 && --bgWorkCount === 0) { bgTask = null; AVNative.keepAlive(false); }
+}
+
+// ===== progresso na notificação do sistema =====
+// A notificação do serviço em primeiro plano era estática ("Baixando mídias").
+// Com o app minimizado — que é o uso normal durante uma sincronização — ela era
+// a ÚNICA janela para o download, e não dizia quanto falta nem se ainda anda.
+//
+// Quem sabe o progresso é o lado web, então é ele que reporta. A estimativa de
+// tempo é calculada aqui pelo ritmo MÉDIO desde o início da tarefa
+// (decorrido/concluídos x restantes): itens têm tamanhos diferentes, então uma
+// média é mais estável que a taxa instantânea, que oscilaria a cada faixa.
+let bgTask = null; // { label, done, total, startedAt, lastSentAt }
+
+function bgTaskStart(label, total) {
+  if (!window.__NATIVE__) return;
+  bgTask = { label, done: 0, total, startedAt: Date.now(), lastSentAt: 0 };
+  bgTaskSend(true);
+}
+
+function bgTaskStep(done, label) {
+  if (!window.__NATIVE__ || !bgTask) return;
+  bgTask.done = done;
+  if (label) bgTask.label = label;
+  bgTaskSend(false);
+}
+
+// `force` ignora o intervalo mínimo. Sem ele, uma faixa curta atualizaria a
+// notificação várias vezes por segundo — o Android limita a taxa de updates e
+// passa a descartá-los, o que faria a barra parecer travada.
+const BG_NOTIF_MIN_MS = 700;
+function bgTaskSend(force) {
+  const t = bgTask;
+  if (!t) return;
+  const now = Date.now();
+  if (!force && now - t.lastSentAt < BG_NOTIF_MIN_MS) return;
+  t.lastSentAt = now;
+  let etaMs = 0;
+  if (t.done > 0 && t.total > t.done) {
+    etaMs = Math.round(((now - t.startedAt) / t.done) * (t.total - t.done));
+  }
+  try {
+    AVNative.bgProgress({ label: t.label, done: t.done, total: t.total, etaMs });
+  } catch (_) { /* shell antigo: a notificação segue estática */ }
 }
 
 // Envolve um trecho pesado. O `finally` é o ponto crítico: uma falha de rede

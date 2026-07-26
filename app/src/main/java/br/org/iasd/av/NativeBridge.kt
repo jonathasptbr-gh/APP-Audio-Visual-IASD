@@ -69,7 +69,7 @@ class NativeBridge(
          * exijam mais do que o shell instalado oferece (ver [WebUpdater]).
          * Subir SEMPRE que a superfície da ponte mudar.
          */
-        const val SHELL_VERSION = 9
+        const val SHELL_VERSION = 10
     }
 
     private val io = Executors.newSingleThreadExecutor()
@@ -124,6 +124,27 @@ class NativeBridge(
     @JavascriptInterface
     fun keepAlive(on: Boolean) {
         host?.setBackgroundWork(on)
+    }
+
+    /**
+     * Progresso do download em curso, para a notificação do serviço em
+     * primeiro plano. Com o app minimizado — o uso normal durante uma
+     * sincronização — essa notificação é a única janela para o que está
+     * acontecendo, e antes ela era um texto fixo.
+     *
+     * O JSON vem do lado web (`AVNative.bgProgress`), que é quem sabe o que
+     * está baixando e a que ritmo: `{ label, done, total, etaMs }`.
+     */
+    @JavascriptInterface
+    fun bgProgress(json: String) {
+        val o = try { JSONObject(json) } catch (e: Exception) { return }
+        SyncService.updateProgress(
+            ctx,
+            label = o.optString("label"),
+            done = o.optInt("done"),
+            total = o.optInt("total"),
+            etaMs = o.optLong("etaMs"),
+        )
     }
 
     // ---------- telas ----------
