@@ -79,10 +79,10 @@ git push origin main
   `renderVersionLabel()`), o fallback estático do `<span id="appVersion">` em
   `controle/index.html` e `version` em `version.json` (é este último que
   dispara a atualização por OTA nos aparelhos). Versionamento incremental
-  simples (5.03, 5.04, 5.05…). **Versão atual: v5.05.**
-  No app nativo o rótulo mostra os **dois índices** — `Web v5.05 · Shell v1.12`
+  simples (5.04, 5.05, 5.06…). **Versão atual: v5.06.**
+  No app nativo o rótulo mostra os **dois índices** — `Web v5.06 · Shell v1.12`
   —, porque base web e shell atualizam por caminhos independentes (OTA ×
-  instalar APK); no navegador sai só `Controle v5.05`.
+  instalar APK); no navegador sai só `Controle v5.06`.
 
 ---
 
@@ -521,11 +521,26 @@ celular: aí o alvo passa a ser a tela do aparelho em paisagem
 (`max(screen.w, screen.h) / min(...)`), que é exatamente o que vai ao
 espelhamento. No navegador, sem ponte, vale sempre esse segundo caminho.
 
+**A preview ENCOLHE em vez de transbordar.** A largura ideal é
+`--deck-pv-h × --pv-ar` (a altura da faixa da grade vezes a proporção), mas ela
+nem sempre cabe: num telão largo, ou num celular estreito, a soma
+`preview + 2 botões + gaps` estoura a coluna. Com `height: 100%` fixo e
+`flex: 0 0 auto` a preview simplesmente vazava por baixo da coluna do mixer e
+levava o botão de próxima estrofe para fora da tela. Hoje quem manda é a
+LARGURA: `width` ideal + `max-width: 100%` + `flex: 0 1 auto`, com
+`height: auto` + `aspect-ratio` — o flex encolhe a preview até caber e a altura
+acompanha, preservando a proporção; `align-self: center` mantém a miniatura
+centrada quando ela fica mais baixa que a faixa. A altura da faixa é o token
+`--deck-pv-h`, usado tanto no `grid-template-rows` do `.deck` quanto neste
+cálculo — se os dois divergirem, a conta da largura passa a estar errada.
+
 O valor é limitado a `[PV_AR_MIN, PV_AR_MAX]` = `[1.2, 2.4]`: a preview divide
 a linha com os dois botões de estrofe, que precisam continuar sendo alvos de
 toque (`.slide-nav-btn` tem `min-width: 40px`). Telas reais de projeção ficam
 entre 4:3 e ~2,2:1, bem dentro da faixa; um painel 32:9 bate no teto e deixa de
-ser proporcional — troca deliberada, e é o clamp que impede a linha de estourar.
+ser proporcional — troca deliberada. Verificado em 24 combinações (6 larguras de
+celular × 4 proporções de telão): nada transborda a linha nem invade o mixer, e
+os dois botões de estrofe continuam acionáveis em todas.
 
 Duas consequências que valem registrar:
 

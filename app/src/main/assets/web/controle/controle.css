@@ -67,6 +67,11 @@ input, textarea { user-select: text !important; -webkit-user-select: text !impor
   --lyrics-frame-bg: rgba(0, 0, 0, .4);
   --lyrics-frame-border: rgba(255, 255, 255, .85);
 
+  /* Altura da faixa da preview na grade do .deck. É token porque a largura da
+     preview é calculada a partir dela (altura × proporção do telão) — se as
+     duas divergirem, a preview deixa de caber na linha. */
+  --deck-pv-h: 130px;
+
   /* feedback de toque padrão (:active) */
   --press: scale(.96);
 
@@ -158,7 +163,7 @@ body {
      preview passava a depender do título. Com o mínimo em 0, a fração é
      respeitada e a preview fica estável qualquer que seja o nome. */
   grid-template-columns: minmax(0, 1fr) 56px;
-  grid-template-rows: auto 130px auto;
+  grid-template-rows: auto var(--deck-pv-h) auto;
   column-gap: .6rem;
   row-gap: .45rem;
 }
@@ -191,7 +196,24 @@ body {
    resto do dimensionamento já é em `cq*`, relativo ao container, portanto
    invariante de escala. */
 .preview {
-  position: relative; height: 100%; aspect-ratio: var(--pv-ar, 16 / 9); flex: 0 0 auto;
+  position: relative;
+  /* Largura IDEAL = altura da faixa x proporção do telão. Mas ela é ENCOLHÍVEL
+     (`flex: 0 1 auto` + `max-width: 100%`): numa tela estreita, ou com um telão
+     muito largo, a largura ideal não cabe na linha — e com `height: 100%` fixo
+     a preview simplesmente transbordava por baixo da coluna do mixer, levando o
+     botão de próxima estrofe para fora da tela.
+     Com `height: auto` + `aspect-ratio`, quem manda passa a ser a LARGURA: o
+     flex encolhe a preview até caber e a altura acompanha, preservando a
+     proporção (que é o ponto de ela existir). `align-self: center` mantém a
+     miniatura centrada na faixa quando ela fica mais baixa que 130px. */
+  width: calc(var(--deck-pv-h) * var(--pv-ar, 1.7778));
+  max-width: 100%;
+  height: auto;
+  max-height: 100%;
+  aspect-ratio: var(--pv-ar, 16 / 9);
+  flex: 0 1 auto;
+  min-width: 0;
+  align-self: center;
   background: #000; border-radius: var(--radius-card); overflow: hidden;
   /* `outline` (com offset negativo) no lugar de `border`: a borda entra no
      border-box e, com `box-sizing:border-box`, o `aspect-ratio` passa a valer
@@ -204,7 +226,7 @@ body {
    cantos retos e sem borda; as camadas internas (pv-layers, wallpaper) já são
    inset:0 e a mídia usa object-fit, então preenchem/letterboxam sozinhas. */
 .preview:fullscreen, .preview:-webkit-full-screen {
-  width: 100%; height: 100%; aspect-ratio: auto;
+  width: 100%; height: 100%; max-width: none; max-height: none; aspect-ratio: auto;
   border: none; border-radius: 0; background: #000;
   /* superfície de gestos invisíveis: captura toques/deslizes sem o navegador
      interpretar como rolagem/zoom (ver setupPreviewGestures em controle.js) */
