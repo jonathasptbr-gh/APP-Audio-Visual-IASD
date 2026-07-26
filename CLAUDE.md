@@ -155,6 +155,7 @@ window.AVNative = {
   displays(),          // → [{ id, name, w, h, density }]
   onDisplayChange(cb),
   keepAlive(bool),     // download em curso — ver "Trabalho em segundo plano"
+  bgProgress({label, done, total, etaMs}), // progresso na notificação do serviço
   openCast(),          // seletor de ESPELHAMENTO DE TELA do Android (≠ Google Cast)
   castTarget(),        // → rótulo do alvo de espelhamento deste aparelho
   captureVolumeKeys(bool), // botões físicos de volume vão para o app
@@ -169,7 +170,7 @@ Além disso, `native.js` publica três globais lidas direto (sem Promise):
 APK, que é o **índice de versão do shell exibido ao operador**. Ele não se
 confunde com `__SHELL_VERSION__`: base web e shell atualizam por caminhos
 independentes (OTA × instalar APK), então o cabeçalho do Cronograma mostra os
-dois (`Web v5.07 · Shell v1.12`). Num shell antigo (sem `appVersion()`) a
+dois (`Web v5.08 · Shell v1.13`). Num shell antigo (sem `appVersion()`) a
 string vem vazia e a UI cai em só a versão web — mesma degradação do navegador.
 
 **Princípio: a ponte entrega URLs SERVÍVEIS, não bytes.** Arquivos do
@@ -227,6 +228,28 @@ Pontos cobertos: `syncCollection` (massa), `ensureSongDownloaded` (avulso),
 `ensureBibleVersionDownloaded` (1189 capítulos) e `syncDeviceFolder` (pastas).
 O wake lock tem timeout de 2 h, para um download travado nunca consumir
 bateria indefinidamente. No navegador tudo isso é no-op.
+
+**A notificação mostra o progresso real.** Com o app minimizado ela é a ÚNICA
+janela para o download, e era um texto fixo ("Baixando mídias") — não dizia
+quanto falta nem se ainda anda. Quem sabe o progresso é o lado web, então é ele
+que reporta, por `AVNative.bgProgress({label, done, total, etaMs})`:
+`bgTaskStart`/`bgTaskStep` em `controle.js` alimentam
+`SyncService.updateProgress`, que refaz a notificação com barra, "N de M",
+percentual e o tempo restante.
+
+- **A estimativa vem do ritmo MÉDIO desde o início** (decorrido/concluídos ×
+  restantes), não da taxa instantânea: faixas têm tamanhos muito diferentes e a
+  taxa instantânea faria o número pular a cada música.
+- **Há um intervalo mínimo entre atualizações** (`BG_NOTIF_MIN_MS`, 700 ms). O
+  Android limita a taxa de updates de notificação e passa a descartá-los — sem
+  o freio, uma faixa curta atualizaria várias vezes por segundo e a barra
+  pareceria travada. O estado final é enviado com `force`, ignorando o freio.
+- **Num lote (`syncGroup`) a barra acompanha o LOTE**, não cada álbum: o total
+  é a soma das músicas pendentes de todos eles, contada uma vez. Reiniciar a
+  barra a cada álbum daria doze barras curtas em vez de uma que informa quanto
+  falta de verdade.
+- Num shell antigo `bgProgress` não existe; o `try` de `native.js` engole e a
+  notificação segue estática — exatamente o comportamento anterior.
 
 ---
 
@@ -495,4 +518,4 @@ Rodar local: `./gradlew assembleDebug` (exige Android SDK instalado).
   (`#appVersion` em `assets/web/controle/index.html`) **e `version` em
   `assets/web/version.json`** — é este último que faz a atualização chegar
   aos aparelhos por OTA. O `versionCode`/`versionName` do APK vêm do CI.
-  **Versão atual: v5.07** (base web) · **shell 1.12** (`SHELL_VERSION` 9).
+  **Versão atual: v5.08** (base web) · **shell 1.13** (`SHELL_VERSION` 10).

@@ -159,5 +159,21 @@
     // acontece no uso normal, já que ninguém fica olhando a tela enquanto um
     // hinário inteiro baixa.
     keepAlive(on) { try { B.keepAlive(!!on); } catch (_) { /* ignorado */ } },
+
+    // Progresso do download em curso, para a notificação do serviço em
+    // primeiro plano — com o app minimizado ela é a única janela para o que
+    // está acontecendo. `{ label, done, total, etaMs }`. Num shell antigo o
+    // método não existe: o `try` engole e a notificação segue estática, que é
+    // exatamente o comportamento anterior.
+    bgProgress(p) {
+      try {
+        B.bgProgress(JSON.stringify({
+          label: String((p && p.label) || ''),
+          done: Math.max(0, (p && p.done) | 0),
+          total: Math.max(0, (p && p.total) | 0),
+          etaMs: Math.max(0, (p && p.etaMs) | 0),
+        }));
+      } catch (_) { /* ignorado */ }
+    },
   };
 })(this);

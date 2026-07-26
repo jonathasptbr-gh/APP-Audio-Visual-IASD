@@ -10,6 +10,7 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 
@@ -95,30 +96,93 @@ class SyncService : Service() {
         nm.createNotificationChannel(channel)
     }
 
-    private fun buildNotification(): Notification {
-        val open = Intent(this, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_NEW_TASK
-        }
-        val pending = android.app.PendingIntent.getActivity(
-            this,
-            0,
-            open,
-            android.app.PendingIntent.FLAG_IMMUTABLE,
-        )
-        return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("Baixando mídias")
-            .setContentText("A sincronização continua com o app minimizado.")
-            .setSmallIcon(android.R.drawable.stat_sys_download)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
-            .setOngoing(true)
-            .setContentIntent(pending)
-            .build()
-    }
+    private fun buildNotification(): Notification = buildNotification(this, progress)
 
     companion object {
+        private const val TAG = "SyncService"
         private const val CHANNEL_ID = "sync"
         private const val NOTIF_ID = 1
         private const val WAKELOCK_TIMEOUT_MS = 2 * 60 * 60 * 1000L // 2 h
+
+        /** O que está baixando agora, reportado pelo lado web. */
+        data class Progress(val label: String, val done: Int, val total: Int, val etaMs: Long)
+
+        @Volatile
+        private var progress: Progress? = null
+
+        /**
+         * Atualiza a notificação com o progresso real (ver
+         * `NativeBridge.bgProgress`). Chamado de uma thread do WebView, então
+         * não toca em nada de UI — `NotificationManager.notify` é seguro.
+         *
+         * Não chama `startForeground`: o serviço já está em primeiro plano
+         * (quem o liga é `keepAlive`, antes de qualquer progresso existir).
+         * Se ele não estiver rodando, a notificação simplesmente não aparece —
+         * e não deve mesmo, porque não há trabalho declarado.
+         */
+        fun updateProgress(ctx: Context, label: String, done: Int, total: Int, etaMs: Long) {
+            progress = Progress(label, done, total, etaMs)
+            val nm = ctx.getSystemService(NotificationManager::class.java) ?: return
+            try {
+                nm.notify(NOTIF_ID, buildNotification(ctx, progress))
+            } catch (e: Exception) {
+                Log.w(TAG, "não foi possível atualizar a notificação", e)
+            }
+        }
+
+        /**
+         * Tempo restante, arredondado para não fingir precisão que a
+         * estimativa não tem (ela vem do ritmo médio, e faixas têm tamanhos
+         * diferentes). "resta/restam" resolve a concordância em todos os
+         * casos, inclusive "restam 1h30" — que com "cerca de … restante(s)"
+         * saía errado em algum deles.
+         */
+        private fun formatEta(ms: Long): String {
+            if (ms <= 0) return ""
+            val s = ms / 1000
+            if (s < 45) return "resta menos de 1 min"
+            val min = Math.round(s / 60.0).toInt()
+            if (min < 60) return if (min == 1) "resta 1 min" else "restam $min min"
+            val h = min / 60
+            val r = min % 60
+            return "restam ${h}h" + (if (r > 0) String.format("%02d", r) else "")
+        }
+
+        private fun buildNotification(ctx: Context, p: Progress?): Notification {
+            val open = Intent(ctx, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            val pending = android.app.PendingIntent.getActivity(
+                ctx,
+                0,
+                open,
+                android.app.PendingIntent.FLAG_IMMUTABLE,
+            )
+            val b = NotificationCompat.Builder(ctx, CHANNEL_ID)
+                .setSmallIcon(android.R.drawable.stat_sys_download)
+                .setPriority(NotificationCompat.PRIORITY_LOW)
+                .setOngoing(true)
+                .setOnlyAlertOnce(true)
+                .setContentIntent(pending)
+
+            if (p == null || p.total <= 0) {
+                // Antes de o primeiro progresso chegar (ou num bundle web mais
+                // antigo que a ponte): o texto estático de sempre.
+                return b
+                    .setContentTitle("Baixando mídias")
+                    .setContentText("A sincronização continua com o app minimizado.")
+                    .build()
+            }
+            val pct = (p.done.coerceAtMost(p.total) * 100) / p.total
+            val eta = formatEta(p.etaMs)
+            val linha = "${p.done} de ${p.total}" + (if (eta.isNotEmpty()) " · $eta" else "")
+            return b
+                .setContentTitle(if (p.label.isNotEmpty()) p.label else "Baixando mídias")
+                .setContentText(linha)
+                .setSubText("$pct%")
+                .setProgress(p.total, p.done.coerceAtMost(p.total), false)
+                .build()
+        }
 
         fun start(ctx: Context) {
             val intent = Intent(ctx, SyncService::class.java)
@@ -130,6 +194,7 @@ class SyncService : Service() {
         }
 
         fun stop(ctx: Context) {
+            progress = null
             ctx.stopService(Intent(ctx, SyncService::class.java))
         }
     }
