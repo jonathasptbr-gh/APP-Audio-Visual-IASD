@@ -59,7 +59,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.04';
+const WEB_VERSION = '5.05';
 
 function renderVersionLabel() {
   // __SHELL_NAME__ = versionName do APK (ver native.js). Vazio no navegador e
@@ -4422,6 +4422,43 @@ async function checkPendingShare() {
 function flash() { /* no-op: alerta flutuante removido (ver comentário acima) */ }
 function dismissFlash() { /* no-op: alerta flutuante removido */ }
 
+// ===== Proporção da preview =====
+// A preview é uma MINIATURA FIEL do telão, e isso só se sustenta se ela tiver a
+// PROPORÇÃO do telão. Ela era 16:9 fixo — contra uma TV 2,17:1 (3120×1440, um
+// dongle comum), toda mídia mentia: uma imagem que preenche a preview ganha
+// barras laterais na projeção, um vídeo enquadrado aqui aparece cortado lá, e um
+// versículo que cabe em 3 linhas no telão aparecia truncado no meio da palavra.
+//
+// O resto do dimensionamento (letra, camada de texto) já é em `cq*`, relativo ao
+// container — ou seja, INVARIANTE DE ESCALA: com a proporção certa, os mesmos
+// números dão a mesma composição numa caixa de 280px e num telão de 3120px. Por
+// isso a calibração da preview deixou de ser uma cópia com valores próprios e
+// passou a repetir exatamente os do Display: o que fazia os valores divergirem
+// era a proporção errada, não o tamanho.
+//
+// Sem TV conectada a projeção é a própria preview em tela cheia, no celular —
+// então o alvo passa a ser a tela do aparelho em paisagem.
+// Limites: a preview divide a linha com os dois botões de estrofe, que precisam
+// continuar sendo alvos de toque utilizáveis. Telas reais de projeção ficam
+// entre 4:3 e ~2,2:1, bem dentro da faixa; um painel 32:9 bateria no teto e
+// deixaria de ser proporcional — troca deliberada, e o clamp é o que impede a
+// linha de estourar.
+const PV_AR_MIN = 1.2;
+const PV_AR_MAX = 2.4;
+function applyPreviewAspect(tv) {
+  let ar = 16 / 9;
+  if (tv && tv.w > 0 && tv.h > 0) {
+    ar = tv.w / tv.h;
+  } else if (window.screen && screen.width && screen.height) {
+    // Projeção por tela cheia: a "tela real" é este aparelho, deitado.
+    ar = Math.max(screen.width, screen.height) / Math.min(screen.width, screen.height);
+  }
+  ar = Math.min(PV_AR_MAX, Math.max(PV_AR_MIN, ar));
+  document.documentElement.style.setProperty('--pv-ar', String(ar));
+}
+// Vale também no navegador (sem ponte): ali o alvo é sempre a tela do aparelho.
+applyPreviewAspect(null);
+
 // ===== Wallpaper personalizado =====
 // A cortina do telão (e da preview) aceita uma imagem no lugar do gradiente
 // padrão. O blob mora no state `wallpaper`, compartilhado com o Display; o
@@ -4965,6 +5002,7 @@ if (window.__NATIVE__) {
     displayStatusTextEl.textContent = tv
       ? 'Telão conectado: ' + (tv.name || 'TV') + ' (' + tv.w + '\u00d7' + tv.h + ')'
       : 'Nenhum telão conectado';
+    applyPreviewAspect(tv);
   };
   AVNative.displays().then(renderDisplayStatus);
   AVNative.onDisplayChange(renderDisplayStatus);

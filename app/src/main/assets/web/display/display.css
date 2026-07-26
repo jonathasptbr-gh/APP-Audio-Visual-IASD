@@ -226,12 +226,22 @@ html, body {
    bíblicos (bem mais longos que uma estrofe) num espaço pequeno enquanto
    sobrava tela vazia em volta. Agora o texto ocupa o que tiver, com margens
    generosas, e a fonte é maior. */
+/* SEM padding em `cq*` AQUI — a mesma regra já seguida por `.lyrics-content`,
+   que esta camada violava. Unidades de container escritas NO PRÓPRIO container
+   não se referem a ele: resolvem contra o ancestral mais próximo e, não
+   havendo nenhum, contra o VIEWPORT. No Display isso passava despercebido
+   (o container preenche o viewport, então os números coincidem), mas na
+   preview do Controle — mesma folha conceitual, caixa de ~130px dentro de uma
+   tela de ~980px — `7cqh` virava 7% da TELA DO CELULAR: 137px de padding
+   vertical numa caixa de 128px. O content-box colapsava para zero, e com ele
+   a fonte (que é `cqmin` do container). Era essa a razão de o versículo
+   aparecer espremido e cortado na preview.
+   A margem agora é o que sobra de `.text-box`, que é fração deste container. */
 .text-content {
   container-type: size;
   position: absolute; inset: 0;
   display: flex; align-items: center; justify-content: center;
-  padding: 7cqh 7cqw;
-  padding-bottom: max(7cqh, env(safe-area-inset-bottom));
+  padding-bottom: env(safe-area-inset-bottom);
   box-sizing: border-box; font-family: system-ui, sans-serif;
 }
 /* Ocupa a área toda que o padding do container deixa. `overflow:hidden` +
@@ -239,8 +249,10 @@ html, body {
    maior que o teto de linhas é cortado com reticências (o operador vê o texto
    inteiro no Controle). */
 .text-box {
-  width: 100%;
-  height: 100%;
+  /* 86% = o mesmo espaço útil que o antigo `padding: 7cqh 7cqw` deixava, agora
+     escrito como fração do container — que é o que de fato escala junto. */
+  width: 86cqw;
+  height: 86cqh;
   box-sizing: border-box;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   gap: 2.4cqh;
