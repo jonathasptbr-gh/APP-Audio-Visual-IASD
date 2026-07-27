@@ -79,10 +79,10 @@ git push origin main
   `renderVersionLabel()`), o fallback estático do `<span id="appVersion">` em
   `controle/index.html` e `version` em `version.json` (é este último que
   dispara a atualização por OTA nos aparelhos). Versionamento incremental
-  simples (5.10, 5.11, 5.12…). **Versão atual: v5.12.**
-  No app nativo o rótulo mostra os **dois índices** — `Web v5.12 · Shell v1.15`
+  simples (5.11, 5.12, 5.13…). **Versão atual: v5.13.**
+  No app nativo o rótulo mostra os **dois índices** — `Web v5.13 · Shell v1.16`
   —, porque base web e shell atualizam por caminhos independentes (OTA ×
-  instalar APK); no navegador sai só `Controle v5.12`.
+  instalar APK); no navegador sai só `Controle v5.13`.
 
 ---
 
@@ -1259,7 +1259,7 @@ protocolo real não pôde ser verificado (a rede de desenvolvimento não alcanç
 Com o app minimizado — o uso normal durante uma sincronização — a notificação
 do `SyncService` é a única janela para o download, e era um texto fixo. Quem
 sabe o progresso é o lado web, então é ele que reporta, por
-`AVNative.bgProgress({label, done, total, etaMs})`.
+`AVNative.bgProgress({label, done, total, etaMs, items, idleMs})`.
 
 Instrumentados: `syncCollection` (por música), `syncGroup` (por música, no
 total do lote), `ensureBibleVersionDownloaded` (por capítulo) e
@@ -1267,10 +1267,33 @@ total do lote), `ensureBibleVersionDownloaded` (por capítulo) e
 
 - **A notificação mostra O QUE está baixando.** `bgItemStart`/`bgItemEnd`
   registram os itens em voo por tarefa (`bgItemOnly` para fluxos sequenciais,
-  cujos `continue` deixariam nomes presos na lista). O mais recente vai para a
-  linha principal; a lista aparece ao expandir. O freio da notificação passou a
-  ser por conteúdo: 250 ms quando o item muda, 700 ms quando só o contador
-  andou — com o piso único de 700 ms a troca de nome nunca chegava a aparecer.
+  cujos `continue` deixariam nomes presos na lista). "23 de 54" é abstrato;
+  "002. Ó Adorai o Senhor" é o que o operador reconhece.
+- **UM nome por vez, em rodízio.** São 6 downloads simultâneos, mas mostrá-los
+  juntos exibia seis nomes parados lado a lado por dezenas de segundos, sem
+  transmitir que um terminou e outro começou. Serializados, os MESMOS 6 passam
+  pela linha seis vezes mais rápido — e nada é inventado: todo nome exibido
+  está de fato baixando naquele instante; contador e barra seguem reais.
+- **Quem faz o rodízio andar é um COMPASSO (`BG_SPIN_MS`, 1 s), não os
+  eventos.** Os 6 workers andam em lockstep: começam e terminam quase juntos,
+  então os eventos chegam em RAJADA (uma dúzia em poucos ms) seguida de
+  segundos de silêncio. Com freio de taxa apenas, a rajada rendia UMA troca de
+  nome e as demais eram descartadas — o nome ficava parado até a rajada
+  seguinte, exatamente a sensação de travado. Medido (12 músicas, 6 em
+  paralelo, ~3,7 s cada): **4 trocas sem o compasso, 10 com ele**.
+- **O compasso PARA quando trava** (`BG_STALL_MS`, 90 s sem evento real):
+  animar durante uma queda de rede esconderia justamente o que precisa ser
+  visto. O nome congela e o `idleMs` cresce — os dois sinais concordam.
+  Verificado: 3 nomes distintos em operação normal, 1 só com a tarefa travada.
+- **`idleMs`** separa "travado" de "esta faixa é grande". Passado o limiar, a
+  notificação para de prometer tempo restante (uma ETA sobre um ritmo que já
+  não existe é a promessa mais enganosa possível) e passa a "sem resposta há
+  X" — sem degraus, porque aqui o número precisa SUBIR a cada atualização.
+- **O freio é por PRIORIDADE, escolhida pelo chamador**: 250 ms para um item
+  que ENTROU em download, 700 ms para rotina. Explícita, e não deduzida de "o
+  nome mudou": no laço do worker o fim de uma música e o início da seguinte
+  distam poucos ms, e disputando o mesmo piso o fim derrubava o início — que é
+  o fato mais fresco.
 - **`bgTasks` é um REGISTRO (Map), não um slot único.** Downloads simultâneos
   existem — é por isso que `bgWorkCount` conta em vez de ser booleano — e com
   um slot só as tarefas se sobrescreviam: o `done` de uma saía com o `total` e
@@ -1281,10 +1304,12 @@ total do lote), `ensureBibleVersionDownloaded` (por capítulo) e
   concluído** (`decorrido/concluídos × restantes`) — não desde o `start`, que
   incluiria o preparo (índice, varredura) e inflaria a primeira leitura. Média,
   não taxa instantânea: faixas têm tamanhos muito diferentes.
-- **Suavização assimétrica** (`ETA_SMOOTH_DOWN` 0.5 / `ETA_SMOOTH_UP` 0.15) e
-  **arredondamento em degraus** no lado nativo: a série passa a ser uma
-  contagem regressiva de verdade (2h20 → 2h10 → 2h → …), em vez de um número
-  que sobe e desce.
+- **Suavização assimétrica por constante de tempo** (`ETA_TAU_DOWN` 2,5 s /
+  `ETA_TAU_UP` 10 s) e **arredondamento em degraus** no lado nativo: a série
+  passa a ser uma contagem regressiva de verdade (2h20 → 2h10 → 2h → …), em vez
+  de um número que sobe e desce. Por tempo, e não por chamada: o compasso de
+  1 s pede a estimativa muito mais vezes que os eventos pediam, e um fator fixo
+  por chamada devolveria o número instável.
 - **Intervalo mínimo de `BG_NOTIF_MIN_MS` (700 ms)** entre atualizações: o
   Android limita a taxa de updates de notificação e passa a descartá-los; sem
   o freio, uma faixa curta atualizaria várias vezes por segundo e a barra

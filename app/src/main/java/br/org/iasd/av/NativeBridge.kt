@@ -69,7 +69,7 @@ class NativeBridge(
          * exijam mais do que o shell instalado oferece (ver [WebUpdater]).
          * Subir SEMPRE que a superfície da ponte mudar.
          */
-        const val SHELL_VERSION = 11
+        const val SHELL_VERSION = 12
     }
 
     private val io = Executors.newSingleThreadExecutor()
@@ -133,10 +133,16 @@ class NativeBridge(
      * acontecendo, e antes ela era um texto fixo.
      *
      * O JSON vem do lado web (`AVNative.bgProgress`), que é quem sabe o que
-     * está baixando e a que ritmo: `{ label, done, total, etaMs, items }`.
-     * `items` são os nomes concretos em voo (músicas, capítulos, arquivos) —
-     * o primeiro vai para a linha da notificação e a lista aparece ao
-     * expandir. Um shell anterior simplesmente não lia o campo.
+     * está baixando e a que ritmo:
+     * `{ label, done, total, etaMs, items, idleMs }`.
+     *
+     * `items` traz o nome em destaque agora. São 6 downloads simultâneos, mas
+     * o lado web manda UM de cada vez, em rodízio — seis nomes parados lado a
+     * lado não transmitiam que um terminou e outro começou. A lista continua
+     * sendo lista só por compatibilidade com bundles anteriores a v5.13.
+     *
+     * `idleMs` é há quanto tempo NADA acontece: é o que separa "travado" de
+     * "esta faixa é grande", que na tela são a mesma coisa parada.
      */
     @JavascriptInterface
     fun bgProgress(json: String) {
@@ -154,6 +160,7 @@ class NativeBridge(
             total = o.optInt("total"),
             etaMs = o.optLong("etaMs"),
             items = itens,
+            idleMs = o.optLong("idleMs"),
         )
     }
 
