@@ -105,9 +105,10 @@ class SyncService : Service() {
         private const val WAKELOCK_TIMEOUT_MS = 2 * 60 * 60 * 1000L // 2 h
 
         /**
-         * O que está baixando agora, reportado pelo lado web. `items` são os
-         * nomes concretos em andamento (músicas, capítulos, arquivos) — com a
-         * concorrência em 6 há vários ao mesmo tempo.
+         * O que está baixando agora, reportado pelo lado web. `items` traz o
+         * nome em destaque — são 6 downloads simultâneos, mas o lado web os
+         * serializa num rodízio (ver `bgItemStart` em controle.js).
+         * `idleMs` é há quanto tempo nada acontece.
          */
         data class Progress(
             val label: String,
@@ -115,7 +116,16 @@ class SyncService : Service() {
             val total: Int,
             val etaMs: Long,
             val items: List<String> = emptyList(),
+            val idleMs: Long = 0,
         )
+
+        /**
+         * A partir daqui a notificação para de prometer um tempo restante e
+         * passa a dizer que nada acontece. 90 s é bem mais que a faixa mais
+         * pesada do acervo e que qualquer reconexão normal de Wi-Fi — abaixo
+         * disso o aviso apareceria no uso saudável e viraria ruído.
+         */
+        private const val STALL_MS = 90_000L
 
         @Volatile
         private var progress: Progress? = null
@@ -137,8 +147,9 @@ class SyncService : Service() {
             total: Int,
             etaMs: Long,
             items: List<String> = emptyList(),
+            idleMs: Long = 0,
         ) {
-            progress = Progress(label, done, total, etaMs, items)
+            progress = Progress(label, done, total, etaMs, items, idleMs)
             val nm = ctx.getSystemService(NotificationManager::class.java) ?: return
             try {
                 nm.notify(NOTIF_ID, buildNotification(ctx, progress))
@@ -180,6 +191,19 @@ class SyncService : Service() {
             return "restam ${h}h" + (if (r > 0) String.format("%02d", r) else "")
         }
 
+        /**
+         * Há quanto tempo nada acontece. Sem degraus, ao contrário do
+         * [formatEta]: aqui o número PRECISA subir a cada atualização — é
+         * justamente vê-lo crescer que diz "isto não está andando".
+         */
+        private fun formatIdle(ms: Long): String {
+            val min = ms / 60_000
+            if (min < 1) return "${ms / 1000} s"
+            if (min < 60) return "$min min"
+            val h = min / 60
+            return "${h}h" + String.format("%02d", min % 60)
+        }
+
         private fun buildNotification(ctx: Context, p: Progress?): Notification {
             val open = Intent(ctx, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_NEW_TASK
@@ -206,30 +230,29 @@ class SyncService : Service() {
                     .build()
             }
             val pct = (p.done.coerceAtMost(p.total) * 100) / p.total
-            val eta = formatEta(p.etaMs)
-            val contagem = "${p.done} de ${p.total}" + (if (eta.isNotEmpty()) " · $eta" else "")
+            val parado = p.idleMs >= STALL_MS
+
+            // Com o download parado, o tempo restante vira ficção: ele foi
+            // calculado sobre um ritmo que não existe mais, e continuar
+            // mostrando "restam 40 min" enquanto nada anda é a promessa mais
+            // enganosa que esta notificação pode fazer. Melhor dizer o que de
+            // fato se sabe — que faz X sem novidade.
+            val cauda = if (parado) "sem resposta há ${formatIdle(p.idleMs)}" else formatEta(p.etaMs)
+            val contagem = "${p.done} de ${p.total}" + (if (cauda.isNotEmpty()) " · $cauda" else "")
 
             // A LINHA PRINCIPAL é o nome do que está baixando agora, não o
             // número: "23 de 54" é abstrato, "002. Ó Adorai o Senhor" é o que o
-            // operador reconhece — e vê-lo trocar é o que mostra que a coisa
-            // anda. A contagem e o tempo vão para o subtexto (cabeçalho da
-            // notificação), onde continuam sempre visíveis.
+            // operador reconhece — e vê-lo TROCAR é o que mostra que a coisa
+            // anda. São 6 downloads ao mesmo tempo, mas passam por aqui um de
+            // cada vez (rodízio no lado web): seis nomes parados lado a lado
+            // não transmitiam a troca, e serializados os mesmos 6 rendem seis
+            // vezes mais movimento na linha. A contagem e o tempo vão para o
+            // subtexto (cabeçalho da notificação), sempre visíveis.
             val atual = p.items.firstOrNull()
             b.setContentTitle(if (p.label.isNotEmpty()) p.label else "Baixando mídias")
                 .setContentText(atual ?: contagem)
                 .setSubText(if (atual != null) "$contagem · $pct%" else "$pct%")
                 .setProgress(p.total, p.done.coerceAtMost(p.total), false)
-
-            // Expandida: TODOS os itens em voo. Com 6 downloads simultâneos, ver
-            // só um dá a impressão errada de que o resto parou.
-            if (p.items.size > 1) {
-                b.setStyle(
-                    NotificationCompat.BigTextStyle()
-                        .setBigContentTitle(if (p.label.isNotEmpty()) p.label else "Baixando mídias")
-                        .bigText(p.items.joinToString("\n") { "• $it" })
-                        .setSummaryText(contagem),
-                )
-            }
             return b.build()
         }
 

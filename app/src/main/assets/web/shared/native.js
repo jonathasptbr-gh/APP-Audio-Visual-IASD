@@ -172,10 +172,13 @@
           done: Math.max(0, (p && p.done) | 0),
           total: Math.max(0, (p && p.total) | 0),
           etaMs: Math.max(0, (p && p.etaMs) | 0),
-          // Itens em andamento agora (nomes de música/capítulo/arquivo). O
-          // primeiro vai para a linha da notificação; a lista aparece ao
-          // expandir. Um shell anterior ignora o campo sem se incomodar.
+          // O item em destaque agora (nome de música/capítulo/arquivo). Vem
+          // como lista por compatibilidade com shells anteriores, mas hoje o
+          // lado web manda UM de cada vez, em rodízio — ver bgItemStart.
           items: (p && Array.isArray(p.items) ? p.items : []).map(String).slice(0, 6),
+          // Há quanto tempo nada acontece. Um shell anterior ignora o campo e
+          // a notificação simplesmente não distingue travado de lento.
+          idleMs: Math.max(0, (p && p.idleMs) | 0),
         }));
       } catch (_) { /* ignorado */ }
     },

@@ -155,7 +155,7 @@ window.AVNative = {
   displays(),          // → [{ id, name, w, h, density }]
   onDisplayChange(cb),
   keepAlive(bool),     // download em curso — ver "Trabalho em segundo plano"
-  bgProgress({label, done, total, etaMs, items}), // progresso na notificação
+  bgProgress({label, done, total, etaMs, items, idleMs}), // progresso na notificação
   openCast(),          // seletor de ESPELHAMENTO DE TELA do Android (≠ Google Cast)
   castTarget(),        // → rótulo do alvo de espelhamento deste aparelho
   captureVolumeKeys(bool), // botões físicos de volume vão para o app
@@ -170,7 +170,7 @@ Além disso, `native.js` publica três globais lidas direto (sem Promise):
 APK, que é o **índice de versão do shell exibido ao operador**. Ele não se
 confunde com `__SHELL_VERSION__`: base web e shell atualizam por caminhos
 independentes (OTA × instalar APK), então o cabeçalho do Cronograma mostra os
-dois (`Web v5.12 · Shell v1.15`). Num shell antigo (sem `appVersion()`) a
+dois (`Web v5.13 · Shell v1.16`). Num shell antigo (sem `appVersion()`) a
 string vem vazia e a UI cai em só a versão web — mesma degradação do navegador.
 
 **Princípio: a ponte entrega URLs SERVÍVEIS, não bytes.** Arquivos do
@@ -239,18 +239,42 @@ percentual e o tempo restante.
 
 - **A notificação diz O QUE está baixando, não só quantos.** `bgItemStart`/
   `bgItemEnd` (e `bgItemOnly`, para fluxos sequenciais) registram os itens em
-  voo — nome da música, "Gênesis 3", nome do arquivo. O mais recente vai para a
-  linha principal e a lista inteira aparece ao expandir a notificação
-  (`BigTextStyle`), porque com 6 downloads simultâneos ver só um passa a
-  impressão de que o resto parou. "23 de 54" é abstrato; "002. Ó Adorai o
-  Senhor" é o que o operador reconhece, e vê-lo trocar é o que mostra
-  movimento.
-- **O freio da notificação é por CONTEÚDO, não só por tempo.** Com um piso
-  único de 700 ms, a troca de NOME — justamente o que dá a impressão de
-  progresso — nunca chegava. São dois pisos: 250 ms quando o item em destaque
-  muda (um evento que vale ver) e 700 ms para atualização de rotina, em que só
-  o contador andou. Medido no regime permanente (30 músicas, 6 em paralelo):
-  20 trocas de nome visíveis, mediana de 500 ms entre elas.
+  voo — nome da música, "Gênesis 3", nome do arquivo. "23 de 54" é abstrato;
+  "002. Ó Adorai o Senhor" é o que o operador reconhece, e vê-lo trocar é o
+  que mostra movimento.
+- **UM nome por vez, em rodízio — não os 6 de uma vez.** São 6 downloads
+  simultâneos, mas mostrá-los juntos (a antiga lista `BigTextStyle`) exibia
+  seis nomes parados lado a lado por dezenas de segundos, sem transmitir que
+  um terminou e outro começou. Serializados, os MESMOS 6 passam pela linha
+  principal seis vezes mais rápido, que é a sensação verdadeira do ritmo.
+  Nada é inventado: todos os nomes exibidos estão de fato baixando naquele
+  instante, e o contador e a barra continuam sendo os números reais.
+- **O que faz o rodízio andar é um COMPASSO (`BG_SPIN_MS`, 1 s), não os
+  eventos.** Os 6 workers andam em lockstep — começam e terminam quase
+  juntos —, então os eventos chegam em rajada (uma dúzia em poucos ms) e
+  depois há segundos de silêncio. Só com freio de taxa, a rajada rendia UMA
+  troca de nome e as outras eram descartadas: o nome ficava parado até a
+  rajada seguinte, que é exatamente a sensação de travado. Medido (12
+  músicas, 6 em paralelo, ~3,7 s cada): **4 trocas de nome sem o compasso,
+  10 com ele** — uma por segundo.
+- **O compasso PARA quando o download trava.** Animar durante uma queda de
+  rede esconderia justamente o que precisa ser visto. Passando `BG_STALL_MS`
+  (90 s) sem nenhum evento real, o nome congela e o `idleMs` cresce na tela —
+  os dois sinais concordam. Verificado: 3 nomes distintos em operação normal,
+  1 só com a tarefa travada.
+- **`idleMs` separa "travado" de "esta faixa é grande"**, que na tela são a
+  mesma coisa parada. Passado o limiar, a notificação **para de prometer
+  tempo restante** e passa a dizer "sem resposta há X": uma ETA calculada
+  sobre um ritmo que não existe mais é a promessa mais enganosa que essa
+  notificação pode fazer. E `formatIdle` não usa degraus (ao contrário de
+  `formatEta`) — aqui o número PRECISA subir a cada atualização, é vê-lo
+  crescer que diz "isto não está andando".
+- **O freio da notificação é por PRIORIDADE, escolhida pelo chamador.** São
+  dois pisos: 250 ms para um item que ENTROU em download (a notícia do
+  momento) e 700 ms para rotina. A prioridade é explícita, e não deduzida de
+  "o nome mudou", porque no laço do worker o fim de uma música e o início da
+  seguinte acontecem a poucos ms um do outro: disputando o mesmo piso, o fim
+  chegava primeiro e derrubava o início, que é o fato mais fresco.
 - **É um REGISTRO de tarefas, não um slot único.** O app tem downloads
   simultâneos — é por isso que `bgWorkCount` conta em vez de ser um booleano —,
   e entrar na aba Bíblia enquanto um lote de álbuns baixa dispara os dois ao
@@ -266,9 +290,13 @@ percentual e o tempo restante.
   — e contá-lo como tempo de download inflava a primeira estimativa, que depois
   despencava). Média, não taxa instantânea: faixas têm tamanhos muito
   diferentes e a instantânea faria o número pular a cada música.
-- **Suavização assimétrica** (`ETA_SMOOTH_DOWN` 0.5 / `ETA_SMOOTH_UP` 0.15):
-  cai rápido, sobe devagar. Uma contagem regressiva que aumenta parece
-  quebrada, mesmo quando o número novo está certo.
+- **Suavização assimétrica e por CONSTANTE DE TEMPO** (`ETA_TAU_DOWN` 2,5 s /
+  `ETA_TAU_UP` 10 s): cai rápido, sobe devagar — uma contagem regressiva que
+  aumenta parece quebrada, mesmo quando o número novo está certo. Por tempo, e
+  não por chamada, porque o compasso de 1 s pede a estimativa muito mais vezes
+  que antes: um fator fixo por chamada colaria o valor exibido no bruto e o
+  número voltaria a pular, que é o defeito que a suavização existe para
+  evitar.
 - **Arredondamento em degraus** no lado nativo (1 min perto do fim, 5 min
   abaixo de 1 h, 10 min acima): a incerteza cresce com o horizonte, e mostrar
   "2h03" quando o erro real é de meia hora promete uma precisão que não
@@ -579,4 +607,4 @@ Rodar local: `./gradlew assembleDebug` (exige Android SDK instalado).
   (`#appVersion` em `assets/web/controle/index.html`) **e `version` em
   `assets/web/version.json`** — é este último que faz a atualização chegar
   aos aparelhos por OTA. O `versionCode`/`versionName` do APK vêm do CI.
-  **Versão atual: v5.12** (base web) · **shell 1.15** (`SHELL_VERSION` 11).
+  **Versão atual: v5.13** (base web) · **shell 1.16** (`SHELL_VERSION` 12).
