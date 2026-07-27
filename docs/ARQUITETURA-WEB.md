@@ -79,10 +79,10 @@ git push origin main
   `renderVersionLabel()`), o fallback estático do `<span id="appVersion">` em
   `controle/index.html` e `version` em `version.json` (é este último que
   dispara a atualização por OTA nos aparelhos). Versionamento incremental
-  simples (5.08, 5.09, 5.10…). **Versão atual: v5.10.**
-  No app nativo o rótulo mostra os **dois índices** — `Web v5.10 · Shell v1.14`
+  simples (5.09, 5.10, 5.11…). **Versão atual: v5.11.**
+  No app nativo o rótulo mostra os **dois índices** — `Web v5.11 · Shell v1.15`
   —, porque base web e shell atualizam por caminhos independentes (OTA ×
-  instalar APK); no navegador sai só `Controle v5.10`.
+  instalar APK); no navegador sai só `Controle v5.11`.
 
 ---
 
@@ -1262,6 +1262,12 @@ Instrumentados: `syncCollection` (por música), `syncGroup` (por música, no
 total do lote), `ensureBibleVersionDownloaded` (por capítulo) e
 `syncDeviceFolder` (por arquivo).
 
+- **A notificação mostra O QUE está baixando.** `bgItemStart`/`bgItemEnd`
+  registram os itens em voo por tarefa (`bgItemOnly` para fluxos sequenciais,
+  cujos `continue` deixariam nomes presos na lista). O mais recente vai para a
+  linha principal; a lista aparece ao expandir. O freio da notificação passou a
+  ser por conteúdo: 250 ms quando o item muda, 700 ms quando só o contador
+  andou — com o piso único de 700 ms a troca de nome nunca chegava a aparecer.
 - **`bgTasks` é um REGISTRO (Map), não um slot único.** Downloads simultâneos
   existem — é por isso que `bgWorkCount` conta em vez de ser booleano — e com
   um slot só as tarefas se sobrescreviam: o `done` de uma saía com o `total` e

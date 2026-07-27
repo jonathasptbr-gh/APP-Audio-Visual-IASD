@@ -59,7 +59,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.10';
+const WEB_VERSION = '5.11';
 
 function renderVersionLabel() {
   // __SHELL_NAME__ = versionName do APK (ver native.js). Vazio no navegador e
@@ -405,6 +405,7 @@ async function syncGroup(key, label, colls, opts) {
           await syncCollection(coll, {
             allowMobile: true,
             notifOwned: true,                     // a tarefa da notificação é do lote
+            notifTaskId: notifId,                 // …e é nela que os nomes entram
             onSong: () => bgTaskStep(notifId, ++batchDone),
           });
         }
@@ -1583,7 +1584,8 @@ async function ensureBibleVersionDownloaded(versionId) {
   const items = [];
   Bible.BOOKS.forEach((b, i) => {
     const bId = bibleBookId(i);
-    for (let c = 1; c <= b.chapters; c++) items.push({ bId, chapter: c });
+    // `bookName` só serve para a notificação mostrar "Gênesis 3" em vez de um id.
+    for (let c = 1; c <= b.chapters; c++) items.push({ bId, chapter: c, bookName: b.name });
   });
   const total = items.length;
 
@@ -1623,6 +1625,8 @@ async function ensureBibleVersionDownloaded(versionId) {
   await withBgWork(() => runLimited(missing, NET_CONCURRENCY, async (it) => {
     if (!bibleDl || !bibleDl.running || bibleDl.versionId !== versionId) return; // superado/cancelado
     const key = prefix + it.bId + '_' + it.chapter;
+    const nome = (it.bookName || '') + ' ' + it.chapter;
+    bgItemStart(notifId, nome);
     try {
       // Só quando não houve varredura de chaves (fallback): confere um a um.
       if (!cached && (await AVDB.getState(key))) { done++; return; }
@@ -1630,6 +1634,7 @@ async function ensureBibleVersionDownloaded(versionId) {
       if (vs.length) await AVDB.setState(key, { verses: vs, syncedAt: Date.now() });
       else failed++;
     } catch (_) { failed++; }
+    finally { bgItemEnd(notifId, nome); }
     done++;
     bgTaskStep(notifId, done - (total - missing.length));
     if (bibleDl && bibleDl.versionId === versionId) { bibleDl.done = done; refreshBibleDl(); }
@@ -3694,6 +3699,7 @@ async function syncDeviceFolder(existing) {
       flash('Sincronizando ' + done + '/' + entries.length + '…', true);
       bgTaskStep(folderNotifId, done);
       const name = entry.name;
+      bgItemOnly(folderNotifId, name);
       let st;
       try { st = await entry.stat(); } catch (_) { continue; }
       const prev = bySrcName.get(name);
@@ -4022,10 +4028,14 @@ async function syncCollection(coll, opts) {
     // Dentro de um lote a tarefa da notificação é do LOTE (notifOwned) — este
     // álbum só repassa o passo, sem abrir uma tarefa concorrente.
     const notifId = (opts && opts.notifOwned) ? 0 : bgTaskStart(notifLabel, pending.length);
+    // Qual tarefa da notificação recebe os nomes: a do lote, quando há um.
+    const itemTaskId = (opts && opts.notifTaskId) || notifId;
     async function worker() {
       while (next < pending.length) {
         const s = pending[next++];
-        await downloadCollectionSong(coll, s);
+        bgItemStart(itemTaskId, s.name);
+        try { await downloadCollectionSong(coll, s); }
+        finally { bgItemEnd(itemTaskId, s.name); }
         done++;
         setCollStatus(coll.id, 'Baixando ' + done + '/' + pending.length + '…');
         if (opts && opts.onSong) opts.onSong();
@@ -4794,6 +4804,10 @@ function bgTaskStart(label, total) {
   const id = ++bgTaskSeq;
   bgTasks.set(id, {
     label, total: Math.max(1, total), done: 0,
+    // Itens EM ANDAMENTO agora (nomes de música, capítulo, arquivo). Com a
+    // concorrência em 6 há vários ao mesmo tempo; a notificação mostra o mais
+    // recente na linha principal e a lista inteira ao expandir. Ver bgItem*.
+    items: new Set(),
     // Marcado no PRIMEIRO item concluído, não aqui: antes dele corre o
     // preparo (índice, varredura do que falta) e contá-lo como se fosse tempo
     // de download inflava a primeira estimativa, que depois despencava.
@@ -4812,6 +4826,36 @@ function bgTaskStep(id, done, label) {
   t.done = done;
   if (label) t.label = label;
   bgTaskSend(false);
+}
+
+// Um item concreto entrou/saiu de download. É isto que dá a impressão de
+// progresso: "23 de 54" é um número abstrato, "002. Ó Adorai o Senhor" é o que
+// o operador reconhece — e ver o nome trocando mostra que a coisa anda.
+function bgItemStart(id, nome) {
+  if (!window.__NATIVE__ || !nome) return;
+  const t = bgTasks.get(id);
+  if (!t) return;
+  t.items.delete(nome);   // reinsere no FIM: o Set mantém ordem de inserção,
+  t.items.add(nome);      // e o mais recente é o que vai para a linha principal
+  bgTaskSend(false);
+}
+
+// Fluxo SEQUENCIAL (um item por vez, com vários `continue` no laço): substitui
+// o conjunto em vez de acrescentar. Sem isto, cada `continue` deixaria o nome
+// preso na lista e a notificação acumularia arquivos que já terminaram.
+function bgItemOnly(id, nome) {
+  if (!window.__NATIVE__) return;
+  const t = bgTasks.get(id);
+  if (!t) return;
+  t.items.clear();
+  if (nome) t.items.add(nome);
+  bgTaskSend(false);
+}
+
+function bgItemEnd(id, nome) {
+  if (!window.__NATIVE__ || !nome) return;
+  const t = bgTasks.get(id);
+  if (t) t.items.delete(nome);
 }
 
 function bgTaskEnd(id) {
@@ -4838,15 +4882,19 @@ function bgTaskEta(t) {
   return t.shownEta;
 }
 
-// `force` ignora o intervalo mínimo. Sem ele, uma faixa curta atualizaria a
-// notificação várias vezes por segundo — o Android limita a taxa de updates e
-// passa a descartá-los, o que faria a barra parecer travada.
-const BG_NOTIF_MIN_MS = 700;
+// O Android limita a taxa de atualização de notificação e passa a DESCARTAR o
+// excesso — sem freio, a barra parece travada. Mas o freio não pode ser só
+// tempo: com ele em 700 ms fixos, a troca do NOME na linha principal (que é o
+// que dá a impressão de progresso) simplesmente nunca chegava quando os itens
+// eram rápidos. Então há dois pisos: um curto para quando o item MUDA — um
+// evento que vale ser visto — e um longo para atualização de rotina, em que só
+// o número andou. `force` ignora ambos (estado final).
+const BG_NOTIF_MIN_MS = 700;        // só o contador mudou
+const BG_NOTIF_ITEM_MIN_MS = 250;   // o item em destaque mudou
 let bgLastSentAt = 0;
+let bgLastItem = null;
 function bgTaskSend(force) {
   const now = Date.now();
-  if (!force && now - bgLastSentAt < BG_NOTIF_MIN_MS) return;
-  bgLastSentAt = now;
 
   // Com mais de uma tarefa em curso, a notificação mostra a DOMINANTE — a de
   // maior tempo restante, que é a que decide quando tudo acaba — e diz quantas
@@ -4857,14 +4905,26 @@ function bgTaskSend(force) {
     const eta = bgTaskEta(t);
     if (!alvo || eta > etaAlvo) { alvo = t; etaAlvo = eta; }
   }
-  if (!alvo) { try { AVNative.bgProgress({ label: '', done: 0, total: 0, etaMs: 0 }); } catch (_) {} return; }
+  if (!alvo) {
+    bgLastItem = null; bgLastSentAt = now;
+    try { AVNative.bgProgress({ label: '', done: 0, total: 0, etaMs: 0, items: [] }); } catch (_) {}
+    return;
+  }
   const outras = bgTasks.size - 1;
+  // Mais recente primeiro — é ele que aparece na linha colapsada.
+  const itens = Array.from(alvo.items).reverse().slice(0, 6);
+  const item = itens[0] || null;
+  const piso = item !== bgLastItem ? BG_NOTIF_ITEM_MIN_MS : BG_NOTIF_MIN_MS;
+  if (!force && now - bgLastSentAt < piso) return;
+  bgLastSentAt = now;
+  bgLastItem = item;
   try {
     AVNative.bgProgress({
       label: alvo.label + (outras > 0 ? ' (+' + outras + ')' : ''),
       done: alvo.done,
       total: alvo.total,
       etaMs: Math.max(0, Math.round(etaAlvo)),
+      items: itens,
     });
   } catch (_) { /* shell antigo: a notificação segue estática */ }
 }

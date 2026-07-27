@@ -104,8 +104,18 @@ class SyncService : Service() {
         private const val NOTIF_ID = 1
         private const val WAKELOCK_TIMEOUT_MS = 2 * 60 * 60 * 1000L // 2 h
 
-        /** O que está baixando agora, reportado pelo lado web. */
-        data class Progress(val label: String, val done: Int, val total: Int, val etaMs: Long)
+        /**
+         * O que está baixando agora, reportado pelo lado web. `items` são os
+         * nomes concretos em andamento (músicas, capítulos, arquivos) — com a
+         * concorrência em 6 há vários ao mesmo tempo.
+         */
+        data class Progress(
+            val label: String,
+            val done: Int,
+            val total: Int,
+            val etaMs: Long,
+            val items: List<String> = emptyList(),
+        )
 
         @Volatile
         private var progress: Progress? = null
@@ -120,8 +130,15 @@ class SyncService : Service() {
          * Se ele não estiver rodando, a notificação simplesmente não aparece —
          * e não deve mesmo, porque não há trabalho declarado.
          */
-        fun updateProgress(ctx: Context, label: String, done: Int, total: Int, etaMs: Long) {
-            progress = Progress(label, done, total, etaMs)
+        fun updateProgress(
+            ctx: Context,
+            label: String,
+            done: Int,
+            total: Int,
+            etaMs: Long,
+            items: List<String> = emptyList(),
+        ) {
+            progress = Progress(label, done, total, etaMs, items)
             val nm = ctx.getSystemService(NotificationManager::class.java) ?: return
             try {
                 nm.notify(NOTIF_ID, buildNotification(ctx, progress))
@@ -190,13 +207,30 @@ class SyncService : Service() {
             }
             val pct = (p.done.coerceAtMost(p.total) * 100) / p.total
             val eta = formatEta(p.etaMs)
-            val linha = "${p.done} de ${p.total}" + (if (eta.isNotEmpty()) " · $eta" else "")
-            return b
-                .setContentTitle(if (p.label.isNotEmpty()) p.label else "Baixando mídias")
-                .setContentText(linha)
-                .setSubText("$pct%")
+            val contagem = "${p.done} de ${p.total}" + (if (eta.isNotEmpty()) " · $eta" else "")
+
+            // A LINHA PRINCIPAL é o nome do que está baixando agora, não o
+            // número: "23 de 54" é abstrato, "002. Ó Adorai o Senhor" é o que o
+            // operador reconhece — e vê-lo trocar é o que mostra que a coisa
+            // anda. A contagem e o tempo vão para o subtexto (cabeçalho da
+            // notificação), onde continuam sempre visíveis.
+            val atual = p.items.firstOrNull()
+            b.setContentTitle(if (p.label.isNotEmpty()) p.label else "Baixando mídias")
+                .setContentText(atual ?: contagem)
+                .setSubText(if (atual != null) "$contagem · $pct%" else "$pct%")
                 .setProgress(p.total, p.done.coerceAtMost(p.total), false)
-                .build()
+
+            // Expandida: TODOS os itens em voo. Com 6 downloads simultâneos, ver
+            // só um dá a impressão errada de que o resto parou.
+            if (p.items.size > 1) {
+                b.setStyle(
+                    NotificationCompat.BigTextStyle()
+                        .setBigContentTitle(if (p.label.isNotEmpty()) p.label else "Baixando mídias")
+                        .bigText(p.items.joinToString("\n") { "• $it" })
+                        .setSummaryText(contagem),
+                )
+            }
+            return b.build()
         }
 
         fun start(ctx: Context) {
