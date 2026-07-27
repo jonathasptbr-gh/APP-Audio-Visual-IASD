@@ -79,10 +79,10 @@ git push origin main
   `renderVersionLabel()`), o fallback estático do `<span id="appVersion">` em
   `controle/index.html` e `version` em `version.json` (é este último que
   dispara a atualização por OTA nos aparelhos). Versionamento incremental
-  simples (5.09, 5.10, 5.11…). **Versão atual: v5.11.**
-  No app nativo o rótulo mostra os **dois índices** — `Web v5.11 · Shell v1.15`
+  simples (5.10, 5.11, 5.12…). **Versão atual: v5.12.**
+  No app nativo o rótulo mostra os **dois índices** — `Web v5.12 · Shell v1.15`
   —, porque base web e shell atualizam por caminhos independentes (OTA ×
-  instalar APK); no navegador sai só `Controle v5.11`.
+  instalar APK); no navegador sai só `Controle v5.12`.
 
 ---
 
@@ -1200,10 +1200,13 @@ redundante, o que está lá agora é uma ação.
   laço, não por álbum): senão o `SyncService` seria desligado no fim de cada
   álbum e o processo podia ser congelado justamente entre um e outro — que é o
   cenário normal, já que o operador dispara e sai do app.
-- **Cancelável.** Durante o download o botão vira ✕ (vermelho); o toque marca
-  `cancel` e o laço para **antes do próximo álbum** — o que já está baixando
-  termina. O status diz isso com todas as letras ("Cancelando após o álbum
-  atual…"), em vez de fingir uma interrupção imediata que não existe.
+- **Cancelável na próxima MÚSICA, não no próximo álbum.** Durante o download o
+  botão vira ✕; o toque marca `cancel`, e esse sinal **atravessa o álbum em
+  curso** (`opts.cancelled`, lido pelo `worker` de `syncCollection`). Parar só
+  entre álbuns era, na prática, não poder parar: há álbuns de centenas de
+  faixas, e o operador ficava preso ao lote inteiro depois de mudar de ideia.
+  Medido com o código real (600 faixas): o cancelamento custa **6 músicas**, as
+  que já estavam no ar.
 - Estado transitório em `groupUI`/`gui(key)` (não persistido), com
   `setGroupStatus` espelhando o `setCollStatus` dos cards — logo, o progresso
   também passa pelo re-render coalescido.
@@ -1330,7 +1333,21 @@ total`, ou "Parcial…"/"Não sincronizado"), a faixa de **estatísticas** (chip
 confirmado × "Aguardando", ícone de Wi-Fi SVG inline — ver `isConfirmedWifi`);
 e os botões **Sincronizar/Atualizar** (`syncCollection`) e **Excluir baixado**
 (`deleteCollection`). Não há "Ver músicas" aqui: a lista é o **toque no card**,
-e ter duas rotas fazia o popup competir com o gesto principal. `refreshCollectionOptions()` é
+e ter duas rotas fazia o popup competir com o gesto principal.
+
+**O botão de sincronizar é o mesmo botão de CANCELAR.** Com o download em
+curso ele vira ✕ ("Cancelar o download", classe `.cancel` — âmbar e **sem
+giro**: um ✕ girando não se lê como "toque para parar", e quem indica
+atividade é o status acima). Antes, um segundo toque caía num `return` mudo
+por `u.syncBusy`: um álbum de centenas de faixas, uma vez começado, só parava
+fechando o app. O cancelamento **fecha a fila** — nenhuma música nova entra e
+as que já estão no ar (até `NET_CONCURRENCY`) terminam. Abortar no meio de um
+download deixaria um arquivo truncado catalogado como completo, e o custo de
+esperar é uma faixa, não um álbum. `u.cancel` também é conferido na
+**varredura** do que falta (`songVariantsNeeded` por música), que num álbum
+grande já é demorada por si só.
+
+`refreshCollectionOptions()` é
 chamado por `refreshCollectionsIfVisible()`, então o progresso da
 sincronização aparece no popup aberto sem fechar e reabrir.
 
