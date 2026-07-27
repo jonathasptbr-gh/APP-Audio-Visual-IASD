@@ -131,17 +131,32 @@ class SyncService : Service() {
         }
 
         /**
-         * Tempo restante, arredondado para não fingir precisão que a
-         * estimativa não tem (ela vem do ritmo médio, e faixas têm tamanhos
-         * diferentes). "resta/restam" resolve a concordância em todos os
-         * casos, inclusive "restam 1h30" — que com "cerca de … restante(s)"
-         * saía errado em algum deles.
+         * Tempo restante, arredondado EM DEGRAUS crescentes — de 1 min perto
+         * do fim a 10 min quando falta mais de uma hora.
+         *
+         * Isso não é cosmético: a estimativa tem uma incerteza que cresce com
+         * o horizonte, e mostrar "2h03" quando o erro real é de meia hora
+         * promete uma precisão que não existe. Pior, ao minuto o número muda a
+         * cada atualização e a leitura vira ruído — dois valores seguidos
+         * diferentes parecem instabilidade mesmo quando a estimativa está
+         * convergindo. Com degraus, ele fica parado enquanto a estimativa não
+         * muda de verdade. A suavização do lado web (`bgTaskEta`) cuida da
+         * outra metade: variar devagar; aqui é só variar de forma legível.
+         *
+         * "resta/restam" resolve a concordância em todos os casos, inclusive
+         * "restam 1h30" — que com "cerca de … restante(s)" saía errado.
          */
         private fun formatEta(ms: Long): String {
             if (ms <= 0) return ""
             val s = ms / 1000
             if (s < 45) return "resta menos de 1 min"
-            val min = Math.round(s / 60.0).toInt()
+            var min = Math.round(s / 60.0).toInt()
+            val degrau = when {
+                min < 10 -> 1
+                min < 60 -> 5
+                else -> 10
+            }
+            min = Math.max(degrau, (min / degrau) * degrau)
             if (min < 60) return if (min == 1) "resta 1 min" else "restam $min min"
             val h = min / 60
             val r = min % 60

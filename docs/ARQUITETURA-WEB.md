@@ -79,10 +79,10 @@ git push origin main
   `renderVersionLabel()`), o fallback estático do `<span id="appVersion">` em
   `controle/index.html` e `version` em `version.json` (é este último que
   dispara a atualização por OTA nos aparelhos). Versionamento incremental
-  simples (5.06, 5.07, 5.08…). **Versão atual: v5.08.**
-  No app nativo o rótulo mostra os **dois índices** — `Web v5.08 · Shell v1.13`
+  simples (5.07, 5.08, 5.09…). **Versão atual: v5.09.**
+  No app nativo o rótulo mostra os **dois índices** — `Web v5.09 · Shell v1.13`
   —, porque base web e shell atualizam por caminhos independentes (OTA ×
-  instalar APK); no navegador sai só `Controle v5.08`.
+  instalar APK); no navegador sai só `Controle v5.09`.
 
 ---
 
@@ -1231,9 +1231,20 @@ Instrumentados: `syncCollection` (por música), `syncGroup` (por música, no
 total do lote), `ensureBibleVersionDownloaded` (por capítulo) e
 `syncDeviceFolder` (por arquivo).
 
-- A **estimativa de tempo** sai do ritmo MÉDIO desde o início da tarefa
-  (`decorrido/concluídos × restantes`), não da taxa instantânea: faixas têm
-  tamanhos muito diferentes e a instantânea faria o número pular a cada música.
+- **`bgTasks` é um REGISTRO (Map), não um slot único.** Downloads simultâneos
+  existem — é por isso que `bgWorkCount` conta em vez de ser booleano — e com
+  um slot só as tarefas se sobrescreviam: o `done` de uma saía com o `total` e
+  o relógio da outra, e a estimativa pulava de 1h30 para 2h40 e voltava. A
+  notificação mostra a **dominante** (maior tempo restante) e marca as demais
+  com `(+N)`.
+- A **estimativa de tempo** sai do ritmo médio desde o **primeiro item
+  concluído** (`decorrido/concluídos × restantes`) — não desde o `start`, que
+  incluiria o preparo (índice, varredura) e inflaria a primeira leitura. Média,
+  não taxa instantânea: faixas têm tamanhos muito diferentes.
+- **Suavização assimétrica** (`ETA_SMOOTH_DOWN` 0.5 / `ETA_SMOOTH_UP` 0.15) e
+  **arredondamento em degraus** no lado nativo: a série passa a ser uma
+  contagem regressiva de verdade (2h20 → 2h10 → 2h → …), em vez de um número
+  que sobe e desce.
 - **Intervalo mínimo de `BG_NOTIF_MIN_MS` (700 ms)** entre atualizações: o
   Android limita a taxa de updates de notificação e passa a descartá-los; sem
   o freio, uma faixa curta atualizaria várias vezes por segundo e a barra

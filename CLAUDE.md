@@ -170,7 +170,7 @@ Além disso, `native.js` publica três globais lidas direto (sem Promise):
 APK, que é o **índice de versão do shell exibido ao operador**. Ele não se
 confunde com `__SHELL_VERSION__`: base web e shell atualizam por caminhos
 independentes (OTA × instalar APK), então o cabeçalho do Cronograma mostra os
-dois (`Web v5.08 · Shell v1.13`). Num shell antigo (sem `appVersion()`) a
+dois (`Web v5.09 · Shell v1.13`). Num shell antigo (sem `appVersion()`) a
 string vem vazia e a UI cai em só a versão web — mesma degradação do navegador.
 
 **Princípio: a ponte entrega URLs SERVÍVEIS, não bytes.** Arquivos do
@@ -237,9 +237,29 @@ que reporta, por `AVNative.bgProgress({label, done, total, etaMs})`:
 `SyncService.updateProgress`, que refaz a notificação com barra, "N de M",
 percentual e o tempo restante.
 
-- **A estimativa vem do ritmo MÉDIO desde o início** (decorrido/concluídos ×
-  restantes), não da taxa instantânea: faixas têm tamanhos muito diferentes e a
-  taxa instantânea faria o número pular a cada música.
+- **É um REGISTRO de tarefas, não um slot único.** O app tem downloads
+  simultâneos — é por isso que `bgWorkCount` conta em vez de ser um booleano —,
+  e entrar na aba Bíblia enquanto um lote de álbuns baixa dispara os dois ao
+  mesmo tempo. Com um slot só, as duas escreviam uma por cima da outra: o
+  `done` de uma aparecia com o `total` e o `startedAt` da outra, e a estimativa
+  pulava de 1h30 para 2h40 e voltava. Cada tarefa tem seu registro; a
+  notificação mostra a **dominante** (maior tempo restante — é ela que decide
+  quando tudo acaba) e sinaliza as outras com `(+N)`. Somar tarefas de
+  naturezas diferentes (capítulos + músicas) num total único daria um número
+  sem significado.
+- **A estimativa vem do ritmo MÉDIO desde o PRIMEIRO item concluído** (não
+  desde o `start`: antes dele corre o preparo — índice, varredura do que falta
+  — e contá-lo como tempo de download inflava a primeira estimativa, que depois
+  despencava). Média, não taxa instantânea: faixas têm tamanhos muito
+  diferentes e a instantânea faria o número pular a cada música.
+- **Suavização assimétrica** (`ETA_SMOOTH_DOWN` 0.5 / `ETA_SMOOTH_UP` 0.15):
+  cai rápido, sobe devagar. Uma contagem regressiva que aumenta parece
+  quebrada, mesmo quando o número novo está certo.
+- **Arredondamento em degraus** no lado nativo (1 min perto do fim, 5 min
+  abaixo de 1 h, 10 min acima): a incerteza cresce com o horizonte, e mostrar
+  "2h03" quando o erro real é de meia hora promete uma precisão que não
+  existe — além de fazer o número mudar a cada atualização, o que se lê como
+  instabilidade mesmo quando a estimativa está convergindo.
 - **Há um intervalo mínimo entre atualizações** (`BG_NOTIF_MIN_MS`, 700 ms). O
   Android limita a taxa de updates de notificação e passa a descartá-los — sem
   o freio, uma faixa curta atualizaria várias vezes por segundo e a barra
@@ -545,4 +565,4 @@ Rodar local: `./gradlew assembleDebug` (exige Android SDK instalado).
   (`#appVersion` em `assets/web/controle/index.html`) **e `version` em
   `assets/web/version.json`** — é este último que faz a atualização chegar
   aos aparelhos por OTA. O `versionCode`/`versionName` do APK vêm do CI.
-  **Versão atual: v5.08** (base web) · **shell 1.13** (`SHELL_VERSION` 10).
+  **Versão atual: v5.09** (base web) · **shell 1.13** (`SHELL_VERSION` 10).
