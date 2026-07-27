@@ -155,7 +155,7 @@ window.AVNative = {
   displays(),          // → [{ id, name, w, h, density }]
   onDisplayChange(cb),
   keepAlive(bool),     // download em curso — ver "Trabalho em segundo plano"
-  bgProgress({label, done, total, etaMs}), // progresso na notificação do serviço
+  bgProgress({label, done, total, etaMs, items}), // progresso na notificação
   openCast(),          // seletor de ESPELHAMENTO DE TELA do Android (≠ Google Cast)
   castTarget(),        // → rótulo do alvo de espelhamento deste aparelho
   captureVolumeKeys(bool), // botões físicos de volume vão para o app
@@ -170,7 +170,7 @@ Além disso, `native.js` publica três globais lidas direto (sem Promise):
 APK, que é o **índice de versão do shell exibido ao operador**. Ele não se
 confunde com `__SHELL_VERSION__`: base web e shell atualizam por caminhos
 independentes (OTA × instalar APK), então o cabeçalho do Cronograma mostra os
-dois (`Web v5.10 · Shell v1.14`). Num shell antigo (sem `appVersion()`) a
+dois (`Web v5.11 · Shell v1.15`). Num shell antigo (sem `appVersion()`) a
 string vem vazia e a UI cai em só a versão web — mesma degradação do navegador.
 
 **Princípio: a ponte entrega URLs SERVÍVEIS, não bytes.** Arquivos do
@@ -237,6 +237,20 @@ que reporta, por `AVNative.bgProgress({label, done, total, etaMs})`:
 `SyncService.updateProgress`, que refaz a notificação com barra, "N de M",
 percentual e o tempo restante.
 
+- **A notificação diz O QUE está baixando, não só quantos.** `bgItemStart`/
+  `bgItemEnd` (e `bgItemOnly`, para fluxos sequenciais) registram os itens em
+  voo — nome da música, "Gênesis 3", nome do arquivo. O mais recente vai para a
+  linha principal e a lista inteira aparece ao expandir a notificação
+  (`BigTextStyle`), porque com 6 downloads simultâneos ver só um passa a
+  impressão de que o resto parou. "23 de 54" é abstrato; "002. Ó Adorai o
+  Senhor" é o que o operador reconhece, e vê-lo trocar é o que mostra
+  movimento.
+- **O freio da notificação é por CONTEÚDO, não só por tempo.** Com um piso
+  único de 700 ms, a troca de NOME — justamente o que dá a impressão de
+  progresso — nunca chegava. São dois pisos: 250 ms quando o item em destaque
+  muda (um evento que vale ver) e 700 ms para atualização de rotina, em que só
+  o contador andou. Medido no regime permanente (30 músicas, 6 em paralelo):
+  20 trocas de nome visíveis, mediana de 500 ms entre elas.
 - **É um REGISTRO de tarefas, não um slot único.** O app tem downloads
   simultâneos — é por isso que `bgWorkCount` conta em vez de ser um booleano —,
   e entrar na aba Bíblia enquanto um lote de álbuns baixa dispara os dois ao
@@ -565,4 +579,4 @@ Rodar local: `./gradlew assembleDebug` (exige Android SDK instalado).
   (`#appVersion` em `assets/web/controle/index.html`) **e `version` em
   `assets/web/version.json`** — é este último que faz a atualização chegar
   aos aparelhos por OTA. O `versionCode`/`versionName` do APK vêm do CI.
-  **Versão atual: v5.10** (base web) · **shell 1.14** (`SHELL_VERSION` 10).
+  **Versão atual: v5.11** (base web) · **shell 1.15** (`SHELL_VERSION` 11).

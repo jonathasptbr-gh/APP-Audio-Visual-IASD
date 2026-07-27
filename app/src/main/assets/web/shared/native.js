@@ -172,6 +172,10 @@
           done: Math.max(0, (p && p.done) | 0),
           total: Math.max(0, (p && p.total) | 0),
           etaMs: Math.max(0, (p && p.etaMs) | 0),
+          // Itens em andamento agora (nomes de música/capítulo/arquivo). O
+          // primeiro vai para a linha da notificação; a lista aparece ao
+          // expandir. Um shell anterior ignora o campo sem se incomodar.
+          items: (p && Array.isArray(p.items) ? p.items : []).map(String).slice(0, 6),
         }));
       } catch (_) { /* ignorado */ }
     },

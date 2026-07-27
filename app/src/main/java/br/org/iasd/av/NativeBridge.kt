@@ -69,7 +69,7 @@ class NativeBridge(
          * exijam mais do que o shell instalado oferece (ver [WebUpdater]).
          * Subir SEMPRE que a superfície da ponte mudar.
          */
-        const val SHELL_VERSION = 10
+        const val SHELL_VERSION = 11
     }
 
     private val io = Executors.newSingleThreadExecutor()
@@ -133,17 +133,27 @@ class NativeBridge(
      * acontecendo, e antes ela era um texto fixo.
      *
      * O JSON vem do lado web (`AVNative.bgProgress`), que é quem sabe o que
-     * está baixando e a que ritmo: `{ label, done, total, etaMs }`.
+     * está baixando e a que ritmo: `{ label, done, total, etaMs, items }`.
+     * `items` são os nomes concretos em voo (músicas, capítulos, arquivos) —
+     * o primeiro vai para a linha da notificação e a lista aparece ao
+     * expandir. Um shell anterior simplesmente não lia o campo.
      */
     @JavascriptInterface
     fun bgProgress(json: String) {
         val o = try { JSONObject(json) } catch (e: Exception) { return }
+        val arr = o.optJSONArray("items")
+        val itens = buildList {
+            for (i in 0 until (arr?.length() ?: 0)) {
+                arr?.optString(i)?.takeIf { it.isNotBlank() }?.let { add(it) }
+            }
+        }
         SyncService.updateProgress(
             ctx,
             label = o.optString("label"),
             done = o.optInt("done"),
             total = o.optInt("total"),
             etaMs = o.optLong("etaMs"),
+            items = itens,
         )
     }
 
