@@ -79,10 +79,10 @@ git push origin main
   `renderVersionLabel()`), o fallback estático do `<span id="appVersion">` em
   `controle/index.html` e `version` em `version.json` (é este último que
   dispara a atualização por OTA nos aparelhos). Versionamento incremental
-  simples (5.07, 5.08, 5.09…). **Versão atual: v5.09.**
-  No app nativo o rótulo mostra os **dois índices** — `Web v5.09 · Shell v1.13`
+  simples (5.08, 5.09, 5.10…). **Versão atual: v5.10.**
+  No app nativo o rótulo mostra os **dois índices** — `Web v5.10 · Shell v1.14`
   —, porque base web e shell atualizam por caminhos independentes (OTA ×
-  instalar APK); no navegador sai só `Controle v5.09`.
+  instalar APK); no navegador sai só `Controle v5.10`.
 
 ---
 
@@ -1187,9 +1187,10 @@ Com um filtro de categoria ativo o cabeçalho **omite o nome** (a pílula
 selecionada já diz qual é) mas continua existindo — o que estava lá antes era
 redundante, o que está lá agora é uma ação.
 
-- **Um álbum por vez, nunca em paralelo.** Cada `syncCollection` já baixa 3
-  músicas simultâneas; multiplicar isso por doze álbuns saturaria a rede da
-  igreja sem terminar nenhum deles antes.
+- **Um álbum por vez, nunca em paralelo** — e isso não custa velocidade: o
+  limite de conexões é por HOST, não por álbum (ver `NET_CONCURRENCY`). Dois
+  álbuns com 3 downloads cada dariam exatamente as mesmas 6 conexões que um
+  álbum com 6, só que com o progresso fragmentado e mais estado concorrente.
 - **A pergunta de rede é feita UMA VEZ para o lote.** Fora do Wi-Fi, um
   diálogo com a contagem de álbuns e a estimativa somada; a resposta é
   repassada a cada `syncCollection` via `opts.allowMobile`, então nenhum deles
@@ -1219,6 +1220,36 @@ categoria já cobre o primeiro caso. Ele confirma **sempre**, mesmo no Wi-Fi
 tamanho estimado: a pergunta de rede é sobre o plano de dados, esta é sobre a
 escala, e são perguntas diferentes. Com tudo já baixado ele não abre diálogo
 nenhum — só responde "Acervo já completo offline".
+
+#### Concorrência de download (`NET_CONCURRENCY`)
+
+Quantas requisições ficam em voo ao mesmo tempo — usada pelo download de
+músicas (`syncCollection`), pela Bíblia e pela atualização de índices.
+
+**6 é o teto de conexões simultâneas por host** do motor do WebView em
+HTTP/1.1, medido no Chromium com um servidor de latência (36 arquivos de
+400 KB, 250 ms de RTT), mediana de 3 rodadas:
+
+| concorrência | tempo | ganho | pico real de conexões |
+|---|---|---|---|
+| 3 | 3,24 s | (base) | 3 |
+| **6** | **1,77 s** | **+82%** | **6** |
+| 8 | 1,71 s | +89% | 6 |
+| 12 | 2,05 s | +58% | 6 |
+| 24 | 1,77 s | +83% | 6 |
+
+De 3 para 6 o download quase **dobra**; acima de 6 o navegador enfileira e não
+há ganho — só mais Blobs em memória ao mesmo tempo. Como cada música é baixada
+**sequencialmente** (metadados → capa → Cantado → Playback, com as imagens de
+estrofe em série por causa do cache compartilhado `resolveImage`), a
+concorrência do laço é exatamente o número de conexões: é este o parâmetro que
+importa, e não "quantos álbuns ao mesmo tempo".
+
+Ressalva honesta: se o servidor do LouvorJA falar HTTP/2, o limite de 6 não se
+aplica (multiplexação) — mas aí o gargalo passa a ser banda, e mais streams
+paralelos também não aumentariam o total. 6 é seguro nos dois cenários. O
+protocolo real não pôde ser verificado (a rede de desenvolvimento não alcança
+`api.louvorja.com.br`).
 
 #### Progresso em segundo plano (`bgTaskStart`/`bgTaskStep`)
 
