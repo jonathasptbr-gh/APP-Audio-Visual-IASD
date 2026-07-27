@@ -59,7 +59,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.09';
+const WEB_VERSION = '5.10';
 
 function renderVersionLabel() {
   // __SHELL_NAME__ = versionName do APK (ver native.js). Vazio no navegador e
@@ -191,6 +191,30 @@ const fadeCfg = createStage.FADE; // fonte única, compartilhada com o Display
 // O himnário em espanhol e demais idiomas ficam de fora naturalmente: só
 // consumimos arquivos 'pt_*' (ver COLLECTION_LOCALE).
 const COLLECTION_LOCALE = 'pt';
+// Quantas requisições manter em voo ao mesmo tempo.
+//
+// 6 não é chute: é o teto de conexões simultâneas POR HOST do motor do WebView
+// em HTTP/1.1. Medido no Chromium com um servidor de latência (36 arquivos de
+// 400 KB, 250 ms de RTT cada), mediana de 3 rodadas:
+//
+//     concorrência   tempo    ganho    pico real de conexões
+//              3     3,24s    (base)          3
+//              6     1,77s     +82%           6
+//              8     1,71s     +89%           6      ← trava em 6
+//             12     2,05s     +58%           6
+//             24     1,77s     +83%           6
+//
+// Ou seja: de 3 para 6 o download quase DOBRA; acima de 6 o navegador
+// simplesmente enfileira e não há ganho nenhum — só mais Blobs em memória ao
+// mesmo tempo. Como cada música é baixada de forma sequencial (metadados →
+// capa → Cantado → Playback), a concorrência do laço é exatamente o número de
+// conexões, então este é o parâmetro que importa.
+//
+// Pelo mesmo motivo NÃO se ganha nada paralelizando álbuns entre si: o limite
+// é por HOST, não por álbum — dois álbuns com 3 cada dariam as mesmas 6
+// conexões, com progresso fragmentado e mais estado concorrente de brinde.
+const NET_CONCURRENCY = 6;
+
 const HYMNAL_2022_ID = 'hymnal-2022'; // == pasta OPFS legada; preserva downloads já feitos
 const FIXED_COLLECTIONS = [
   { id: HYMNAL_2022_ID, name: 'Hinário Adventista 2022', kind: 'hymnal', source: Louvorja.HYMNAL_2022_FILE, iconKey: 'music' },
@@ -1596,7 +1620,7 @@ async function ensureBibleVersionDownloaded(versionId) {
   // congelamento do processo ao minimizar.
   const notifId = bgTaskStart('Bíblia · ' + (bibleVersionName(versionId) || 'versão'), missing.length);
   try {
-  await withBgWork(() => runLimited(missing, 5, async (it) => {
+  await withBgWork(() => runLimited(missing, NET_CONCURRENCY, async (it) => {
     if (!bibleDl || !bibleDl.running || bibleDl.versionId !== versionId) return; // superado/cancelado
     const key = prefix + it.bId + '_' + it.chapter;
     try {
@@ -3871,6 +3895,7 @@ async function fetchCollectionIndex(coll) {
   if (hymnSearchPopupEl.classList.contains('open')) renderSearchResults(hymnSearchInputEl.value);
 }
 
+
 // Executa `fn` sobre `items` com concorrência limitada (no máximo `limit` em
 // voo ao mesmo tempo). Usado pra buscar o índice de dezenas de álbuns sem
 // disparar todas as requisições de uma vez.
@@ -3918,7 +3943,7 @@ async function autoRefreshCollections() {
       const st = collState[c.id];
       return !st || !st.songs.length || (now - (st.indexSyncedAt || 0)) > ALBUM_INDEX_TTL;
     });
-    await runLimited(stale, 5, (c) => fetchCollectionIndex(c).catch(() => {}));
+    await runLimited(stale, NET_CONCURRENCY, (c) => fetchCollectionIndex(c).catch(() => {}));
   } finally { collectionsRefreshing = false; }
 }
 
@@ -3989,7 +4014,7 @@ async function syncCollection(coll, opts) {
     }
 
     let done = 0;
-    const CONCURRENCY = 3;
+    const CONCURRENCY = NET_CONCURRENCY;
     let next = 0;
     // Dentro de um lote (syncGroup) o rótulo da notificação já traz o contexto
     // do grupo; sozinho, é o nome do álbum.
