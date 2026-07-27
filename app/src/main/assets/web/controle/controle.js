@@ -59,7 +59,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.08';
+const WEB_VERSION = '5.09';
 
 function renderVersionLabel() {
   // __SHELL_NAME__ = versionName do APK (ver native.js). Vazio no navegador e
@@ -370,20 +370,22 @@ async function syncGroup(key, label, colls, opts) {
     let totalPend = 0;
     for (const coll of colls) totalPend += collSongs(coll.id).filter((x) => !x.fileIdFull).length;
     let batchDone = 0;
-    bgTaskStart(label, Math.max(1, totalPend));
-    await withBgWork(async () => {
-      for (let i = 0; i < colls.length; i++) {
-        if (g.cancel) break;
-        const coll = colls[i];
-        setGroupStatus(key, 'Álbum ' + (i + 1) + '/' + colls.length + ' · ' + coll.name);
-        bgTaskStep(batchDone, label + ' · ' + coll.name);
-        await syncCollection(coll, {
-          allowMobile: true,
-          notifOwned: true,                       // a tarefa da notificação é do lote
-          onSong: () => bgTaskStep(++batchDone),
-        });
-      }
-    });
+    const notifId = bgTaskStart(label, Math.max(1, totalPend));
+    try {
+      await withBgWork(async () => {
+        for (let i = 0; i < colls.length; i++) {
+          if (g.cancel) break;
+          const coll = colls[i];
+          setGroupStatus(key, 'Álbum ' + (i + 1) + '/' + colls.length + ' · ' + coll.name);
+          bgTaskStep(notifId, batchDone, label + ' · ' + coll.name);
+          await syncCollection(coll, {
+            allowMobile: true,
+            notifOwned: true,                     // a tarefa da notificação é do lote
+            onSong: () => bgTaskStep(notifId, ++batchDone),
+          });
+        }
+      });
+    } finally { bgTaskEnd(notifId); }
     setGroupStatus(key, g.cancel ? 'Cancelado' : 'Coleção completa', 5000);
   } catch (_) {
     setGroupStatus(key, 'Erro ao baixar a coleção', 6000);
@@ -1592,7 +1594,8 @@ async function ensureBibleVersionDownloaded(versionId) {
 
   // 1189 capítulos: é o download mais longo do app e o que mais sofria com o
   // congelamento do processo ao minimizar.
-  bgTaskStart('Bíblia · ' + (bibleVersionName(versionId) || 'versão'), missing.length);
+  const notifId = bgTaskStart('Bíblia · ' + (bibleVersionName(versionId) || 'versão'), missing.length);
+  try {
   await withBgWork(() => runLimited(missing, 5, async (it) => {
     if (!bibleDl || !bibleDl.running || bibleDl.versionId !== versionId) return; // superado/cancelado
     const key = prefix + it.bId + '_' + it.chapter;
@@ -1604,9 +1607,10 @@ async function ensureBibleVersionDownloaded(versionId) {
       else failed++;
     } catch (_) { failed++; }
     done++;
-    bgTaskStep(done - (total - missing.length));
+    bgTaskStep(notifId, done - (total - missing.length));
     if (bibleDl && bibleDl.versionId === versionId) { bibleDl.done = done; refreshBibleDl(); }
   }));
+  } finally { bgTaskEnd(notifId); }
 
   if (bibleDl && bibleDl.versionId === versionId) {
     bibleDl.running = false;
@@ -3634,6 +3638,7 @@ async function syncDeviceFolder(existing) {
   // Copiar uma pasta inteira do dispositivo para o OPFS é longo (vídeos
   // grandes); mesma proteção contra o congelamento ao minimizar.
   bgWorkBegin();
+  let folderNotifId = 0; // fora do try: o finally precisa encerrar a tarefa
   try {
     // Pede armazenamento persistente para o browser não descartar os arquivos.
     if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
@@ -3659,11 +3664,11 @@ async function syncDeviceFolder(existing) {
     }
 
     let done = 0, added = 0;
-    bgTaskStart('Pasta · ' + folder.name, entries.length);
+    folderNotifId = bgTaskStart('Pasta · ' + folder.name, entries.length);
     for (const [entry, type] of entries) {
       done++;
       flash('Sincronizando ' + done + '/' + entries.length + '…', true);
-      bgTaskStep(done);
+      bgTaskStep(folderNotifId, done);
       const name = entry.name;
       let st;
       try { st = await entry.stat(); } catch (_) { continue; }
@@ -3700,6 +3705,7 @@ async function syncDeviceFolder(existing) {
     flash('Erro na sincronização');
   } finally {
     syncBusy = false;
+    bgTaskEnd(folderNotifId);
     bgWorkEnd();
   }
   load();
@@ -3988,7 +3994,9 @@ async function syncCollection(coll, opts) {
     // Dentro de um lote (syncGroup) o rótulo da notificação já traz o contexto
     // do grupo; sozinho, é o nome do álbum.
     const notifLabel = (opts && opts.notifLabel) || coll.name;
-    if (!(opts && opts.notifOwned)) bgTaskStart(notifLabel, pending.length);
+    // Dentro de um lote a tarefa da notificação é do LOTE (notifOwned) — este
+    // álbum só repassa o passo, sem abrir uma tarefa concorrente.
+    const notifId = (opts && opts.notifOwned) ? 0 : bgTaskStart(notifLabel, pending.length);
     async function worker() {
       while (next < pending.length) {
         const s = pending[next++];
@@ -3996,13 +4004,15 @@ async function syncCollection(coll, opts) {
         done++;
         setCollStatus(coll.id, 'Baixando ' + done + '/' + pending.length + '…');
         if (opts && opts.onSong) opts.onSong();
-        else bgTaskStep(done);
+        else bgTaskStep(notifId, done);
         await AVDB.setState('coll:' + coll.id, collState[coll.id]);
       }
     }
     // Sincronização em massa: dezenas ou centenas de áudios — o operador
     // dispara e sai do app. Sem a proteção, parava ao minimizar.
-    await withBgWork(() => Promise.all(Array.from({ length: CONCURRENCY }, worker)));
+    try {
+      await withBgWork(() => Promise.all(Array.from({ length: CONCURRENCY }, worker)));
+    } finally { bgTaskEnd(notifId); }
     setCollStatus(coll.id, 'Atualizado (' + done + ' baixado(s))', 4000);
   } catch (_) {
     setCollStatus(coll.id, 'Erro na sincronização', 5000);
@@ -4730,50 +4740,7 @@ function bgWorkBegin() {
 
 function bgWorkEnd() {
   if (!window.__NATIVE__) return;
-  if (bgWorkCount > 0 && --bgWorkCount === 0) { bgTask = null; AVNative.keepAlive(false); }
-}
-
-// ===== progresso na notificação do sistema =====
-// A notificação do serviço em primeiro plano era estática ("Baixando mídias").
-// Com o app minimizado — que é o uso normal durante uma sincronização — ela era
-// a ÚNICA janela para o download, e não dizia quanto falta nem se ainda anda.
-//
-// Quem sabe o progresso é o lado web, então é ele que reporta. A estimativa de
-// tempo é calculada aqui pelo ritmo MÉDIO desde o início da tarefa
-// (decorrido/concluídos x restantes): itens têm tamanhos diferentes, então uma
-// média é mais estável que a taxa instantânea, que oscilaria a cada faixa.
-let bgTask = null; // { label, done, total, startedAt, lastSentAt }
-
-function bgTaskStart(label, total) {
-  if (!window.__NATIVE__) return;
-  bgTask = { label, done: 0, total, startedAt: Date.now(), lastSentAt: 0 };
-  bgTaskSend(true);
-}
-
-function bgTaskStep(done, label) {
-  if (!window.__NATIVE__ || !bgTask) return;
-  bgTask.done = done;
-  if (label) bgTask.label = label;
-  bgTaskSend(false);
-}
-
-// `force` ignora o intervalo mínimo. Sem ele, uma faixa curta atualizaria a
-// notificação várias vezes por segundo — o Android limita a taxa de updates e
-// passa a descartá-los, o que faria a barra parecer travada.
-const BG_NOTIF_MIN_MS = 700;
-function bgTaskSend(force) {
-  const t = bgTask;
-  if (!t) return;
-  const now = Date.now();
-  if (!force && now - t.lastSentAt < BG_NOTIF_MIN_MS) return;
-  t.lastSentAt = now;
-  let etaMs = 0;
-  if (t.done > 0 && t.total > t.done) {
-    etaMs = Math.round(((now - t.startedAt) / t.done) * (t.total - t.done));
-  }
-  try {
-    AVNative.bgProgress({ label: t.label, done: t.done, total: t.total, etaMs });
-  } catch (_) { /* shell antigo: a notificação segue estática */ }
+  if (bgWorkCount > 0 && --bgWorkCount === 0) { bgTasks.clear(); AVNative.keepAlive(false); }
 }
 
 // Envolve um trecho pesado. O `finally` é o ponto crítico: uma falha de rede
@@ -4781,6 +4748,100 @@ function bgTaskSend(force) {
 async function withBgWork(fn) {
   bgWorkBegin();
   try { return await fn(); } finally { bgWorkEnd(); }
+}
+
+// ===== progresso na notificação do sistema =====
+// A notificação do serviço em primeiro plano era estática ("Baixando mídias").
+// Com o app minimizado — o uso normal durante uma sincronização — ela é a ÚNICA
+// janela para o download, e não dizia quanto falta nem se ainda anda.
+//
+// REGISTRO de tarefas, não um slot único: o app tem downloads SIMULTÂNEOS (é
+// por isso que `bgWorkCount` conta, em vez de ser um booleano) — entrar na aba
+// Bíblia enquanto um lote de álbuns baixa dispara os dois ao mesmo tempo. Com
+// um slot só, as duas tarefas escreviam uma por cima da outra: o `done` de uma
+// aparecia com o `total` e o `startedAt` da outra, e a estimativa pulava de
+// 1h30 para 2h40 e voltava. Cada tarefa agora tem seu próprio registro.
+const bgTasks = new Map();
+let bgTaskSeq = 0;
+
+function bgTaskStart(label, total) {
+  if (!window.__NATIVE__) return 0;
+  const id = ++bgTaskSeq;
+  bgTasks.set(id, {
+    label, total: Math.max(1, total), done: 0,
+    // Marcado no PRIMEIRO item concluído, não aqui: antes dele corre o
+    // preparo (índice, varredura do que falta) e contá-lo como se fosse tempo
+    // de download inflava a primeira estimativa, que depois despencava.
+    firstStepAt: 0,
+    shownEta: 0,
+  });
+  bgTaskSend(true);
+  return id;
+}
+
+function bgTaskStep(id, done, label) {
+  if (!window.__NATIVE__) return;
+  const t = bgTasks.get(id);
+  if (!t) return;
+  if (!t.firstStepAt) t.firstStepAt = Date.now();
+  t.done = done;
+  if (label) t.label = label;
+  bgTaskSend(false);
+}
+
+function bgTaskEnd(id) {
+  if (!window.__NATIVE__) return;
+  if (bgTasks.delete(id)) bgTaskSend(true);
+}
+
+// Tempo restante de UMA tarefa, em ms. 0 = ainda não dá para estimar.
+//
+// Média desde o primeiro item concluído (decorrido/concluídos x restantes),
+// depois SUAVIZADA: itens têm tamanhos muito diferentes (uma música só Cantado
+// x outra com Playback, capa e imagens de estrofe) e a rede oscila, então o
+// valor bruto sobe e desce. A suavização é assimétrica de propósito — cai
+// rápido, sobe devagar: uma contagem regressiva que aumenta parece quebrada,
+// mesmo quando o número novo está certo.
+const ETA_SMOOTH_DOWN = 0.5;  // reage rápido quando a estimativa melhora
+const ETA_SMOOTH_UP = 0.15;   // sobe com cautela
+function bgTaskEta(t) {
+  if (!t.firstStepAt || t.done <= 0 || t.total <= t.done) return 0;
+  const bruto = ((Date.now() - t.firstStepAt) / t.done) * (t.total - t.done);
+  if (!t.shownEta) { t.shownEta = bruto; return bruto; }
+  const a = bruto < t.shownEta ? ETA_SMOOTH_DOWN : ETA_SMOOTH_UP;
+  t.shownEta += (bruto - t.shownEta) * a;
+  return t.shownEta;
+}
+
+// `force` ignora o intervalo mínimo. Sem ele, uma faixa curta atualizaria a
+// notificação várias vezes por segundo — o Android limita a taxa de updates e
+// passa a descartá-los, o que faria a barra parecer travada.
+const BG_NOTIF_MIN_MS = 700;
+let bgLastSentAt = 0;
+function bgTaskSend(force) {
+  const now = Date.now();
+  if (!force && now - bgLastSentAt < BG_NOTIF_MIN_MS) return;
+  bgLastSentAt = now;
+
+  // Com mais de uma tarefa em curso, a notificação mostra a DOMINANTE — a de
+  // maior tempo restante, que é a que decide quando tudo acaba — e diz quantas
+  // outras existem. Somar tarefas de naturezas diferentes (capítulos da Bíblia
+  // + músicas) num total único daria um número que não significa nada.
+  let alvo = null, etaAlvo = -1;
+  for (const t of bgTasks.values()) {
+    const eta = bgTaskEta(t);
+    if (!alvo || eta > etaAlvo) { alvo = t; etaAlvo = eta; }
+  }
+  if (!alvo) { try { AVNative.bgProgress({ label: '', done: 0, total: 0, etaMs: 0 }); } catch (_) {} return; }
+  const outras = bgTasks.size - 1;
+  try {
+    AVNative.bgProgress({
+      label: alvo.label + (outras > 0 ? ' (+' + outras + ')' : ''),
+      done: alvo.done,
+      total: alvo.total,
+      etaMs: Math.max(0, Math.round(etaAlvo)),
+    });
+  } catch (_) { /* shell antigo: a notificação segue estática */ }
 }
 
 // ===== Diálogo padrão do app (confirmações / prompts) =====
