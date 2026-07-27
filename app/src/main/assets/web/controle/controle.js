@@ -59,7 +59,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.11';
+const WEB_VERSION = '5.12';
 
 function renderVersionLabel() {
   // __SHELL_NAME__ = versionName do APK (ver native.js). Vazio no navegador e
@@ -302,7 +302,7 @@ function bibleBookId(idx) {
 // Estado transitório de UI por coleção (não persistido): sincronização em
 // andamento, mensagem de status e peso (bytes) já baixado.
 const collUI = {};
-function ui(id) { return collUI[id] || (collUI[id] = { syncBusy: false, status: '', statusTimer: null, bytes: 0 }); }
+function ui(id) { return collUI[id] || (collUI[id] = { syncBusy: false, cancel: false, status: '', statusTimer: null, bytes: 0 }); }
 
 // Estado transitório de UI por GRUPO (categoria, Hinários, Outros): o mesmo
 // papel de `collUI`, mas para o download da coleção inteira — ver syncGroup.
@@ -330,7 +330,11 @@ function setGroupStatus(key, text, autoClearMs) {
 // a cada `syncCollection` (`allowMobile`), então nenhum deles pergunta de novo.
 async function syncGroup(key, label, colls, opts) {
   const g = gui(key);
-  if (g.busy) { g.cancel = true; setGroupStatus(key, 'Cancelando após o álbum atual…'); return; }
+  // O cancelamento vale a partir da PRÓXIMA MÚSICA, não do próximo álbum: há
+  // álbuns de centenas de faixas, e esperar o atual terminar era, na prática,
+  // não poder cancelar. `syncCollection` recebe este mesmo sinal e fecha a
+  // própria fila (ver lá).
+  if (g.busy) { g.cancel = true; setGroupStatus(key, 'Cancelando…'); return; }
   if (!colls.length) return;
   if (!AVDB.opfsSupported()) { setGroupStatus(key, 'Armazenamento OPFS indisponível', 5000); return; }
 
@@ -406,6 +410,7 @@ async function syncGroup(key, label, colls, opts) {
             allowMobile: true,
             notifOwned: true,                     // a tarefa da notificação é do lote
             notifTaskId: notifId,                 // …e é nela que os nomes entram
+            cancelled: () => g.cancel,            // o cancelamento atravessa o álbum
             onSong: () => bgTaskStep(notifId, ++batchDone),
           });
         }
@@ -2953,10 +2958,16 @@ function renderCollectionOptions() {
   stats.appendChild(net);
   collOptsEl.appendChild(stats);
 
+  // O MESMO botão dispara e cancela — o download de um álbum grande leva
+  // dezenas de minutos, e sem um jeito de parar o operador ficava refém dele.
   const syncBtn = document.createElement('button');
-  syncBtn.className = 'new-folder-btn' + (u.syncBusy ? ' busy' : '');
-  syncBtn.innerHTML = syncIconSvg();
-  syncBtn.appendChild(document.createTextNode(total > 0 ? ' Atualizar e baixar' : ' Sincronizar lista'));
+  // `cancel`, não `busy`: `busy` gira o ícone, e um ✕ girando não se lê como
+  // "toque para parar". Quem indica atividade é o status logo acima.
+  syncBtn.className = 'new-folder-btn' + (u.syncBusy ? ' cancel' : '');
+  syncBtn.innerHTML = u.syncBusy ? closeIconSvg() : syncIconSvg();
+  syncBtn.appendChild(document.createTextNode(
+    u.syncBusy ? ' Cancelar o download' : (total > 0 ? ' Atualizar e baixar' : ' Sincronizar lista'),
+  ));
   syncBtn.addEventListener('click', () => syncCollection(coll));
   collOptsEl.appendChild(syncBtn);
 
@@ -3977,11 +3988,23 @@ function estimatePendingBytes(coll, pendingCount) {
 async function syncCollection(coll, opts) {
   const allowMobile = !!(opts && opts.allowMobile);
   const u = ui(coll.id);
-  if (u.syncBusy) return; // já em andamento — o status no card já indica
+  // Tocar de novo com a sincronização em andamento CANCELA. Antes isto era um
+  // `return` mudo: um álbum de centenas de faixas, uma vez começado, não tinha
+  // como ser interrompido a não ser fechando o app.
+  if (u.syncBusy) {
+    u.cancel = true;
+    setCollStatus(coll.id, 'Cancelando…');
+    renderCollectionsNow();
+    return;
+  }
   if (!AVDB.opfsSupported()) { setCollStatus(coll.id, 'Armazenamento OPFS indisponível', 5000); return; }
-  u.syncBusy = true;
+  u.syncBusy = true; u.cancel = false;
   setCollStatus(coll.id, 'Atualizando lista…');
   renderCollectionsNow(); // resposta ao toque é imediata; só o PROGRESSO é coalescido
+  // Cancelamento: o próprio álbum (botão) ou o lote que o contém (syncGroup).
+  // Declarado antes de tudo porque a VARREDURA do que falta também é longa num
+  // álbum de centenas de faixas — cancelar ali já precisa valer.
+  const cancelled = () => u.cancel || !!(opts && opts.cancelled && opts.cancelled());
   try {
     if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
 
@@ -3991,10 +4014,12 @@ async function syncCollection(coll, opts) {
 
     const pending = [];
     for (const s of songs) {
+      if (cancelled()) { setCollStatus(coll.id, 'Cancelado', 4000); return; }
       const { needsFull, needsPlayback } = await songVariantsNeeded(coll, s);
       if (needsFull || needsPlayback) pending.push(s);
     }
     if (pending.length === 0) { setCollStatus(coll.id, 'Já completo offline', 4000); return; }
+    if (cancelled()) { setCollStatus(coll.id, 'Cancelado', 4000); return; }
 
     // Fora do Wi-Fi a sincronização em massa NÃO é bloqueada — ela pergunta.
     // Baixar um hinário inteiro pode ser bastante coisa, e só o operador sabe
@@ -4032,12 +4057,19 @@ async function syncCollection(coll, opts) {
     const itemTaskId = (opts && opts.notifTaskId) || notifId;
     async function worker() {
       while (next < pending.length) {
+        // FECHAR A FILA é o que cancelar significa aqui: nenhuma música nova
+        // entra, e as que já estão no ar (até NET_CONCURRENCY) terminam. Parar
+        // no meio de um download deixaria um arquivo truncado catalogado como
+        // completo — e o custo de esperar é uma faixa, não um álbum de 600.
+        if (cancelled()) return;
         const s = pending[next++];
         bgItemStart(itemTaskId, s.name);
         try { await downloadCollectionSong(coll, s); }
         finally { bgItemEnd(itemTaskId, s.name); }
         done++;
-        setCollStatus(coll.id, 'Baixando ' + done + '/' + pending.length + '…');
+        setCollStatus(coll.id, cancelled()
+          ? 'Cancelando — concluindo o que já começou…'
+          : 'Baixando ' + done + '/' + pending.length + '…');
         if (opts && opts.onSong) opts.onSong();
         else bgTaskStep(notifId, done);
         await AVDB.setState('coll:' + coll.id, collState[coll.id]);
@@ -4048,11 +4080,11 @@ async function syncCollection(coll, opts) {
     try {
       await withBgWork(() => Promise.all(Array.from({ length: CONCURRENCY }, worker)));
     } finally { bgTaskEnd(notifId); }
-    setCollStatus(coll.id, 'Atualizado (' + done + ' baixado(s))', 4000);
+    setCollStatus(coll.id, (cancelled() ? 'Cancelado (' : 'Atualizado (') + done + ' baixado(s))', 4000);
   } catch (_) {
     setCollStatus(coll.id, 'Erro na sincronização', 5000);
   } finally {
-    u.syncBusy = false;
+    u.syncBusy = false; u.cancel = false;
     refreshCollectionsIfVisible();
   }
 }

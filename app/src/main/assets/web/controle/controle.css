@@ -789,6 +789,10 @@ main {
 .coll-opts .hymnal-card-status { white-space: normal; }
 .coll-opts .new-folder-btn svg { display: block; }
 .coll-opts .new-folder-btn.busy svg { animation: hymnal-spin 1s linear infinite; }
+/* O mesmo botão vira "cancelar" enquanto o download roda (ver
+   renderCollectionOptions) — sem giro, e em âmbar para não se confundir nem
+   com a ação normal (accent) nem com excluir (danger). */
+.coll-opts .new-folder-btn.cancel { color: var(--gold-text); background: var(--gold-soft); }
 .hymnal-card-status { font-size: .72rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: .25rem; }
 .hymnal-card-status.sync { color: var(--accent); }
 .hymnal-card-status.done { color: var(--success); }
