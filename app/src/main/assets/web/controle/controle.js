@@ -59,7 +59,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.13';
+const WEB_VERSION = '5.14';
 
 function renderVersionLabel() {
   // __SHELL_NAME__ = versionName do APK (ver native.js). Vazio no navegador e
@@ -4836,11 +4836,12 @@ function bgTaskStart(label, total) {
   const id = ++bgTaskSeq;
   bgTasks.set(id, {
     label, total: Math.max(1, total), done: 0,
-    // Itens EM ANDAMENTO agora (nomes de música, capítulo, arquivo). Com a
-    // concorrência em 6 há vários ao mesmo tempo, mas a notificação mostra UM
-    // DE CADA VEZ, alternando — ver `spot` e bgItem*.
-    items: new Set(),
-    spot: null,          // qual dos itens em voo está em destaque agora
+    // FILA de exibição: nomes que entraram em download e ainda não passaram
+    // pela linha da notificação. É um buffer, não o conjunto do que está no ar
+    // — cada nome sai daqui UMA vez, o que torna a lista fluida e sem repetir.
+    fila: [],
+    spot: null,          // o nome que está na linha agora
+    spotAt: 0,           // desde quando — o compasso decide quando trocar
     lastEventAt: 0,      // último evento REAL (item entrou/saiu, passo) — ver idleMs
     // Marcado no PRIMEIRO item concluído, não aqui: antes dele corre o
     // preparo (índice, varredura do que falta) e contá-lo como se fosse tempo
@@ -4854,37 +4855,70 @@ function bgTaskStart(label, total) {
   return id;
 }
 
-// COMPASSO da exibição. Os 6 workers andam em lockstep: começam juntos e
-// terminam quase juntos, então os eventos chegam em RAJADA — uma dúzia em
-// poucos milissegundos — e depois há segundos de silêncio. Só com o freio de
-// taxa, a rajada rendia UMA troca de nome (as outras eram descartadas) e o
-// nome ficava parado até a rajada seguinte: exatamente a sensação de travado.
+// COMPASSO da exibição — uma FILA, não um espelho do que está no ar.
 //
-// O compasso conserta isso passando o destaque adiante uma vez por segundo,
-// entre os itens que estão em download AGORA. Nada é inventado — todos os 6
-// estão de fato baixando, e a rotação só decide qual deles ocupa a linha neste
-// segundo. O contador e a barra continuam sendo os números reais.
+// A concorrência existe para reduzir o tempo PROPORCIONAL de cada item: se os
+// 6 juntos levam X, cada um custou X/6. A exibição segue essa mesma conta —
+// cada nome ocupa a linha por X/6 e sai, um depois do outro. É deliberadamente
+// ILUSTRATIVO e não em tempo real: os nomes vêm de um buffer do que já entrou
+// em download, escoado num ritmo constante.
 //
-// Ele PARA de rodar quando a tarefa está parada (`BG_STALL_MS`): animar
-// durante uma queda de rede esconderia justamente o que precisa ser visto. Aí
-// o nome congela e o `idleMs` cresce na tela — os dois sinais concordam.
-const BG_SPIN_MS = 1000;
-const BG_STALL_MS = 90000;   // mesmo limiar do lado nativo (SyncService)
+// Duas coisas que só a fila dá:
+// - **Não repete.** Um rodízio entre os 6 em voo trazia o mesmo nome de volta
+//   várias vezes; a fila consome cada um UMA vez, e a lista anda para a frente.
+// - **Não engasga.** Os 6 workers andam em lockstep — começam e terminam
+//   quase juntos —, então os eventos chegam em rajada (meia dúzia em poucos
+//   ms) seguida de segundos de silêncio. Sem buffer, a rajada rendia UMA troca
+//   de nome e o resto era descartado: o nome ficava parado até a rajada
+//   seguinte, que é exatamente a sensação de travado.
+//
+// O ritmo é MEDIDO, não chutado: `decorrido / concluídos` é o tempo médio por
+// item — com 6 em paralelo, o tal X/6. Se a fila acumula (rede acelerou), o
+// escoamento acelera junto para a lista não ficar exibindo passado velho.
+const BG_TICK_MS = 250;        // granularidade do compasso
+const BG_SPIN_MIN = 400;       // abaixo disso ninguém consegue ler
+const BG_SPIN_MAX = 5000;      // acima disso parece parado
+const BG_SPIN_PADRAO = 1200;   // antes do 1º item concluído não há média
+const BG_FILA_FOLGA = 3;       // itens em espera tolerados sem acelerar
+const BG_REENVIO_MS = 2000;    // reenvio mínimo (faz o idleMs crescer na tela)
+const BG_STALL_MS = 90000;     // mesmo limiar do lado nativo (SyncService)
+
 let bgPacer = null;
 function bgPacerSync() {
   if (bgTasks.size && !bgPacer) {
-    bgPacer = setInterval(bgPacerTick, BG_SPIN_MS);
+    bgPacer = setInterval(bgPacerTick, BG_TICK_MS);
   } else if (!bgTasks.size && bgPacer) {
     clearInterval(bgPacer); bgPacer = null;
   }
 }
+
+// Quanto tempo cada nome fica na linha, em ms.
+function bgSpinMs(t) {
+  let ms = (t.done > 0 && t.firstStepAt)
+    ? (Date.now() - t.firstStepAt) / t.done
+    : BG_SPIN_PADRAO;
+  // Fila crescendo = a exibição está atrasada em relação ao download; escoa
+  // proporcionalmente mais rápido em vez de acumular um passado cada vez mais
+  // antigo.
+  if (t.fila.length > BG_FILA_FOLGA) ms /= (t.fila.length / BG_FILA_FOLGA);
+  return Math.min(BG_SPIN_MAX, Math.max(BG_SPIN_MIN, ms));
+}
+
 function bgPacerTick() {
   const now = Date.now();
+  let mudou = false;
   for (const t of bgTasks.values()) {
-    const parado = t.lastEventAt && (now - t.lastEventAt) >= BG_STALL_MS;
-    if (!parado && t.items.size > 1) t.spot = bgSpotNext(t);
+    if (!t.fila.length) continue;
+    // Travado: a lista CONGELA. Animar durante uma queda de rede esconderia
+    // justamente o que precisa ser visto — e aqui não há novidade nenhuma para
+    // mostrar, só passado. O `idleMs` cresce e os dois sinais concordam.
+    if (t.lastEventAt && (now - t.lastEventAt) >= BG_STALL_MS) continue;
+    if (t.spot && (now - t.spotAt) < bgSpinMs(t)) continue;
+    t.spot = t.fila.shift();
+    t.spotAt = now;
+    mudou = true;
   }
-  bgTaskSend(true);   // reenvia sempre: é o que faz o `idleMs` crescer na tela
+  if (mudou || (now - bgLastSentAt) >= BG_REENVIO_MS) bgTaskSend(true);
 }
 
 function bgTaskStep(id, done, label) {
@@ -4898,70 +4932,45 @@ function bgTaskStep(id, done, label) {
   bgTaskSend(false);
 }
 
-// Um item concreto entrou/saiu de download. É isto que dá a impressão de
-// progresso: "23 de 54" é um número abstrato, "002. Ó Adorai o Senhor" é o que
-// o operador reconhece — e ver o nome trocando mostra que a coisa anda.
+// Um item concreto entrou em download: entra na FILA de exibição. É isto que
+// dá a impressão de progresso — "23 de 54" é um número abstrato, "002. Ó
+// Adorai o Senhor" é o que o operador reconhece, e ver a lista andar é o que
+// mostra que a coisa se move.
 //
-// UM DE CADA VEZ, em rodízio. Mostrar os 6 simultâneos de uma vez era pior de
-// ler: seis nomes parados lado a lado por dezenas de segundos, sem transmitir
-// que um terminou e outro começou. Serializados, os MESMOS 6 downloads passam
-// pela linha principal seis vezes mais rápido, que é a sensação verdadeira do
-// que está acontecendo. `spot` é qual deles está em destaque agora.
-//
-// O rodízio anda SÓ em evento real (item entrou, item saiu) — nunca por
-// relógio. Uma rotação temporizada continuaria animando com a rede caída e
-// esconderia exatamente o que o operador precisa ver; assim, nome parado
-// significa mesmo parado (ver `idleMs`).
-function bgSpotNext(t) {
-  const arr = Array.from(t.items);
-  if (!arr.length) return null;
-  // indexOf(-1) quando o destaque atual acabou de sair: cai no primeiro.
-  return arr[(arr.indexOf(t.spot) + 1) % arr.length];
-}
-
+// Quem decide QUANDO ele aparece é o compasso (bgPacerTick), não este momento:
+// os 6 workers entram quase juntos, e mostrar a rajada crua daria uma troca
+// só. O primeiro item de todos é promovido na hora, para a notificação não
+// nascer sem nome.
 function bgItemStart(id, nome) {
   if (!window.__NATIVE__ || !nome) return;
   const t = bgTasks.get(id);
   if (!t) return;
-  t.items.add(nome);
-  t.spot = nome;          // quem acabou de entrar é a notícia do momento
   t.lastEventAt = Date.now();
-  bgTaskSend(false, true);
+  if (!t.spot) {
+    t.spot = nome; t.spotAt = t.lastEventAt;
+    // `force`: este envio vem logo depois do de abertura da tarefa e seria
+    // engolido pelo piso — e aí o PRIMEIRO nome da lista nunca apareceria,
+    // porque o compasso já o teria substituído no primeiro passo.
+    bgTaskSend(true);
+    return;
+  }
+  t.fila.push(nome);
 }
 
-// Fluxo SEQUENCIAL (um item por vez, com vários `continue` no laço): substitui
-// o conjunto em vez de acrescentar. Sem isto, cada `continue` deixaria o nome
-// preso na lista e a notificação acumularia arquivos que já terminaram.
+// Fluxo SEQUENCIAL (um item por vez, com vários `continue` no laço). Vai para
+// a mesma fila: como ali os itens chegam um a um, o ritmo medido acompanha o
+// real e a fila praticamente não acumula.
 function bgItemOnly(id, nome) {
-  if (!window.__NATIVE__) return;
-  const t = bgTasks.get(id);
-  if (!t) return;
-  t.items.clear();
-  if (nome) t.items.add(nome);
-  t.spot = nome || null;
-  t.lastEventAt = Date.now();
-  bgTaskSend(false, true);
+  bgItemStart(id, nome);
 }
 
-// Concluir um item é um EVENTO, e antes era silencioso: `bgItemEnd` só apagava
-// o nome do conjunto, sem avisar — então um nome já concluído podia ficar na
-// tela até alguma outra coisa acontecer.
-//
-// Envia com prioridade de ROTINA, não de destaque, e o motivo é de tempo: no
-// laço do worker o fim de uma música e o início da seguinte acontecem a poucos
-// ms um do outro. Se os dois disputassem o piso curto, o fim chegaria primeiro
-// e derrubaria o início — e o início é o fato mais fresco ("agora baixando
-// X"). Com o piso longo aqui, o fim quase sempre é engolido, o início passa, e
-// o rodízio do `spot` só aparece de fato quando NÃO há início logo atrás
-// (drenagem no fim do lote) — que é exatamente quando ele é útil.
+// Um item concluiu. Ele NÃO entra na fila aqui — já entrou ao começar; o que
+// isto registra é que a tarefa deu sinal de vida, que é o que separa "está
+// devagar" de "travou" (ver `idleMs` e BG_STALL_MS).
 function bgItemEnd(id, nome) {
   if (!window.__NATIVE__ || !nome) return;
   const t = bgTasks.get(id);
-  if (!t) return;
-  t.items.delete(nome);
-  if (t.spot === nome) t.spot = bgSpotNext(t);
-  t.lastEventAt = Date.now();
-  bgTaskSend(false);
+  if (t) t.lastEventAt = Date.now();
 }
 
 function bgTaskEnd(id) {
@@ -4979,11 +4988,11 @@ function bgTaskEnd(id) {
 // mesmo quando o número novo está certo.
 // A suavização é por TEMPO (constante de tempo), não por chamada. Antes era um
 // fator fixo aplicado a cada chamada, o que amarrava a estabilidade do número à
-// frequência com que alguém pedia a estimativa: com o compasso de 1 s
-// (BG_SPIN_MS) chamando-a muito mais vezes que antes, o mesmo fator faria o
-// valor exibido colar no bruto e voltar a pular — justamente o que a suavização
-// existe para evitar. Com constante de tempo, o comportamento visto é o mesmo
-// seja qual for a cadência das chamadas.
+// frequência com que alguém pedia a estimativa: o compasso da fila
+// (`bgPacerTick`) a chama muito mais vezes que os eventos chamavam, e o mesmo
+// fator faria o valor exibido colar no bruto e voltar a pular — justamente o
+// que a suavização existe para evitar. Com constante de tempo, o comportamento
+// visto é o mesmo seja qual for a cadência das chamadas.
 //
 // Os valores reproduzem o que havia antes (0,5 e 0,15 por item, a ~1,7 s por
 // item concluído com 6 em paralelo): τ = −Δt / ln(1 − α).
@@ -5036,7 +5045,7 @@ function bgTaskSend(force, destaque) {
   const outras = bgTasks.size - 1;
   // UM nome por vez (ver bgItemStart): `items` continua sendo lista só porque
   // é o formato da ponte — quem escolhe qual mostrar é o rodízio, não o Kotlin.
-  const item = alvo.spot && alvo.items.has(alvo.spot) ? alvo.spot : (bgSpotNext(alvo) || null);
+  const item = alvo.spot || null;
   const piso = destaque ? BG_NOTIF_ITEM_MIN_MS : BG_NOTIF_MIN_MS;
   if (!force && now - bgLastSentAt < piso) return;
   bgLastSentAt = now;
