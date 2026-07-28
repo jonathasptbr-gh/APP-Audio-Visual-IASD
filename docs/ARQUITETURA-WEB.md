@@ -79,10 +79,10 @@ git push origin main
   `renderVersionLabel()`), o fallback estático do `<span id="appVersion">` em
   `controle/index.html` e `version` em `version.json` (é este último que
   dispara a atualização por OTA nos aparelhos). Versionamento incremental
-  simples (5.11, 5.12, 5.13…). **Versão atual: v5.13.**
-  No app nativo o rótulo mostra os **dois índices** — `Web v5.13 · Shell v1.16`
+  simples (5.12, 5.13, 5.14…). **Versão atual: v5.14.**
+  No app nativo o rótulo mostra os **dois índices** — `Web v5.14 · Shell v1.16`
   —, porque base web e shell atualizam por caminhos independentes (OTA ×
-  instalar APK); no navegador sai só `Controle v5.13`.
+  instalar APK); no navegador sai só `Controle v5.14`.
 
 ---
 
@@ -1269,22 +1269,29 @@ total do lote), `ensureBibleVersionDownloaded` (por capítulo) e
   registram os itens em voo por tarefa (`bgItemOnly` para fluxos sequenciais,
   cujos `continue` deixariam nomes presos na lista). "23 de 54" é abstrato;
   "002. Ó Adorai o Senhor" é o que o operador reconhece.
-- **UM nome por vez, em rodízio.** São 6 downloads simultâneos, mas mostrá-los
-  juntos exibia seis nomes parados lado a lado por dezenas de segundos, sem
-  transmitir que um terminou e outro começou. Serializados, os MESMOS 6 passam
-  pela linha seis vezes mais rápido — e nada é inventado: todo nome exibido
-  está de fato baixando naquele instante; contador e barra seguem reais.
-- **Quem faz o rodízio andar é um COMPASSO (`BG_SPIN_MS`, 1 s), não os
-  eventos.** Os 6 workers andam em lockstep: começam e terminam quase juntos,
-  então os eventos chegam em RAJADA (uma dúzia em poucos ms) seguida de
-  segundos de silêncio. Com freio de taxa apenas, a rajada rendia UMA troca de
-  nome e as demais eram descartadas — o nome ficava parado até a rajada
-  seguinte, exatamente a sensação de travado. Medido (12 músicas, 6 em
-  paralelo, ~3,7 s cada): **4 trocas sem o compasso, 10 com ele**.
+- **A lista é uma FILA (`t.fila`), não um espelho do que está no ar.** A
+  concorrência existe para reduzir o tempo PROPORCIONAL de cada item: se os 6
+  juntos levam X, cada um custou X/6 — e a exibição segue a mesma conta, dando
+  X/6 de tela a cada nome. É deliberadamente **ilustrativo e não em tempo
+  real**; contador, barra e estimativa seguem sendo os números reais.
+- **Fila, e não rodízio entre os itens em voo.** O rodízio repetia nomes e a
+  lista não avançava. A fila consome cada um UMA vez, em ordem. Medido (18
+  faixas, 6 em paralelo): **18/18 exibidos, 0 repetidos, em ordem, fila
+  zerada**.
+- **O ritmo é MEDIDO** (`bgSpinMs` = `decorrido / concluídos`), não chutado:
+  mediana de **500 ms em tela contra 521 ms de custo amortizado real**; com
+  faixas irregulares, 750 contra 750. Fila acumulando (rede acelerou) → escoa
+  proporcionalmente mais rápido, para não exibir passado velho.
+- **Sem o buffer a lista engasgava.** Os 6 workers andam em lockstep: entram e
+  saem quase juntos, então os eventos chegam em RAJADA (meia dúzia em poucos
+  ms) seguida de segundos de silêncio. Sem fila, a rajada rendia UMA troca de
+  nome e o resto era descartado — parado até a rajada seguinte, exatamente a
+  sensação de travado.
 - **O compasso PARA quando trava** (`BG_STALL_MS`, 90 s sem evento real):
   animar durante uma queda de rede esconderia justamente o que precisa ser
-  visto. O nome congela e o `idleMs` cresce — os dois sinais concordam.
-  Verificado: 3 nomes distintos em operação normal, 1 só com a tarefa travada.
+  visto, e ali não há novidade a mostrar, só passado. A lista congela e o
+  `idleMs` cresce — os dois sinais concordam. Verificado: 6 nomes distintos em
+  operação normal, 1 só com a tarefa travada.
 - **`idleMs`** separa "travado" de "esta faixa é grande". Passado o limiar, a
   notificação para de prometer tempo restante (uma ETA sobre um ritmo que já
   não existe é a promessa mais enganosa possível) e passa a "sem resposta há

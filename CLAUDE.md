@@ -170,7 +170,7 @@ Além disso, `native.js` publica três globais lidas direto (sem Promise):
 APK, que é o **índice de versão do shell exibido ao operador**. Ele não se
 confunde com `__SHELL_VERSION__`: base web e shell atualizam por caminhos
 independentes (OTA × instalar APK), então o cabeçalho do Cronograma mostra os
-dois (`Web v5.13 · Shell v1.16`). Num shell antigo (sem `appVersion()`) a
+dois (`Web v5.14 · Shell v1.16`). Num shell antigo (sem `appVersion()`) a
 string vem vazia e a UI cai em só a versão web — mesma degradação do navegador.
 
 **Princípio: a ponte entrega URLs SERVÍVEIS, não bytes.** Arquivos do
@@ -242,26 +242,34 @@ percentual e o tempo restante.
   voo — nome da música, "Gênesis 3", nome do arquivo. "23 de 54" é abstrato;
   "002. Ó Adorai o Senhor" é o que o operador reconhece, e vê-lo trocar é o
   que mostra movimento.
-- **UM nome por vez, em rodízio — não os 6 de uma vez.** São 6 downloads
-  simultâneos, mas mostrá-los juntos (a antiga lista `BigTextStyle`) exibia
-  seis nomes parados lado a lado por dezenas de segundos, sem transmitir que
-  um terminou e outro começou. Serializados, os MESMOS 6 passam pela linha
-  principal seis vezes mais rápido, que é a sensação verdadeira do ritmo.
-  Nada é inventado: todos os nomes exibidos estão de fato baixando naquele
-  instante, e o contador e a barra continuam sendo os números reais.
-- **O que faz o rodízio andar é um COMPASSO (`BG_SPIN_MS`, 1 s), não os
-  eventos.** Os 6 workers andam em lockstep — começam e terminam quase
-  juntos —, então os eventos chegam em rajada (uma dúzia em poucos ms) e
-  depois há segundos de silêncio. Só com freio de taxa, a rajada rendia UMA
-  troca de nome e as outras eram descartadas: o nome ficava parado até a
-  rajada seguinte, que é exatamente a sensação de travado. Medido (12
-  músicas, 6 em paralelo, ~3,7 s cada): **4 trocas de nome sem o compasso,
-  10 com ele** — uma por segundo.
+- **A lista é uma FILA, não um espelho do que está no ar.** A concorrência
+  existe para reduzir o tempo PROPORCIONAL de cada item: se os 6 juntos levam
+  X, cada um custou X/6 — e a exibição segue essa mesma conta, dando X/6 de
+  tela a cada nome, um depois do outro. É deliberadamente **ilustrativo e não
+  em tempo real**: os nomes saem de um buffer (`t.fila`) do que já entrou em
+  download. O contador, a barra e a estimativa continuam sendo os números
+  reais.
+- **Fila, e não rodízio entre os itens em voo.** O rodízio trazia o mesmo
+  nome de volta várias vezes — repetitivo, e a lista não ia a lugar nenhum. A
+  fila consome cada nome UMA vez, em ordem. Medido (18 faixas, 6 em paralelo):
+  **18 de 18 nomes exibidos, 0 repetidos, em ordem, fila zerada**.
+- **O ritmo é MEDIDO, não chutado** (`bgSpinMs`): `decorrido / concluídos` é
+  o tempo médio por item — exatamente o X/6. Medido: mediana de **500 ms em
+  tela contra 521 ms de custo amortizado real**; com faixas de tamanho
+  irregular, 750 contra 750. Se a fila acumula (a rede acelerou), o escoamento
+  acelera junto, para a lista não ficar exibindo um passado cada vez mais
+  velho.
+- **Sem o buffer a lista engasgava.** Os 6 workers andam em lockstep — entram
+  e saem quase juntos —, então os eventos chegam em rajada (meia dúzia em
+  poucos ms) seguida de segundos de silêncio. Sem fila, a rajada rendia UMA
+  troca de nome e o resto era descartado: o nome ficava parado até a rajada
+  seguinte, que é exatamente a sensação de travado.
 - **O compasso PARA quando o download trava.** Animar durante uma queda de
-  rede esconderia justamente o que precisa ser visto. Passando `BG_STALL_MS`
-  (90 s) sem nenhum evento real, o nome congela e o `idleMs` cresce na tela —
-  os dois sinais concordam. Verificado: 3 nomes distintos em operação normal,
-  1 só com a tarefa travada.
+  rede esconderia justamente o que precisa ser visto — e ali não há novidade
+  nenhuma a mostrar, só passado. Passando `BG_STALL_MS` (90 s) sem nenhum
+  evento real, a lista congela e o `idleMs` cresce na tela: os dois sinais
+  concordam. Verificado: 6 nomes distintos em operação normal, 1 só com a
+  tarefa travada.
 - **`idleMs` separa "travado" de "esta faixa é grande"**, que na tela são a
   mesma coisa parada. Passado o limiar, a notificação **para de prometer
   tempo restante** e passa a dizer "sem resposta há X": uma ETA calculada
@@ -607,4 +615,4 @@ Rodar local: `./gradlew assembleDebug` (exige Android SDK instalado).
   (`#appVersion` em `assets/web/controle/index.html`) **e `version` em
   `assets/web/version.json`** — é este último que faz a atualização chegar
   aos aparelhos por OTA. O `versionCode`/`versionName` do APK vêm do CI.
-  **Versão atual: v5.13** (base web) · **shell 1.16** (`SHELL_VERSION` 12).
+  **Versão atual: v5.14** (base web) · **shell 1.16** (`SHELL_VERSION` 12).
