@@ -20,7 +20,12 @@ const mixerEl = document.getElementById('mixer');
 const volToggleEl = document.getElementById('volToggle');
 const volCloseEl = document.getElementById('volClose');
 const standaloneToggleEl = document.getElementById('standaloneToggle');
-const lyricsBgToggleEl = document.getElementById('lyricsBgToggle');
+const lyricsViewBtnEl = document.getElementById('lyricsViewBtn');
+const lyricsPopupEl = document.getElementById('lyricsPopup');
+const lyricsPopupTitleEl = document.getElementById('lyricsPopupTitle');
+const lyricsPopupCloseEl = document.getElementById('lyricsPopupClose');
+const lyricsViewSegEl = document.getElementById('lyricsViewSeg');
+const lyricsViewBodyEl = document.getElementById('lyricsViewBody');
 const openDisplayBtnEl = document.getElementById('openDisplayBtn');
 const displayStatusTextEl = document.getElementById('displayStatusText');
 const castTargetLineEl = document.getElementById('castTargetLine');
@@ -59,7 +64,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.18';
+const WEB_VERSION = '5.19';
 
 function renderVersionLabel() {
   // __SHELL_NAME__ = versionName do APK (ver native.js). Vazio no navegador e
@@ -86,6 +91,7 @@ const libSearchEl = document.getElementById('libSearch');
 const fadePopupEl = document.getElementById('fadePopup');
 const fadePopupCloseEl = document.getElementById('fadePopupClose');
 const fitSegEl = document.getElementById('fitSeg');
+const lyricsBgSegEl = document.getElementById('lyricsBgSeg');
 const wallFileEl = document.getElementById('wallFile');
 const wallPickEl = document.getElementById('wallPick');
 const wallResetEl = document.getElementById('wallReset');
@@ -143,6 +149,9 @@ const ICON = {
   plRemove: '', // playlist_remove
   queue: '', // queue_music
   folder: '',    // folder
+  // Favoritos: os atalhos são marcados com estrela, não com pasta — a seção
+  // deixou de ser "onde os arquivos ficam" e passou a ser "o que eu marquei".
+  star: '',      // star
   folderNew: '', // create_new_folder
   back: '',      // arrow_back
 };
@@ -841,21 +850,24 @@ async function setStandalone(v) {
 // imagens de verdade. Persistido em state.lyricsBg, aplicado ao vivo (igual
 // fade/fit) via comando — tanto no Display quanto na própria preview, que
 // segue o mesmo conceito universal de espelhar o telão.
+//
+// Mora no popup de EXIBIÇÃO (segmento "Imagens dos slides"), junto do
+// preenchimento e do wallpaper: é uma preferência de como o telão se parece,
+// escolhida uma vez, não um controle que se opera durante o culto. O botão que
+// tinha no mixer virou a leitura da letra completa (ver openLyricsPopup).
 let lyricsBg = 'black';
 async function setLyricsBg(mode) {
   mode = mode === 'image' ? 'image' : 'black';
   if (lyricsBg === mode) return;
   lyricsBg = mode;
   await AVDB.setState('lyricsBg', lyricsBg);
-  renderLyricsBgBtn();
+  renderLyricsBgSeg();
   cmd({ type: 'lyricsbg', mode: lyricsBg });
 }
-function renderLyricsBgBtn() {
-  const active = lyricsBg === 'image';
-  lyricsBgToggleEl.classList.toggle('active', active);
-  lyricsBgToggleEl.title = active
-    ? 'Imagens dos slides atrás da letra (toque para usar fundo preto)'
-    : 'Fundo preto atrás da letra (toque para usar as imagens dos slides)';
+function renderLyricsBgSeg() {
+  lyricsBgSegEl.querySelectorAll('.fit-opt').forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.lyricsbg === lyricsBg);
+  });
 }
 
 // Envia o comando ao display E aplica na preview (espelho) — YouTube usa seu
@@ -1282,7 +1294,7 @@ async function load() {
   libItems = libItemsV;
   currentItem = currentItemV;
 
-  renderLyricsBgBtn();
+  renderLyricsBgSeg();
   renderControls();
   renderNowPlaying();
   renderRepeat();
@@ -1510,9 +1522,10 @@ function resyncScene() {
 }
 
 function renderTabs() {
-  // Pastas não tem aba própria: é uma sub-tela do Cronograma (entra-se pelo
-  // botão no fim da lista, e o voltar retorna pra lá). Manter o Cronograma
-  // aceso enquanto se está nela evita uma faixa de abas sem nada marcado.
+  // Favoritos não tem aba própria (o `activeTab` continua sendo 'folders'): é
+  // uma sub-tela do Cronograma (entra-se pelo botão no fim da lista, e o voltar
+  // retorna pra lá). Manter o Cronograma aceso enquanto se está nela evita uma
+  // faixa de abas sem nada marcado.
   const shown = activeTab === 'folders' ? 'imports' : activeTab;
   tabsEl.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === shown));
 }
@@ -1536,14 +1549,14 @@ function renderListTitle() {
   }
   const inFolder = activeTab === 'folders' && currentFolder !== null;
   const inOpfs = inFolder && currentFolder._opfs;
-  // Pastas não tem aba (chega-se a ela pelo botão no fim do Cronograma), então
-  // o voltar precisa estar disponível já na raiz — é a única saída de lá.
+  // Favoritos não tem aba (chega-se a ela pelo botão no fim do Cronograma),
+  // então o voltar precisa estar disponível já na raiz — é a única saída de lá.
   backBtnEl.hidden = !(inFolder || activeTab === 'folders');
   addDirBtnEl.hidden = !(activeTab === 'folders' && !inFolder);
   libSearchEl.hidden = !inOpfs;
   libSearchEl.value = inOpfs ? folderQuery : '';
   listTitleEl.hidden = inOpfs;
-  const titles = { imports: 'Cronograma', folders: 'Pastas', albums: 'Álbuns' };
+  const titles = { imports: 'Cronograma', folders: 'Favoritos', albums: 'Álbuns' };
   listTitleEl.textContent = inFolder ? currentFolder.name : (titles[activeTab] || '');
 }
 
@@ -1605,7 +1618,7 @@ function renderPlaylist() {
   });
 }
 
-// ---- Biblioteca (Cronograma / Pastas) ----
+// ---- Biblioteca (Cronograma / Favoritos) ----
 // ===== Bíblia: metadados, seleção (tabela periódica) e download =====
 
 // Garante a lista de versões (pt_bible_version) e de livros (pt_bible_book) —
@@ -2603,7 +2616,10 @@ function renderLibrary() {
 
   if (items.length === 0) {
     libraryEl.innerHTML = activeTab === 'folders'
-      ? (fq ? '<li class="empty">Nenhum arquivo encontrado.</li>' : '<li class="empty">Pasta vazia.</li>')
+      ? (fq ? '<li class="empty">Nenhum arquivo encontrado.</li>'
+        : (currentFolder && currentFolder._opfs
+          ? '<li class="empty">Pasta vazia.</li>'
+          : '<li class="empty">Atalho vazio.<br>Selecione mídias no Cronograma e use "Adicionar aos favoritos".</li>'))
       : '<li class="empty">Cronograma vazio.</li>';
     appendImportRow();
     return;
@@ -2692,18 +2708,20 @@ function appendImportRow() {
   label.appendChild(txt);
   label.appendChild(fileEl); // o MESMO input de sempre, só reposicionado
 
-  // Pastas do dispositivo saiu da faixa de abas e virou o par de "Importar":
-  // as duas são a mesma pergunta — "de onde vem a mídia?" —, e ficam lado a
-  // lado no fim do Cronograma, que é onde o resultado das duas aparece.
+  // Favoritos saiu da faixa de abas e virou o par de "Importar": as duas são a
+  // mesma pergunta — "de onde vem a mídia?" —, e ficam lado a lado no fim do
+  // Cronograma, que é onde o resultado das duas aparece.
   const folders = document.createElement('button');
   folders.type = 'button';
   folders.className = 'import-btn';
-  folders.title = 'Pastas do dispositivo';
+  folders.title = 'Favoritos (atalhos e pastas do dispositivo)';
+  // Estrela, não pasta: a seção é "o que eu marquei", e a pasta do dispositivo
+  // é só uma das origens que moram lá dentro.
   folders.innerHTML = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor"'
     + ' stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
-    + '<path d="M3 7.5A1.5 1.5 0 0 1 4.5 6h4l2 2.5h7A1.5 1.5 0 0 1 19 10v7.5a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 3 17.5z"/></svg>';
+    + '<path d="M12 3.6l2.6 5.28 5.83.85-4.22 4.11 1 5.81L12 16.9l-5.21 2.75 1-5.81-4.22-4.11 5.83-.85z"/></svg>';
   const ftxt = document.createElement('span');
-  ftxt.textContent = 'Pastas';
+  ftxt.textContent = 'Favoritos';
   folders.appendChild(ftxt);
   folders.addEventListener('click', () => switchTab('folders'));
 
@@ -2715,7 +2733,7 @@ function countDownloaded(id) {
   return collSongs(id).filter((s) => s.fileIdFull).length;
 }
 
-// Linha fixa do Hinário Adventista 2022 no topo da aba Pastas — mesmo padrão
+// Linha fixa do Hinário Adventista 2022 no topo da lista de coleções — mesmo padrão
 // visual das pastas sincronizadas do OPFS, mas a fonte é remota (API do
 // LouvorJA), não um `showDirectoryPicker()` do dispositivo. Sempre visível
 // (mesmo antes da 1ª sincronização) para o operador saber que a opção existe.
@@ -3144,15 +3162,29 @@ function renderCollectionsNow() {
   refreshCollectionOptions();
 }
 
+// A tela de FAVORITOS: uma seção de atalhos organizados, não um gerenciador de
+// arquivos. Tecnicamente é o mesmo mecanismo de sempre (pastas virtuais em
+// `folders`/`folder_<id>` + pastas do dispositivo sincronizadas no OPFS) — o
+// que mudou é a leitura: aqui estão os caminhos curtos para o que o operador
+// usa toda semana, e não "o lugar onde os arquivos moram".
+//
+// Duas origens, cada uma com seu cabeçalho, na ordem em que fazem sentido:
+// os atalhos criados pelo operador primeiro (é o que ele marcou), as pastas
+// do dispositivo depois (a origem bruta, que ele sincronizou uma vez).
 function renderFolderList() {
   if (opfsFolders.length === 0 && folders.length === 0) {
     const empty = document.createElement('li');
     empty.className = 'empty';
-    empty.textContent = 'Nenhuma pasta.';
+    empty.innerHTML = 'Nenhum favorito ainda.<br>Crie atalhos para agrupar o que você mais usa,'
+      + '<br>ou sincronize uma pasta do dispositivo.';
     libraryEl.appendChild(empty);
+    appendNewFavoriteRow();
     renderStorageUsage();
     return;
   }
+  if (folders.length) appendFavSection('Atalhos');
+  renderVirtualFolders();
+  if (opfsFolders.length) appendFavSection('Pastas do dispositivo');
   opfsFolders.forEach((f) => {
     const li = document.createElement('li');
     li.className = 'lib-item folder-opfs';
@@ -3176,6 +3208,24 @@ function renderFolderList() {
     li.addEventListener('click', () => openOpfsFolder(f));
     libraryEl.appendChild(li);
   });
+  appendNewFavoriteRow();
+  renderStorageUsage();
+}
+
+// Cabeçalho de origem dentro dos Favoritos ("Atalhos" / "Pastas do
+// dispositivo"): as duas coisas vivem na mesma lista e se comportam igual ao
+// toque, então sem um rótulo o operador não sabe qual é qual — e só uma delas
+// pede sincronização.
+function appendFavSection(title) {
+  const li = document.createElement('li');
+  li.className = 'fav-section';
+  li.textContent = title;
+  libraryEl.appendChild(li);
+}
+
+// Atalhos: grupos criados pelo operador (pastas virtuais). Excluir um atalho
+// não apaga mídia nenhuma — é só o caminho curto que some.
+function renderVirtualFolders() {
   folders.forEach((folder) => {
     const count = folderCounts[folder.id] || 0;
     const li = document.createElement('li');
@@ -3183,10 +3233,10 @@ function renderFolderList() {
 
     const row = document.createElement('div'); row.className = 'row';
     const icon = document.createElement('div'); icon.className = 'thumb thumb--icon';
-    icon.appendChild(msym(ICON.folder));
+    icon.appendChild(msym(ICON.star));
     const nameEl = document.createElement('span'); nameEl.className = 'row-name'; nameEl.textContent = folder.name;
     const countEl = document.createElement('span'); countEl.className = 'folder-count'; countEl.textContent = String(count);
-    const rmBtn = document.createElement('button'); rmBtn.className = 'row-btn'; rmBtn.title = 'Excluir pasta';
+    const rmBtn = document.createElement('button'); rmBtn.className = 'row-btn'; rmBtn.title = 'Excluir atalho';
     rmBtn.appendChild(msym(ICON.del));
     rmBtn.addEventListener('click', (e) => { e.stopPropagation(); deleteFolder(folder.id); });
 
@@ -3195,7 +3245,32 @@ function renderFolderList() {
     li.addEventListener('click', () => openFolder(folder));
     libraryEl.appendChild(li);
   });
-  renderStorageUsage();
+}
+
+// Criar um atalho vazio direto na tela de Favoritos. Antes só existia o
+// caminho de trás para a frente (selecionar mídias → "salvar em pasta" → nova
+// pasta): uma seção de atalhos que não deixa criar um atalho é justamente o
+// que não se espera dela. Mesmo desenho do botão "Nova pasta" do seletor.
+function appendNewFavoriteRow() {
+  const li = document.createElement('li');
+  li.className = 'import-row';
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'import-btn';
+  btn.innerHTML = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor"'
+    + ' stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+    + '<path d="M12 3.6l2.6 5.28 5.83.85-4.22 4.11 1 5.81L12 16.9l-5.21 2.75 1-5.81-4.22-4.11 5.83-.85z"/></svg>';
+  const txt = document.createElement('span');
+  txt.textContent = 'Novo atalho';
+  btn.appendChild(txt);
+  btn.addEventListener('click', promptNewFavorite);
+  li.appendChild(btn);
+  libraryEl.appendChild(li);
+}
+
+async function promptNewFavorite() {
+  const name = await appPrompt({ title: 'Novo atalho', message: 'Nome do atalho:', okText: 'Criar', placeholder: 'Ex.: Louvores especiais' });
+  if (name && name.trim()) await createFolder(name.trim());
 }
 
 // Rodapé com o uso de armazenamento do origin (OPFS + IDB).
@@ -3297,6 +3372,9 @@ function stepSlide(delta) {
 // Habilita/desabilita os botões de estrofe conforme o item atual tem letra
 // sincronizada e a posição dentro dela (desabilita no primeiro/último slide).
 function renderSlideNav() {
+  // Mesmo pulso da navegação de estrofe: a leitura auxiliar (popup da letra /
+  // do capítulo) acompanha o que está no ar sem um timer próprio.
+  refreshLyricsView();
   const who = slideTarget(); // o que está NO AR — ver slideTarget()
   // Mensagens: passa/volta entre as mensagens salvas (nos extremos desabilita).
   if (who === 'message') {
@@ -3323,6 +3401,185 @@ function renderSlideNav() {
   const idx = findSlideIndex(lyrics, authoritativeTime());
   slidePrevBtnEl.disabled = idx <= 0;
   slideNextBtnEl.disabled = idx >= lyrics.length - 1;
+}
+
+// ===== Leitura auxiliar: letra completa / capítulo inteiro =====
+// O telão mostra UMA estrofe (ou UM versículo) por vez — é o formato certo
+// para quem assiste, e o errado para quem opera: o operador precisa saber o
+// que vem depois. Este popup é a íntegra do que está em cena, só para ler
+// (com scroll); projetar continua sendo dos controles de estrofe/versículo.
+//
+// As duas fontes convivem: um louvor de fundo durante a leitura bíblica deixa
+// letra E capítulo disponíveis ao mesmo tempo, e aí o seletor do topo escolhe.
+// Sem essa disputa, a única fonte disponível abre direto, sem seletor.
+let lvSource = null;      // escolha manual do operador ('lyrics' | 'bible' | null = automática)
+let lvCurIdx = -1;        // índice destacado (estrofe/versículo no ar)
+let lvFollow = true;      // acompanhar sozinho? Desliga ao primeiro scroll manual
+let lvSig = '';           // assinatura do conteúdo já renderizado (ver lvSignature)
+
+// Fontes disponíveis AGORA, na mesma ordem de precedência da tela.
+function lyricsViewSources() {
+  const list = [];
+  const lyrics = currentItem && Array.isArray(currentItem.lyrics) ? currentItem.lyrics : null;
+  if (lyrics && lyrics.length) list.push('lyrics');
+  // A sessão de leitura basta (mesmo fora do ar): o capítulo está em cena para
+  // o operador, que é justamente quem lê aqui.
+  if (bibleSession && bibleSession.verses && bibleSession.verses.length) list.push('bible');
+  return list;
+}
+
+// Qual fonte mostrar: a escolhida pelo operador enquanto continuar disponível;
+// senão a primeira da lista (a letra, quando há as duas).
+function lvActiveSource() {
+  const avail = lyricsViewSources();
+  if (lvSource && avail.includes(lvSource)) return lvSource;
+  return avail[0] || null;
+}
+
+// Índice do que está no ar dentro da fonte ativa.
+function lvCurrentIndex(src) {
+  if (src === 'lyrics') return findSlideIndex(currentItem.lyrics, authoritativeTime());
+  if (src === 'bible') return bibleSession.idx;
+  return -1;
+}
+
+// Muda de conteúdo? Então re-renderiza; senão só move o destaque. Cobre trocar
+// de música, de capítulo e a chegada/saída de uma das fontes.
+//
+// A lista de fontes DISPONÍVEIS entra na assinatura, não só a ativa: com um
+// louvor tocando, começar a leitura bíblica não muda o conteúdo em cena (a
+// letra continua na frente) mas passa a haver o que alternar — e sem isso o
+// seletor do topo só apareceria na próxima troca de estrofe.
+function lvSignature(src) {
+  const avail = lyricsViewSources().join('+');
+  if (src === 'lyrics') return avail + '|lyrics|' + currentId + '|' + currentItem.lyrics.length;
+  if (src === 'bible') {
+    const s = bibleSession;
+    return avail + '|bible|' + s.versionId + '|' + s.bookIdx + '|' + s.chapter + '|' + s.verses.length;
+  }
+  return avail + '|none';
+}
+
+function openLyricsPopup() {
+  lvFollow = true; // toda abertura começa acompanhando o que está no ar
+  renderLyricsView();
+  lyricsPopupEl.classList.add('open');
+  // Depois de aberto (a folha ainda está subindo): o scroll só é possível com
+  // o elemento já medido.
+  requestAnimationFrame(() => lvScrollToCurrent(false));
+}
+
+function closeLyricsPopup() {
+  lyricsPopupEl.classList.remove('open');
+}
+
+function renderLyricsView() {
+  const avail = lyricsViewSources();
+  const src = lvActiveSource();
+  lvSig = lvSignature(src);
+  lvCurIdx = src ? lvCurrentIndex(src) : -1;
+
+  // Seletor só quando há de fato o que alternar.
+  lyricsViewSegEl.hidden = avail.length < 2;
+  lyricsViewSegEl.querySelectorAll('.fit-opt').forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.lvsrc === src);
+  });
+
+  lyricsViewBodyEl.innerHTML = '';
+  if (!src) {
+    lyricsPopupTitleEl.textContent = 'Letra';
+    const empty = document.createElement('div');
+    empty.className = 'empty';
+    empty.textContent = 'Nada em exibição com letra ou texto bíblico.';
+    lyricsViewBodyEl.appendChild(empty);
+    return;
+  }
+  if (src === 'lyrics') renderLyricsViewSong();
+  else renderLyricsViewBible();
+}
+
+function renderLyricsViewSong() {
+  const lyrics = currentItem.lyrics;
+  const track = currentItem.hymnTrack ? currentItem.hymnTrack + '. ' : '';
+  lyricsPopupTitleEl.textContent = track + (currentItem.hymnName || currentItem.name || 'Letra');
+  lyrics.forEach((slide, i) => {
+    // O slide de capa não tem letra (no telão é o título do hino). Vira uma
+    // linha curta "Início": some do texto, mas continua sendo uma posição real
+    // da música — é ela que fica destacada durante a introdução, e ocultá-la
+    // faria o destaque sumir justo aí.
+    const row = document.createElement('div');
+    row.className = 'lv-row' + (slide.cover ? ' lv-row--cover' : '');
+    row.dataset.i = String(i);
+    if (slide.cover) {
+      row.textContent = 'Início';
+    } else {
+      if (slide.auxText) {
+        const aux = document.createElement('div');
+        aux.className = 'lv-aux';
+        aux.textContent = slide.auxText;
+        row.appendChild(aux);
+      }
+      const txt = document.createElement('div');
+      txt.className = 'lv-text';
+      txt.textContent = slide.text || '';
+      row.appendChild(txt);
+    }
+    if (i === lvCurIdx) row.classList.add('current');
+    lyricsViewBodyEl.appendChild(row);
+  });
+}
+
+function renderLyricsViewBible() {
+  const s = bibleSession;
+  // A sigla da versão só entra quando a lista de versões já foi baixada — sem
+  // ela `bibleVersionAbbr` devolve o rótulo genérico "Versão", que no título
+  // seria só ruído.
+  const abbr = bibleVersionName(s.versionId) ? ' · ' + bibleVersionAbbr(s.versionId) : '';
+  lyricsPopupTitleEl.textContent = s.bookName + ' ' + s.chapter + abbr;
+  s.verses.forEach((v, i) => {
+    const row = document.createElement('div');
+    row.className = 'lv-row lv-row--verse';
+    row.dataset.i = String(i);
+    const n = document.createElement('span');
+    n.className = 'lv-num';
+    n.textContent = String(v.n);
+    const txt = document.createElement('span');
+    txt.className = 'lv-text';
+    txt.textContent = v.text;
+    row.append(n, txt);
+    if (i === lvCurIdx) row.classList.add('current');
+    lyricsViewBodyEl.appendChild(row);
+  });
+}
+
+// Chamado no mesmo pulso que a navegação de estrofe (renderSlideNav), que já
+// roda a cada tick e a cada troca de versículo/mensagem. Com o popup fechado
+// custa uma comparação de classe.
+function refreshLyricsView() {
+  if (!lyricsPopupEl.classList.contains('open')) return;
+  const src = lvActiveSource();
+  if (lvSignature(src) !== lvSig) { renderLyricsView(); lvScrollToCurrent(true); return; }
+  if (!src) return;
+  const idx = lvCurrentIndex(src);
+  if (idx === lvCurIdx) return;
+  const prev = lyricsViewBodyEl.querySelector('.lv-row.current');
+  if (prev) prev.classList.remove('current');
+  lvCurIdx = idx;
+  const row = lyricsViewBodyEl.querySelector('.lv-row[data-i="' + idx + '"]');
+  if (row) row.classList.add('current');
+  lvScrollToCurrent(true);
+}
+
+// Centraliza a linha no ar. `smooth` só na atualização ao vivo — na abertura o
+// conteúdo precisa já nascer na posição certa, sem uma rolagem visível.
+// Rola o PRÓPRIO corpo do popup (scrollTop), não scrollIntoView: este último
+// mexeria também nos ancestrais, e a lista do app fica atrás da folha.
+function lvScrollToCurrent(smooth) {
+  if (!lvFollow) return;
+  const row = lyricsViewBodyEl.querySelector('.lv-row.current');
+  if (!row) return;
+  const top = row.offsetTop - (lyricsViewBodyEl.clientHeight - row.offsetHeight) / 2;
+  lyricsViewBodyEl.scrollTo({ top: Math.max(0, top), behavior: smooth ? 'smooth' : 'auto' });
 }
 
 function resetAfterEnd() {
@@ -3640,8 +3897,8 @@ function navigateBack() {
     else if (bibleScreen === 'chapters') gotoBibleScreen('books');
     return;
   }
-  // Na raiz de Pastas o voltar sai da tela (de volta ao Cronograma); dentro de
-  // uma pasta, sobe um nível primeiro.
+  // Na raiz dos Favoritos o voltar sai da tela (de volta ao Cronograma);
+  // dentro de um atalho/pasta, sobe um nível primeiro.
   if (activeTab === 'folders' && currentFolder === null) { switchTab('imports'); return; }
   rememberScroll();
   currentFolder = null;
@@ -3659,7 +3916,7 @@ async function createFolder(name) {
 
 async function deleteFolder(folderId) {
   const folder = folders.find((f) => f.id === folderId);
-  if (!(await appConfirm({ title: 'Excluir pasta', message: 'Excluir a pasta "' + (folder ? folder.name : '') + '"? As mídias não são apagadas.', okText: 'Excluir' }))) return;
+  if (!(await appConfirm({ title: 'Excluir atalho', message: 'Excluir o atalho "' + (folder ? folder.name : '') + '"? As mídias não são apagadas.', okText: 'Excluir' }))) return;
   folders = folders.filter((f) => f.id !== folderId);
   await AVDB.setState('folders', folders);
   await AVDB.setState('folder_' + folderId, []);
@@ -3670,7 +3927,7 @@ async function deleteFolder(folderId) {
 async function addToFolder(folderId, ids) {
   const existing = (await AVDB.getState('folder_' + folderId)) || [];
   await AVDB.setState('folder_' + folderId, [...new Set([...existing, ...ids])]);
-  flash('Salvo na pasta');
+  flash('Adicionado aos favoritos');
   exitSelection();
   load();
 }
@@ -3687,14 +3944,14 @@ function closeFolderPicker() {
 function renderFolderPicker() {
   folderPickerListEl.innerHTML = '';
   if (folders.length === 0) {
-    folderPickerListEl.innerHTML = '<li class="empty">Nenhuma pasta ainda.<br>Crie uma abaixo.</li>';
+    folderPickerListEl.innerHTML = '<li class="empty">Nenhum atalho ainda.<br>Crie um abaixo.</li>';
     return;
   }
   const selectedIds = [...selected];
   folders.forEach((folder) => {
     const li = document.createElement('li');
     const btn = document.createElement('button'); btn.className = 'folder-pick-btn';
-    btn.append(msym(ICON.folder), Object.assign(document.createElement('span'), { textContent: folder.name }));
+    btn.append(msym(ICON.star), Object.assign(document.createElement('span'), { textContent: folder.name }));
     btn.addEventListener('click', () => { closeFolderPicker(); addToFolder(folder.id, selectedIds); });
     li.appendChild(btn);
     folderPickerListEl.appendChild(li);
@@ -4644,6 +4901,7 @@ async function addSongToPlaylist(coll, s, variant) {
 // ===== transições (fade in/out) =====
 function openFadePopup() {
   renderFitSeg();
+  renderLyricsBgSeg();
   renderWallSeg();
   fadePopupEl.classList.add('open');
 }
@@ -5300,7 +5558,27 @@ seekEl.addEventListener('change', () => cmd({ type: 'seek', time: parseFloat(see
 viewToggleEl.addEventListener('click', () => setView(view === 'visual' ? 'wallpaper' : 'visual'));
 muteToggleEl.addEventListener('click', toggleMute);
 standaloneToggleEl.addEventListener('click', () => setStandalone(!standalone));
-lyricsBgToggleEl.addEventListener('click', () => setLyricsBg(lyricsBg === 'image' ? 'black' : 'image'));
+lyricsViewBtnEl.addEventListener('click', openLyricsPopup);
+// Letra × Bíblia (só aparece com as duas em cena — ver renderLyricsView).
+lyricsViewSegEl.addEventListener('click', (e) => {
+  const btn = e.target.closest('.fit-opt');
+  if (!btn) return;
+  lvSource = btn.dataset.lvsrc;
+  lvFollow = true; // trocar de fonte é pedir para ver onde ela está
+  renderLyricsView();
+  lvScrollToCurrent(false);
+});
+// Rolou com o dedo? Então o operador está lendo adiante — o acompanhamento
+// automático para de disputar o scroll com ele, até reabrir o popup (ou trocar
+// de fonte). Sem isso, a estrofe seguinte puxaria a lista de volta no meio da
+// leitura.
+lyricsViewBodyEl.addEventListener('pointerdown', () => { lvFollow = false; });
+lyricsViewBodyEl.addEventListener('wheel', () => { lvFollow = false; }, { passive: true });
+// Imagens dos slides: segmento do popup de Exibição (Mostrar / Remover).
+lyricsBgSegEl.addEventListener('click', (e) => {
+  const btn = e.target.closest('.fit-opt');
+  if (btn) setLyricsBg(btn.dataset.lyricsbg);
+});
 // Volume recolhível (estado só de UI, não persistido): abrir troca os botões
 // da lateral pelo fader com animação de entrada; fechar anima a saída do fader
 // antes de trazer os botões de volta (também animados). Ver as classes
@@ -5439,8 +5717,9 @@ plBtnEl.addEventListener('click', openPlPopup);
 // Ordem das abas (esquerda→direita) — define a DIREÇÃO do deslize na animação
 // de troca de aba (ir pra uma aba à direita desliza a lista entrando pela
 // direita, e vice-versa).
-// Pastas e Mensagens não têm aba, mas Pastas ainda é uma TELA (activeTab) e
-// precisa de posição aqui para a direção do deslize sair certa.
+// Favoritos e Mensagens não têm aba, mas Favoritos ainda é uma TELA
+// (activeTab 'folders') e precisa de posição aqui para a direção do deslize
+// sair certa.
 const TAB_ORDER = ['imports', 'folders', 'albums', 'bible', 'mic'];
 const prefersReducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
@@ -5460,16 +5739,16 @@ function animateTabSwitch(dir) {
   );
 }
 
-// Troca de tela da lista. Nem toda tela tem aba: **Pastas** é alcançada pelo
-// botão no fim do Cronograma (ver appendImportRow), e o botão voltar dali
-// retorna ao Cronograma — mas continua sendo um `activeTab`, com a mesma
-// navegação interna (pastas sincronizadas, pastas virtuais, busca).
+// Troca de tela da lista. Nem toda tela tem aba: **Favoritos** é alcançada
+// pelo botão no fim do Cronograma (ver appendImportRow), e o botão voltar dali
+// retorna ao Cronograma — mas continua sendo um `activeTab` ('folders'), com a
+// mesma navegação interna (atalhos, pastas do dispositivo, busca).
 function switchTab(tab) {
   if (tab === activeTab) return;
   // Direção do deslize: +1 se a tela nova está à direita da atual, -1 se à esquerda.
   const dir = TAB_ORDER.indexOf(tab) > TAB_ORDER.indexOf(activeTab) ? 1 : -1;
   // Mantém a posição: guarda o scroll da aba atual e NÃO reseta a pasta
-  // aberta — voltar para Pastas retorna exatamente onde estava.
+  // aberta — voltar para os Favoritos retorna exatamente onde estava.
   rememberScroll();
   // Sair da aba com o microfone aberto o deixaria captando sem nada na tela
   // que mostrasse isso. O botão é push-to-talk: sem o botão, sem microfone.
@@ -5683,7 +5962,7 @@ if (window.__NATIVE__) {
 
 
 newFolderInPickerBtnEl.addEventListener('click', async () => {
-  const name = await appPrompt({ title: 'Nova pasta', message: 'Nome da nova pasta:', okText: 'Criar', placeholder: 'Ex.: Louvores especiais' });
+  const name = await appPrompt({ title: 'Novo atalho', message: 'Nome do atalho:', okText: 'Criar', placeholder: 'Ex.: Louvores especiais' });
   if (name && name.trim()) { await createFolder(name.trim()); renderFolderPicker(); }
 });
 
@@ -5697,6 +5976,7 @@ newFolderInPickerBtnEl.addEventListener('click', async () => {
   [hymnSearchPopupEl, hymnSearchCloseEl, closeHymnSearch],
   [bibleVerPopupEl, bibleVerCloseEl, closeBibleVerPopup],
   [fadePopupEl, fadePopupCloseEl, closeFadePopup],
+  [lyricsPopupEl, lyricsPopupCloseEl, closeLyricsPopup],
   [folderPopupEl, folderPopupCloseEl, closeFolderPicker],
 ].forEach(([backdrop, closeBtn, close]) => {
   closeBtn.addEventListener('click', close);

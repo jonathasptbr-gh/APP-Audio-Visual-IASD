@@ -16,7 +16,7 @@
     <div class="list-header">
       <button id="backBtn" class="back-btn" hidden><span class="msym">&#xe5c4;</span></button>
       <span class="list-title" id="listTitle">Cronograma</span>
-      <span id="appVersion" class="app-version">Controle v5.18</span>
+      <span id="appVersion" class="app-version">Controle v5.19</span>
       <input id="libSearch" class="lib-search" type="search" placeholder="Buscar na pasta…" hidden>
       <!-- Setas circulares = "sincronizar" (o mesmo desenho dos cards de coleção
            e do botão de re-sync na linha da pasta). folder_open fica reservado
@@ -67,7 +67,8 @@
       <button id="selCancel" class="sel-btn" title="Cancelar"><span class="msym">&#xe14c;</span></button>
       <span id="selCount" class="sel-count">0</span>
       <span class="sel-spacer"></span>
-      <button id="selFolder" class="sel-btn" title="Salvar em pasta"><span class="msym">&#xe2c7;</span></button>
+      <!-- Estrela (não pasta): o destino é a seção de Favoritos. -->
+      <button id="selFolder" class="sel-btn" title="Adicionar aos favoritos"><span class="msym">&#xe838;</span></button>
       <button id="selRename" class="sel-btn" title="Renomear"><span class="msym">&#xe150;</span></button>
       <button id="selDelete" class="sel-btn danger" title="Excluir"><span class="msym">&#xe872;</span></button>
     </div>
@@ -178,16 +179,19 @@
         </div>
         <div class="mixer-slot mixer-mid">
           <div class="mixer-stack">
-            <button id="lyricsBgToggle" class="ctl-btn lyricsbg-btn fill-btn" title="Fundo preto atrás da letra (toque para usar as imagens dos slides)">
-              <!-- Ícone de flor (SVG inline, fora do subset da fonte): rosácea de
-                   6 pétalas com miolo, o indicador do fundo da letra. -->
-              <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true">
-                <circle cx="12" cy="5.9" r="3.1"/>
-                <circle cx="12" cy="18.1" r="3.1"/>
-                <circle cx="6.7" cy="8.95" r="3.1"/>
-                <circle cx="17.3" cy="8.95" r="3.1"/>
-                <circle cx="6.7" cy="15.05" r="3.1"/>
-                <circle cx="17.3" cy="15.05" r="3.1"/>
+            <!-- Leitura auxiliar: a letra INTEIRA da música em cena ou o
+                 capítulo INTEIRO da Bíblia em leitura, num popup com scroll.
+                 Ocupa o lugar do antigo botão de fundo da letra, que virou uma
+                 opção do popup de Exibição (é configuração, não operação). -->
+            <button id="lyricsViewBtn" class="ctl-btn lyricsview-btn fill-btn" title="Ver a letra / o texto completo">
+              <!-- Ícone de "texto corrido" (SVG inline, fora do subset da
+                   fonte): folha com linhas de texto de comprimentos desiguais —
+                   letra de música ou capítulo, o mesmo conceito nos dois. -->
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="3.5" y="3" width="17" height="18" rx="2.2"/>
+                <line x1="7.2" y1="8" x2="16.8" y2="8"/>
+                <line x1="7.2" y1="12" x2="16.8" y2="12"/>
+                <line x1="7.2" y1="16" x2="12.8" y2="16"/>
               </svg>
             </button>
             <button id="standaloneToggle" class="ctl-btn standalone-btn fill-btn" title="Ouvir o áudio aqui / mesa de som (áudio independente do Display)">
@@ -256,6 +260,17 @@
             <button type="button" class="fit-opt" data-fit="fill">Esticar</button>
           </div>
         </div>
+        <!-- Imagens dos slides da música: cada estrofe do hino traz uma imagem
+             de fundo baixada com ele. Removê-las deixa a letra sobre preto —
+             é preferência de exibição, então mora aqui e não mais num botão do
+             mixer (que passou a ser a leitura da letra completa). -->
+        <div class="fade-row fade-row--fit">
+          <span>Imagens dos slides (músicas)</span>
+          <div class="fit-seg" id="lyricsBgSeg">
+            <button type="button" class="fit-opt" data-lyricsbg="image">Mostrar</button>
+            <button type="button" class="fit-opt" data-lyricsbg="black">Remover</button>
+          </div>
+        </div>
         <!-- Wallpaper: a cortina que cobre o telão fora das mídias. Uma
              imagem própria substitui o gradiente padrão (e a marca). -->
         <div class="fade-row fade-row--fit">
@@ -281,6 +296,36 @@
              melhor o operador ver antes de tocar. Vazio no navegador. -->
         <span id="castTargetLine" class="cast-target" hidden></span>
       </div>
+    </div>
+  </div>
+
+  <!-- Leitura auxiliar (bottom sheet com scroll): a letra INTEIRA da música em
+       cena ou o capítulo INTEIRO da Bíblia em leitura. É só leitura — o que vai
+       ao telão continua sendo decidido pelos controles de estrofe/versículo.
+       Com as duas coisas em cena ao mesmo tempo (um louvor de fundo durante a
+       leitura bíblica), o seletor do topo alterna entre elas. -->
+  <div id="lyricsPopup" class="popup-backdrop">
+    <div class="popup-sheet">
+      <div class="popup-header">
+        <span class="popup-header-icon">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="3.5" y="3" width="17" height="18" rx="2.2"/>
+            <line x1="7.2" y1="8" x2="16.8" y2="8"/>
+            <line x1="7.2" y1="12" x2="16.8" y2="12"/>
+            <line x1="7.2" y1="16" x2="12.8" y2="16"/>
+          </svg>
+        </span>
+        <span class="popup-title" id="lyricsPopupTitle">Letra</span>
+        <button id="lyricsPopupClose" class="popup-close" title="Fechar"><span class="msym">&#xe14c;</span></button>
+      </div>
+      <!-- Só aparece quando há letra E texto bíblico em cena ao mesmo tempo. -->
+      <div class="lyricsview-seg" id="lyricsViewSeg" hidden>
+        <div class="fit-seg">
+          <button type="button" class="fit-opt" data-lvsrc="lyrics">Letra</button>
+          <button type="button" class="fit-opt" data-lvsrc="bible">Bíblia</button>
+        </div>
+      </div>
+      <div class="lyricsview-body" id="lyricsViewBody"></div>
     </div>
   </div>
 
@@ -344,18 +389,18 @@
     </div>
   </div>
 
-  <!-- popup de seleção de pasta (bottom sheet) -->
+  <!-- popup de seleção do atalho de favoritos (bottom sheet) -->
   <div id="folderPopup" class="popup-backdrop">
     <div class="popup-sheet">
       <div class="popup-header">
-        <span class="msym popup-header-icon">&#xe2c7;</span>
-        <span class="popup-title">Salvar em pasta</span>
+        <span class="msym popup-header-icon">&#xe838;</span>
+        <span class="popup-title">Adicionar aos favoritos</span>
         <button id="folderPopupClose" class="popup-close" title="Fechar"><span class="msym">&#xe14c;</span></button>
       </div>
       <ul id="folderPickerList" class="popup-list"></ul>
       <div class="popup-footer">
         <button id="newFolderInPickerBtn" class="new-folder-btn">
-          <span class="msym">&#xe2cc;</span> Nova pasta
+          <span class="msym">&#xe2cc;</span> Novo atalho
         </button>
       </div>
     </div>
