@@ -173,7 +173,7 @@ Além disso, `native.js` publica três globais lidas direto (sem Promise):
 APK, que é o **índice de versão do shell exibido ao operador**. Ele não se
 confunde com `__SHELL_VERSION__`: base web e shell atualizam por caminhos
 independentes (OTA × instalar APK), então o cabeçalho do Cronograma mostra os
-dois (`Web v5.18 · Shell v1.19`). Num shell antigo (sem `appVersion()`) a
+dois (`Web v5.18 · Shell v1.20`). Num shell antigo (sem `appVersion()`) a
 string vem vazia e a UI cai em só a versão web — mesma degradação do navegador.
 
 **Princípio: a ponte entrega URLs SERVÍVEIS, não bytes.** Arquivos do
@@ -401,6 +401,21 @@ Dois ganhos, e o segundo é o menos óbvio:
   chamado de uma thread do WebView, e `MediaSession` tem handler próprio e não
   promete ser thread-safe — mexer nele de fora é o tipo de coisa que funciona
   num aparelho e falha calada noutro.
+- **A notificação NÃO pode depender do JS do Controle estar rodando.** Com o
+  app minimizado e sem áudio audível no celular (mesa de som desligada), o
+  sistema estrangula aquele WebView: `pushNowPlaying` para de ser chamado e a
+  notificação congela — botão em "play", barra parada — enquanto o telão segue
+  projetando. Ligar a mesa de som fazia o defeito sumir porque áudio audível
+  isenta a página do estrangulamento, o que foi justamente a pista.
+  `NativeBridge.snoopDisplayStatus` lê de passagem o `display-status` que o
+  telão já emite a 2 Hz pelo `busPost` e corrige play/pause, posição e duração
+  (`SessionService.updateFromDisplay`). A `Presentation` não é estrangulada —
+  é uma fonte que continua viva quando a outra não está. Não é decisão de
+  transporte: copia dois campos que o web já calculou, e sem cena publicada
+  não inventa nada. Republica com a mesma economia do lado web (só em troca de
+  play/pause, de duração, ou salto de posição além de `POS_TOL_MS`).
+  **Sem telão conectado o caso não se aplica**: ali a projeção É a preview em
+  tela cheia, que exige o app na frente — minimizar já encerra a projeção.
 - **A verificar em aparelho:** se o WebView criar uma sessão de mídia própria ao
   tocar áudio, poderia aparecer uma notificação concorrente. Nada no código
   indica isso (o WebView não se comporta como o Chrome aqui), mas não foi
@@ -701,4 +716,4 @@ Rodar local: `./gradlew assembleDebug` (exige Android SDK instalado).
   (`#appVersion` em `assets/web/controle/index.html`) **e `version` em
   `assets/web/version.json`** — é este último que faz a atualização chegar
   aos aparelhos por OTA. O `versionCode`/`versionName` do APK vêm do CI.
-  **Versão atual: v5.18** (base web) · **shell 1.19** (`SHELL_VERSION` 13).
+  **Versão atual: v5.18** (base web) · **shell 1.20** (`SHELL_VERSION` 13).

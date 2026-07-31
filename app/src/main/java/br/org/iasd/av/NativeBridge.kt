@@ -112,6 +112,39 @@ class NativeBridge(
     @JavascriptInterface
     fun busPost(json: String) {
         MessageBus.post(webRef(), json)
+        snoopDisplayStatus(json)
+    }
+
+    /**
+     * Lê de passagem o `display-status` que o telão emite a 2 Hz e mantém a
+     * sessão de mídia em dia com ele.
+     *
+     * Existe porque a notificação NÃO pode depender do JS do Controle estar
+     * rodando. Com o app minimizado e sem áudio audível no celular (modo "mesa
+     * de som" desligado), o sistema estrangula/suspende aquele WebView — e
+     * então `pushNowPlaying` para de ser chamado: a notificação congela no
+     * último estado, com o botão em "play" e a barra parada, enquanto o telão
+     * segue projetando normalmente. Ligar a mesa de som fazia o defeito sumir
+     * justamente porque áudio audível isenta a página do estrangulamento.
+     *
+     * O status do telão, esse, já passa por aqui de qualquer jeito (o WebView
+     * do Display o envia por `busPost`), e a `Presentation` não é
+     * estrangulada — é uma fonte que continua viva quando a outra não está.
+     *
+     * NÃO é decisão de transporte (invariante 5): só copia dois campos que o
+     * lado web já calculou. Título, subtítulo e modo de slide continuam vindo
+     * de `nowPlaying`; sem cena publicada, nada é inventado aqui.
+     */
+    private fun snoopDisplayStatus(json: String) {
+        if (!json.contains("display-status")) return   // barato antes de parsear
+        val o = try { JSONObject(json) } catch (e: Exception) { return }
+        if (o.optString("type") != "display-status") return
+        SessionService.updateFromDisplay(
+            ctx,
+            playing = o.optBoolean("playing"),
+            positionMs = (o.optDouble("currentTime", 0.0) * 1000).toLong(),
+            durationMs = (o.optDouble("duration", 0.0) * 1000).toLong(),
+        )
     }
 
     // ---------- sessão de culto ----------
