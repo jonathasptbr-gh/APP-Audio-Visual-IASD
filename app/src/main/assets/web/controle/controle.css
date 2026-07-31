@@ -511,20 +511,43 @@ body {
    — visualmente distinto e prominente na base da coluna. Seletor com `.mixer`
    para ganhar de `.ctl-btn` (mesma especificidade, definido depois). */
 .mixer .vol-btn { background: var(--accent); color: #fff; }
+/* O fader OCUPA A COLUNA INTEIRA, como os botões que ele substitui: mesma
+   largura, mesmo raio, mesmo fundo (`--surface`) — a coluna não muda de
+   espessura ao abrir o volume, só de conteúdo.
+   O trilho é desenhado por nós (`appearance: none`): a espessura do trilho
+   nativo é fixa e NÃO acompanha a largura do elemento — alargar o `<input>`
+   sozinho só deixava a barrinha de sempre boiando num alvo maior. */
 .fader {
-  position: absolute; top: 6px; bottom: 6px; left: 50%; transform: translateX(-50%);
+  --fader-cap: 16px;
+  /* Preenchimento: azul do zero até o nível, `--surface` acima — o mesmo papel
+     que o `accent-color` fazia no trilho nativo, que `appearance: none`
+     desliga. `--vol` (0–1) vem do JS, de onde o valor do fader já é escrito
+     (ver renderControls em controle.js).
+     O corte não é `--vol * 100%` puro: o CENTRO do cap percorre só a altura
+     menos a espessura dele, então esta conta mantém a borda do azul exatamente
+     sob o cap em qualquer posição. */
+  --fader-stop: calc(var(--vol, 1) * (100% - var(--fader-cap)) + var(--fader-cap) / 2);
+  -webkit-appearance: none; appearance: none;
+  position: absolute; inset: 0; transform: none;
   writing-mode: vertical-lr; direction: rtl;
-  width: 24px; height: auto; margin: 0;
-  accent-color: var(--accent);
+  width: auto; height: auto; margin: 0;
+  background: transparent;
   touch-action: none; cursor: pointer;
 }
-/* Botão (thumb) maior: facilita tocar e arrastar o fader num alvo pequeno. */
+.fader::-webkit-slider-runnable-track {
+  width: 100%; height: 100%;
+  border-radius: var(--radius-btn);
+  background: linear-gradient(to top,
+    var(--accent) 0 var(--fader-stop), var(--surface) var(--fader-stop) 100%);
+}
+/* Cap do fader: atravessa a coluna inteira, como o cap de uma mesa de som de
+   verdade — e é um alvo de toque muito maior que o thumb redondo antigo. */
 .fader::-webkit-slider-thumb {
   -webkit-appearance: none;
-  width: 34px; height: 34px;
-  border-radius: 50%;
-  background: var(--accent);
-  box-shadow: 0 1px 4px rgba(0, 0, 0, .4);
+  width: 100%; height: var(--fader-cap);
+  border-radius: var(--radius-btn);
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, .5);
   cursor: pointer;
 }
 .ctl-btn {
