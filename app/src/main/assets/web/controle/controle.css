@@ -488,7 +488,13 @@ body {
    tamanho junto. Sem piso, quem dita as faixas é sempre o conteúdo da coluna
    1 (nowplaying/preview/transport), abrindo ou fechando o volume — o fader
    simplesmente ocupa o espaço que já existe (a faixa 2 sozinha já tem 130px). */
-.fader-wrap { display: none; grid-row: 1 / 3; min-height: 0; position: relative; }
+.fader-wrap {
+  display: none; grid-row: 1 / 3; min-height: 0; position: relative;
+  /* Espessura do cap. Mora AQUI (e não no `.fader`) porque o número dentro
+     dele é um irmão, não um filho: os dois precisam da mesma medida — e de
+     `--vol`, que o JS escreve neste mesmo elemento. */
+  --fader-cap: 26px;
+}
 .mixer .vol-close { display: none; }
 .mixer.vol-open .mixer-top,
 .mixer.vol-open .mixer-mid { display: none; }
@@ -518,7 +524,6 @@ body {
    nativo é fixa e NÃO acompanha a largura do elemento — alargar o `<input>`
    sozinho só deixava a barrinha de sempre boiando num alvo maior. */
 .fader {
-  --fader-cap: 16px;
   /* Preenchimento: azul do zero até o nível, `--surface` acima — o mesmo papel
      que o `accent-color` fazia no trilho nativo, que `appearance: none`
      desliga. `--vol` (0–1) vem do JS, de onde o valor do fader já é escrito
@@ -539,6 +544,19 @@ body {
   border-radius: var(--radius-btn);
   background: linear-gradient(to top,
     var(--accent) 0 var(--fader-stop), var(--surface) var(--fader-stop) 100%);
+}
+/* O número (0–100) ocupa exatamente o retângulo do cap: mesma altura e a
+   mesma conta de posição do preenchimento (o centro do cap percorre a altura
+   menos a espessura dele), então ele acompanha o cap sem folga em qualquer
+   posição. Não recebe toque — quem arrasta é o input por baixo. */
+.fader-value {
+  position: absolute; left: 0; right: 0;
+  bottom: calc(var(--vol, 1) * (100% - var(--fader-cap)));
+  height: var(--fader-cap);
+  display: flex; align-items: center; justify-content: center;
+  font-size: .78rem; font-weight: 700; line-height: 1;
+  color: var(--bg);
+  pointer-events: none; user-select: none;
 }
 /* Cap do fader: atravessa a coluna inteira, como o cap de uma mesa de som de
    verdade — e é um alvo de toque muito maior que o thumb redondo antigo. */

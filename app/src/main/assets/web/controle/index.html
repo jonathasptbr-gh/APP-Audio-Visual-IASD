@@ -16,7 +16,7 @@
     <div class="list-header">
       <button id="backBtn" class="back-btn" hidden><span class="msym">&#xe5c4;</span></button>
       <span class="list-title" id="listTitle">Cronograma</span>
-      <span id="appVersion" class="app-version">Controle v5.21</span>
+      <span id="appVersion" class="app-version">Controle v5.22</span>
       <input id="libSearch" class="lib-search" type="search" placeholder="Buscar na pasta…" hidden>
       <!-- Setas circulares = "sincronizar" (o mesmo desenho dos cards de coleção
            e do botão de re-sync na linha da pasta). folder_open fica reservado
@@ -210,6 +210,13 @@
         <!-- estado aberto: fader ocupa o lugar de top+mid (mesma posição/altura) -->
         <div class="fader-wrap">
           <input type="range" id="volSlider" class="fader" min="0" max="100" value="100" aria-label="Volume da mídia">
+          <!-- O número (0–100) vive DENTRO do cap do fader — e é um elemento
+               à parte porque `::-webkit-slider-thumb` é pseudo-elemento e não
+               aceita conteúdo. Segue o cap pela mesma conta do preenchimento
+               (`--vol`/`--fader-cap`), então os dois nunca se descolam.
+               `pointer-events:none` no CSS: quem recebe o arrasto é o input.
+               `aria-hidden`: o valor já é anunciado pelo próprio range. -->
+          <span id="volValue" class="fader-value" aria-hidden="true">100</span>
         </div>
         <!-- base da grade: abrir o volume (ícone de mixer). Fica na MESMA
              posição do botão de ocultar (✕), que aparece aqui no estado aberto -->
