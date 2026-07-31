@@ -202,6 +202,12 @@ class SessionService : Service() {
                     .build(),
             )
         }
+        // Marco da extrapolação: é contra isto que `updateFromDisplay` decide
+        // se o tempo do telão é um salto ou só o relógio andando.
+        lastPubPosMs = s.positionMs
+        lastPubAt = android.os.SystemClock.elapsedRealtime()
+        lastPubPlaying = s.playing
+
         val notif = buildNotification(this, s, session)
         if (foregrounded) {
             getSystemService(NotificationManager::class.java)?.notify(NOTIF_ID, notif)
@@ -287,6 +293,42 @@ class SessionService : Service() {
                 // a projeção em si não depende deste serviço para funcionar.
                 Log.w(TAG, "não foi possível iniciar a sessão", e)
             }
+        }
+
+        /**
+         * Tolerância antes de republicar por causa da posição — mesma ideia (e
+         * mesmo valor) do `POS_TOL_MS` do lado web: a sessão extrapola o tempo
+         * sozinha, então só um SALTO precisa de reenvio. Absorve o jitter do
+         * `display-status`, que chega com latência variável.
+         */
+        private const val POS_TOL_MS = 1500L
+
+        @Volatile private var lastPubPosMs = 0L
+        @Volatile private var lastPubAt = 0L
+        @Volatile private var lastPubPlaying = false
+
+        /**
+         * Estado vindo do TELÃO (ver `NativeBridge.snoopDisplayStatus`). Só
+         * corrige play/pause, posição e duração — o resto da cena continua
+         * sendo do lado web.
+         *
+         * Sem cena publicada não faz nada: o telão pode estar emitindo status
+         * de uma reprodução que o Controle ainda nem reportou, e a notificação
+         * nasceria sem título nenhum.
+         */
+        fun updateFromDisplay(ctx: Context, playing: Boolean, positionMs: Long, durationMs: Long) {
+            val s = scene ?: return
+            val dur = if (durationMs > 0) durationMs else s.durationMs
+            // Mesma economia do lado web: em reprodução contínua a sessão
+            // extrapola sozinha, então só vale reenviar quando o play/pause
+            // muda, a duração muda ou o tempo real destoa do extrapolado.
+            val extrapolado = if (lastPubAt == 0L) null else {
+                lastPubPosMs + if (lastPubPlaying) android.os.SystemClock.elapsedRealtime() - lastPubAt else 0L
+            }
+            val saltou = extrapolado == null || Math.abs(positionMs - extrapolado) > POS_TOL_MS
+            if (playing == s.playing && dur == s.durationMs && !saltou) return
+            scene = s.copy(playing = playing, positionMs = positionMs, durationMs = dur)
+            instance?.publish()
         }
 
         /** Sem cena: derruba o serviço, e a notificação vai junto. */
