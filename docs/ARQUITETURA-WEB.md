@@ -79,10 +79,10 @@ git push origin main
   `renderVersionLabel()`), o fallback estático do `<span id="appVersion">` em
   `controle/index.html` e `version` em `version.json` (é este último que
   dispara a atualização por OTA nos aparelhos). Versionamento incremental
-  simples (5.19, 5.20, 5.21…). **Versão atual: v5.21.**
+  simples (5.20, 5.21, 5.22…). **Versão atual: v5.22.**
   No app nativo o rótulo mostra os **dois índices** — `Web v5.17 · Shell v1.18`
   —, porque base web e shell atualizam por caminhos independentes (OTA ×
-  instalar APK); no navegador sai só `Controle v5.21`.
+  instalar APK); no navegador sai só `Controle v5.22`.
 
 ---
 
@@ -783,10 +783,21 @@ Como `appearance: none` desliga junto o preenchimento que vinha do
 escrito por `renderControls()` no mesmo ponto em que o valor do fader é
 sincronizado — um lugar só, e os dois nunca discordam. O corte não é
 `--vol * 100%` puro: o CENTRO do cap percorre a altura MENOS a espessura dele
-(`--fader-cap`, 16px), então a conta desconta isso e a borda do azul fica
+(`--fader-cap`, 26px), então a conta desconta isso e a borda do azul fica
 exatamente sob o cap em qualquer posição (conferido em 0%, 35%, 75% e 100%).
 O cap atravessa a coluna inteira, como o de uma mesa de som de verdade — e é
 um alvo de toque bem maior que o thumb redondo de 34px que havia antes.
+
+**O cap carrega o NÚMERO (0–100)** do volume atual (`#volValue`,
+`.fader-value`): saber que o fader está "mais ou menos na metade" não é a
+mesma coisa que saber que está em 50 — e com os botões físicos o valor muda
+sem ninguém tocar na barra. O número é um elemento IRMÃO do `<input>`, não um
+filho: `::-webkit-slider-thumb` é pseudo-elemento e não aceita conteúdo. Por
+isso ele repete a MESMA conta de posição do preenchimento, com `--vol` e
+`--fader-cap` declaradas no `.fader-wrap` (o ancestral comum aos dois) —
+assim o número nunca se descola do cap. `pointer-events: none`: quem recebe o
+arrasto continua sendo o input por baixo. O cap subiu de 16px para 26px para
+"100" caber com folga.
 
 **Grade também alinha a preview e o transporte:** os dois botões de
 navegação de estrofe (`#slidePrevBtn`/`#slideNextBtn`, ver "Letra

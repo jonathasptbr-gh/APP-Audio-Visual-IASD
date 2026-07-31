@@ -16,6 +16,8 @@ const slideNextBtnEl = document.getElementById('slideNextBtn');
 const viewToggleEl = document.getElementById('viewToggle');
 const muteToggleEl = document.getElementById('muteToggle');
 const volSliderEl = document.getElementById('volSlider');
+const volValueEl = document.getElementById('volValue');
+const faderWrapEl = document.querySelector('.fader-wrap');
 const mixerEl = document.getElementById('mixer');
 const volToggleEl = document.getElementById('volToggle');
 const volCloseEl = document.getElementById('volClose');
@@ -64,7 +66,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.21';
+const WEB_VERSION = '5.22';
 
 function renderVersionLabel() {
   // __SHELL_NAME__ = versionName do APK (ver native.js). Vazio no navegador e
@@ -1356,8 +1358,11 @@ function renderControls() {
   // e `appearance: none` desliga junto o preenchimento do `accent-color`.
   // `--vol` é esse preenchimento, escrito no MESMO ponto em que o valor do
   // fader é sincronizado (aqui e, durante o arrasto, por applyVolume antes de
-  // chamar esta função), para os dois nunca discordarem.
-  volSliderEl.style.setProperty('--vol', String((parseFloat(volSliderEl.value) || 0) / 100));
+  // chamar esta função), para os dois nunca discordarem. Vai no `.fader-wrap`
+  // porque o número dentro do cap é irmão do fader e usa a mesma conta.
+  const volPct = Math.round(parseFloat(volSliderEl.value) || 0);
+  faderWrapEl.style.setProperty('--vol', String(volPct / 100));
+  volValueEl.textContent = String(volPct);
   // A cortina (view) muda por aqui, não por renderNowPlaying — e o rótulo do
   // botão da notificação depende dela. A deduplicação segura o excesso.
   pushNowPlaying();
