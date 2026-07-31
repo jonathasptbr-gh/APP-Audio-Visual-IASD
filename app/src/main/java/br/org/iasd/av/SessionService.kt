@@ -180,7 +180,11 @@ class SessionService : Service() {
                         PlaybackState.CustomAction.Builder(
                             SessionRemote.VIEW,
                             if (s.wallpaper) "Mostrar mídia" else "Cobrir telão",
-                            android.R.drawable.ic_menu_view,
+                            // O ícone diz o que a ação FAZ, como o rótulo: com a
+                            // mídia no ar, ela a tira (imagem riscada). Até a
+                            // v1.18 era um olho de sistema, que sugere "esconder
+                            // a vista" — e o que sai do telão é a mídia.
+                            if (s.wallpaper) R.drawable.ic_image else R.drawable.ic_image_off,
                         ).build(),
                     )
                     .addCustomAction(
@@ -362,7 +366,7 @@ class SessionService : Service() {
                 .addAction(
                     acao(
                         ctx,
-                        android.R.drawable.ic_menu_view,
+                        if (s.wallpaper) R.drawable.ic_image else R.drawable.ic_image_off,
                         if (s.wallpaper) "Mostrar mídia" else "Cobrir telão",
                         SessionRemote.VIEW,
                     ),

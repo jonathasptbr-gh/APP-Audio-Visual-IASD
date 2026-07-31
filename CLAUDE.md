@@ -80,7 +80,7 @@ app/src/main/
 │   ├── WebPathHandler.kt        # serve o bundle OTA, com fallback pro APK
 │   ├── MicChromeClient.kt       # onPermissionRequest: microfone no WebView do telão
 │   └── MessageBus.kt            # relay de comandos entre os dois WebViews
-└── res/                         # ícones (rasterizados dos SVGs do PWA), tema
+└── res/                         # ícones do app + drawable/ic_image{,_off} (cortina), tema
 docs/
 ├── ARQUITETURA-WEB.md           # arquitetura completa da base web
 └── FONTE-DE-DADOS-LOUVORJA.md   # referência do banco LouvorJA (hinos/Bíblia)
@@ -173,7 +173,7 @@ Além disso, `native.js` publica três globais lidas direto (sem Promise):
 APK, que é o **índice de versão do shell exibido ao operador**. Ele não se
 confunde com `__SHELL_VERSION__`: base web e shell atualizam por caminhos
 independentes (OTA × instalar APK), então o cabeçalho do Cronograma mostra os
-dois (`Web v5.17 · Shell v1.18`). Num shell antigo (sem `appVersion()`) a
+dois (`Web v5.17 · Shell v1.19`). Num shell antigo (sem `appVersion()`) a
 string vem vazia e a UI cai em só a versão web — mesma degradação do navegador.
 
 **Princípio: a ponte entrega URLs SERVÍVEIS, não bytes.** Arquivos do
@@ -381,7 +381,16 @@ Dois ganhos, e o segundo é o menos óbvio:
   play. Sem cena, ele para e a notificação some.
 - **Ícones são os do sistema** (`android.R.drawable.ic_media_*`) — carregar um
   conjunto próprio no `res/` só para cinco botões não se paga, e o `MediaStyle`
-  os tinge conforme o tema.
+  os tinge conforme o tema. **Exceção: a cortina**, que usa
+  `ic_image`/`ic_image_off` (vetores próprios). O sistema não tem imagem
+  riscada, e o que havia até a v1.18 (`ic_menu_view`) é um OLHO — sugere
+  "esconder a vista", quando o que sai do telão é a MÍDIA. São os mesmos dois
+  símbolos que o botão do app já usa nesse par de estados.
+- **O ícone da cortina segue a AÇÃO, não o estado** (ao contrário do botão do
+  app, que mostra o estado): com a mídia no ar ele é a imagem riscada, porque é
+  isso que o toque vai fazer. Numa notificação, botão e rótulo descrevem o que
+  acontece ao tocar — e o rótulo ("Cobrir telão"/"Mostrar mídia") já segue essa
+  convenção; divergir entre os dois seria pior que qualquer uma das escolhas.
 - **A partir do Android 13 quem desenha os botões é o `PlaybackState`, não a
   notificação.** As `Notification.Action` viram decoração nessas versões: os
   controles saem das *actions* do estado (play/pause, ⏮/⏭) e os extras, de
@@ -692,4 +701,4 @@ Rodar local: `./gradlew assembleDebug` (exige Android SDK instalado).
   (`#appVersion` em `assets/web/controle/index.html`) **e `version` em
   `assets/web/version.json`** — é este último que faz a atualização chegar
   aos aparelhos por OTA. O `versionCode`/`versionName` do APK vêm do CI.
-  **Versão atual: v5.17** (base web) · **shell 1.18** (`SHELL_VERSION` 13).
+  **Versão atual: v5.17** (base web) · **shell 1.19** (`SHELL_VERSION` 13).
