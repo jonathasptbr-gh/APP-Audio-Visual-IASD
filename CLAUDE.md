@@ -173,7 +173,7 @@ Além disso, `native.js` publica três globais lidas direto (sem Promise):
 APK, que é o **índice de versão do shell exibido ao operador**. Ele não se
 confunde com `__SHELL_VERSION__`: base web e shell atualizam por caminhos
 independentes (OTA × instalar APK), então o cabeçalho do Cronograma mostra os
-dois (`Web v5.15 · Shell v1.17`). Num shell antigo (sem `appVersion()`) a
+dois (`Web v5.16 · Shell v1.18`). Num shell antigo (sem `appVersion()`) a
 string vem vazia e a UI cai em só a versão web — mesma degradação do navegador.
 
 **Princípio: a ponte entrega URLs SERVÍVEIS, não bytes.** Arquivos do
@@ -371,6 +371,16 @@ Dois ganhos, e o segundo é o menos óbvio:
 - **Ícones são os do sistema** (`android.R.drawable.ic_media_*`) — carregar um
   conjunto próprio no `res/` só para cinco botões não se paga, e o `MediaStyle`
   os tinge conforme o tema.
+- **A partir do Android 13 quem desenha os botões é o `PlaybackState`, não a
+  notificação.** As `Notification.Action` viram decoração nessas versões: os
+  controles saem das *actions* do estado (play/pause, ⏮/⏭) e os extras, de
+  `PlaybackState.CustomAction`. Foi por isso que, na v1.17, "Parar" e a cortina
+  simplesmente não apareciam e só restavam os botões nativos — as duas são
+  custom actions desde a v1.18, entregues por `onCustomAction`.
+- **`publish()` sempre roda na main thread.** Todo `@JavascriptInterface` é
+  chamado de uma thread do WebView, e `MediaSession` tem handler próprio e não
+  promete ser thread-safe — mexer nele de fora é o tipo de coisa que funciona
+  num aparelho e falha calada noutro.
 - **A verificar em aparelho:** se o WebView criar uma sessão de mídia própria ao
   tocar áudio, poderia aparecer uma notificação concorrente. Nada no código
   indica isso (o WebView não se comporta como o Chrome aqui), mas não foi
@@ -671,4 +681,4 @@ Rodar local: `./gradlew assembleDebug` (exige Android SDK instalado).
   (`#appVersion` em `assets/web/controle/index.html`) **e `version` em
   `assets/web/version.json`** — é este último que faz a atualização chegar
   aos aparelhos por OTA. O `versionCode`/`versionName` do APK vêm do CI.
-  **Versão atual: v5.15** (base web) · **shell 1.17** (`SHELL_VERSION` 13).
+  **Versão atual: v5.16** (base web) · **shell 1.18** (`SHELL_VERSION` 13).

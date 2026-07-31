@@ -59,7 +59,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.15';
+const WEB_VERSION = '5.16';
 
 function renderVersionLabel() {
   // __SHELL_NAME__ = versionName do APK (ver native.js). Vazio no navegador e
@@ -722,8 +722,7 @@ function ytPreviewTick() {
   if (!p) return;
   let st = -1, t = 0, dur = 0;
   try { st = p.getPlayerState(); t = p.getCurrentTime() || 0; dur = p.getDuration() || 0; } catch (_) { return; }
-  playing = (st === 1 || st === 3); // playing | buffering
-  playPauseEl.querySelector('.msym').textContent = playing ? ICON.pause : ICON.play;
+  setPlaying(st === 1 || st === 3); // playing | buffering
   durTimeEl.textContent = fmtTime(dur);
   seekEl.disabled = !(dur > 0);
   if (!seeking) {
@@ -736,8 +735,7 @@ function onYtPreviewState(e) {
   if (ytDisplayActive()) return; // Display presente é a fonte — ignora eventos locais
   const st = e.data; // 1 playing, 2 paused, 3 buffering, 0 ended, 5 cued
   if (st === 0) { // fim natural → avança a playlist (só quando a preview é a fonte)
-    playing = false;
-    playPauseEl.querySelector('.msym').textContent = ICON.play;
+    setPlaying(false);
     ytEnded = true;
     autoAdvance();
     return;
@@ -912,8 +910,7 @@ function previewTick() {
   // só dirige a UI/letra na ausência dele; enquanto ele estiver ativo, quem
   // atualiza tudo isso é o handler de 'display-status' (AVDB.onCommand).
   if (displayActive()) return;
-  playing = preview.isPlaying();
-  playPauseEl.querySelector('.msym').textContent = playing ? ICON.pause : ICON.play;
+  setPlaying(preview.isPlaying());
   const dur = preview.getDuration();
   durTimeEl.textContent = fmtTime(dur);
   seekEl.disabled = !preview.isTimed();
@@ -1429,6 +1426,27 @@ function pushNowPlaying() {
   if (chave === lastScene) return;
   lastScene = chave;
   AVNative.nowPlaying(cena);
+}
+
+// `playing` e o ícone do ▶/⏸ andam SEMPRE juntos — e a notificação de
+// controles precisa saber da troca. Eram sete pontos repetindo as mesmas duas
+// linhas, e nenhum deles avisava o nativo: a sessão de mídia nascia "pausada" e
+// ficava assim para sempre. Isso produzia dois sintomas de uma vez — o ícone na
+// notificação nunca mudava, e o estado que o SISTEMA acreditava divergia do
+// real, fazendo `onPlay`/`onPause` caírem nas guardas de `__avRemote` e virarem
+// no-op. ⏮/⏭ seguiam funcionando por não dependerem desse estado, que foi
+// exatamente o padrão observado em aparelho.
+function setPlaying(v) {
+  playing = !!v;
+  playPauseEl.querySelector('.msym').textContent = playing ? ICON.pause : ICON.play;
+  pushNowPlaying();
+}
+
+// Reenvia a cena mesmo sem mudança de estado — usado quando há indício de que
+// o que o sistema mostra ficou para trás (ver `__avRemote`).
+function resyncScene() {
+  lastScene = '';
+  pushNowPlaying();
 }
 
 function renderTabs() {
@@ -3250,8 +3268,7 @@ function renderSlideNav() {
 function resetAfterEnd() {
   // stage.js já voltou ao wallpaper internamente (ended flag);
   // apenas atualiza a UI sem limpar currentId (replay possível com play)
-  playing = false;
-  playPauseEl.querySelector('.msym').textContent = ICON.play;
+  setPlaying(false);
   seekEl.value = 0;
   curTimeEl.textContent = '0:00';
   seekEl.disabled = false;
@@ -3315,7 +3332,7 @@ async function toggleMute() {
 async function stopClear() {
   cmd({ type: 'clear' });
   clearManualText();
-  playing = false;
+  setPlaying(false);
   // YouTube: 'clear' derruba o player da preview (dropYtPreview via cmd) e o do
   // Display → o próximo ▶ precisa recarregar (send), não só reenviar 'play'.
   if (currentItem && currentItem.kind === 'youtube') ytEnded = true;
@@ -5329,8 +5346,14 @@ if (window.__NATIVE__) {
     switch (action) {
       // 'play'/'pause' vêm de fontes que sabem o que querem (tela de bloqueio,
       // fone); o botão da notificação manda 'playpause', que é alternador.
-      case 'play': if (!playing) playPauseEl.click(); break;
-      case 'pause': if (playing) playPauseEl.click(); break;
+      //
+      // Quando a intenção JÁ é o estado atual, o pedido só pode ter vindo de
+      // uma notificação desatualizada — o operador tocou no que a tela dele
+      // mostrava. Alternar seria fazer o oposto do pedido (pausar o louvor);
+      // ignorar em silêncio foi exatamente o defeito relatado na v1.17. Então
+      // não se mexe na mídia e se REPUBLICA a cena, para o botão se corrigir.
+      case 'play': if (!playing) playPauseEl.click(); else resyncScene(); break;
+      case 'pause': if (playing) playPauseEl.click(); else resyncScene(); break;
       case 'playpause': playPauseEl.click(); break;
       case 'stop': stopEl.click(); break;
       case 'view': viewToggleEl.click(); break;
@@ -5698,8 +5721,7 @@ AVDB.onCommand((msg) => {
     if (isYoutube && ytEnded) return;
     displayStatusAt = Date.now();
     lastDisplayTime = msg.currentTime || 0;
-    playing = !!msg.playing;
-    playPauseEl.querySelector('.msym').textContent = playing ? ICON.pause : ICON.play;
+    setPlaying(!!msg.playing);
     const dur = (typeof msg.duration === 'number' && isFinite(msg.duration)) ? msg.duration : 0;
     seekEl.disabled = !(dur > 0);
     durTimeEl.textContent = fmtTime(dur);
@@ -5718,7 +5740,7 @@ AVDB.onCommand((msg) => {
   } else if (msg.type === 'media-ended') {
     displayStatusAt = Date.now();
     if (isYoutube) ytEnded = true;
-    playing = false;
+    setPlaying(false);
     // Mesmo tratamento do onEnded local (o Display pode chegar ao fim primeiro):
     // a letra esmaece e trava, para o slide de capa não piscar no replay.
     pvLyricsEnded = true;
