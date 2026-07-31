@@ -59,7 +59,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.16';
+const WEB_VERSION = '5.17';
 
 function renderVersionLabel() {
   // __SHELL_NAME__ = versionName do APK (ver native.js). Vazio no navegador e
@@ -155,6 +155,12 @@ let view = 'visual';
 let muted = false;
 let volume = 1;
 let playing = false;
+// Declarado AQUI, junto do resto do estado, e não ao lado dos listeners da
+// barra (onde nasceu): `pushNowPlaying` o lê, e um `let` só é acessível depois
+// da linha que o declara. Com o arquivo inteiro entre um e outro, qualquer
+// render disparado durante a carga viraria um ReferenceError — e só no app,
+// porque no navegador `pushNowPlaying` retorna antes de chegar nele.
+let seeking = false;      // operador arrastando a barra de progresso
 let repeat = 'all';
 let activeTab = 'imports';
 let selectionMode = false;
@@ -1394,7 +1400,22 @@ function applyTitleMarquee() {
 // `slideMode` é o que decide se ⏮/⏭ passam MÍDIA ou ESTROFE — na notificação só
 // cabem três botões no modo compacto, e com uma letra/versículo/mensagem em
 // cena é a estrofe que o operador está passando.
+//
+// A POSIÇÃO fica fora da chave de deduplicação porque a sessão de mídia
+// extrapola o tempo sozinha (posição + decorrido × velocidade) — reenviar a
+// cada segundo só para mexer o cursor seria desperdício. Mas um SEEK é uma
+// descontinuidade que a extrapolação não tem como adivinhar: pular uma estrofe
+// deixava a barra contando a partir do ponto ANTIGO, mostrando um tempo falso
+// até a próxima mudança de estado.
+//
+// Em vez de avisar em cada ponto que faz seek (slide, barra, gesto, re-sincronia
+// com o Display), compara-se aqui o tempo real com o que a sessão estaria
+// extrapolando: divergiu além da tolerância, republica. Um só lugar cobre todas
+// as causas, inclusive as que ainda não existem. A tolerância absorve o jitter
+// normal do `display-status`, que chega com latência variável.
+const POS_TOL_MS = 1500;
 let lastScene = '';
+let lastPosMs = 0, lastPosAt = 0, lastPosPlaying = false;
 function pushNowPlaying() {
   if (!window.__NATIVE__) return;
   const who = slideTarget();
@@ -1407,6 +1428,14 @@ function pushNowPlaying() {
     : (plItems.length > 1 && currentId)
       ? 'Playlist · ' + (plItems.findIndex((m) => m.id === currentId) + 1) + ' de ' + plItems.length
       : '';
+  // Posição e duração saem da PRÓPRIA barra de progresso, não de um cálculo
+  // paralelo: ela já é mantida em dia pelos três caminhos (tick da preview,
+  // display-status e tick do YouTube) e é a única fonte que cobre todos os
+  // tipos de mídia — `preview.getDuration()` é do `<video>` do stage e não
+  // sabe nada de um vídeo do YouTube. Desabilitada = sem linha do tempo
+  // (imagem, versículo, mensagem): zera, para o sistema não desenhar uma barra
+  // que não significa nada.
+  const temTempo = !seekEl.disabled;
   const cena = {
     active,
     title: npNameInnerEl.textContent || '',
@@ -1414,8 +1443,8 @@ function pushNowPlaying() {
     playing,
     slideMode: !!who,
     wallpaper: view === 'wallpaper',
-    positionMs: Math.round(authoritativeTime() * 1000),
-    durationMs: Math.round((preview.getDuration() || 0) * 1000),
+    positionMs: temTempo ? Math.round((parseFloat(seekEl.value) || 0) * 1000) : 0,
+    durationMs: temTempo ? Math.round((parseFloat(seekEl.max) || 0) * 1000) : 0,
   };
   // A posição fica FORA da chave de deduplicação de propósito: a sessão de
   // mídia extrapola o tempo sozinha a partir do último estado e da velocidade
@@ -1423,8 +1452,19 @@ function pushNowPlaying() {
   // desperdício. O que precisa chegar é toda MUDANÇA de estado.
   const chave = JSON.stringify([cena.active, cena.title, cena.subtitle,
     cena.playing, cena.slideMode, cena.wallpaper, cena.durationMs]);
-  if (chave === lastScene) return;
+  const agora = Date.now();
+  const extrapolado = lastPosAt
+    ? lastPosMs + (lastPosPlaying ? agora - lastPosAt : 0)
+    : null;
+  // Arrastando a barra, `seekEl.value` é a posição do DEDO e não a da mídia —
+  // republicar aí encheria a sessão de instantes que ainda não aconteceram.
+  const saltou = !seeking
+    && (extrapolado === null || Math.abs(cena.positionMs - extrapolado) > POS_TOL_MS);
+  if (chave === lastScene && !saltou) return;
   lastScene = chave;
+  lastPosMs = cena.positionMs;
+  lastPosAt = agora;
+  lastPosPlaying = cena.playing;
   AVNative.nowPlaying(cena);
 }
 
@@ -5644,7 +5684,6 @@ newFolderInPickerBtnEl.addEventListener('click', async () => {
   backdrop.addEventListener('click', (e) => { if (e.target === backdrop) close(); });
 });
 
-let seeking = false;
 seekEl.addEventListener('pointerdown', () => { seeking = true; });
 seekEl.addEventListener('pointerup', () => { seeking = false; });
 
