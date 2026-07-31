@@ -79,10 +79,10 @@ git push origin main
   `renderVersionLabel()`), o fallback estático do `<span id="appVersion">` em
   `controle/index.html` e `version` em `version.json` (é este último que
   dispara a atualização por OTA nos aparelhos). Versionamento incremental
-  simples (5.12, 5.13, 5.14…). **Versão atual: v5.14.**
-  No app nativo o rótulo mostra os **dois índices** — `Web v5.14 · Shell v1.16`
+  simples (5.13, 5.14, 5.15…). **Versão atual: v5.15.**
+  No app nativo o rótulo mostra os **dois índices** — `Web v5.15 · Shell v1.17`
   —, porque base web e shell atualizam por caminhos independentes (OTA ×
-  instalar APK); no navegador sai só `Controle v5.14`.
+  instalar APK); no navegador sai só `Controle v5.15`.
 
 ---
 
