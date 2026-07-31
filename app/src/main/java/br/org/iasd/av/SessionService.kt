@@ -94,6 +94,12 @@ class SessionService : Service() {
                 override fun onStop() = SessionRemote.send(SessionRemote.STOP)
                 override fun onSkipToPrevious() = SessionRemote.send(SessionRemote.PREV)
                 override fun onSkipToNext() = SessionRemote.send(SessionRemote.NEXT)
+
+                // Parar e a cortina do wallpaper chegam por aqui, não pelos
+                // PendingIntent das Notification.Action — ver o comentário em
+                // [publish] sobre quem desenha os botões no Android 13+.
+                override fun onCustomAction(action: String, extras: android.os.Bundle?) =
+                    SessionRemote.send(action)
             })
             isActive = true
         }
@@ -127,8 +133,18 @@ class SessionService : Service() {
         super.onDestroy()
     }
 
+    private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+
     /** Espelha a cena atual na sessão de mídia e na notificação. */
     private fun publish() {
+        // `update` é chamado da thread do WebView (todo @JavascriptInterface
+        // roda fora da main). `MediaSession` tem handler próprio e não promete
+        // ser thread-safe — mexer nele de outra thread é o tipo de coisa que
+        // funciona num aparelho e falha calado noutro.
+        if (android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) {
+            mainHandler.post { publish() }
+            return
+        }
         val s = scene ?: Scene()
         session?.let { ms ->
             ms.setMetadata(
@@ -145,6 +161,11 @@ class SessionService : Service() {
                     )
                     .build(),
             )
+            // A partir do Android 13 o sistema DESENHA os controles a partir
+            // deste PlaybackState — as `Notification.Action` abaixo são
+            // ignoradas nessas versões. Por isso "Parar" e a cortina precisam
+            // ser CUSTOM ACTIONS da sessão: como Notification.Action elas
+            // simplesmente não apareciam, e só sobravam os botões nativos.
             ms.setPlaybackState(
                 PlaybackState.Builder()
                     .setActions(
@@ -154,6 +175,20 @@ class SessionService : Service() {
                             PlaybackState.ACTION_STOP or
                             PlaybackState.ACTION_SKIP_TO_PREVIOUS or
                             PlaybackState.ACTION_SKIP_TO_NEXT,
+                    )
+                    .addCustomAction(
+                        PlaybackState.CustomAction.Builder(
+                            SessionRemote.VIEW,
+                            if (s.wallpaper) "Mostrar mídia" else "Cobrir telão",
+                            android.R.drawable.ic_menu_view,
+                        ).build(),
+                    )
+                    .addCustomAction(
+                        PlaybackState.CustomAction.Builder(
+                            SessionRemote.STOP,
+                            "Parar",
+                            android.R.drawable.ic_menu_close_clear_cancel,
+                        ).build(),
                     )
                     .setState(
                         if (s.playing) PlaybackState.STATE_PLAYING else PlaybackState.STATE_PAUSED,
