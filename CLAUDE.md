@@ -173,7 +173,7 @@ Além disso, `native.js` publica três globais lidas direto (sem Promise):
 APK, que é o **índice de versão do shell exibido ao operador**. Ele não se
 confunde com `__SHELL_VERSION__`: base web e shell atualizam por caminhos
 independentes (OTA × instalar APK), então o cabeçalho do Cronograma mostra os
-dois (`Web v5.16 · Shell v1.18`). Num shell antigo (sem `appVersion()`) a
+dois (`Web v5.17 · Shell v1.18`). Num shell antigo (sem `appVersion()`) a
 string vem vazia e a UI cai em só a versão web — mesma degradação do navegador.
 
 **Princípio: a ponte entrega URLs SERVÍVEIS, não bytes.** Arquivos do
@@ -360,11 +360,22 @@ Dois ganhos, e o segundo é o menos óbvio:
   notificação é alternador. Tratar tudo como alternador faria um `onPlay`
   recebido com o áudio já tocando PAUSAR o louvor.
 - **O estado sai de `pushNowPlaying`**, que lê o título do próprio `#npName` já
-  renderizado em vez de reconstruir as três origens (mídia/versículo/mensagem) —
-  duplicar essa árvore era garantir divergência com o tempo. A **posição fica
-  fora da chave de deduplicação**: a sessão extrapola o tempo sozinha a partir
-  do último estado e da velocidade, então reenviar a cada segundo só para mexer
-  o cursor seria desperdício.
+  renderizado, e a posição/duração da própria **barra de progresso** — em vez de
+  reconstruir as três origens (mídia/versículo/mensagem) ou recalcular o tempo
+  por fora. Duplicar essas árvores era garantir divergência; e a barra é a única
+  fonte que cobre todos os tipos, inclusive YouTube (`preview.getDuration()` é do
+  `<video>` do stage e não sabe nada de um vídeo do YouTube).
+- **A posição fica fora da chave de deduplicação**, porque a sessão extrapola o
+  tempo sozinha (posição + decorrido × velocidade) — reenviar a cada segundo só
+  para mexer o cursor seria desperdício. Mas um **seek é uma descontinuidade**
+  que a extrapolação não adivinha: até a v1.18, pular uma estrofe deixava a
+  barra contando a partir do ponto antigo e mostrando um tempo falso. Em vez de
+  avisar em cada ponto que faz seek (slide, barra, gesto, re-sincronia com o
+  Display), `pushNowPlaying` compara o tempo real com o que a sessão estaria
+  extrapolando e republica quando diverge além de `POS_TOL_MS` (1,5 s — folga
+  para o jitter do `display-status`). Um só lugar cobre todas as causas,
+  inclusive as futuras. Durante um ARRASTE na barra não republica: ali o valor
+  é a posição do dedo, não a da mídia.
 - O serviço vive enquanto houver **cena** (mídia carregada, letra, versículo ou
   mensagem), não só enquanto toca: pausado, o operador ainda precisa do botão de
   play. Sem cena, ele para e a notificação some.
@@ -681,4 +692,4 @@ Rodar local: `./gradlew assembleDebug` (exige Android SDK instalado).
   (`#appVersion` em `assets/web/controle/index.html`) **e `version` em
   `assets/web/version.json`** — é este último que faz a atualização chegar
   aos aparelhos por OTA. O `versionCode`/`versionName` do APK vêm do CI.
-  **Versão atual: v5.16** (base web) · **shell 1.18** (`SHELL_VERSION` 13).
+  **Versão atual: v5.17** (base web) · **shell 1.18** (`SHELL_VERSION` 13).
