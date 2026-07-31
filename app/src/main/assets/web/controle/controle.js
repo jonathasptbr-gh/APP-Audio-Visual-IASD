@@ -59,7 +59,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.14';
+const WEB_VERSION = '5.15';
 
 function renderVersionLabel() {
   // __SHELL_NAME__ = versionName do APK (ver native.js). Vazio no navegador e
@@ -1322,6 +1322,9 @@ function renderControls() {
     ? 'Sem áudio no Display — toque para tentar liberar'
     : 'Mudo (liga/desliga)';
   if (!volSeeking) volSliderEl.value = Math.round(volume * 100);
+  // A cortina (view) muda por aqui, não por renderNowPlaying — e o rótulo do
+  // botão da notificação depende dela. A deduplicação segura o excesso.
+  pushNowPlaying();
 }
 
 function renderRepeat() {
@@ -1339,6 +1342,7 @@ function renderNowPlaying() {
     npNameInnerEl.textContent = 'Mensagem ' + (msgSession.idx + 1);
     applyTitleMarquee();
     playPauseEl.querySelector('.msym').textContent = playing ? ICON.pause : ICON.play;
+    pushNowPlaying();
     return;
   }
   // Texto bíblico EM EXIBIÇÃO: mostra a referência (livro cap:versículo). Antes
@@ -1350,6 +1354,7 @@ function renderNowPlaying() {
     applyTitleMarquee();
     playPauseEl.querySelector('.msym').textContent = ICON.play;
     seekEl.disabled = true;
+    pushNowPlaying();
     return;
   }
   // Prioriza plItems/libItems (já carregados); usa currentItem como fallback
@@ -1360,6 +1365,7 @@ function renderNowPlaying() {
   playPauseEl.querySelector('.msym').textContent = playing ? ICON.pause : ICON.play;
   const isTimed = cur && (cur.kind === 'video' || cur.kind === 'audio');
   seekEl.disabled = !isTimed;
+  pushNowPlaying();
 }
 
 // Título rolante: se o nome da mídia não couber na largura disponível, liga a
@@ -1379,6 +1385,50 @@ function applyTitleMarquee() {
     npNameInnerEl.style.setProperty('--np-dur', dur.toFixed(1) + 's');
     npNameEl.classList.add('scrolling');
   }
+}
+
+// ===== Notificação de controles / tela de bloqueio (só no app) =====
+// Espelha para o sistema o que está no ar. O título sai do PRÓPRIO elemento já
+// renderizado (`#npName`), não de uma segunda árvore de decisão: as três
+// origens possíveis (mídia, versículo, mensagem) já são resolvidas em
+// `renderNowPlaying`, e duplicar essa lógica aqui era garantir que as duas
+// versões divergissem com o tempo.
+//
+// `slideMode` é o que decide se ⏮/⏭ passam MÍDIA ou ESTROFE — na notificação só
+// cabem três botões no modo compacto, e com uma letra/versículo/mensagem em
+// cena é a estrofe que o operador está passando.
+let lastScene = '';
+function pushNowPlaying() {
+  if (!window.__NATIVE__) return;
+  const who = slideTarget();
+  const active = !!currentId
+    || !!(msgSession && msgSession.projecting)
+    || !!(bibleSession && bibleSession.projecting);
+  const subtitle = who === 'bible' ? 'Bíblia'
+    : who === 'message' ? 'Mensagem'
+    : who === 'lyrics' ? 'Letra sincronizada'
+    : (plItems.length > 1 && currentId)
+      ? 'Playlist · ' + (plItems.findIndex((m) => m.id === currentId) + 1) + ' de ' + plItems.length
+      : '';
+  const cena = {
+    active,
+    title: npNameInnerEl.textContent || '',
+    subtitle,
+    playing,
+    slideMode: !!who,
+    wallpaper: view === 'wallpaper',
+    positionMs: Math.round(authoritativeTime() * 1000),
+    durationMs: Math.round((preview.getDuration() || 0) * 1000),
+  };
+  // A posição fica FORA da chave de deduplicação de propósito: a sessão de
+  // mídia extrapola o tempo sozinha a partir do último estado e da velocidade
+  // (1x tocando), então reenviar a cada segundo só para mexer o cursor seria
+  // desperdício. O que precisa chegar é toda MUDANÇA de estado.
+  const chave = JSON.stringify([cena.active, cena.title, cena.subtitle,
+    cena.playing, cena.slideMode, cena.wallpaper, cena.durationMs]);
+  if (chave === lastScene) return;
+  lastScene = chave;
+  AVNative.nowPlaying(cena);
 }
 
 function renderTabs() {
@@ -5268,6 +5318,30 @@ if (window.__NATIVE__) {
   };
   // Só agora — com o handler de pé — a Activity pode consumir as teclas.
   AVNative.captureVolumeKeys(true);
+
+  // ===== Controles da notificação / tela de bloqueio / botões de mídia =====
+  // Tudo cai nos MESMOS botões da tela, via `.click()`: os handlers já tratam
+  // todos os casos de borda (texto sem áudio de fundo, YouTube que precisa
+  // recarregar, limites da playlist), e um botão `disabled` é um no-op
+  // natural. Reimplementar essas decisões aqui — ou pior, em Kotlin — seria
+  // criar uma segunda verdade sobre o transporte.
+  AVNative.onRemote((action) => {
+    switch (action) {
+      // 'play'/'pause' vêm de fontes que sabem o que querem (tela de bloqueio,
+      // fone); o botão da notificação manda 'playpause', que é alternador.
+      case 'play': if (!playing) playPauseEl.click(); break;
+      case 'pause': if (playing) playPauseEl.click(); break;
+      case 'playpause': playPauseEl.click(); break;
+      case 'stop': stopEl.click(); break;
+      case 'view': viewToggleEl.click(); break;
+      // Com letra, versículo ou mensagem em cena, ⏮/⏭ passam ESTROFE — é o que
+      // o operador está fazendo naquele momento. Ver `slideMode` em
+      // pushNowPlaying, que é o que rotula os botões na notificação.
+      case 'prev': (slideTarget() ? slidePrevBtnEl : prevEl).click(); break;
+      case 'next': (slideTarget() ? slideNextBtnEl : nextEl).click(); break;
+      default: break;
+    }
+  });
 }
 
 // O botão flutuante de mensagem é dois botões num só (ver renderMsgFab):

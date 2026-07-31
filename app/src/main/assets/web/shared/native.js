@@ -182,5 +182,34 @@
         }));
       } catch (_) { /* ignorado */ }
     },
+
+    // O que está no ar, para a notificação de controles e a sessão de mídia
+    // (SessionService.kt). `active:false` = nada em cena: a notificação some.
+    // Num shell anterior o método não existe e o `try` engole — o app segue
+    // sem notificação de controles, como antes.
+    nowPlaying(s) {
+      try {
+        B.nowPlaying(JSON.stringify({
+          active: !!(s && s.active),
+          title: String((s && s.title) || ''),
+          subtitle: String((s && s.subtitle) || ''),
+          playing: !!(s && s.playing),
+          // ⏮/⏭ passam ESTROFE em vez de mídia (letra, versículo, mensagem).
+          slideMode: !!(s && s.slideMode),
+          wallpaper: !!(s && s.wallpaper),
+          positionMs: Math.max(0, (s && s.positionMs) | 0),
+          durationMs: Math.max(0, (s && s.durationMs) | 0),
+        }));
+      } catch (_) { /* ignorado */ }
+    },
+
+    // Ação vinda da notificação, da tela de bloqueio ou de um botão de mídia.
+    // O callback recebe a string da ação; quem executa é o lado web, com os
+    // mesmos handlers dos botões da tela.
+    onRemote(cb) {
+      global.__avRemote = function (action) {
+        try { cb(String(action)); } catch (_) { /* ignorado */ }
+      };
+    },
   };
 })(this);

@@ -183,6 +183,15 @@ class MainActivity : ComponentActivity(), BridgeHost {
         // uma projeção.
         WebUpdater.checkAsync(this)
 
+        // Notificação de controles / tela de bloqueio / botões de mídia: o
+        // sistema entrega a ação aqui e ela vai para o MESMO caminho dos botões
+        // da tela (`window.__avRemote` → os handlers já existentes). Nada de
+        // transporte é decidido em Kotlin — ver [SessionRemote].
+        SessionRemote.onAction = { action ->
+            val js = "window.__avRemote && window.__avRemote(${JSONObject.quote(action)});"
+            runOnUiThread { web?.evaluateJavascript(js, null) }
+        }
+
         onBackPressedDispatcher.addCallback(this) {
             // Sair do app por engano durante o culto derrubaria a projeção.
             // O botão voltar apenas manda a tarefa para segundo plano — a
@@ -238,6 +247,10 @@ class MainActivity : ComponentActivity(), BridgeHost {
             backgroundWork = false
             try { SyncService.stop(this) } catch (_: Exception) { }
         }
+        // Idem para a sessão: sem WebView não há quem execute a ação, e a
+        // notificação de controles viraria um painel de botões mortos.
+        SessionRemote.onAction = null
+        try { SessionService.stop(this) } catch (_: Exception) { }
         displayManager?.unregisterDisplayListener(displayListener)
         presentation?.let {
             it.release()

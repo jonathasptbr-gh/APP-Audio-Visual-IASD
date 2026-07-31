@@ -19,6 +19,12 @@
          álbuns, Bíblia ou pastas para no meio (ver SyncService). -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+
+    <!-- Sessão de mídia + notificação com os controles de transporte. Também é
+         o que tira a projeção da lista de processos descartáveis: sem um
+         serviço em primeiro plano, um culto com o app minimizado podia perder
+         a Presentation numa pressão de memória. Ver SessionService.kt. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <!-- Android 13+: sem esta permissão o serviço ainda roda, só a
          notificação não aparece. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
@@ -90,5 +96,10 @@
             android:name=".SyncService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
+
+        <service
+            android:name=".SessionService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
     </application>
 </manifest>

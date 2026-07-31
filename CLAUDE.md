@@ -75,6 +75,7 @@ app/src/main/
 │   ├── SafPathHandler.kt        # serve arquivos do dispositivo em /saf/<token>
 │   ├── ShareIntake.kt           # intent ACTION_SEND → formato do share web
 │   ├── SyncService.kt           # foreground service: downloads com o app minimizado
+│   ├── SessionService.kt        # MediaSession + notificação com os controles de transporte
 │   ├── WebUpdater.kt            # OTA da base web (watchdog, minShell, sha256)
 │   ├── WebPathHandler.kt        # serve o bundle OTA, com fallback pro APK
 │   ├── MicChromeClient.kt       # onPermissionRequest: microfone no WebView do telão
@@ -156,6 +157,8 @@ window.AVNative = {
   onDisplayChange(cb),
   keepAlive(bool),     // download em curso — ver "Trabalho em segundo plano"
   bgProgress({label, done, total, etaMs, items, idleMs}), // progresso na notificação
+  nowPlaying({active, title, subtitle, playing, slideMode, wallpaper, positionMs, durationMs}),
+  onRemote(cb),        // cb('play'|'pause'|'playpause'|'prev'|'next'|'stop'|'view')
   openCast(),          // seletor de ESPELHAMENTO DE TELA do Android (≠ Google Cast)
   castTarget(),        // → rótulo do alvo de espelhamento deste aparelho
   captureVolumeKeys(bool), // botões físicos de volume vão para o app
@@ -170,7 +173,7 @@ Além disso, `native.js` publica três globais lidas direto (sem Promise):
 APK, que é o **índice de versão do shell exibido ao operador**. Ele não se
 confunde com `__SHELL_VERSION__`: base web e shell atualizam por caminhos
 independentes (OTA × instalar APK), então o cabeçalho do Cronograma mostra os
-dois (`Web v5.14 · Shell v1.16`). Num shell antigo (sem `appVersion()`) a
+dois (`Web v5.15 · Shell v1.17`). Num shell antigo (sem `appVersion()`) a
 string vem vazia e a UI cai em só a versão web — mesma degradação do navegador.
 
 **Princípio: a ponte entrega URLs SERVÍVEIS, não bytes.** Arquivos do
@@ -323,6 +326,58 @@ percentual e o tempo restante.
 
 ---
 
+## Notificação de controles (sessão de mídia)
+
+[`SessionService.kt`](app/src/main/java/br/org/iasd/av/SessionService.kt) publica
+um `MediaSession` e uma notificação `MediaStyle` com os controles de transporte.
+Dois ganhos, e o segundo é o menos óbvio:
+
+1. **Controlar sem abrir o app.** No modo "mesa de som" o celular está ligado na
+   caixa de som e provavelmente bloqueado; abrir o app só para pausar é atrito
+   real no meio de um culto. Com o `MediaSession` os controles aparecem também
+   na **tela de bloqueio** e nas configurações rápidas, de graça.
+2. **A projeção deixa de ser descartável.** Antes disto o único serviço em
+   primeiro plano era o `SyncService`, que só sobe DURANTE downloads: num culto
+   normal não havia nenhum, e o processo seguia candidato a ser morto sob
+   pressão de memória — levando junto a `Presentation` na TV. Um serviço
+   `mediaPlayback` ativo enquanto houver cena fecha esse buraco.
+
+- **Nenhuma decisão de transporte em Kotlin** (invariante 5). O sistema entrega
+  uma string de ação, `SessionRemote` a repassa a `window.__avRemote`, e o lado
+  web aciona os **mesmos botões da tela** por `.click()`. Os handlers já tratam
+  todos os casos de borda (texto sem áudio de fundo, YouTube que precisa
+  recarregar, limites da playlist) e um botão `disabled` é um no-op natural.
+- **Por isso nenhuma ação é desabilitada no lado nativo.** Quem sabe se
+  "estrofe anterior" faz sentido agora é o web; desabilitar nos dois lugares
+  duplicaria a regra, e a cópia em Kotlin envelheceria.
+- **⏮/⏭ mudam de eixo conforme a cena.** Na tela os dois eixos têm botões
+  próprios (mídia no transporte, estrofe ao lado da preview), mas na notificação
+  só cabem três no modo compacto — e com letra, versículo ou mensagem em cena é
+  a estrofe que o operador está passando. `slideMode` (de `slideTarget()`)
+  decide, e o rótulo do botão diz qual é o modo para não virar adivinhação.
+- **`play`/`pause` e `playpause` são coisas diferentes.** Tela de bloqueio, fone
+  e Android Auto sabem o que querem e mandam intenção explícita; o botão da
+  notificação é alternador. Tratar tudo como alternador faria um `onPlay`
+  recebido com o áudio já tocando PAUSAR o louvor.
+- **O estado sai de `pushNowPlaying`**, que lê o título do próprio `#npName` já
+  renderizado em vez de reconstruir as três origens (mídia/versículo/mensagem) —
+  duplicar essa árvore era garantir divergência com o tempo. A **posição fica
+  fora da chave de deduplicação**: a sessão extrapola o tempo sozinha a partir
+  do último estado e da velocidade, então reenviar a cada segundo só para mexer
+  o cursor seria desperdício.
+- O serviço vive enquanto houver **cena** (mídia carregada, letra, versículo ou
+  mensagem), não só enquanto toca: pausado, o operador ainda precisa do botão de
+  play. Sem cena, ele para e a notificação some.
+- **Ícones são os do sistema** (`android.R.drawable.ic_media_*`) — carregar um
+  conjunto próprio no `res/` só para cinco botões não se paga, e o `MediaStyle`
+  os tinge conforme o tema.
+- **A verificar em aparelho:** se o WebView criar uma sessão de mídia própria ao
+  tocar áudio, poderia aparecer uma notificação concorrente. Nada no código
+  indica isso (o WebView não se comporta como o Chrome aqui), mas não foi
+  observado rodando.
+
+---
+
 ## OTA da base web (atualização sem APK)
 
 No PWA, um push em `main` chegava sozinho ao aparelho. Empacotada num APK, a
@@ -400,6 +455,7 @@ contextos.
 | Botões físicos de volume | o navegador não os recebe | **interceptados** e ligados ao fader do app (ver abaixo) |
 | Microfone (`getUserMedia`) | o navegador pergunta | `MicChromeClient` + permissão `RECORD_AUDIO` (ver abaixo) |
 | Botão voltar | — | manda a tarefa para segundo plano (sair por engano derrubaria a projeção) |
+| Controles fora do app | — | **notificação + tela de bloqueio + botões de mídia** via `MediaSession` (ver seção acima) |
 | Download com o app minimizado | a aba continua baixando | **foreground service + wake lock** — sem isso o processo é congelado (ver seção acima) |
 | Atualização da base web | service worker (cache-first + reload) | **OTA** — bundle publicado em `web-latest`, aplicado no próximo lançamento (ver seção acima) |
 
@@ -615,4 +671,4 @@ Rodar local: `./gradlew assembleDebug` (exige Android SDK instalado).
   (`#appVersion` em `assets/web/controle/index.html`) **e `version` em
   `assets/web/version.json`** — é este último que faz a atualização chegar
   aos aparelhos por OTA. O `versionCode`/`versionName` do APK vêm do CI.
-  **Versão atual: v5.14** (base web) · **shell 1.16** (`SHELL_VERSION` 12).
+  **Versão atual: v5.15** (base web) · **shell 1.17** (`SHELL_VERSION` 13).

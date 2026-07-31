@@ -69,7 +69,7 @@ class NativeBridge(
          * exijam mais do que o shell instalado oferece (ver [WebUpdater]).
          * Subir SEMPRE que a superfície da ponte mudar.
          */
-        const val SHELL_VERSION = 12
+        const val SHELL_VERSION = 13
     }
 
     private val io = Executors.newSingleThreadExecutor()
@@ -161,6 +161,36 @@ class NativeBridge(
             etaMs = o.optLong("etaMs"),
             items = itens,
             idleMs = o.optLong("idleMs"),
+        )
+    }
+
+    /**
+     * O que está no ar, para a notificação de controles e a sessão de mídia
+     * (ver [SessionService]). Vem do lado web porque é lá que o estado mora —
+     * o mesmo princípio de [bgProgress].
+     *
+     * `active:false` significa "nada em cena": derruba o serviço, e a
+     * notificação some junto. É o lado web que decide isso, não um palpite
+     * daqui sobre o que seria "tocando".
+     */
+    @JavascriptInterface
+    fun nowPlaying(json: String) {
+        val o = try { JSONObject(json) } catch (e: Exception) { return }
+        if (!o.optBoolean("active")) {
+            SessionService.stop(ctx)
+            return
+        }
+        SessionService.update(
+            ctx,
+            SessionService.Companion.Scene(
+                title = o.optString("title").ifBlank { "Em exibição" },
+                subtitle = o.optString("subtitle"),
+                playing = o.optBoolean("playing"),
+                slideMode = o.optBoolean("slideMode"),
+                wallpaper = o.optBoolean("wallpaper"),
+                positionMs = o.optLong("positionMs"),
+                durationMs = o.optLong("durationMs"),
+            ),
         )
     }
 
