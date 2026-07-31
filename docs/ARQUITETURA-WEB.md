@@ -79,10 +79,10 @@ git push origin main
   `renderVersionLabel()`), o fallback estático do `<span id="appVersion">` em
   `controle/index.html` e `version` em `version.json` (é este último que
   dispara a atualização por OTA nos aparelhos). Versionamento incremental
-  simples (5.16, 5.17, 5.18…). **Versão atual: v5.18.**
+  simples (5.17, 5.18, 5.19…). **Versão atual: v5.19.**
   No app nativo o rótulo mostra os **dois índices** — `Web v5.17 · Shell v1.18`
   —, porque base web e shell atualizam por caminhos independentes (OTA ×
-  instalar APK); no navegador sai só `Controle v5.18`.
+  instalar APK); no navegador sai só `Controle v5.19`.
 
 ---
 
@@ -635,11 +635,12 @@ chegou depois já decidiu o estado final da cortina. Ações exclusivas
 │  │  item 1                                           │  │  ← .lib-list
 │  │  item 2                                           │  │     (área scrollável)
 │  └───────────────────────────────────────────────────┘  │
-│  [+ Importar]  Cronograma  Pastas  Álbuns  Bíblia   🔍   │  ← .tabs (mescladas ao fundo)
+│  [+ Importar] [★ Favoritos]  ← última linha do Cronograma │
+│  Cronograma  Álbuns  Bíblia  Microfone              🔍   │  ← .tabs (mescladas ao fundo)
 ├─────────────────────────────────────────────────────────┤
 │  ┌─────────────────────────────────────┬──────┐         │  ← .bottombar (base fixa)
 │  │  Nome da mídia atual  [seek bar]    │ Wall │         │
-│  │─────────────────────────────────────│ Ltr  │         │
+│  │─────────────────────────────────────│ Letra│         │
 │  │  ⏮ Preview 16:9 ⏭                  │ Mesa │         │
 │  │─────────────────────────────────────│ Mudo │         │
 │  │  🔁  ⏮  ▶/⏸  ⏹  ⏭  [Playlist]    │ Vol  │         │
@@ -655,8 +656,8 @@ appbar cuidava do notch/status bar).
 **Cabeçalho da lista (`.list-header`):** botão voltar (dentro de pasta), título da
 aba/pasta, o **indicador de versão** (`#appVersion` — só aparece ao lado do
 título da aba **Cronograma**, `activeTab==='imports'`), campo de busca (dentro de
-pasta OPFS) e botão de sincronizar pasta do dispositivo (só na raiz da aba
-Pastas). Na aba Bíblia o título fica oculto (libera espaço — ver "Bíblia").
+pasta OPFS) e botão de sincronizar pasta do dispositivo (só na raiz dos
+**Favoritos**). Na aba Bíblia o título fica oculto (libera espaço — ver "Bíblia").
 
 **Controles (`.bottombar`):** fixados na base da tela. O padding inferior usa
 `max(env(safe-area-inset-bottom), 12px)` para garantir margem segura contra
@@ -701,13 +702,16 @@ linha da grade:
 | Fatia | Linha da grade | Conteúdo |
 |---|---|---|
 | `.mixer-top` | 1 (mesma de `.nowplaying`) | **visual on/off** (`#viewToggle`) |
-| `.mixer-mid` | 2 (mesma de `.preview-row`, 130px) | **fundo da letra** (`#lyricsBgToggle`, ícone de **flor** — SVG inline), **mesa de som** (`#standaloneToggle`, ícone de **fone de ouvido** — SVG inline), **mudo** (`#muteToggle`) — empilhados, cada um com `flex:1` |
+| `.mixer-mid` | 2 (mesma de `.preview-row`, 130px) | **letra/texto completo** (`#lyricsViewBtn`, ícone de **folha com linhas** — SVG inline; abre a leitura auxiliar), **mesa de som** (`#standaloneToggle`, ícone de **fone de ouvido** — SVG inline), **mudo** (`#muteToggle`) — empilhados, cada um com `flex:1` |
 | `.mixer-bottom` | 3 (mesma de `.transport`) | **volume** (`#volToggle`/`#volClose`, recolhível) |
 
-Essa ordem (wallpaper no topo, depois fundo da letra/mesa de som/mudo no
-meio, volume na base) agrupa os controles de **áudio** (mesa de som + mudo)
-perto do volume, na base, e o de **visual** (fundo da letra) perto do
-wallpaper, no topo. Cada botão tem `flex:1` dentro da própria fatia — top
+Essa ordem (wallpaper no topo, depois letra/mesa de som/mudo no meio, volume
+na base) agrupa os controles de **áudio** (mesa de som + mudo) perto do
+volume, na base, e o de **visual** perto do wallpaper, no topo. A fatia do
+meio começa com a **leitura auxiliar** (ver seção própria): ali morava o
+antigo botão de fundo da letra, que virou uma opção do popup de Exibição —
+é preferência de aparência, escolhida uma vez, não algo que se opera durante
+o culto. Cada botão tem `flex:1` dentro da própria fatia — top
 (1 botão) e bottom (1 de cada vez) preenchem a fatia inteira; mid (3
 botões) a divide em partes iguais.
 
@@ -728,7 +732,7 @@ com o volume de mídia baixo ficaria sem como subir enquanto o app estivesse
 aberto. Ver "Divergências" em `../CLAUDE.md`.
 
 Tocar no botão de volume liga a classe `.vol-open` no `#mixer`, que troca
-**top + mid** (os 4 botões: visual/fundo da letra/mesa de som/mudo) pelo
+**top + mid** (os 4 botões: visual/letra/mesa de som/mudo) pelo
 **fader vertical** (`.fader-wrap`, posicionado via `grid-row: 1 / 3` — ocupa
 exatamente o mesmo espaço de top+mid combinados) **+ um botão de ocultar**
 (`#volClose`, ícone ✕) que aparece na mesma fatia `.mixer-bottom`, no lugar
@@ -815,9 +819,13 @@ destravada no `fullscreenchange`) é a **projeção quando não há telão
 conectado**. CSS: `.preview:fullscreen` preenche a tela (cantos retos, sem
 borda, `touch-action:none`; as camadas internas já são `inset:0` +
 `object-fit`). O popup de Exibição guarda o seletor de **preenchimento da
-mídia** (`#fitSeg` — Ajustar/Preencher/Esticar, ver `stage.setFit()`), o
-**wallpaper do telão** e o **estado do telão** no rodapé. As transições (fade)
-**não têm controle ali** — são inerentes ao sistema (ver o state `fade`).
+mídia** (`#fitSeg` — Ajustar/Preencher/Esticar, ver `stage.setFit()`), as
+**imagens dos slides** das músicas (`#lyricsBgSeg` — Mostrar/Remover, ver
+"Fundo preto vs. imagens dos slides"), o **wallpaper do telão** e o **estado
+do telão** no rodapé. As três primeiras são a mesma pergunta — como o telão se
+parece —, respondida uma vez e não durante o culto; por isso as imagens dos
+slides deixaram o mixer e vieram para cá. As transições (fade) **não têm
+controle ali** — são inerentes ao sistema (ver o state `fade`).
 
 **Controle por gestos invisíveis DENTRO do fullscreen:** a tela inteira vira uma
 superfície de controle **sem desenhar nada no telão** (o operador espelha a tela
@@ -959,6 +967,40 @@ igreja, sem precisar nem abrir o Display).
 - **Não é persistido** — cada abertura do app começa em modo normal (preview
   muda), evitando som inesperado saindo do celular numa sessão nova.
 
+### Leitura auxiliar (letra completa / capítulo inteiro)
+
+O telão mostra **uma** estrofe (ou **um** versículo) por vez — o formato certo
+para quem assiste, e o errado para quem opera: o operador precisa saber o que
+vem depois, e a preview só espelha o que já está no ar. O botão do meio do
+mixer (`#lyricsViewBtn`, folha com linhas) abre um bottom-sheet **com scroll**
+(`#lyricsPopup`) com a íntegra do que está em cena.
+
+- **Duas fontes, uma tela**: a **letra** da música em cena
+  (`currentItem.lyrics`, os mesmos slides que o Display projeta — o slide de
+  capa vira a linha "Início") e o **capítulo** da leitura bíblica
+  (`bibleSession.verses`, numerados como numa Bíblia impressa). Basta a sessão
+  existir: um capítulo fora do ar continua sendo o que o operador está lendo.
+- **O seletor do topo (`#lyricsViewSeg`) só aparece quando há as duas** — o que
+  acontece de verdade com um louvor de fundo durante a leitura. Com uma fonte
+  só, ela abre direto, sem um seletor de uma opção. A escolha manual (`lvSource`)
+  vale enquanto aquela fonte existir; sumindo, cai na disponível.
+- **É leitura, não operação.** Nenhuma linha projeta nada ao toque: o que vai
+  ao telão continua saindo dos botões de estrofe/versículo (`stepSlide`) e da
+  tela da Bíblia. Um popup de consulta que também projeta seria a pior hora
+  possível para um toque errado.
+- **Acompanha sozinho, mas não disputa**: a linha no ar fica destacada
+  (`.lv-row.current`) e a lista rola até centralizá-la — até o operador rolar
+  com o dedo (`lvFollow`, desligado no primeiro `pointerdown`/`wheel`, religado
+  ao reabrir ou ao trocar de fonte). Sem isso, ler adiante seria impossível:
+  a estrofe seguinte puxaria a lista de volta no meio da leitura.
+- **Sem timer próprio**: `refreshLyricsView()` é chamada de `renderSlideNav()`,
+  que já roda a cada tick de tempo e a cada troca de versículo/mensagem. Com o
+  popup fechado custa uma comparação de classe. Uma **assinatura** do conteúdo
+  (`lvSignature`) decide entre re-renderizar (trocou a música, o capítulo ou a
+  disponibilidade das fontes) e só mover o destaque — e ela inclui a lista de
+  fontes DISPONÍVEIS, não só a ativa: começar a leitura bíblica com um louvor
+  tocando não muda o que está na frente, mas passa a haver o que alternar.
+
 ### Onde o Display roda
 
 O Display **não é mais um app que se abre**. No aparelho ele é a
@@ -995,20 +1037,21 @@ só do que é de fato uma seção da biblioteca:
 
 **Duas telas saíram da faixa de abas**, cada uma por um motivo próprio:
 
-- **Pastas** (`folders`) — pastas sincronizadas no OPFS e pastas virtuais.
-  Continua sendo um `activeTab` (com toda a navegação interna: abrir pasta,
-  buscar, sincronizar), mas chega-se a ela pelo **botão ao lado de "Importar
-  arquivos"**, no fim do Cronograma: as duas respondem à mesma pergunta — "de
-  onde vem a mídia?" — e ficam onde o resultado delas aparece. O `#backBtn`
-  passa a aparecer também na **raiz** de Pastas (é a única saída de lá) e
-  `navigateBack()` volta ao Cronograma; `renderTabs()` mantém o Cronograma
-  aceso enquanto se está em Pastas, para a faixa não ficar sem nada marcado.
+- **Favoritos** (`activeTab` segue sendo `'folders'`) — atalhos criados pelo
+  operador e pastas do dispositivo sincronizadas no OPFS. Continua sendo um
+  `activeTab` (com toda a navegação interna: abrir, buscar, sincronizar), mas
+  chega-se a ela pelo **botão ao lado de "Importar arquivos"**, no fim do
+  Cronograma: as duas respondem à mesma pergunta — "de onde vem a mídia?" — e
+  ficam onde o resultado delas aparece. O `#backBtn` passa a aparecer também
+  na **raiz** dos Favoritos (é a única saída de lá) e `navigateBack()` volta
+  ao Cronograma; `renderTabs()` mantém o Cronograma aceso enquanto se está
+  neles, para a faixa não ficar sem nada marcado.
 - **Mensagens** — virou um **botão flutuante sobre a preview** (canto inferior
   esquerdo) que abre a lista num bottom-sheet. Um aviso de texto ("bem-vindos",
   "desliguem o celular") é uma interrupção rápida, não uma seção que se navega.
   Ver "Mensagens" abaixo.
 
-**Importar arquivos e Pastas** (`appendImportRow`) são a **última linha da
+**Importar arquivos e Favoritos** (`appendImportRow`) são a **última linha da
 lista do Cronograma** (`.import-row` com dois `.import-btn` lado a lado,
 tracejados, separados da lista por uma margem). O `<input type="file"
 multiple>` continua sendo o mesmo elemento de sempre (`#file`, com o listener
@@ -1018,7 +1061,7 @@ destruiria um input criado ali. A linha não aparece dentro de pasta nem em modo
 de seleção múltipla.
 
 **Navegação persistente:** trocar de aba **não** reseta a pasta aberta nem a
-busca — voltar para Pastas retorna exatamente onde estava. A posição de scroll
+busca — voltar para os Favoritos retorna exatamente onde estava. A posição de scroll
 é guardada por aba/pasta (`scrollPos`, chave `scrollKey()` = aba + id da pasta)
 e restaurada ao fim de cada `load()`; `rememberScroll()` é chamado antes de
 trocar de aba, abrir pasta ou voltar. (Memória por sessão, em RAM.)
@@ -1066,13 +1109,34 @@ basta. `showDropLine` e `dropIndex` leem o mesmo cache — a linha-guia e o
 destino real nunca discordam.
 
 **Modo de seleção múltipla:** barra substitui as abas, com contagem e botões de
-salvar em pasta, renomear (1 item) e excluir. Os itens selecionados são
+adicionar aos favoritos, renomear (1 item) e excluir. Os itens selecionados são
 indicados **só pelo highlight azul** (`.lib-item.selected` — borda accent), sem
 ícone de check; a miniatura fica sempre encostada à esquerda (não há coluna
 reservada). Excluir dentro de pasta virtual só remove da pasta; nas demais abas
 usa `listRemove` (com gc).
 
-### Pastas
+### Favoritos (atalhos + pastas do dispositivo)
+
+A tela é a **seção de atalhos organizados** do app: o caminho curto para o que
+o operador usa toda semana. O mecanismo por baixo é o mesmo de sempre — pastas
+virtuais (`state.folders` + `folder_<id>`) e pastas do dispositivo
+sincronizadas no OPFS (`state['opfs-folders']`), com as MESMAS chaves de state
+(renomear a leitura não pode custar a biblioteca de ninguém) —, o que mudou é o
+enquadramento: não é "onde os arquivos moram", é "o que eu marquei".
+
+A lista tem duas origens, cada uma sob um cabeçalho próprio (`appendFavSection`,
+`.fav-section`), porque as duas se comportam igual ao toque e só uma delas
+sincroniza:
+
+1. **Atalhos** (`renderVirtualFolders`) — grupos criados pelo operador, ícone
+   de **estrela** (`ICON.star`, glifo que já estava no subset e voltou a ter
+   uso). Recebem itens pela seleção múltipla ("Adicionar aos favoritos",
+   `#selFolder` → `#folderPopup`) e agora também podem ser criados **na própria
+   tela**, pelo botão "Novo atalho" no fim da lista (`appendNewFavoriteRow`):
+   uma seção de atalhos que não deixa criar um atalho é justamente o que não se
+   espera dela. Excluir um atalho não apaga mídia nenhuma.
+2. **Pastas do dispositivo** — as pastas sincronizadas no OPFS, com o botão de
+   re-sync e o de excluir, exatamente como antes (detalhes abaixo).
 
 - **Pastas sincronizadas (OPFS)** — o fluxo principal para bibliotecas grandes.
   `window.showDirectoryPicker()` pede permissão **uma única vez**, na
@@ -1096,9 +1160,10 @@ usa `listRemove` (com gc).
     renomear e excluir (exclui do OPFS + catálogo + remove das listas).
   - Excluir a pasta (com `confirm()`) apaga o diretório OPFS inteiro, os
     registros do catálogo e as referências em listas.
-- **Pastas virtuais** — criadas pelo usuário (state `folders` + `folder_<id>`);
-  recebem itens pelo botão "salvar em pasta" da seleção múltipla (funciona
-  também com IDs do catálogo OPFS). Excluir a pasta não exclui as mídias.
+- **Atalhos (pastas virtuais)** — criados pelo usuário (state `folders` +
+  `folder_<id>`); recebem itens pelo botão "Adicionar aos favoritos" da seleção
+  múltipla (funciona também com IDs do catálogo OPFS) e nascem vazios pelo
+  botão "Novo atalho". Excluir o atalho não exclui as mídias.
 
 ### Coleções de mídia (LouvorJA)
 
@@ -1168,8 +1233,8 @@ categoria, `albumFilter`): com dezenas de álbuns em várias categorias, rolar a
 lista inteira para achar um grupo é lento. Uma categoria sem nenhum card
 visível não vira pílula (levaria a uma lista vazia), e os álbuns órfãos — os
 que categoria nenhuma reivindica — só aparecem em "Todos". O filtro é estado de
-sessão, não persistido: cada abertura mostra o acervo inteiro. O card do Hinário **saiu da aba Pastas** (que voltou a ser só pastas
-do dispositivo/virtuais).
+sessão, não persistido: cada abertura mostra o acervo inteiro. O card do Hinário **saiu da tela de pastas** (hoje os **Favoritos**, que voltou
+a ser só atalhos e pastas do dispositivo).
 
 Os mecanismos abaixo (sincronização/download/letra/Wi-Fi/busca) valem **por
 coleção**, exatamente como antes valiam só pro Hinário 2022.
@@ -1335,7 +1400,7 @@ total do lote), `ensureBibleVersionDownloaded` (por capítulo) e
    sincronizadas** (`AVDB.fileAdd` + `AVDB.opfsWriteFile`, pasta da coleção
    `folders/<coll.id>/`), então listar, buscar, tocar e excluir dentro dele
    funciona **sem nenhum código novo** — é só mais uma pasta OPFS (ver
-   "Pastas" acima), só que a fonte da sincronização é uma API remota em vez
+   "Favoritos" acima), só que a fonte da sincronização é uma API remota em vez
    de `showDirectoryPicker()`.
 
 **UI — o card É o álbum; a manutenção mora atrás da engrenagem**
@@ -1654,8 +1719,12 @@ operador volta pra estrofe 0 depois de já ter avançado).
 **Fundo preto vs. imagens dos slides** (`lyricsBgMode`, state `lyricsBg`,
 comando `lyricsbg`): **preto é o padrão** — a imagem de cada slide (baixada
 durante a sincronização, ver acima) só é de fato usada como fundo se o
-operador ligar o botão `#lyricsBgToggle` no mixer do Controle (ver seção do
-Mixer). `applyLyricsImage(slide)` centraliza a decisão: calcula a "chave
+operador escolher "Mostrar" no segmento **Imagens dos slides** do popup de
+**Exibição** (`#lyricsBgSeg` → `setLyricsBg`/`renderLyricsBgSeg`). Até a v5.18
+isso era um botão do mixer; ele saiu de lá porque é uma preferência de
+aparência (como preenchimento e wallpaper, seus vizinhos agora), não um
+controle de operação — e o lugar que abriu no mixer virou a **leitura
+auxiliar** (ver seção própria). `applyLyricsImage(slide)` centraliza a decisão: calcula a "chave
 efetiva" da imagem (`slide.imageOpfsPath` só se `lyricsBgMode==='image'`,
 senão `null`) antes de decidir se resolve/revoga a `object URL` — o resto da
 lógica (cache por chave, guarda de sequência) não muda. `setLyricsBgMode(m)`
@@ -2703,7 +2772,7 @@ medidas repetidas à mão), que foram consolidadas nestes padrões.
 - **Alvo de toque:** botão de ícone é **34px** ou mais (`.row-btn`,
   `.popup-close`, `.back-btn`, `.add-dir-btn`), `.sel-btn` 36, `.hymnal-card-btn`
   38, `.tab` 42. Nada abaixo disso — o `.back-btn` já teve 20×20 px sendo a
-  única saída da aba Pastas e da navegação da Bíblia.
+  única saída da tela de Favoritos e da navegação da Bíblia.
 - **Receita repetida vira seletor agrupado, não cópia:** os estados de cor são
   declarados por ESTADO (`.view-blocked`/`.muted`/`.danger` num bloco,
   `.active` noutro), a coluna "nome + subtítulo" das linhas de lista é uma regra
@@ -2756,10 +2825,10 @@ cabe um, e mostrar o próximo apagaria da tela qual está valendo — a cor
 distingue ligado de desligado, não qual dos três. Ali o ícone segue sendo o
 modo atual, que é a informação que se perderia.
 
-Botões de **função** (fone da mesa de som, flor do fundo da letra) e
-**segmentados** (preenchimento, wallpaper) ficam fora da regra por natureza:
-não alternam duas ações opostas — o ícone nomeia o recurso, e o `.active` /
-o segmento marcado dizem o resto.
+Botões de **função** (fone da mesa de som, folha da leitura auxiliar) e
+**segmentados** (preenchimento, imagens dos slides, wallpaper) ficam fora da
+regra por natureza: não alternam duas ações opostas — o ícone nomeia o recurso,
+e o `.active` / o segmento marcado dizem o resto.
 
 ### Ao adicionar/alterar estilo
 
@@ -2787,10 +2856,11 @@ E04F E050 E14C E150 E251 E2C7 E2C8 E2CC E3A1 E3AD
 E413 E5C4 E5CF E838 E86C E872 E8F5 E945 EB80 F116
 ```
 
-`E5CF` (expand_more), `E8F5` (visibility_off), `E86C` (check_circle — antigo
-ícone de seleção múltipla, agora só highlight azul) e `E838` (star — antigo
-ícone de favorito, recurso removido) continuam no woff2 mas não têm mais
-referência (glifos reservados) — podem sair num próximo re-subset.
+`E838` (star) **voltou a ter uso**: é o ícone dos atalhos de **Favoritos**
+(`ICON.star`, ver "Favoritos"). `E5CF` (expand_more), `E8F5` (visibility_off) e
+`E86C` (check_circle — antigo ícone de seleção múltipla, agora só highlight
+azul) continuam no woff2 sem referência (glifos reservados) — podem sair num
+próximo re-subset.
 
 Para adicionar ícone: obter codepoint em `fonts.google.com/icons?icon.style=Rounded`
 e gerar novo subset com `fontTools`.
@@ -2801,10 +2871,12 @@ usa-se um `<svg>` inline direto no HTML, com `fill/stroke: currentColor` (herda
 a cor do botão). Hoje: o botão de **volume** do mixer (`#volToggle`, ícone de
 faders/mixer), a **lupa** da busca do acervo (`#hymnSearchBtn`), a antena de
 **Wi-Fi** dos cards de coleção (`wifiIconEl`), o **fone de ouvido** da mesa de
-som (`#standaloneToggle`), a **flor** do fundo da letra (`#lyricsBgToggle`) e o
+som (`#standaloneToggle`), a **folha com linhas** da leitura auxiliar
+(`#lyricsViewBtn`, que substituiu a flor do antigo botão de fundo da letra), o
 ícone **"arquivos+"** (documento com `+`) do botão de importar no fim do
-Cronograma (`.import-btn`), que diferencia importar ARQUIVOS de sincronizar
-PASTA, os três botões flutuantes da preview (**engrenagem**, **cast** e
+Cronograma (`.import-btn`), que diferencia importar ARQUIVOS de abrir os
+FAVORITOS (estrela, no botão ao lado — e a mesma estrela no "Novo atalho"),
+os três botões flutuantes da preview (**engrenagem**, **cast** e
 **expandir** — `#pvSettingsBtn`/`#pvCastBtn`/`#pvFullBtn`),
 e nos **cards de coleção** as **setas circulares** de sincronizar
 (`syncIconSvg`), o **check** verde de "completo offline" (`checkIconSvg`) e o
