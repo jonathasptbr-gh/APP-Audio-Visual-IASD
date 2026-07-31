@@ -173,7 +173,7 @@ Além disso, `native.js` publica três globais lidas direto (sem Promise):
 APK, que é o **índice de versão do shell exibido ao operador**. Ele não se
 confunde com `__SHELL_VERSION__`: base web e shell atualizam por caminhos
 independentes (OTA × instalar APK), então o cabeçalho do Cronograma mostra os
-dois (`Web v5.17 · Shell v1.19`). Num shell antigo (sem `appVersion()`) a
+dois (`Web v5.18 · Shell v1.19`). Num shell antigo (sem `appVersion()`) a
 string vem vazia e a UI cai em só a versão web — mesma degradação do navegador.
 
 **Princípio: a ponte entrega URLs SERVÍVEIS, não bytes.** Arquivos do
@@ -386,11 +386,11 @@ Dois ganhos, e o segundo é o menos óbvio:
   riscada, e o que havia até a v1.18 (`ic_menu_view`) é um OLHO — sugere
   "esconder a vista", quando o que sai do telão é a MÍDIA. São os mesmos dois
   símbolos que o botão do app já usa nesse par de estados.
-- **O ícone da cortina segue a AÇÃO, não o estado** (ao contrário do botão do
-  app, que mostra o estado): com a mídia no ar ele é a imagem riscada, porque é
-  isso que o toque vai fazer. Numa notificação, botão e rótulo descrevem o que
-  acontece ao tocar — e o rótulo ("Cobrir telão"/"Mostrar mídia") já segue essa
-  convenção; divergir entre os dois seria pior que qualquer uma das escolhas.
+- **O ícone da cortina segue a AÇÃO, não o estado** — e desde a v5.18 essa é a
+  regra de TODO botão de alternância do projeto, na notificação e na tela (ver
+  "O ícone mostra a AÇÃO; a cor mostra o ESTADO" em `docs/ARQUITETURA-WEB.md`).
+  Com a mídia no ar o ícone é a imagem riscada, porque é isso que o toque vai
+  fazer; o rótulo ("Cobrir telão"/"Mostrar mídia") já dizia o mesmo.
 - **A partir do Android 13 quem desenha os botões é o `PlaybackState`, não a
   notificação.** As `Notification.Action` viram decoração nessas versões: os
   controles saem das *actions* do estado (play/pause, ⏮/⏭) e os extras, de
@@ -701,4 +701,4 @@ Rodar local: `./gradlew assembleDebug` (exige Android SDK instalado).
   (`#appVersion` em `assets/web/controle/index.html`) **e `version` em
   `assets/web/version.json`** — é este último que faz a atualização chegar
   aos aparelhos por OTA. O `versionCode`/`versionName` do APK vêm do CI.
-  **Versão atual: v5.17** (base web) · **shell 1.19** (`SHELL_VERSION` 13).
+  **Versão atual: v5.18** (base web) · **shell 1.19** (`SHELL_VERSION` 13).

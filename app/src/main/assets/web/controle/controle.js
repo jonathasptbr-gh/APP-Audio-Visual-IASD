@@ -59,7 +59,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.17';
+const WEB_VERSION = '5.18';
 
 function renderVersionLabel() {
   // __SHELL_NAME__ = versionName do APK (ver native.js). Vazio no navegador e
@@ -122,8 +122,11 @@ const ICON = {
   pause: '', // pause
   stop: '', // stop
   next: '', // skip_next
-  viewOn: '',  // image (visual ativo)
-  viewOff: '', // image_not_supported (wallpaper/off)
+  // Nomes pelo GLIFO, não pelo estado: os botões passaram a mostrar a AÇÃO
+  // (ver renderControls), então "viewOn" apareceria justamente com a view
+  // desligada — o nome mentiria.
+  image: '',    // image
+  imageOff: '', // image_not_supported
   volOn: '', // volume_up
   volOff: '', // volume_off
   music: '', // music_note
@@ -1312,24 +1315,41 @@ function rememberScroll() {
   scrollPos[scrollKey()] = libraryEl.scrollTop;
 }
 
+// CONVENÇÃO: o ícone mostra a AÇÃO que o toque executa, nunca o estado atual.
+// O estado fica por conta da COR/BORDA (`.view-blocked`, `.muted`, `.blocked`,
+// `.active`), que já existia. Antes os dois papéis estavam misturados — o ▶/⏸
+// já era ação, enquanto cortina e mudo eram estado —, então o mesmo botão
+// significava coisas opostas dependendo de qual fosse.
+//
+// Num par binário nada se perde: se o ícone é a ação, o estado é o inverso
+// dele, e a cor confirma. (`renderRepeat` é a exceção justificada — ver lá.)
 function renderControls() {
-  viewToggleEl.querySelector('.msym').textContent = view === 'visual' ? ICON.viewOn : ICON.viewOff;
+  // Mídia no ar → o toque COBRE (imagem riscada); coberto → o toque MOSTRA.
+  viewToggleEl.querySelector('.msym').textContent = view === 'visual' ? ICON.imageOff : ICON.image;
   viewToggleEl.classList.toggle('view-blocked', view === 'wallpaper');
+  viewToggleEl.title = view === 'visual' ? 'Cobrir o telão' : 'Mostrar a mídia no telão';
   // 3 estados do botão de mudo: normal | mudo (operador) | sem áudio no
-  // Display (navegador bloqueou — tocando mudo; clique tenta liberar).
+  // Display (navegador bloqueou — tocando mudo; clique tenta liberar). Nos dois
+  // últimos o toque DEVOLVE o som, então o ícone é o de volume ligado.
   const blocked = displayAudioBlocked && !muted;
-  muteToggleEl.querySelector('.msym').textContent = (muted || blocked) ? ICON.volOff : ICON.volOn;
+  muteToggleEl.querySelector('.msym').textContent = (muted || blocked) ? ICON.volOn : ICON.volOff;
   muteToggleEl.classList.toggle('muted', muted);
   muteToggleEl.classList.toggle('blocked', blocked);
   muteToggleEl.title = blocked
     ? 'Sem áudio no Display — toque para tentar liberar'
-    : 'Mudo (liga/desliga)';
+    : muted ? 'Tirar o mudo' : 'Mutar';
   if (!volSeeking) volSliderEl.value = Math.round(volume * 100);
   // A cortina (view) muda por aqui, não por renderNowPlaying — e o rótulo do
   // botão da notificação depende dela. A deduplicação segura o excesso.
   pushNowPlaying();
 }
 
+// EXCEÇÃO à convenção "ícone = ação": este botão CICLA por quatro modos
+// (off → all → one → shuffle), não alterna dois. Num par binário mostrar a ação
+// não custa nada, porque o estado é o inverso dela; num ciclo de quatro, o
+// glifo só cabe um — mostrar o PRÓXIMO modo apagaria da tela qual está valendo,
+// e a cor (`.active`) só distingue ligado de desligado, não qual dos três.
+// Então aqui o ícone segue sendo o modo ATUAL, que é a informação que se perde.
 function renderRepeat() {
   const icon = repeat === 'one' ? ICON.repeatOne : repeat === 'shuffle' ? ICON.shuffle : ICON.repeatAll;
   const label = repeat === 'off' ? 'Repetição desativada'

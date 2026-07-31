@@ -79,10 +79,10 @@ git push origin main
   `renderVersionLabel()`), o fallback estático do `<span id="appVersion">` em
   `controle/index.html` e `version` em `version.json` (é este último que
   dispara a atualização por OTA nos aparelhos). Versionamento incremental
-  simples (5.15, 5.16, 5.17…). **Versão atual: v5.17.**
+  simples (5.16, 5.17, 5.18…). **Versão atual: v5.18.**
   No app nativo o rótulo mostra os **dois índices** — `Web v5.17 · Shell v1.18`
   —, porque base web e shell atualizam por caminhos independentes (OTA ×
-  instalar APK); no navegador sai só `Controle v5.17`.
+  instalar APK); no navegador sai só `Controle v5.18`.
 
 ---
 
@@ -2727,12 +2727,47 @@ medidas repetidas à mão), que foram consolidadas nestes padrões.
   (`rgba(251,192,45,.35)`, alfa próprio) — são one-offs deliberados, não
   candidatos a token.
 
+### O ícone mostra a AÇÃO; a cor mostra o ESTADO
+
+Regra única para todo botão de alternância, na tela **e** na notificação do
+app nativo: **o ícone é o que o toque vai fazer**, nunca o que está valendo
+agora. Quem sinaliza o estado é a **cor/borda** (`.view-blocked`, `.muted`,
+`.blocked`, `.active`, `.live`) — e só ela.
+
+As duas convenções conviviam misturadas: o ▶/⏸ e o botão de mensagem já eram
+ação, enquanto cortina e mudo eram estado. O mesmo gesto — olhar o ícone —
+significava coisas opostas conforme o botão, e o operador precisava lembrar
+qual era qual no meio de um culto.
+
+| Estado | Ícone (a ação) | Cor |
+|---|---|---|
+| mídia no ar | imagem riscada — *cobrir* | neutra |
+| telão coberto | imagem — *mostrar* | vermelha (`.view-blocked`) |
+| som ligado | alto-falante mudo — *mutar* | neutra |
+| mudo | alto-falante — *tirar o mudo* | vermelha (`.muted`) |
+| áudio bloqueado | alto-falante — *liberar* | âmbar pulsante (`.blocked`) |
+
+Num par binário nada se perde: se o ícone é a ação, o estado é o inverso dele
+e a cor confirma.
+
+**A exceção é o `repeat`** (`renderRepeat`), e ela é de forma, não de gosto: o
+botão CICLA por quatro modos (off → all → one → shuffle). Num ciclo o glifo só
+cabe um, e mostrar o próximo apagaria da tela qual está valendo — a cor
+distingue ligado de desligado, não qual dos três. Ali o ícone segue sendo o
+modo atual, que é a informação que se perderia.
+
+Botões de **função** (fone da mesa de som, flor do fundo da letra) e
+**segmentados** (preenchimento, wallpaper) ficam fora da regra por natureza:
+não alternam duas ações opostas — o ícone nomeia o recurso, e o `.active` /
+o segmento marcado dizem o resto.
+
 ### Ao adicionar/alterar estilo
 
 1. Existe token pro valor? Use-o. Não existe e o valor se repete? **Crie um token**.
 2. Cor/medida de marca nova → adicionar **nos dois** `:root` (Controle + Display) e marcar 🔁 nesta tabela.
 3. Botão novo → acrescentar o seletor à lista `:is(...)` do feedback de toque; nada de tap-highlight nem de `:active` próprio.
-4. Atualizar esta tabela e bumpar a versão visual + caches dos SW.
+4. Botão que alterna → ícone = ação, cor = estado (ver acima).
+5. Atualizar esta tabela e bumpar a versão visual + caches dos SW.
 
 ---
 
