@@ -173,7 +173,7 @@ Além disso, `native.js` publica três globais lidas direto (sem Promise):
 APK, que é o **índice de versão do shell exibido ao operador**. Ele não se
 confunde com `__SHELL_VERSION__`: base web e shell atualizam por caminhos
 independentes (OTA × instalar APK), então o cabeçalho do Cronograma mostra os
-dois (`Web v5.19 · Shell v1.20`). Num shell antigo (sem `appVersion()`) a
+dois (`Web v5.20 · Shell v1.21`). Num shell antigo (sem `appVersion()`) a
 string vem vazia e a UI cai em só a versão web — mesma degradação do navegador.
 
 **Princípio: a ponte entrega URLs SERVÍVEIS, não bytes.** Arquivos do
@@ -566,6 +566,17 @@ Duas salvaguardas:
   `adjustStreamVolume` com `FLAG_SHOW_UI`). Sem isso, um aparelho com o volume
   de mídia baixo ficaria sem como subir com o app aberto.
 
+**A tecla mostra o fader por alguns segundos.** Interceptar o botão resolveu
+*onde* o volume muda, mas o deixou **invisível**: com a coluna do mixer no
+estado normal, o operador apertava e não via quanto ficou. `peekVolume()` (lado
+web, `VOL_PEEK_MS` = 2,8 s) abre a MESMA visualização do toque no botão de
+volume — reusando `openVolume()`/`closeVolume()`, não uma segunda UI — e a
+recolhe sozinha. Vale inclusive quando a tecla vai para o sistema (fader no
+máximo/zero): ver o fader no fim do curso é justamente a resposta para "por que
+o volume do app não muda?". Detalhes das três regras de convivência com o toque
+(só recolhe o que ela abriu; o toque nos botões cancela; mexer no fader
+reinicia a contagem) em `docs/ARQUITETURA-WEB.md`, seção do Mixer.
+
 ### Espelhamento de tela ≠ Google Cast
 
 O botão de cast da preview precisa abrir o **espelhamento de tela** (Smart View
@@ -716,4 +727,6 @@ Rodar local: `./gradlew assembleDebug` (exige Android SDK instalado).
   (`#appVersion` em `assets/web/controle/index.html`) **e `version` em
   `assets/web/version.json`** — é este último que faz a atualização chegar
   aos aparelhos por OTA. O `versionCode`/`versionName` do APK vêm do CI.
-  **Versão atual: v5.19** (base web) · **shell 1.20** (`SHELL_VERSION` 13).
+  **Versão atual: v5.20** (base web) · **shell 1.21** (`SHELL_VERSION` 13 —
+  a superfície da ponte não mudou desde a 1.20; o APK novo é a mesma casca com
+  a base web mais recente embutida).

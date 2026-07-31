@@ -64,7 +64,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.19';
+const WEB_VERSION = '5.20';
 
 function renderVersionLabel() {
   // __SHELL_NAME__ = versionName do APK (ver native.js). Vazio no navegador e
@@ -5600,8 +5600,51 @@ function closeVolume() {
     volAnimTimer = setTimeout(() => mixerEl.classList.remove('vol-revealing'), VOL_ANIM);
   }, VOL_ANIM);
 }
-volToggleEl.addEventListener('click', openVolume);
-volCloseEl.addEventListener('click', closeVolume);
+
+// ===== Espiada no volume (botões físicos) =====
+// O botão físico mexe no fader daqui (ver `__avVolumeKey`), e até agora isso
+// acontecia INVISÍVEL com a coluna no estado normal: o operador mudava o
+// volume sem ver quanto ficou nem quanto ainda cabe. A espiada abre a MESMA
+// visualização do toque no botão de volume — fader no lugar de top+mid, o
+// botão da base virando ✕, as mesmas animações — e a recolhe sozinha alguns
+// segundos depois. Reusa `openVolume`/`closeVolume` de propósito: um segundo
+// jeito de mostrar o fader seria um segundo jeito de ele ficar diferente.
+const VOL_PEEK_MS = 2800;
+let volPeekTimer = null;
+let volPeekOwned = false; // esta abertura é da espiada? só ela se recolhe sozinha
+
+// O volume passa a ser do operador: quem abriu na mão fecha na mão. Chamado
+// pelos toques nos dois botões — sem isto, uma espiada em curso recolheria a
+// coluna que o operador acabou de abrir.
+function cancelVolPeek() {
+  clearTimeout(volPeekTimer);
+  volPeekTimer = null;
+  volPeekOwned = false;
+}
+
+function peekVolume() {
+  const open = mixerEl.classList.contains('vol-open') && !mixerEl.classList.contains('vol-closing');
+  if (open && !volPeekOwned) return; // aberto pelo operador: a tecla não mexe nisso
+  volPeekOwned = true;
+  openVolume();
+  clearTimeout(volPeekTimer);
+  volPeekTimer = setTimeout(() => {
+    volPeekTimer = null;
+    volPeekOwned = false;
+    closeVolume();
+  }, VOL_PEEK_MS);
+}
+
+// Mexer no fader durante a espiada reinicia a contagem: o operador está
+// usando o que a tecla acabou de revelar, e recolher debaixo do dedo dele
+// seria o oposto do que a espiada existe para fazer. Continua sendo uma
+// espiada — some sozinha alguns segundos depois que ele parar.
+function bumpVolPeek() {
+  if (volPeekOwned) peekVolume();
+}
+
+volToggleEl.addEventListener('click', () => { cancelVolPeek(); openVolume(); });
+volCloseEl.addEventListener('click', () => { cancelVolPeek(); closeVolume(); });
 
 // Se a largura mudar (ex: rotação), remede o título rolante.
 let titleResizeTimer = null;
@@ -5648,9 +5691,9 @@ function applyVolume(v) {
 }
 
 let volSeeking = false;
-volSliderEl.addEventListener('pointerdown', () => { volSeeking = true; });
+volSliderEl.addEventListener('pointerdown', () => { volSeeking = true; bumpVolPeek(); });
 volSliderEl.addEventListener('pointerup', () => { volSeeking = false; });
-volSliderEl.addEventListener('input', () => applyVolume(parseFloat(volSliderEl.value) / 100));
+volSliderEl.addEventListener('input', () => { applyVolume(parseFloat(volSliderEl.value) / 100); bumpVolPeek(); });
 volSliderEl.addEventListener('change', () => { volSeeking = false; persistCurrent(); });
 
 // ===== Botões físicos de volume =====
@@ -5661,6 +5704,11 @@ volSliderEl.addEventListener('change', () => { volSeeking = false; persistCurren
 const VOL_KEY_STEP = 0.05;
 if (window.__NATIVE__) {
   window.__avVolumeKey = (step) => {
+    // Mostra o fader por alguns segundos, exatamente como se o operador
+    // tivesse tocado no botão de volume (ver peekVolume) — inclusive quando a
+    // tecla vai para o sistema: o fader no máximo/zero é justamente a resposta
+    // para "por que o volume do app não muda?".
+    peekVolume();
     // Já no limite do fader: devolve a tecla ao sistema (com a UI de volume do
     // Android), senão um aparelho com o volume de mídia baixo ficaria sem como
     // subir enquanto o app estivesse aberto.

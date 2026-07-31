@@ -79,10 +79,10 @@ git push origin main
   `renderVersionLabel()`), o fallback estático do `<span id="appVersion">` em
   `controle/index.html` e `version` em `version.json` (é este último que
   dispara a atualização por OTA nos aparelhos). Versionamento incremental
-  simples (5.17, 5.18, 5.19…). **Versão atual: v5.19.**
+  simples (5.18, 5.19, 5.20…). **Versão atual: v5.20.**
   No app nativo o rótulo mostra os **dois índices** — `Web v5.17 · Shell v1.18`
   —, porque base web e shell atualizam por caminhos independentes (OTA ×
-  instalar APK); no navegador sai só `Controle v5.19`.
+  instalar APK); no navegador sai só `Controle v5.20`.
 
 ---
 
@@ -730,6 +730,26 @@ fader já no máximo (ou no zero)**, o passo é devolvido ao sistema
 (`AVNative.systemVolume`, com a UI de volume do Android), senão um aparelho
 com o volume de mídia baixo ficaria sem como subir enquanto o app estivesse
 aberto. Ver "Divergências" em `../CLAUDE.md`.
+
+**A tecla ESPIA o fader** (`peekVolume`, `VOL_PEEK_MS` = 2,8 s): com a coluna
+no estado normal, apertar o botão físico mexia no volume de forma **invisível**
+— o operador mudava o volume sem ver quanto ficou nem quanto ainda cabe. Agora
+a tecla abre a **mesma** visualização do toque em `#volToggle` (é literalmente
+`openVolume()`: fader no lugar de top+mid, o botão da base virando ✕, as mesmas
+animações) e a recolhe sozinha alguns segundos depois, por `closeVolume()`. Um
+segundo jeito de desenhar o fader seria um segundo jeito de ele ficar diferente.
+Três regras cuidam da convivência com o toque:
+- **Só recolhe o que ela mesma abriu** (`volPeekOwned`): com o volume aberto
+  pelo operador, a tecla não mexe no estado da coluna — apenas move o fader.
+- **Tocar em `#volToggle`/`#volClose` cancela a contagem** (`cancelVolPeek`):
+  quem abriu na mão fecha na mão.
+- **Mexer no fader durante a espiada reinicia a contagem** (`bumpVolPeek`, no
+  `pointerdown`/`input` do `#volSlider`): recolher debaixo do dedo do operador
+  seria o oposto do que a espiada existe para fazer. Continua sendo uma
+  espiada — some sozinha alguns segundos depois que ele parar.
+
+No navegador nada disso acontece: os botões físicos não chegam à página, e
+`peekVolume` só é chamada de `window.__avVolumeKey`.
 
 Tocar no botão de volume liga a classe `.vol-open` no `#mixer`, que troca
 **top + mid** (os 4 botões: visual/letra/mesa de som/mudo) pelo
