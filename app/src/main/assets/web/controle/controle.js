@@ -26,6 +26,7 @@ const simpleFullBtnEl = document.getElementById('simpleFullBtn');
 const simpleCastBtnEl = document.getElementById('simpleCastBtn');
 const simpleCastStatusEl = document.getElementById('simpleCastStatus');
 const simpleSearchBtnEl = document.getElementById('simpleSearchBtn');
+const simpleVeilEl = document.getElementById('simpleVeil');
 const simpleNpNameEl = document.getElementById('simpleNpName');
 const simplePlayEl = document.getElementById('simplePlay');
 const simpleMuteEl = document.getElementById('simpleMute');
@@ -86,7 +87,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.38';
+const WEB_VERSION = '5.39';
 
 function renderVersionLabel() {
   // __SHELL_NAME__ = versionName do APK (ver native.js). Vazio no navegador e
@@ -7085,6 +7086,7 @@ function setAppMode(mode) {
   renderAppModeSeg();
   renderSimple();
   renderSimpleCast();
+  renderSimpleGate();   // `renderSimpleCast` volta cedo fora do simplificado
   // Sair do simplificado com a busca aberta deixaria o popup por cima da tela
   // completa sem nada que explicasse por quê.
   if (appMode === 'full') closeHymnSearch();
@@ -7159,15 +7161,71 @@ function holdRepeat(btn, fn) {
 // nem seletor: o cartão vira o atalho para a tela do Display.
 function renderSimpleCast() {
   if (appMode !== 'simple') return;
-  if (!window.__NATIVE__) {
-    simpleCastStatusEl.textContent = 'Abrir a tela do Display';
-    return;
-  }
-  const tv = lastDisplays[0] || null;
+  const tv = simpleDisplay();
   simpleCastBtnEl.classList.toggle('connected', !!tv);
-  simpleCastStatusEl.textContent = tv
-    ? 'Conectado: ' + (tv.name || 'TV')
-    : 'Toque para escolher a tela';
+  if (!window.__NATIVE__) {
+    simpleCastStatusEl.textContent = tv ? 'Tela do Display aberta' : 'Abrir a tela do Display';
+  } else {
+    simpleCastStatusEl.textContent = tv
+      ? 'Conectado: ' + (tv.name || 'TV')
+      : 'Toque para escolher a tela';
+  }
+  renderSimpleGate();
+}
+
+// ===== Bloqueio do simplificado sem tela conectada =====
+// Neste modo a projeção É o telão — não há preview aqui. Sem tela conectada,
+// buscar uma música e dar play produz som no celular e mais nada: os controles
+// continuavam ali, respondendo a cada toque, sem que nada aparecesse em lugar
+// nenhum. A cortina troca esse silêncio por uma resposta: embaça o que está
+// atrás, intercepta os toques e deixa na frente só o que resolve o problema —
+// o botão de conectar.
+//
+// **O "Modo avançado" continua acessível**, no cabeçalho. Sem TV o app não
+// fica inútil: a projeção passa a ser a preview em tela cheia (ver CLAUDE.md,
+// "Sem TV conectada o app continua útil"), e trancar essa saída transformaria
+// a falta de telão numa parede. O que se bloqueia é o modo simplificado, não
+// o app.
+//
+// A única parte que muda por contexto é quem responde "há tela?": no app é a
+// `Presentation` (a ponte lista as telas de apresentação); no navegador não
+// existe Presentation, então vale a janela do Display que o próprio botão
+// abre — enquanto ela estiver aberta, há para onde projetar.
+let webDisplayWin = null;      // navegador: janela do Display aberta pelo botão
+let webDisplayTimer = null;
+
+function simpleDisplay() {
+  if (!window.__NATIVE__) {
+    return webDisplayWin && !webDisplayWin.closed ? { name: 'Display' } : null;
+  }
+  return lastDisplays[0] || null;
+}
+
+function renderSimpleGate() {
+  const preso = appMode === 'simple' && !simpleDisplay();
+  simpleVeilEl.hidden = !preso;
+  simpleModeEl.classList.toggle('locked', preso);
+  // A busca é o que a cortina esconde: reabri-la por trás dela deixaria o
+  // popup no ar sobre uma tela bloqueada.
+  if (preso) closeHymnSearch();
+}
+
+// Abre a tela do Display no navegador e acompanha a janela: fechá-la é o
+// equivalente a desconectar o telão, e a cortina precisa voltar. `closed` só
+// se descobre olhando — não há evento — então o relógio existe apenas
+// enquanto a janela existe.
+function openWebDisplay() {
+  webDisplayWin = window.open('../display/', 'avDisplay');
+  renderSimpleCast();
+  clearInterval(webDisplayTimer);
+  if (!webDisplayWin) return;
+  webDisplayTimer = setInterval(() => {
+    if (webDisplayWin && !webDisplayWin.closed) return;
+    clearInterval(webDisplayTimer);
+    webDisplayTimer = null;
+    webDisplayWin = null;
+    renderSimpleCast();
+  }, 1000);
 }
 
 simpleFullBtnEl.addEventListener('click', () => setAppMode('full'));
@@ -7187,7 +7245,7 @@ holdRepeat(simpleVolUpEl, () => simpleVolStep(1));
 holdRepeat(simpleVolDownEl, () => simpleVolStep(-1));
 simpleCastBtnEl.addEventListener('click', () => {
   if (window.__NATIVE__) AVNative.openCast();
-  else window.open('../display/', '_blank');
+  else openWebDisplay();
 });
 // Fecha o ciclo com o HTML: as classes já vêm do documento, aqui o estado do
 // JS (segmento do popup, espelho dos controles) nasce igual a elas.
@@ -7503,7 +7561,9 @@ if (window.__NATIVE__) {
   });
 } else {
   displayStatusTextEl.textContent = 'Abrir tela do Display';
-  openDisplayBtnEl.addEventListener('click', () => window.open('../display/', '_blank'));
+  // Mesmo caminho do botão do simplificado: uma janela só (nome 'avDisplay') e
+  // um só lugar que sabe se ela ainda está aberta.
+  openDisplayBtnEl.addEventListener('click', openWebDisplay);
 }
 
 

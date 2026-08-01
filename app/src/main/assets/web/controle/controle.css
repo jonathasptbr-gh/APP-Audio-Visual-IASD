@@ -1737,6 +1737,39 @@ body.mode-simple .bottombar { display: none; }
 /* Telão conectado: o ícone confirma sem precisar ler o subtítulo. */
 .simple-action.connected svg { color: var(--success); }
 
+/* ----- Bloqueio sem tela conectada (ver renderSimpleGate) ----- */
+/* A cortina cobre a tela inteira e é o que embaça: `backdrop-filter` age sobre
+   o que está ATRÁS do elemento, então quem precisa ficar legível sobe na
+   pilha. Sobem dois: o cabeçalho (onde está a saída para o modo avançado) e o
+   botão de conectar, que é a única ação que resolve o bloqueio. */
+.simple-veil {
+  position: absolute; inset: 0; z-index: 1;
+  display: flex; align-items: center; justify-content: center;
+  padding: 1.2rem;
+  background: rgba(18, 18, 18, .55);
+  backdrop-filter: blur(7px); -webkit-backdrop-filter: blur(7px);
+}
+/* Sem suporte a backdrop-filter o embaçado simplesmente não acontece — e uma
+   cortina transparente pareceria um toque perdido, não um bloqueio. O véu
+   fica então opaco: some a informação de trás, mas o BLOQUEIO continua dito. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .simple-veil { background: rgba(18, 18, 18, .92); }
+}
+/* `display:flex` aqui venceria o `display:none` que o UA dá a [hidden] — sem
+   esta linha a cortina nunca sairia da frente. */
+.simple-veil[hidden] { display: none; }
+.simple-veil-card { text-align: center; max-width: 22rem; }
+.simple-veil-title { font-size: 1rem; font-weight: 800; color: var(--text); }
+.simple-veil-sub { margin-top: .3rem; font-size: .82rem; color: var(--muted); line-height: 1.45; }
+.simple.locked .simple-head,
+.simple.locked .simple-actions { position: relative; z-index: 2; }
+/* Só o botão de conectar fica na frente: com a tela bloqueada, buscar música
+   não leva a lugar nenhum. Ele passa a ocupar a linha inteira — é a única
+   ação, e um botão de meia largura ao lado de um vazio pareceria defeito. */
+.simple.locked .simple-actions { grid-template-columns: 1fr; }
+.simple.locked #simpleSearchBtn { display: none; }
+.simple.locked .simple-action { padding: 1.1rem .6rem; }
+
 /* Letra da música em cena — ocupa o espaço que sobra entre as ações e as
    teclas. Mesmas linhas da leitura auxiliar do modo avançado (.lv-row). */
 .simple-song { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: .4rem; }
