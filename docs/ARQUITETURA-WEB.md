@@ -668,7 +668,7 @@ mirar um alvo fino ali é o pior formato possível.
 | **Letra** (`#simpleLyrics`) | a letra INTEIRA da música em cena, com o mesmo destaque e o mesmo acompanhamento da leitura auxiliar do modo avançado |
 | **Play/pause e mudo** | `.click()` em `#playpause` / `#muteToggle` |
 | **Volume** (`#simpleVolDown` / `#simpleVolUp`) | teclas **−** e **+** com o número no meio (`.simple-vol-read`), não um slider |
-| **Modo avançado** (`#simpleFullBtn`) | `setAppMode('full')` — a tela completa de sempre |
+| **Modo avançado** (`#simpleFullBtn`) | `setAppMode('full')` — a tela completa de sempre. Era texto `--muted` sobre `--surface` (5,38:1): dentro do mínimo, mas lido como legenda, não como botão. Desde a v5.40 é texto pleno sobre `--surface-2` com borda de accent — **9,75:1**, e agora se anuncia como controle sem virar a ação principal de ninguém |
 
 **Sem escolha de variante.** No simplificado o toque na linha da busca chama
 `simplePlaySong()`, que toca o **Cantado** e pronto: abrir o acordeão com
@@ -712,15 +712,25 @@ preview mostra o que sairia no telão; aqui não há para onde olhar.
 
 `renderSimpleGate()` cobre a tela com a cortina `#simpleVeil` — `backdrop-
 filter: blur(7px)` mais um véu — que **intercepta os toques** do que ficou
-atrás. Na frente sobem duas coisas, e só duas:
+atrás. A cortina é só o vidro fosco: não tem conteúdo. Na frente sobem duas
+coisas, e só duas:
 
 - **Conectar a tela** (`#simpleCastBtn`), a única ação que resolve o bloqueio.
-  Com a busca escondida ele passa a ocupar a linha inteira: um botão de meia
-  largura ao lado de um vazio se lê como defeito, não como escolha.
+  Bloqueada a tela, a faixa `.simple-actions` deixa de ser faixa: vira um
+  bloco absoluto no **centro exato da tela**, com a busca escondida e o botão
+  preenchido no accent (`--accent-fill`, ícone de 40px, sombra colorida). Ele
+  não podia continuar sendo a mesma tecla escura das outras: a única ação
+  possível da tela não disputa atenção com o teclado embaçado atrás dela.
 - **Modo avançado** (`#simpleFullBtn`), no cabeçalho. **Sem TV o app não fica
   inútil** — a projeção passa a ser a preview em tela cheia —, e trancar essa
   saída transformaria a falta de telão numa parede. O que se bloqueia é o modo
   simplificado, não o app.
+
+**A mensagem é legenda do botão, não par dele.** `.simple-gate-msg` mora dentro
+de `.simple-actions` (e não na cortina) para ficar colada ao botão que resolve
+o problema, mas sai do fluxo e se pendura acima dele — assim quem fica no meio
+exato é o BOTÃO. Centralizar o grupo inteiro o empurraria para baixo do centro
+pela altura do texto (medido: 481 em vez de 450, numa tela de 900).
 
 **A única parte que muda por contexto é quem responde "há tela?"** — o resto do
 mecanismo é o mesmo nos dois. No app são as telas de apresentação que a ponte
