@@ -21,6 +21,8 @@
   /* moldura da letra sincronizada (modo imagem) */
   --lyrics-frame-bg: rgba(0, 0, 0, .4);
   --lyrics-frame-border: rgba(255, 255, 255, .85);
+  /* perigo — aqui só o timer estourado (ver .chrono-over) */
+  --danger: #e53935;
 }
 
 /* `hidden` sempre esconde, sem exceção. O Controle já tinha esta regra; o
@@ -278,6 +280,36 @@ html, body {
 /* Modo mensagem: texto maior ainda (avisos são curtos e devem ser lidos de
    longe) e sem sublinha. */
 .text-content.mode-message .text-main { font-size: 7.4cqmin; -webkit-line-clamp: 7; font-weight: 600; }
+
+/* Modo cronômetro/relógio/timer: o mesmo cartão, com o número no maior tamanho
+   que a largura comporta — é para ser lido do fundo do salão, e não há prosa
+   competindo pelo espaço.
+
+   `tabular-nums` NÃO é enfeite: com algarismos de larguras diferentes, a linha
+   inteira se desloca a cada segundo (o "1" é bem mais estreito que o "8") e o
+   número parece tremer. É o defeito clássico de relógio digital em web.
+
+   `nowrap` + clamp de 1 linha desfazem o line-clamp de 8 do texto em prosa:
+   "12:34:56" nunca deve quebrar em duas linhas.
+
+   O tamanho é o MAIOR que couber, calculado a partir do número de caracteres
+   (`--ch`, que o JS atualiza a cada tick). Um tamanho fixo teria que ser o do
+   pior caso — "12:34:56 PM" (11 caracteres) numa tela 4:3 — e aí o caso comum,
+   "09:59", sairia pequeno à toa; generoso demais, o pior caso vazaria da tela.
+   O divisor 0,66 é a largura média do algarismo tabular em relação ao corpo da
+   fonte, com folga. O teto em cqmin impede o número de virar um monstro em
+   telas muito largas. */
+.text-content.mode-chrono .text-main {
+  font-size: min(24cqmin, calc(86cqw / var(--ch, 8) / 0.66));
+  font-weight: 700; line-height: 1.05;
+  letter-spacing: .01em;
+  font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1;
+  white-space: nowrap; -webkit-line-clamp: 1;
+}
+/* Timer estourado (passou do alvo, contando em negativo): vermelho. Aqui a cor
+   É a informação — "acabou" e "acabou há 4 minutos" precisam se distinguir de
+   longe, e o sinal de menos sozinho é pequeno demais para isso. */
+.text-content.mode-chrono.chrono-over .text-main { color: var(--danger); }
 
 /* Fundo preto evita flash branco enquanto o player do YouTube carrega.
    pointer-events:none: toques/hover no telão nunca invocam a UI do player

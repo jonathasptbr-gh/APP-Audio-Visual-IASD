@@ -1156,16 +1156,25 @@ janela à parte — útil para desenvolver a base web fora do app, e nada mais.
 ### Abas e biblioteca
 
 As abas ficam na **base da seção de listas** (ícones), **mescladas ao fundo
-normal do app** (`.tabs` sem fundo/card próprio). Restaram **três**:
-**Cronograma** · **Álbuns** · **Bíblia** (as `.tab`, `flex:1`) · **buscar no
-acervo** (`#hymnSearchBtn`, `.tab-add`, à direita). A faixa é só navegação — e
-só do que é de fato uma seção da biblioteca:
+normal do app** (`.tabs` sem fundo/card próprio). São **quatro**:
+**Cronograma** · **Álbuns** · **Bíblia** · **Diversos** (as `.tab`, `flex:1`) ·
+**buscar no acervo** (`#hymnSearchBtn`, `.tab-add`, à direita):
 
 - **Cronograma** (`imports`) — itens importados; ficam até serem excluídos.
 - **Álbuns** (`albums`) — o acervo do LouvorJA, agrupado por categoria. Ver
   "Coleções de mídia (LouvorJA)".
 - **Bíblia** (`bible`) — seleção e projeção de textos bíblicos. Não é uma lista
   de mídia; ver a seção **"Bíblia"** abaixo.
+- **Diversos** (`activeTab` segue sendo `'mic'`, por herança) — as **ferramentas
+  que não são acervo**: o microfone ao vivo (push-to-talk) e o
+  **cronômetro/relógio/timer**. Ver "Diversos" abaixo.
+
+> A aba nasceu como **Microfone**, com uma ferramenta só. Ao ganhar a segunda,
+> virou **Diversos** e o ícone deixou de ser o microfone: com mais de uma coisa
+> dentro, um glifo que nomeia só uma delas esconde o resto. O `data-tab`
+> continua `mic` de propósito — renomeá-lo não mudaria nada visível e quebraria
+> o `TAB_ORDER`, o `scrollKey()` e as guardas espalhadas que já falam essa
+> string.
 
 **Duas telas saíram da faixa de abas**, cada uma por um motivo próprio:
 
@@ -2040,6 +2049,7 @@ tudo — cobre/revela "de graça", sem tocar em `stage.js`). Os três são:
 |---|---|---|---|
 | **Bíblia** | manual (operador avança versículo) | banco LouvorJA | `#text` / `#pvText` |
 | **Mensagens** | manual (operador avança mensagem) | `state.messages` (texto puro) | `#text` / `#pvText` |
+| **Cronômetro/relógio/timer** | **derivado do relógio** (sem avanço) | o próprio tempo (`chronoReading`) | `#text` / `#pvText` |
 
 > **Mensagens não tem aba** — vive no botão flutuante `#pvMsgBtn`, no canto
 > inferior esquerdo da preview. O **mesmo botão faz as duas coisas**, conforme
@@ -2090,6 +2100,74 @@ Texto é **desacoplada do ciclo de vida da mídia do stage** — `showText`/
   a fonte disso é o **stage** (`preview.getCurrent()`), não `currentItem`: este
   último é o item SELECIONADO e continua apontando para a música terminada — era
   exatamente ele que fazia a preview achar que ainda havia algo em cena.
+
+### Diversos: cronômetro · relógio · timer
+
+Terceiro provedor da Camada de Texto, na aba **Diversos** (junto do microfone).
+O que vai ao telão é o **mesmo cartão** da Bíblia e das Mensagens
+(`mode: 'chrono'`), e isso não é economia de CSS: herdando o cartão, herda
+junto toda a regra de convivência já madura — `load` de **áudio** mantém o
+cronômetro no ar (louvor de fundo sob a contagem de abertura é o uso normal),
+`load` **visual** o encerra, a cortina do wallpaper o cobre, `text-hide` o tira
+sem parar o som. Um layer próprio teria que reimplementar as quatro e
+envelheceria separado.
+
+**O comando carrega um DESCRITOR, não um valor.** Quem conta o tempo é cada
+lado, localmente, a partir de uma origem comum:
+
+```js
+{ type:'text', mode:'chrono', sub:'<legenda>', view:'visual',
+  chrono: { mode:'clock'|'stopwatch'|'timer',
+            running, startAt:<epoch ms>, baseMs:<acumulado nas pausas>,
+            durationMs:<alvo do timer>, secs, h12 } }
+```
+
+Mandar o texto pronto a cada segundo colocaria ~3.600 comandos/hora no
+barramento só para mexer dois dígitos — e deixaria o telão **parado** se um
+deles se perdesse. Os dois WebViews são o mesmo processo no mesmo aparelho,
+então `Date.now()` é a mesma base dos dois lados (no navegador, idem).
+
+A consequência que mais importa é a **reconexão**: como o número é derivado do
+descritor, `resendSceneToDisplay` reenviar o mesmo objeto devolve o cronômetro
+**no segundo certo**, não no ponto em que a conexão caiu — sem estado nenhum a
+ressincronizar. É o mesmo princípio do `load` + posição já usado para a mídia.
+Verificado recarregando o Display com um timer estourado em cena: volta
+exibindo exatamente o mesmo valor do Controle.
+
+- **`baseMs` existe porque pausar precisa congelar o acumulado.** Com `startAt`
+  sozinho, retomar perderia todo o trecho anterior.
+- **O timer NÃO congela em zero** — passa a contar em negativo, em vermelho
+  (`.chrono-over`). Num culto, "estourou por 4 minutos" é a informação que se
+  quer; um `00:00` parado não distingue "acabou agora" de "acabou há muito".
+- **`tabular-nums` não é enfeite.** Com algarismos de larguras diferentes, a
+  linha inteira se desloca a cada segundo (o "1" é bem mais estreito que o "8")
+  e o número parece tremer — o defeito clássico de relógio digital em web.
+- **A fonte é dimensionada pelo CONTEÚDO** (`--ch`, o número de caracteres, que
+  o tick escreve no elemento; o CSS faz `min(24cqmin, calc(86cqw / var(--ch) /
+  0.66))`). Um tamanho fixo teria que servir ao pior caso — `12:34:56 PM`, 11
+  caracteres, numa tela 4:3 — e aí `09:59` sairia pequeno à toa; generoso
+  demais, o pior caso vazaria da tela. Medido em 5 proporções (16:9, 4:3,
+  16:10) × 6 strings: nenhum vazamento, e 259 px de corpo em 1080p contra os
+  69 px que um valor fixo conservador daria.
+- **O laço só existe quando há o que animar**: relógio sempre; cronômetro/timer
+  só em marcha. Pausado é um número parado, e `hideText` derruba o laço junto
+  com o cartão — fora de cena ele só gastaria bateria reescrevendo um nó
+  invisível.
+- **O painel do Controle tem laço próprio**, com vida ligada à aba: o operador
+  precisa ver a contagem correr **antes** de projetar. Sair da aba não para a
+  contagem (ela vive no estado), só o laço do painel.
+- **Um provedor por vez.** `projectChrono` encerra Bíblia e Mensagem, e as duas
+  encerram o cronômetro — é um cartão só. Enquanto ele está no ar,
+  `slideTarget()` devolve `null`: sem essa guarda, os botões de estrofe cairiam
+  na letra do áudio de fundo, que está **escondido atrás do cartão** — o
+  operador apertaria "próxima estrofe" e a música saltaria sem nada mudar na
+  tela.
+- **Só as PREFERÊNCIAS persistem** (`state.chronoPrefs`: modo, duração, formato
+  do relógio, legenda). Uma contagem em curso não sobrevive ao fechamento do
+  app de propósito: restaurar um cronômetro que "correu" com o app fechado
+  mostraria um número sem significado.
+- A ferramenta vive só no **modo avançado**, como o microfone: o simplificado
+  existe para quem quer conectar a tela e tocar um louvor.
 
 ### Entradas e saídas de camada sempre com fade (`fadeLayerIn`/`fadeLayerOut`)
 
@@ -2853,7 +2931,8 @@ medidas repetidas à mão), que foram consolidadas nestes padrões.
 > ⚠️ **Não há CSS compartilhado entre os dois apps** (nenhuma folha comum). Os
 > tokens de marca abaixo estão **duplicados** nas duas folhas e precisam ser
 > mantidos **idênticos manualmente**. Ao mudar um deles, mudar nos dois
-> arquivos: `--gold`, `--wallpaper`, `--lyrics-frame-bg`, `--lyrics-frame-border`.
+> arquivos: `--gold`, `--danger`, `--wallpaper`, `--lyrics-frame-bg`,
+> `--lyrics-frame-border`.
 
 ### Tokens
 
@@ -2871,7 +2950,7 @@ medidas repetidas à mão), que foram consolidadas nestes padrões.
 | `--gold` 🔁 | `#fbc02d` | **marca secundária** (dourado "IASD"): logo, capa da letra, pill "Ligar Sistema" |
 | `--gold-soft` | `rgba(251,192,45,.18)` | fundo do estado "áudio bloqueado" (âmbar) |
 | `--gold-text` | `#ffe082` | texto do estado "áudio bloqueado" |
-| `--danger` | `#e53935` | perigo (excluir, mudo, view bloqueada) |
+| `--danger` 🔁 | `#e53935` | perigo (excluir, mudo, view bloqueada) — e, no Display, o timer estourado |
 | `--danger-soft` | `rgba(229,57,53,.22)` | fundo suave de perigo |
 | `--danger-text` | `#ffcdd2` | texto sobre fundo de perigo |
 | `--success` | `#66bb6a` | sucesso / "check do sistema" (cartão do Hinário completo offline) |

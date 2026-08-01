@@ -91,7 +91,7 @@
     <div class="list-header">
       <button id="backBtn" class="back-btn" hidden><span class="msym">&#xe5c4;</span></button>
       <span class="list-title" id="listTitle">Cronograma</span>
-      <span id="appVersion" class="app-version">Controle v5.28</span>
+      <span id="appVersion" class="app-version">Controle v5.29</span>
       <input id="libSearch" class="lib-search" type="search" placeholder="Buscar na pasta…" hidden>
       <!-- Setas circulares = "sincronizar" (o mesmo desenho dos cards de coleção
            e do botão de re-sync na linha da pasta). folder_open fica reservado
@@ -120,13 +120,16 @@
           <line x1="9.2" y1="8.4" x2="13.8" y2="8.4"/>
         </svg>
       </button>
-      <button class="tab" data-tab="mic" title="Microfone">
-        <!-- Ícone de microfone (SVG inline, fora do subset da fonte). -->
+      <!-- Diversos: as ferramentas que não são seção da biblioteca — microfone
+           ao vivo e cronômetro/relógio/timer. O ícone é uma grade de módulos
+           (não mais o microfone): com mais de uma ferramenta dentro, um glifo
+           que nomeia só uma delas esconderia o resto. -->
+      <button class="tab" data-tab="mic" title="Diversos">
         <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <rect x="9" y="2" width="6" height="11" rx="3"/>
-          <path d="M5 10a7 7 0 0 0 14 0"/>
-          <line x1="12" y1="17" x2="12" y2="21"/>
-          <line x1="8" y1="21" x2="16" y2="21"/>
+          <rect x="3.5" y="3.5" width="7" height="7" rx="1.6"/>
+          <rect x="13.5" y="3.5" width="7" height="7" rx="1.6"/>
+          <rect x="3.5" y="13.5" width="7" height="7" rx="1.6"/>
+          <rect x="13.5" y="13.5" width="7" height="7" rx="1.6"/>
         </svg>
       </button>
       <button class="tab-add" id="hymnSearchBtn" title="Buscar no acervo">

@@ -107,6 +107,7 @@ input, textarea { user-select: text !important; -webkit-user-select: text !impor
   .coll-pill, .coll-bar, .coll-bar-btn, .coll-group-btn, .hymnal-card-btn,
   .bible-cell, .bible-ref-part, .bible-vsec, .bible-ver-row,
   .hymn-row, .msg-add-btn, .msg-item,
+  .chrono-seg, .chrono-chip, .chrono-btn, .chrono-project,
   .fit-opt, .dialog-btn, .lib-item .row
 ):active { transform: var(--press); }
 
@@ -1023,11 +1024,14 @@ main {
 
 /* ---------- Microfone (push-to-talk) ---------- */
 /* Um alvo grande e central: é para ser encontrado e segurado sem olhar, no
-   meio do culto. */
+   meio do culto.
+   `flex-shrink:0` (e não mais `flex:1`): a aba Diversos passou a ter uma
+   segunda ferramenta abaixo — com o microfone crescendo, ele engolia a altura
+   toda e empurrava o cronômetro para fora da área visível. */
 .mic-wrap {
-  flex: 1; min-height: 0;
+  flex-shrink: 0;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 1rem; padding: 1rem .5rem;
+  gap: 1rem; padding: 1rem .5rem .4rem;
 }
 .mic-btn {
   width: 168px; height: 168px; flex-shrink: 0;
@@ -1054,6 +1058,74 @@ main {
 }
 /* Só aparece com ERRO (permissão negada, sem microfone…) — é diagnóstico. */
 .mic-note { font-size: .84rem; font-weight: 600; color: var(--gold-text); text-align: center; max-width: 34ch; line-height: 1.45; }
+
+/* ---------- Cronômetro / Relógio / Timer (aba Diversos) ---------- */
+/* Painel abaixo do microfone, separado dele por uma linha: são duas ferramentas
+   distintas na mesma aba, e sem a divisa o botão redondo e os controles do
+   cronômetro leriam como um bloco só. */
+.chrono-wrap {
+  flex-shrink: 0;
+  display: flex; flex-direction: column; align-items: stretch; gap: .7rem;
+  padding: .9rem .5rem .4rem;
+  border-top: 1px solid var(--line);
+}
+/* Segmentado de ferramenta — fora da regra "ícone = ação" por natureza (não
+   alterna duas ações opostas; o segmento marcado é que diz o modo). */
+.chrono-modes { display: flex; gap: .35rem; }
+.chrono-seg {
+  flex: 1; padding: .5rem .3rem;
+  border: 1px solid var(--line); border-radius: var(--radius-btn);
+  background: var(--surface); color: var(--muted);
+  font-size: .84rem; font-weight: 700; cursor: pointer;
+  appearance: none; -webkit-appearance: none;
+}
+.chrono-seg.active { background: var(--accent-soft); border-color: var(--accent); color: var(--text); }
+/* O número no Controle. `tabular-nums` pelo mesmo motivo do telão: sem ele a
+   linha se desloca a cada segundo e o número parece tremer. */
+.chrono-read {
+  text-align: center; color: var(--text);
+  font-size: 2.6rem; font-weight: 700; line-height: 1.1;
+  font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1;
+  padding: .2rem 0;
+}
+.chrono-read.over { color: var(--danger); }
+.chrono-presets, .chrono-opts { display: flex; flex-wrap: wrap; gap: .35rem; justify-content: center; }
+.chrono-chip {
+  padding: .34rem .7rem;
+  border: 1px solid var(--line); border-radius: var(--radius-pill);
+  background: var(--surface-2); color: var(--muted);
+  font-size: .8rem; font-weight: 700; cursor: pointer;
+  appearance: none; -webkit-appearance: none;
+}
+.chrono-chip.active { background: var(--accent-soft); border-color: var(--accent); color: var(--text); }
+.chrono-custom { display: flex; align-items: center; gap: .55rem; }
+.chrono-custom-label { font-size: .82rem; font-weight: 700; color: var(--muted); flex-shrink: 0; }
+.chrono-custom-input, .chrono-label-input {
+  flex: 1; min-width: 0; padding: .42rem .55rem;
+  border: 1px solid var(--line); border-radius: var(--radius-btn);
+  background: var(--surface-2); color: var(--text);
+  font-size: .9rem; font-family: inherit;
+}
+.chrono-custom-input { max-width: 6.5rem; }
+.chrono-actions { display: flex; gap: .45rem; }
+.chrono-btn {
+  flex: 1; padding: .6rem .4rem;
+  border: 1px solid var(--line); border-radius: var(--radius-btn);
+  background: var(--surface); color: var(--text);
+  font-size: .9rem; font-weight: 700; cursor: pointer;
+  appearance: none; -webkit-appearance: none;
+}
+.chrono-btn.primary { background: var(--accent-soft); border-color: var(--accent); }
+/* Projetar é a ação final do painel — e a única com efeito no telão, por isso
+   destacada. No ar, vira vermelha: a cor mostra o ESTADO, o rótulo a AÇÃO. */
+.chrono-project {
+  padding: .7rem .4rem;
+  border: 1px solid var(--accent); border-radius: var(--radius-btn);
+  background: var(--accent-soft); color: var(--text);
+  font-size: .95rem; font-weight: 800; cursor: pointer;
+  appearance: none; -webkit-appearance: none;
+}
+.chrono-project.live { background: var(--danger-soft); border-color: var(--danger); color: var(--danger-text); }
 
 /* ---------- Mensagens (texto puro) ---------- */
 /* Vivem num bottom-sheet aberto pelo botão flutuante da preview (`.msg-opts`),
@@ -1135,6 +1207,15 @@ main {
 }
 .pv-text-sub { color: var(--gold); font-weight: 700; font-size: 4.6cqmin; line-height: 1.2; letter-spacing: .02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 .pv-text-content.mode-message .pv-text-main { font-size: 7.4cqmin; -webkit-line-clamp: 7; font-weight: 600; }
+/* Cronômetro/relógio/timer — espelha .mode-chrono do Display (display.css),
+   inclusive o `tabular-nums`, sem o qual o número treme a cada segundo. */
+.pv-text-content.mode-chrono .pv-text-main {
+  font-size: min(24cqmin, calc(86cqw / var(--ch, 8) / 0.66));
+  font-weight: 700; line-height: 1.05; letter-spacing: .01em;
+  font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1;
+  white-space: nowrap; -webkit-line-clamp: 1;
+}
+.pv-text-content.mode-chrono.chrono-over .pv-text-main { color: var(--danger); }
 .pv-text-sub:empty { display: none; }
 
 /* fundo de ação do swipe */
