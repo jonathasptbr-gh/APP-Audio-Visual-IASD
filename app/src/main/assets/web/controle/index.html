@@ -19,54 +19,62 @@
        são os mesmos botões do modo completo acionados por `.click()` (ver
        controle.js) — nenhuma regra de transporte é reescrita aqui. -->
   <div id="simpleMode" class="simple open">
-    <div class="simple-main">
-      <div class="simple-head">
-        <span class="simple-brand">Audio Visual <b>IASD</b></span>
-        <button type="button" id="simpleFullBtn" class="simple-switch">Modo avançado</button>
-      </div>
-
-      <button type="button" id="simpleCastBtn" class="simple-action">
-        <span class="simple-action-icon">
-          <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M3 19a2 2 0 0 1 2 2"/>
-            <path d="M3 15.5a5.5 5.5 0 0 1 5.5 5.5"/>
-            <path d="M3 12a9 9 0 0 1 9 9"/>
-            <path d="M8.5 5h10A2.5 2.5 0 0 1 21 7.5v9a2.5 2.5 0 0 1-2.5 2.5H16"/>
-          </svg>
-        </span>
-        <span class="simple-action-text">
-          <span class="simple-action-title">Conectar a tela</span>
-          <span class="simple-action-sub" id="simpleCastStatus">Abrir a lista de telas</span>
-        </span>
-      </button>
-
-      <button type="button" id="simpleSearchBtn" class="simple-action">
-        <span class="simple-action-icon">
-          <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <circle cx="11" cy="11" r="7"/>
-            <line x1="21" y1="21" x2="16.65" y2="16.65"/>
-          </svg>
-        </span>
-        <span class="simple-action-text">
-          <span class="simple-action-title">Buscar música</span>
-          <span class="simple-action-sub">Hinários e álbuns</span>
-        </span>
-      </button>
-
-      <div class="simple-now">
-        <div class="simple-np" id="simpleNpName">Nada tocando</div>
-        <div class="simple-transport">
-          <button type="button" id="simplePlay" class="simple-t-btn" title="Play/Pause"><span class="msym">&#xe037;</span></button>
-          <button type="button" id="simpleMute" class="simple-t-btn" title="Mudo"><span class="msym">&#xe050;</span></button>
-        </div>
-      </div>
+    <div class="simple-head">
+      <span class="simple-brand">Audio Visual <b>IASD</b></span>
+      <button type="button" id="simpleFullBtn" class="simple-switch">Modo avançado</button>
     </div>
 
-    <!-- Barra de volume: a lateral inteira da tela. Mesmo componente do fader
-         do mixer (`.fader` + `.fader-value`), só que ocupando toda a altura. -->
-    <div class="simple-vol" id="simpleVolWrap">
-      <input type="range" id="simpleVolSlider" class="fader" min="0" max="100" value="100" aria-label="Volume da mídia">
-      <span id="simpleVolValue" class="fader-value" aria-hidden="true">100</span>
+    <!-- As duas ações no alto, lado a lado: teclas grandes de ícone + rótulo. -->
+    <div class="simple-actions">
+      <button type="button" id="simpleCastBtn" class="simple-key simple-action">
+        <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M3 19a2 2 0 0 1 2 2"/>
+          <path d="M3 15.5a5.5 5.5 0 0 1 5.5 5.5"/>
+          <path d="M3 12a9 9 0 0 1 9 9"/>
+          <path d="M8.5 5h10A2.5 2.5 0 0 1 21 7.5v9a2.5 2.5 0 0 1-2.5 2.5H16"/>
+        </svg>
+        <span class="simple-key-label">Conectar a tela</span>
+        <span class="simple-key-sub" id="simpleCastStatus">Abrir a lista de telas</span>
+      </button>
+
+      <button type="button" id="simpleSearchBtn" class="simple-key simple-action">
+        <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="11" cy="11" r="7"/>
+          <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+        </svg>
+        <span class="simple-key-label">Buscar música</span>
+        <span class="simple-key-sub">Hinários e álbuns</span>
+      </button>
+    </div>
+
+    <!-- Letra completa da música em cena: o espaço que sobrava entre as ações
+         e as teclas. Mesmas linhas (.lv-row) da leitura auxiliar do modo
+         avançado, com o mesmo destaque e o mesmo acompanhamento automático. -->
+    <div class="simple-song">
+      <div class="simple-np" id="simpleNpName">Nada tocando</div>
+      <div class="simple-lyrics" id="simpleLyrics"></div>
+    </div>
+
+    <!-- O "controle remoto": teclas grandes, nada de arrastar. -->
+    <div class="simple-remote">
+      <div class="simple-keys">
+        <button type="button" id="simplePlay" class="simple-key simple-key--big" title="Play/Pause"><span class="msym">&#xe037;</span></button>
+        <button type="button" id="simpleMute" class="simple-key simple-key--big" title="Mudo"><span class="msym">&#xe050;</span></button>
+      </div>
+      <!-- Volume por teclas (− / +) com o indicador no meio: num controle não
+           se arrasta nada, e o número diz onde está sem precisar mirar. -->
+      <div class="simple-volrow" id="simpleVolWrap">
+        <button type="button" id="simpleVolDown" class="simple-key simple-key--vol" title="Abaixar o volume" aria-label="Abaixar o volume">
+          <svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        </button>
+        <div class="simple-vol-read">
+          <span class="simple-vol-num" id="simpleVolValue">100</span>
+          <span class="simple-vol-cap">volume</span>
+        </div>
+        <button type="button" id="simpleVolUp" class="simple-key simple-key--vol" title="Aumentar o volume" aria-label="Aumentar o volume">
+          <svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><line x1="5" y1="12" x2="19" y2="12"/><line x1="12" y1="5" x2="12" y2="19"/></svg>
+        </button>
+      </div>
     </div>
   </div>
 
@@ -74,7 +82,7 @@
     <div class="list-header">
       <button id="backBtn" class="back-btn" hidden><span class="msym">&#xe5c4;</span></button>
       <span class="list-title" id="listTitle">Cronograma</span>
-      <span id="appVersion" class="app-version">Controle v5.24</span>
+      <span id="appVersion" class="app-version">Controle v5.25</span>
       <input id="libSearch" class="lib-search" type="search" placeholder="Buscar na pasta…" hidden>
       <!-- Setas circulares = "sincronizar" (o mesmo desenho dos cards de coleção
            e do botão de re-sync na linha da pasta). folder_open fica reservado
