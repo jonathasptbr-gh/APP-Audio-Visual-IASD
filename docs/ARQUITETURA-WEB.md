@@ -3090,15 +3090,16 @@ medidas repetidas à mão), que foram consolidadas nestes padrões.
 
 | Token | Valor | Uso |
 |---|---|---|
-| `--bg` | `#0a0a0a` | fundo do app |
-| `--panel` / `--panel-2` | `#161616` / `#202020` | painéis / item ativo/selecionado |
-| `--bar` | `#111111` | appbar / bottombar |
-| `--line` | `#1e1e1e` | **todas** as bordas/separadores escuros (unifica os antigos `#1e1e1e/#222/#242424/#333`) |
-| `--surface` | `rgba(255,255,255,.06)` | fundo padrão de botão/controle |
-| `--surface-2` | `rgba(255,255,255,.07)` | chip/campo/badge levemente mais claro |
-| `--text` / `--muted` | `#eaeaea` / `#777777` | texto / texto secundário |
-| `--accent` | `#2f81f7` | **marca primária** (azul): ativo, foco, destaque |
-| `--accent-soft` | `rgba(47,129,247,.18)` | fundo suave de estado ativo (accent) |
+| `--bg` | `#121212` | fundo do app — cinza real, não quase-preto (ver "Escada de elevação") |
+| `--panel` / `--panel-2` | `#2a2a2a` / `#383838` | painéis / item ativo/selecionado |
+| `--bar` | `#232323` | appbar / bottombar / trilho de abas |
+| `--line` | `#454545` | **todas** as bordas/separadores (1,95:1 contra o fundo — antes 1,19:1, invisível) |
+| `--surface` | `rgba(255,255,255,.12)` | fundo padrão de botão/controle |
+| `--surface-2` | `rgba(255,255,255,.18)` | chip/campo/badge levemente mais claro |
+| `--text` / `--muted` | `#f2f2f2` / `#a3a3a3` | texto / texto secundário (o `#777` anterior dava 3,94:1 — reprovado em AA) |
+| `--accent` | `#58a6ff` | **marca primária** (azul) como **texto, ícone e borda** sobre fundo escuro (7,4:1) |
+| `--accent-fill` | `#1f6feb` | o mesmo azul como **fundo de elemento com texto branco** (4,6:1). Ver "Um azul não serve aos dois papéis" |
+| `--accent-soft` | `rgba(88,166,255,.18)` | fundo suave de estado ativo (accent) |
 | `--gold` 🔁 | `#fbc02d` | **marca secundária** (dourado "IASD"): logo, capa da letra, pill "Ligar Sistema" |
 | `--gold-soft` | `rgba(251,192,45,.18)` | fundo do estado "áudio bloqueado" (âmbar) |
 | `--gold-text` | `#ffe082` | texto do estado "áudio bloqueado" |
@@ -3194,11 +3195,63 @@ Botões de **função** (fone da mesa de som, folha da leitura auxiliar) e
 regra por natureza: não alternam duas ações opostas — o ícone nomeia o recurso,
 e o `.active` / o segmento marcado dizem o resto.
 
+### Escada de elevação, e por que ela foi refeita (v5.34)
+
+O que separa duas camadas não é a cor de cada uma, é o **degrau** entre elas. A
+escala até a v5.33 era quase plana e, num celular fora de quarto escuro, botão
+e fundo viravam a mesma mancha preta. Medido na tela renderizada, com composição
+alfa real (quase todo controle usa `--surface`, que é branco a 6% e só existe
+em relação ao que está atrás):
+
+| Par | Antes | Depois |
+|---|---|---|
+| trilho de abas × aba inativa | 1,15:1 | **1,46:1** |
+| fundo × botão de transporte | 1,15:1 | **1,46:1** |
+| painel × campo/chip | — | **1,72:1** |
+| painel × barra do microfone | 1,09:1 | **1,31:1** |
+| borda/separador × fundo | 1,19:1 | **1,95:1** |
+| texto secundário (`--muted`) | 3,94:1 ❌ | **7,43:1** |
+| branco sobre aba ativa | 3,75:1 ❌ | **4,63:1** |
+
+A correção foi pelos **dois lados**: o fundo subiu para um cinza real e os
+elementos da frente subiram mais, para o degrau crescer em vez de só deslocar.
+
+- **Piso adotado: 1,25:1 entre superfícies**, 4,5:1 para texto (mínimo AA) e
+  1,7:1 para bordas. Há teste medindo isso na tela renderizada — mudar um token
+  para baixo desses valores falha.
+- **`--surface`/`--surface-2` continuam sendo branco com alfa** de propósito:
+  assim um botão mantém o mesmo degrau relativo esteja ele sobre o fundo, sobre
+  a barra ou dentro de um cartão. Três valores fixos divergiriam no primeiro
+  ajuste.
+- **O trilho de abas é separado do fundo pela BORDA**, não pelo tom (1,12:1
+  entre eles). É de propósito: uma barra clara demais competiria com os botões
+  que ela contém, que são o que precisa saltar.
+
+### Um azul não serve aos dois papéis
+
+`--accent` era um valor único usado como **cor de texto** e como **fundo com
+texto branco**. Isso é uma contradição aritmética, não uma questão de gosto:
+para ser legível como texto sobre fundo escuro o azul precisa ser claro; para
+receber branco por cima precisa ser escuro. O valor antigo (`#2f81f7`) dava
+**3,75:1** de branco sobre a aba ativa — reprovado em AA — e, depois que o fundo
+subiu, caía para **2,66:1** como cor de texto, que é pior ainda.
+
+Daí os dois tokens. A regra para escolher é o **papel**, não a aparência:
+
+- fundo de elemento **com texto branco** → `--accent-fill`
+- texto, ícone ou borda **sobre fundo escuro** → `--accent`
+- elemento **decorativo** sem texto por cima (barra de progresso, linha de
+  arraste, trilho de scroll) → `--accent`, que é o que os destaca
+
 ### Ao adicionar/alterar estilo
 
 1. Existe token pro valor? Use-o. Não existe e o valor se repete? **Crie um token**.
 2. Cor/medida de marca nova → adicionar **nos dois** `:root` (Controle + Display) e marcar 🔁 nesta tabela.
 3. Botão novo → acrescentar o seletor à lista `:is(...)` do feedback de toque; nada de tap-highlight nem de `:active` próprio.
+3b. Fundo em accent? Escolha o token pelo PAPEL (ver acima): `--accent-fill`
+   se houver texto branco por cima, `--accent` se for texto/ícone/borda ou
+   decoração. E respeite os pisos de contraste (1,25:1 superfícies, 4,5:1
+   texto, 1,7:1 bordas).
 4. Botão que alterna → ícone = ação, cor = estado (ver acima).
 5. Atualizar esta tabela e bumpar a versão visual + caches dos SW.
 
