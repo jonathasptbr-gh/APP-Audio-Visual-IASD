@@ -2133,6 +2133,52 @@ Do lado web importam duas coisas:
 a função simplesmente nunca é chamada lá. A base continua rodando nos dois
 contextos sem guarda nenhuma.
 
+### Acervo de LETRAS (baixado no arranque, v5.36)
+
+A letra deixou de depender do áudio: é baixada junto com o índice, como
+informação padrão do acervo. Antes, só quem tinha a música no aparelho podia
+buscá-la — e quem procura "aquele hino que fala em…" quase nunca tem os 600
+baixados.
+
+**Dois acervos, de propósito.** `files[].lyrics` são **slides** (tempo, imagem,
+capa) e só existem com áudio baixado — é o que a projeção sincronizada consome.
+`state.lyrics:<collId>` é só **texto**, por música, e existe para toda música do
+índice — é o que a busca consome. Fundi-los faria a busca carregar tempos e
+caminhos de imagem à toa, e faria o download do índice arrastar o peso dos
+slides. O índice de busca (`buildLyricIndex`) lê os **dois**, chaveado por
+`collId:id_music`, com o acervo de texto tendo precedência.
+
+- **Caminho de graça primeiro.** Se a API mandar `lyric` já no índice do acervo
+  (o app-ja busca por esse campo — §5.3 de `FONTE-DE-DADOS-LOUVORJA.md`),
+  `fetchCollectionIndex` colhe dali e a música nem entra na fila. Verificado
+  contra uma API simulada: com o campo presente, **zero** requisições
+  `music_{id}`.
+- **Só os hinários, automaticamente.** São o acervo padrão, têm tamanho
+  conhecido (~1.100) e são o que se busca por trecho no meio de um culto. O
+  catálogo de álbuns não tem teto — puxar a letra de todos sem pedir seria
+  gastar a internet do operador por conta própria. Álbuns seguem pelo caminho
+  de sempre: a letra chega quando a música é baixada.
+- **Adia só em rede móvel CONHECIDA** (`networkType() === 'cellular'`), e a
+  assimetria com `syncCollection` é deliberada: lá descem centenas de MB de
+  áudio e perguntar é o certo; aqui é JSON de texto, poucos MB no hinário
+  inteiro — menos que UMA música que o app baixa com um toque sem perguntar.
+  Usar `isConfirmedWifi()` seria pior que inútil: `navigator.connection.type`
+  não existe em boa parte dos aparelhos e devolve `'unknown'`, então exigir
+  Wi-Fi confirmado faria o recurso **nunca rodar** na maioria deles.
+- **Incremental e resumível.** Só busca o que falta; reabrir o app não refaz
+  nada. Verificado: 40 requisições na primeira abertura, **0** na segunda, e
+  exatamente **2** depois de apagar duas do acervo.
+- **`0` marca "não tem letra"**, e é diferente de ausência: sem essa marca,
+  toda abertura tentaria de novo as mesmas centenas. Mas **falha de rede não
+  marca** — senão um wi-fi que oscilou tiraria o hino da busca para sempre.
+- **Gravação em LOTES** (`LYRIC_BATCH`, 25): são centenas de músicas, e
+  reescrever o blob inteiro a cada uma tornaria o download quadrático.
+- **Indexa TODA linha**, inclusive `aux_lyric` e estrofes sem `show_slide` — ao
+  contrário de `buildLyricSlides`, que filtra o que vira slide. Uma estrofe que
+  não é projetada continua sendo letra da música, e para buscar isso só ajuda.
+- Roda como fase 3 do `refreshCollections`, fire-and-forget, com o progresso na
+  notificação pelo mesmo `withBgWork` do resto do trabalho de massa.
+
 ### Busca dentro da LETRA (v5.35)
 
 "Qual é o hino que fala em *firme nas promessas*?" é a pergunta que o operador
@@ -2144,11 +2190,9 @@ arquivo (store `files`) quando a música é baixada — então o índice sai de 
 leitura do IDB**, sem nenhuma requisição, e funciona offline, que é o estado
 normal no meio de um culto.
 
-- **O alcance é o que está BAIXADO**, e isso é uma limitação da fonte, não uma
-  escolha de escopo: música nunca baixada não tem letra no aparelho. O índice do
-  acervo (`pt_hymnal`, `pt_musics`) traz nome, número e duração — não o texto.
-  Cobrir o catálogo inteiro exigiria puxar um `music_{id}` por música, centenas
-  de requisições, e seria outra funcionalidade com outro custo.
+- **Alcance** (desde a v5.36): os **hinários inteiros**, baixados no arranque —
+  ver "Acervo de LETRAS" acima. Para **álbuns**, segue valendo o que está
+  baixado, porque a letra deles só chega com a música.
 - **Título ANTES de letra, sempre.** Quem digita "Firme nas Promessas" quer o
   hino de mesmo nome no topo, não os quinze que citam a expressão numa estrofe.
   São dois grupos concatenados (`porNome` + `porLetra`), e quem casa por título
