@@ -52,6 +52,15 @@
          avançado, com o mesmo destaque e o mesmo acompanhamento automático. -->
     <div class="simple-song">
       <div class="simple-np" id="simpleNpName">Nada tocando</div>
+      <!-- Linha do tempo da música: decorrido, barra e duração. É só LEITURA —
+           neste modo não se arrasta nada (o volume também virou tecla); quem
+           precisa saltar no tempo usa o modo avançado. Some quando o que está
+           em cena não tem duração (imagem, texto). -->
+      <div class="simple-time" id="simpleTime" hidden>
+        <span class="simple-time-num" id="simpleTimeCur">0:00</span>
+        <div class="simple-time-bar"><div class="simple-time-fill" id="simpleTimeFill"></div></div>
+        <span class="simple-time-num" id="simpleTimeDur">0:00</span>
+      </div>
       <div class="simple-lyrics" id="simpleLyrics"></div>
     </div>
 
@@ -82,7 +91,7 @@
     <div class="list-header">
       <button id="backBtn" class="back-btn" hidden><span class="msym">&#xe5c4;</span></button>
       <span class="list-title" id="listTitle">Cronograma</span>
-      <span id="appVersion" class="app-version">Controle v5.27</span>
+      <span id="appVersion" class="app-version">Controle v5.28</span>
       <input id="libSearch" class="lib-search" type="search" placeholder="Buscar na pasta…" hidden>
       <!-- Setas circulares = "sincronizar" (o mesmo desenho dos cards de coleção
            e do botão de re-sync na linha da pasta). folder_open fica reservado
