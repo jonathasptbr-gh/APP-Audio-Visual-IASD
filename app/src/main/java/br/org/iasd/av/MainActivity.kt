@@ -192,12 +192,44 @@ class MainActivity : ComponentActivity(), BridgeHost {
             runOnUiThread { web?.evaluateJavascript(js, null) }
         }
 
-        onBackPressedDispatcher.addCallback(this) {
-            // Sair do app por engano durante o culto derrubaria a projeção.
-            // O botão voltar apenas manda a tarefa para segundo plano — a
-            // sessão (e a Presentation na TV) continua viva.
-            moveTaskToBack(true)
+        onBackPressedDispatcher.addCallback(this) { handleBack() }
+    }
+
+    /**
+     * Botão VOLTAR do aparelho.
+     *
+     * Sair do app por engano durante o culto derrubaria a projeção, então o
+     * voltar **nunca** encerra a Activity — no fim da fila ele apenas manda a
+     * tarefa para segundo plano, com a sessão (e a `Presentation` na TV) viva.
+     *
+     * O que mudou na v5.32 é o que vem ANTES disso: quem sabe se há um popup,
+     * uma pasta aberta ou a preview em tela cheia é o lado web, então a decisão
+     * é dele (`window.__avBack`, em `controle.js`) — invariante 5, nenhuma
+     * hierarquia de navegação reimplementada aqui. Kotlin só pergunta e obedece.
+     *
+     * **A resposta é assíncrona, e por isso há um prazo.** `evaluateJavascript`
+     * devolve pelo callback; se o renderer morreu, está travado ou o bundle é
+     * antigo demais para ter `__avBack`, esse callback pode simplesmente nunca
+     * chegar — e um botão voltar que não faz NADA é pior que um que minimiza.
+     * O `postDelayed` garante a resposta padrão; o `AtomicBoolean` faz o
+     * primeiro dos dois caminhos vencer, para não minimizar depois de o web já
+     * ter fechado um popup.
+     */
+    private fun handleBack() {
+        val w = web
+        if (w == null) { moveTaskToBack(true); return }
+        val resolvido = java.util.concurrent.atomic.AtomicBoolean(false)
+        val minimizar = Runnable {
+            if (resolvido.compareAndSet(false, true)) moveTaskToBack(true)
         }
+        // Um bundle web anterior à v5.32 não define `__avBack`; o `try` devolve
+        // false e o comportamento volta a ser o de sempre, sem erro no console.
+        val js = "(function(){try{return !!(window.__avBack && window.__avBack());}" +
+            "catch(e){return false;}})();"
+        w.evaluateJavascript(js) { r ->
+            if (r == "true") resolvido.set(true) else minimizar.run()
+        }
+        w.postDelayed(minimizar, BACK_JS_TIMEOUT_MS)
     }
 
     /**
@@ -660,6 +692,13 @@ class MainActivity : ComponentActivity(), BridgeHost {
     companion object {
         private const val TAG = "AvIasd"
         private const val GMS_PACKAGE = "com.google.android.gms"
+        /**
+         * Prazo para o lado web responder ao botão voltar (ver [handleBack]).
+         * Curto de propósito: acima disso o toque começa a parecer ignorado, e
+         * a resposta padrão (minimizar) é sempre segura. Um WebView vivo
+         * responde em poucos milissegundos.
+         */
+        private const val BACK_JS_TIMEOUT_MS = 350L
         /** Pacotes do Smart View conhecidos (varia por versão do One UI). */
         private val SAMSUNG_MIRROR_PACKAGES = listOf(
             "com.samsung.android.smartmirroring",
