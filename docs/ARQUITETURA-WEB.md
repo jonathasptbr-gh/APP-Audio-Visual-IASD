@@ -662,7 +662,7 @@ mirar um alvo fino ali é o pior formato possível.
 
 | Elemento | O que faz |
 |---|---|
-| **Conectar a tela** (`#simpleCastBtn`) | `AVNative.openCast()` — o seletor de espelhamento do Android. O subtítulo mostra a tela conectada ao vivo (`AVNative.displays()`), porque "conectar" é a primeira dúvida de quem abre o app. No navegador vira o atalho para a tela do Display |
+| **Conectar a tela** (`#simpleCastBtn`) | `AVNative.openCast()` — o seletor de espelhamento do Android. O subtítulo mostra a tela conectada ao vivo (`AVNative.displays()`), porque "conectar" é a primeira dúvida de quem abre o app. **Sem tela conectada é o único botão disponível** (ver o bloqueio abaixo). No navegador vira o atalho para a tela do Display |
 | **Buscar música** (`#simpleSearchBtn`) | o MESMO popup de busca do acervo (`openHymnSearch`). Um toque na linha **toca a versão Cantada direto** (ver abaixo) |
 | **Linha do tempo** (`#simpleTime`) | decorrido · barra · duração, só LEITURA — espelha a mesma `#seek` do modo avançado (que já é alimentada pela preview, pelo `display-status` e pelo polling do YouTube) e some quando o item não tem duração |
 | **Letra** (`#simpleLyrics`) | a letra INTEIRA da música em cena, com o mesmo destaque e o mesmo acompanhamento da leitura auxiliar do modo avançado |
@@ -701,6 +701,46 @@ acompanhamento até a próxima música, como no popup.
 
 A espiada do volume pelos botões físicos (`peekVolume`) **não roda no
 simplificado**: as teclas de volume já estão na tela, com o número ao lado.
+
+#### Sem tela conectada, o modo inteiro fica bloqueado (v5.39)
+
+Neste modo **a projeção É o telão** — não existe preview aqui. Sem tela
+conectada, buscar uma música e dar play produzia som no celular e mais nada:
+os controles continuavam à disposição, respondendo a cada toque, sem que nada
+aparecesse em lugar nenhum. O modo avançado não tem esse problema, porque lá a
+preview mostra o que sairia no telão; aqui não há para onde olhar.
+
+`renderSimpleGate()` cobre a tela com a cortina `#simpleVeil` — `backdrop-
+filter: blur(7px)` mais um véu — que **intercepta os toques** do que ficou
+atrás. Na frente sobem duas coisas, e só duas:
+
+- **Conectar a tela** (`#simpleCastBtn`), a única ação que resolve o bloqueio.
+  Com a busca escondida ele passa a ocupar a linha inteira: um botão de meia
+  largura ao lado de um vazio se lê como defeito, não como escolha.
+- **Modo avançado** (`#simpleFullBtn`), no cabeçalho. **Sem TV o app não fica
+  inútil** — a projeção passa a ser a preview em tela cheia —, e trancar essa
+  saída transformaria a falta de telão numa parede. O que se bloqueia é o modo
+  simplificado, não o app.
+
+**A única parte que muda por contexto é quem responde "há tela?"** — o resto do
+mecanismo é o mesmo nos dois. No app são as telas de apresentação que a ponte
+lista (`AVNative.displays()` + `onDisplayChange`), então o dongle que cai
+rebaixa a cortina e o que volta a levanta, pelo caminho que já existia. No
+navegador não existe `Presentation`: vale a **janela do Display** que o próprio
+botão abre (`openWebDisplay`), e fechá-la equivale a desconectar. Como não há
+evento de "janela fechada", um relógio de 1 s olha o `closed` — e ele só existe
+enquanto a janela existe.
+
+Dois detalhes que só aparecem em uso:
+
+- **A busca aberta é fechada pelo bloqueio.** Perder a tela com o popup no ar
+  deixaria a busca funcionando por cima de uma tela bloqueada — e tocar uma
+  música dali não projetaria nada.
+- **A cortina precisa de `[hidden] { display: none }` explícito.** O
+  `display: flex` da regra venceria o `display: none` que o navegador dá a
+  `[hidden]`, e ela nunca sairia da frente. Onde não há suporte a
+  `backdrop-filter` o véu fica opaco: uma cortina transparente pareceria um
+  toque perdido, não um bloqueio.
 
 ### Layout geral
 

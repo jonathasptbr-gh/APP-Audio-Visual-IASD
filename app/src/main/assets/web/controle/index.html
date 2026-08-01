@@ -85,13 +85,25 @@
         </button>
       </div>
     </div>
+
+    <!-- BLOQUEIO: sem tela conectada não há o que operar neste modo — a
+         projeção É o telão. A cortina embaça e intercepta tudo o que está
+         atrás dela; o que fica na frente é só o botão de conectar (e o
+         "Modo avançado" do cabeçalho, que é a saída de quem vai projetar
+         pela preview em tela cheia). Ver renderSimpleGate em controle.js. -->
+    <div class="simple-veil" id="simpleVeil" hidden>
+      <div class="simple-veil-card">
+        <div class="simple-veil-title">Nenhuma tela conectada</div>
+        <div class="simple-veil-sub">Conecte o telão para operar por aqui.</div>
+      </div>
+    </div>
   </div>
 
   <main>
     <div class="list-header">
       <button id="backBtn" class="back-btn" hidden><span class="msym">&#xe5c4;</span></button>
       <span class="list-title" id="listTitle">Cronograma</span>
-      <span id="appVersion" class="app-version">Controle v5.38</span>
+      <span id="appVersion" class="app-version">Controle v5.39</span>
       <input id="libSearch" class="lib-search" type="search" placeholder="Buscar na pasta…" hidden>
       <!-- Setas circulares = "sincronizar" (o mesmo desenho dos cards de coleção
            e do botão de re-sync na linha da pasta). folder_open fica reservado
