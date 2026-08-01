@@ -833,8 +833,7 @@ main {
 .hymnal-card-btn.cfg-btn { background: var(--surface); color: var(--muted); }
 
 /* Conteúdo do bottom-sheet de mensagens. */
-.msg-opts { display: flex; flex-direction: column; gap: .5rem; padding: .2rem .9rem .9rem; }
-.msg-opts .empty { padding: 1rem 0; }
+.msg-list .empty { padding: 1rem 0; }
 
 /* Conteúdo do bottom-sheet de opções da coleção. */
 .coll-opts { display: flex; flex-direction: column; gap: .6rem; padding: .2rem .9rem .9rem; }
@@ -1028,19 +1027,23 @@ main {
    `flex-shrink:0` (e não mais `flex:1`): a aba Diversos passou a ter uma
    segunda ferramenta abaixo — com o microfone crescendo, ele engolia a altura
    toda e empurrava o cronômetro para fora da área visível. */
+/* Fica FORA do acordeão e depois dele: é o rodapé da aba. */
 .mic-wrap {
   flex-shrink: 0;
-  display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: .55rem; padding: .5rem .5rem .3rem;
+  display: flex; flex-direction: column; align-items: stretch;
+  gap: .4rem; padding: .55rem 0 .1rem;
+  border-top: 1px solid var(--line);
 }
-/* 132px: continua um alvo enorme para o polegar (bem acima dos 48dp mínimos),
-   mas com TRÊS ferramentas na aba os 168px de antes empurravam o sorteio para
-   fora da primeira tela — e a ferramenta que não se vê não existe. */
+/* BARRA, não mais disco. Fixa na base da aba, fora do acordeão: push-to-talk é
+   o único controle daqui que pode ser preciso no meio de uma frase, e ter que
+   abrir uma seção antes de falar o tornaria inútil. Como barra custa ~56px de
+   altura em vez de 132 e ainda oferece área de toque MAIOR (largura inteira),
+   que é o que importa para achá-la sem olhar. */
 .mic-btn {
-  width: 132px; height: 132px; flex-shrink: 0;
-  border-radius: 50%;
+  width: 100%; height: 56px; flex-shrink: 0;
+  border-radius: var(--radius-btn);
   border: 2px solid var(--line); background: var(--panel); color: var(--text);
-  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .5rem;
+  display: flex; flex-direction: row; align-items: center; justify-content: center; gap: .6rem;
   cursor: pointer; appearance: none; -webkit-appearance: none;
   /* O dedo fica parado em cima: nada de rolagem ou menu de contexto durante
      o push-to-talk. */
@@ -1048,7 +1051,7 @@ main {
   transition: background .12s ease, border-color .12s ease, color .12s ease;
 }
 .mic-btn svg { display: block; }
-.mic-btn-label { font-size: .82rem; font-weight: 700; }
+.mic-btn-label { font-size: .95rem; font-weight: 800; letter-spacing: .02em; }
 /* No ar: vermelho pleno e pulsante — quem está falando precisa ver de longe
    que o microfone está aberto. */
 .mic-btn.live {
@@ -1057,7 +1060,7 @@ main {
 }
 @keyframes mic-pulse {
   0%, 100% { box-shadow: 0 0 0 0 var(--danger-soft); }
-  50% { box-shadow: 0 0 0 14px rgba(229, 57, 53, 0); }
+  50% { box-shadow: 0 0 0 10px rgba(229, 57, 53, 0); }
 }
 /* Só aparece com ERRO (permissão negada, sem microfone…) — é diagnóstico. */
 .mic-note { font-size: .84rem; font-weight: 600; color: var(--gold-text); text-align: center; max-width: 34ch; line-height: 1.45; }
@@ -1068,15 +1071,47 @@ main {
    `.chrono-*`, com uma ferramenta só; ao ganhar a segunda, um nome que anuncia
    apenas uma delas passava a mentir sobre quem o usa. O que é de fato exclusivo
    segue nomeado por dono: `.chrono-read/-actions/-btn` e `.draw-*`.
-   Cada painel é separado do anterior por uma linha: sem a divisa, o botão
-   redondo do microfone e os controles do cronômetro leriam como um bloco só. */
-.misc-wrap {
-  flex-shrink: 0;
-  display: flex; flex-direction: column; align-items: stretch; gap: .7rem;
-  padding: .9rem .5rem .4rem;
-  border-top: 1px solid var(--line);
+   Três ferramentas empilhadas não cabiam numa tela de celular, e a rolagem
+   vertical escondia justamente a que não estava em uso. O ACORDEÃO resolve pelo
+   formato: EXATAMENTE UMA aberta por vez, a aberta ocupa a altura que sobra, e
+   as outras duas custam só o cabeçalho. A tela deixa de rolar. */
+.lib-list.lib-misc { overflow: hidden; gap: 0; padding-bottom: 0; }
+.misc-acc { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.misc-sec { display: flex; flex-direction: column; min-height: 0; border-bottom: 1px solid var(--line); }
+/* Só a aberta cresce; as fechadas ficam do tamanho do próprio cabeçalho. */
+.misc-sec.open { flex: 1; min-height: 0; }
+.misc-head {
+  flex-shrink: 0; display: flex; align-items: center; gap: .5rem;
+  padding: .7rem .1rem; background: none; border: 0; cursor: pointer;
+  appearance: none; -webkit-appearance: none; text-align: left;
 }
-.misc-wrap:last-child { padding-bottom: 1rem; }
+.misc-head-name {
+  flex: 1; min-width: 0;
+  font-size: .78rem; font-weight: 800; letter-spacing: .09em;
+  text-transform: uppercase; color: var(--muted);
+}
+.misc-sec.open .misc-head-name { color: var(--text); }
+/* "no ar" no cabeçalho: com a seção fechada, é o único lugar que diz que
+   aquela ferramenta está projetando. Sem isso, colapsar o sorteio faria
+   parecer que ele saiu do telão. */
+.misc-head-live {
+  flex-shrink: 0; padding: .12rem .45rem;
+  border-radius: var(--radius-pill);
+  background: var(--danger-soft); color: var(--danger-text);
+  font-size: .66rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase;
+}
+.misc-head-chev { display: flex; color: var(--muted); transition: transform .18s ease; }
+.misc-sec.open .misc-head-chev { transform: rotate(180deg); color: var(--text); }
+.misc-body { display: none; }
+.misc-sec.open .misc-body {
+  display: flex; flex-direction: column; align-items: stretch; gap: .6rem;
+  flex: 1; min-height: 0; overflow-y: auto;
+  padding: .1rem .1rem .7rem;
+}
+/* Mensagens: quem rola é a LISTA, não o corpo — senão "+ Nova mensagem" e
+   "Tirar do telão" sairiam de vista assim que a lista crescesse. */
+.misc-sec.open .misc-body--msg { overflow: hidden; }
+.msg-list { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: .35rem; }
 /* Segmentado de ferramenta — fora da regra "ícone = ação" por natureza (não
    alterna duas ações opostas; o segmento marcado é que diz o modo). */
 .misc-modes { display: flex; gap: .35rem; }
@@ -1136,12 +1171,6 @@ main {
 .misc-project.live { background: var(--danger-soft); border-color: var(--danger); color: var(--danger-text); }
 
 /* ---------- Sorteio (aba Diversos) ---------- */
-/* Título de seção: com três ferramentas na mesma aba, o segmentado sozinho não
-   diz mais onde uma acaba e a outra começa. */
-.misc-title {
-  font-size: .74rem; font-weight: 800; letter-spacing: .09em;
-  text-transform: uppercase; color: var(--muted);
-}
 /* O resultado. Sem `tabular-nums` (ao contrário do cronômetro): aqui o valor
    pode ser um nome, e a métrica tabular espaça mal as letras. */
 .draw-read {
@@ -1155,8 +1184,13 @@ main {
    é o que anuncia o resultado. */
 .draw-read.rolling { opacity: .55; color: var(--gold); }
 .draw-range { display: flex; gap: .6rem; }
-.draw-range-field { flex: 1; display: flex; align-items: center; gap: .5rem; }
-.draw-range-field .misc-num { flex: 1; max-width: none; }
+/* `min-width: 0` nos DOIS níveis: o padrão de um item flex é `min-width: auto`,
+   que o impede de encolher abaixo da largura intrínseca do conteúdo — e um
+   `<input type="number">` sem `size` mede ~200px por conta própria. Dois campos
+   de 200px + gap não cabem numa tela de 394px, e a aba inteira ganhava rolagem
+   HORIZONTAL. É o vazamento clássico de flexbox, e some com esta linha. */
+.draw-range-field { flex: 1; min-width: 0; display: flex; align-items: center; gap: .5rem; }
+.draw-range-field .misc-num { flex: 1; min-width: 0; max-width: none; }
 .draw-pool {
   width: 100%; padding: .5rem .6rem; resize: vertical;
   border: 1px solid var(--line); border-radius: var(--radius-btn);

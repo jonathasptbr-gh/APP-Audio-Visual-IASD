@@ -921,8 +921,13 @@ altura inteira, que é a dimensão apertada aqui (a linha do deck tem 130px).
 |---|---|---|
 | 1 | `#pvSettingsBtn` (engrenagem) | popup de **Exibição** (`openFadePopup`) |
 | 2 | `#pvCastBtn` (cast) | seletor de espelhamento do Android (`AVNative.openCast()`) — **só no app nativo**; oculto no navegador |
-| 3 | `#pvMsgBtn` (balão / X) | **mensagem na tela** — abre a lista, ou tira do ar a que está projetada (ver "Camada de Texto") |
-| 4 | `#pvFullBtn` (expandir) | **tela cheia** da preview (`requestFullscreen` + trava de paisagem) |
+| 3 | `#pvFullBtn` (expandir) | **tela cheia** da preview (`requestFullscreen` + trava de paisagem) |
+
+> Havia um quarto (`#pvMsgBtn`, mensagem na tela). Ele saiu na v5.31: Mensagens
+> virou uma seção da aba **Diversos**. Enquanto era a única ferramenta avulsa o
+> FAB se justificava; com três delas, ter uma em cima da preview e duas numa aba
+> era a mesma pergunta ("que aviso eu ponho na tela?") respondida em dois
+> lugares — e o espaço sobre a preview é o que menos sobra.
 
 São a única indicação de que essas ações existem, e a preview fica na base da
 tela o tempo todo; escondê-los por omissão devolvia o problema dos gestos
@@ -1166,8 +1171,9 @@ normal do app** (`.tabs` sem fundo/card próprio). São **quatro**:
 - **Bíblia** (`bible`) — seleção e projeção de textos bíblicos. Não é uma lista
   de mídia; ver a seção **"Bíblia"** abaixo.
 - **Diversos** (`activeTab` segue sendo `'mic'`, por herança) — as **ferramentas
-  que não são acervo**: o microfone ao vivo (push-to-talk), o
-  **cronômetro/relógio/timer** e o **sorteio**. Ver "Diversos" abaixo.
+  que não são acervo**: **Mensagens**, **Tempo** (relógio/cronômetro/timer) e
+  **Sorteio**, num acordeão, mais o **microfone** fixo na base. Ver "Diversos"
+  abaixo.
 
 > A aba nasceu como **Microfone**, com uma ferramenta só. Ao ganhar a segunda,
 > virou **Diversos** e o ícone deixou de ser o microfone: com mais de uma coisa
@@ -1187,10 +1193,8 @@ normal do app** (`.tabs` sem fundo/card próprio). São **quatro**:
   na **raiz** dos Favoritos (é a única saída de lá) e `navigateBack()` volta
   ao Cronograma; `renderTabs()` mantém o Cronograma aceso enquanto se está
   neles, para a faixa não ficar sem nada marcado.
-- **Mensagens** — virou um **botão flutuante sobre a preview** (canto inferior
-  esquerdo) que abre a lista num bottom-sheet. Um aviso de texto ("bem-vindos",
-  "desliguem o celular") é uma interrupção rápida, não uma seção que se navega.
-  Ver "Mensagens" abaixo.
+- **Mensagens** — foi para a aba **Diversos** (v5.31), como seção do acordeão.
+  Antes era um botão flutuante sobre a preview; ver "Diversos" abaixo.
 
 **Importar arquivos e Favoritos** (`appendImportRow`) são a **última linha da
 lista do Cronograma** (`.import-row` com dois `.import-btn` lado a lado,
@@ -2052,17 +2056,14 @@ tudo — cobre/revela "de graça", sem tocar em `stage.js`). Os três são:
 | **Cronômetro/relógio/timer** | **derivado do relógio** (sem avanço) | o próprio tempo (`chronoReading`) | `#text` / `#pvText` |
 | **Sorteio** | **derivado** (rolo até assentar) | faixa numérica ou lista de opções (`drawReading`) | `#text` / `#pvText` |
 
-> **Mensagens não tem aba** — vive no botão flutuante `#pvMsgBtn`, no canto
-> inferior esquerdo da preview. O **mesmo botão faz as duas coisas**, conforme
-> o estado (`renderMsgFab`): sem mensagem no ar, abre a lista
-> (`#msgPopup`); com uma projetada, vira um **X vermelho que a tira da tela**
-> (`hideMessage` → comando `text-hide`, que encerra só a Camada de Texto — um
-> áudio de fundo segue tocando). É a ação que o operador quer à mão nesse
-> momento, sem reabrir o popup só para desligar o que já está exibido. Tocar
-> numa mensagem projeta e **fecha o popup** (o que ele quer ver agora é a
-> preview). Com a mensagem fora do ar mas a sessão viva, os botões de slide só
-> MOVEM a seleção — não trazem de volta o que ele acabou de tirar (mesma regra
-> da Bíblia).
+> **Mensagens vive na aba Diversos** (v5.31), como uma seção do acordeão:
+> lista de avisos salvos, "+ Nova mensagem" e — quando há uma projetada —
+> "Tirar do telão" (`hideMessage` → `text-hide`, que encerra só a Camada de
+> Texto; um áudio de fundo segue tocando). Tocar numa mensagem projeta e a
+> linha fica marcada, então passar de um aviso a outro não exige reabrir nada
+> — que era o atrito do bottom-sheet anterior. Com a mensagem fora do ar mas a
+> sessão viva, os botões de slide só MOVEM a seleção (mesma regra da Bíblia).
+
 | **Letra sincronizada** | **temporizado** (segue o `currentTime` do áudio) | música do LouvorJA | `#lyrics` / `#pvLyrics` |
 
 **Bíblia e Mensagens são literalmente o MESMO cartão** (`#text` no Display,
@@ -2102,6 +2103,44 @@ Texto é **desacoplada do ciclo de vida da mídia do stage** — `showText`/
   último é o item SELECIONADO e continua apontando para a música terminada — era
   exatamente ele que fazia a preview achar que ainda havia algo em cena.
 
+### Diversos: o acordeão
+
+A aba reúne quatro ferramentas, e três delas empilhadas **não cabiam** numa tela
+de celular: a página ganhava rolagem vertical, e o que a rolagem escondia era
+justamente a ferramenta que não estava em uso. Um **acordeão** resolve pelo
+formato, não por ajuste fino de altura:
+
+- **Exatamente uma seção aberta por vez** (`miscOpen`). A aberta recebe
+  `flex: 1` e ocupa a altura que sobra; as outras custam só o cabeçalho. Tocar
+  no cabeçalho da seção já aberta **não a fecha** — o contrato é "sempre uma
+  visível", e um estado com todas fechadas seria uma tela vazia.
+- **Só a seção aberta é renderizada**, e é o render dela que religa o seu
+  timer de painel. As fechadas não têm corpo no DOM, então não há laço batendo
+  em nó invisível.
+- **`#library` deixa de rolar nesta aba** (`.lib-misc`): quem administra a
+  altura é o acordeão, e a seção aberta rola por dentro se precisar. Com a
+  rolagem da lista ligada, a página inteira voltaria a rolar e o microfone
+  sairia da base.
+- **O cabeçalho mostra "no ar"** quando aquela ferramenta está projetando. Com
+  a seção fechada é o único sinal disso — sem ele, colapsar o sorteio faria
+  parecer que ele saiu do telão.
+- **O microfone fica FORA do acordeão, fixo na base**, e virou uma **barra** no
+  lugar do disco de 132 px. É o único controle daqui com urgência real:
+  push-to-talk pode ser preciso no meio de uma frase, e ter que abrir uma seção
+  antes de falar o tornaria inútil. Como barra custa ~56 px de altura em vez de
+  132 e ainda oferece área de toque **maior** (largura inteira), que é o que
+  importa para achá-la sem olhar.
+- Verificado nas três seções: **zero rolagem**, horizontal ou vertical, com o
+  microfone sempre visível.
+
+> **Vazamento horizontal (v5.31).** A faixa "de/até" do sorteio empurrava a aba
+> além da largura da tela. Causa: o padrão de um item flex é `min-width: auto`,
+> que o impede de encolher abaixo da largura intrínseca do conteúdo — e um
+> `<input type="number">` sem `size` mede ~200 px por conta própria. Dois campos
+> de 200 px não cabiam em 394 px. `min-width: 0` nos dois níveis (o campo e o
+> wrapper) resolve. É o vazamento clássico de flexbox, e vale para qualquer
+> input futuro dentro de uma linha `.misc-row`.
+
 ### Diversos: cronômetro · relógio · timer
 
 Terceiro provedor da Camada de Texto, na aba **Diversos** (junto do microfone).
@@ -2135,6 +2174,12 @@ ressincronizar. É o mesmo princípio do `load` + posição já usado para a mí
 Verificado recarregando o Display com um timer estourado em cena: volta
 exibindo exatamente o mesmo valor do Controle.
 
+- **O relógio nasce em `HH:MM`, 24 h** (v5.31). No telão o que interessa é a
+  hora; o dígito dos segundos mudando o tempo todo puxa o olho para um número
+  que não informa nada. Quem precisar liga no chip. Preferências gravadas antes
+  da v5.31 carregam `secs: true` só porque era o padrão de então — por isso
+  `chronoPrefs` ganhou um `v`, e um registro sem ele tem o `secs` ignorado:
+  respeitar uma "escolha" que ninguém fez faria a mudança não chegar a ninguém.
 - **`baseMs` existe porque pausar precisa congelar o acumulado.** Com `startAt`
   sozinho, retomar perderia todo o trecho anterior.
 - **O timer NÃO congela em zero** — passa a contar em negativo, em vermelho
