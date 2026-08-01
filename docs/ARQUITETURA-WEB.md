@@ -79,10 +79,10 @@ git push origin main
   `renderVersionLabel()`), o fallback estático do `<span id="appVersion">` em
   `controle/index.html` e `version` em `version.json` (é este último que
   dispara a atualização por OTA nos aparelhos). Versionamento incremental
-  simples (5.21, 5.22, 5.23…). **Versão atual: v5.23.**
+  simples (5.22, 5.23, 5.24…). **Versão atual: v5.24.**
   No app nativo o rótulo mostra os **dois índices** — `Web v5.17 · Shell v1.18`
   —, porque base web e shell atualizam por caminhos independentes (OTA ×
-  instalar APK); no navegador sai só `Controle v5.23`.
+  instalar APK); no navegador sai só `Controle v5.24`.
 
 ---
 
@@ -626,7 +626,7 @@ chegou depois já decidiu o estado final da cortina. Ações exclusivas
 
 ## Controle
 
-### Modos de uso: simplificado × sonoplasta completo
+### Modos de uso: simplificado (padrão) × avançado
 
 O app atende duas pessoas diferentes. Uma abre o celular para **conectar a
 tela e tocar um louvor**; a outra opera o culto inteiro — Cronograma, álbuns,
@@ -634,14 +634,20 @@ Bíblia, Camada de Texto, playlist, letra sincronizada, microfone. A tela que
 serve bem à segunda é excessiva para a primeira, e esconder recursos atrás de
 uma configuração só empurraria a escolha para um lugar onde ninguém procura.
 
-**A pergunta é explícita na abertura** (`#modePicker`, visível já no HTML —
-não espera JS nem IndexedDB) e **não é lembrada entre sessões**: quem abre o
-app hoje pode não ser quem abre no próximo culto, e a resposta custa um toque.
-Trocar depois não exige reabrir: no simplificado há o botão "Modo completo" no
-cabeçalho, e no completo o segmento **Modo do app** no popup de Exibição
-(`#appModeSeg`).
+**O app abre SEMPRE no simplificado**, sem perguntar nada. A versão anterior
+(v5.23) mostrava um seletor de modo na abertura; ele saiu porque cobrava um
+toque de todo mundo — inclusive de quem nem sabia que havia dois modos — antes
+de mostrar qualquer coisa útil, e o caso comum é justamente o simplificado.
+A classe `mode-simple` **já vem no `<body>` do HTML** (e `.open` no
+`#simpleMode`), então a tela certa aparece sem esperar JS ou IndexedDB — era o
+mesmo motivo pelo qual o seletor nascia visível no documento.
 
-**O simplificado NÃO é uma segunda implementação.** A tela completa continua
+O **modo avançado** fica a um toque, no botão do cabeçalho ("Modo avançado"), e
+o caminho de volta é o segmento **Modo do app** no popup de Exibição
+(`#appModeSeg`). A escolha vale só para a sessão: cada abertura recomeça no
+simplificado — quem abre o app hoje pode não ser quem abre no próximo culto.
+
+**O simplificado NÃO é uma segunda implementação.** A tela avançada continua
 no DOM, só oculta (`body.mode-simple`), e os controles do modo simples
 **acionam os botões reais por `.click()`** — o mesmo padrão que a notificação
 nativa já usa. Um botão `disabled` continua sendo um no-op natural, e nenhuma
@@ -657,6 +663,7 @@ O que a tela simplificada tem, e por quê:
 | **Conectar a tela** (`#simpleCastBtn`) | `AVNative.openCast()` — o seletor de espelhamento do Android. O subtítulo mostra a tela conectada ao vivo (`AVNative.displays()`), porque "conectar" é a primeira dúvida de quem abre o app. No navegador vira o atalho para a tela do Display |
 | **Buscar música** (`#simpleSearchBtn`) | o MESMO popup de busca do acervo (`openHymnSearch`), com hinários e álbuns. Um toque no resultado já substitui a playlist e toca |
 | **Play/pause e mudo** | `.click()` em `#playpause` / `#muteToggle` |
+| **Modo avançado** (`#simpleFullBtn`) | `setAppMode('full')` — a tela completa de sempre |
 | **Barra de volume** (`#simpleVolSlider`) | a **lateral inteira** da tela: é o controle mais usado deste modo e não divide espaço com nada. Mesmo componente do fader do mixer (`.fader` + `.fader-value`) |
 
 Os **dois faders coexistem** e mostram sempre o mesmo número: `renderControls()`

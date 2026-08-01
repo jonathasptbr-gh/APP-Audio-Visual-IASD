@@ -11,33 +11,18 @@
   <link rel="stylesheet" href="../shared/material-symbols.css">
   <link rel="stylesheet" href="controle.css">
 </head>
-<body>
-  <!-- Escolha do MODO DE USO, na abertura. Nasce visível no HTML (sem esperar
-       JS/IndexedDB) e NÃO é lembrada entre sessões: quem abre o app hoje pode
-       não ser quem abre no próximo culto, e a pergunta custa um toque. -->
-  <div id="modePicker" class="mode-picker open">
-    <div class="mode-card">
-      <div class="mode-brand">Audio Visual <b>IASD</b></div>
-      <div class="mode-q">Como você vai usar agora?</div>
-      <button type="button" id="modeSimpleBtn" class="mode-opt">
-        <span class="mode-opt-title">Simplificado</span>
-        <span class="mode-opt-sub">Conectar a tela e tocar música</span>
-      </button>
-      <button type="button" id="modeFullBtn" class="mode-opt mode-opt--full">
-        <span class="mode-opt-title">Sonoplasta completo</span>
-        <span class="mode-opt-sub">Cronograma, álbuns, Bíblia, letra, playlist e todos os controles</span>
-      </button>
-    </div>
-  </div>
-
+<!-- O app SEMPRE abre no modo simplificado; a classe já vem no HTML para a
+     tela certa aparecer sem esperar JS/IndexedDB. O modo avançado fica a um
+     toque, no botão do cabeçalho. -->
+<body class="mode-simple">
   <!-- MODO SIMPLIFICADO: conectar a tela, buscar a música, tocar. Os controles
        são os mesmos botões do modo completo acionados por `.click()` (ver
        controle.js) — nenhuma regra de transporte é reescrita aqui. -->
-  <div id="simpleMode" class="simple">
+  <div id="simpleMode" class="simple open">
     <div class="simple-main">
       <div class="simple-head">
         <span class="simple-brand">Audio Visual <b>IASD</b></span>
-        <button type="button" id="simpleFullBtn" class="simple-switch">Modo completo</button>
+        <button type="button" id="simpleFullBtn" class="simple-switch">Modo avançado</button>
       </div>
 
       <button type="button" id="simpleCastBtn" class="simple-action">
@@ -89,7 +74,7 @@
     <div class="list-header">
       <button id="backBtn" class="back-btn" hidden><span class="msym">&#xe5c4;</span></button>
       <span class="list-title" id="listTitle">Cronograma</span>
-      <span id="appVersion" class="app-version">Controle v5.23</span>
+      <span id="appVersion" class="app-version">Controle v5.24</span>
       <input id="libSearch" class="lib-search" type="search" placeholder="Buscar na pasta…" hidden>
       <!-- Setas circulares = "sincronizar" (o mesmo desenho dos cards de coleção
            e do botão de re-sync na linha da pasta). folder_open fica reservado
@@ -338,7 +323,7 @@
           <span>Modo do app</span>
           <div class="fit-seg" id="appModeSeg">
             <button type="button" class="fit-opt" data-mode="simple">Simplificado</button>
-            <button type="button" class="fit-opt" data-mode="full">Completo</button>
+            <button type="button" class="fit-opt" data-mode="full">Avançado</button>
           </div>
         </div>
         <div class="fade-row fade-row--fit">

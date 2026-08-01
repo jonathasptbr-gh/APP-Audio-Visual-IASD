@@ -20,9 +20,6 @@ const volValueEl = document.getElementById('volValue');
 const faderWrapEl = document.querySelector('.fader-wrap');
 
 // Modo de uso (ver "Modos de uso" mais abaixo)
-const modePickerEl = document.getElementById('modePicker');
-const modeSimpleBtnEl = document.getElementById('modeSimpleBtn');
-const modeFullBtnEl = document.getElementById('modeFullBtn');
 const appModeSegEl = document.getElementById('appModeSeg');
 const simpleModeEl = document.getElementById('simpleMode');
 const simpleFullBtnEl = document.getElementById('simpleFullBtn');
@@ -83,7 +80,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.23';
+const WEB_VERSION = '5.24';
 
 function renderVersionLabel() {
   // __SHELL_NAME__ = versionName do APK (ver native.js). Vazio no navegador e
@@ -5750,23 +5747,27 @@ let volSeekingEl = null;
 
 // ===== Modos de uso: simplificado × sonoplasta completo =====
 // O app atende duas pessoas diferentes: quem só precisa conectar a tela e
-// tocar um louvor, e o sonoplasta que opera o culto inteiro. A escolha é
-// explícita na abertura e NÃO é lembrada — quem abre hoje pode não ser quem
-// abre no próximo culto, e a pergunta custa um toque.
+// tocar um louvor, e o sonoplasta que opera o culto inteiro.
+//
+// **Abre SEMPRE no simplificado**, sem perguntar nada: é o caso mais comum, e
+// uma pergunta na abertura cobra um toque de todo mundo — inclusive de quem
+// nem sabia que havia dois modos — antes de mostrar qualquer coisa útil. O
+// avançado fica a um toque, no botão do cabeçalho (e no segmento "Modo do app"
+// do popup de Exibição, para voltar). A escolha vale só para a sessão: cada
+// abertura recomeça no simplificado.
 //
 // O simplificado não é uma segunda implementação do transporte: os botões
-// dele acionam os MESMOS controles do modo completo por `.click()` (o mesmo
+// dele acionam os MESMOS controles do modo avançado por `.click()` (o mesmo
 // padrão da notificação nativa), e o volume passa pelo mesmo `applyVolume`.
 // Assim nenhuma regra de borda — texto sem áudio de fundo, YouTube que precisa
 // recarregar, mudo bloqueado pelo navegador — existe em dois lugares.
-let appMode = null;             // null = ninguém escolheu ainda
+let appMode = 'simple';         // o HTML já nasce com `body.mode-simple`
 let lastDisplays = [];          // telas conectadas (ponte nativa)
 
 function setAppMode(mode) {
   appMode = mode === 'simple' ? 'simple' : 'full';
   document.body.classList.toggle('mode-simple', appMode === 'simple');
   simpleModeEl.classList.toggle('open', appMode === 'simple');
-  modePickerEl.classList.remove('open');
   renderAppModeSeg();
   renderSimple();
   renderSimpleCast();
@@ -5811,8 +5812,6 @@ function renderSimpleCast() {
     : 'Toque para escolher a tela';
 }
 
-modeSimpleBtnEl.addEventListener('click', () => setAppMode('simple'));
-modeFullBtnEl.addEventListener('click', () => setAppMode('full'));
 simpleFullBtnEl.addEventListener('click', () => setAppMode('full'));
 appModeSegEl.addEventListener('click', (e) => {
   const btn = e.target.closest('.fit-opt');
@@ -5830,6 +5829,9 @@ simpleCastBtnEl.addEventListener('click', () => {
   if (window.__NATIVE__) AVNative.openCast();
   else window.open('../display/', '_blank');
 });
+// Fecha o ciclo com o HTML: as classes já vêm do documento, aqui o estado do
+// JS (segmento do popup, espelho dos controles) nasce igual a elas.
+setAppMode('simple');
 
 // ===== Botões físicos de volume =====
 // No app eles passam a mexer no fader daqui, não na saída do sistema: com
