@@ -648,4 +648,77 @@
   createStage.fadeLayerIn = fadeLayerIn;
   createStage.fadeLayerOut = fadeLayerOut;
   createStage.findSlideIndex = findSlideIndex;
+
+  // ===== Cronômetro / Relógio / Timer (aba Diversos) =====
+  // O descritor é um OBJETO PEQUENO E ESTÁVEL, e não um fluxo de ticks: quem
+  // conta o tempo é cada lado, localmente, a partir de uma ORIGEM comum
+  // (`startAt`, em epoch ms). Mandar o texto pronto a cada segundo colocaria
+  // ~3.600 comandos/hora no barramento só para mexer dois dígitos, e ainda
+  // deixaria o telão parado se um deles se perdesse.
+  //
+  // A consequência importante é a RECONEXÃO: como o valor é derivado do
+  // descritor, `resendSceneToDisplay` reenviar o mesmo objeto devolve o
+  // cronômetro no segundo certo — sem estado nenhum a ressincronizar. É o
+  // mesmo princípio do `load` + posição já usado para a mídia.
+  //
+  // Os dois WebViews são o MESMO processo no MESMO aparelho, então `Date.now()`
+  // é a mesma base dos dois lados; no navegador, idem (duas abas da máquina).
+  //
+  // Descritor:
+  //   { mode:'clock'|'stopwatch'|'timer',
+  //     running:bool, startAt:<epoch ms>, baseMs:<acumulado nas pausas>,
+  //     durationMs:<alvo do timer>, secs:bool, h12:bool }
+  const CHRONO_TICK_MS = 200;   // 5 Hz: o segundo vira sem atraso perceptível
+
+  function pad2(n) { return String(n).padStart(2, '0'); }
+
+  // Duração em ms → texto. Acima de 1 h entra o campo de horas; abaixo fica em
+  // MM:SS, que é o formato que o operador lê de relance.
+  function formatSpan(ms) {
+    const total = Math.floor(Math.max(0, ms) / 1000);
+    const h = Math.floor(total / 3600);
+    const m = Math.floor((total % 3600) / 60);
+    const s = total % 60;
+    return h > 0 ? h + ':' + pad2(m) + ':' + pad2(s) : pad2(m) + ':' + pad2(s);
+  }
+
+  // Tempo decorrido do cronômetro/timer. Pausado, o valor é só o acumulado —
+  // por isso `baseMs` existe: sem ele, pausar e retomar perderia o trecho
+  // anterior (ou exigiria reescrever `startAt`, que é justamente a âncora que
+  // torna a reconexão trivial).
+  function chronoElapsed(c, now) {
+    const base = c.baseMs || 0;
+    return c.running ? base + Math.max(0, now - (c.startAt || now)) : base;
+  }
+
+  // Leitura pronta para a tela. `over` marca o timer que passou do alvo: ele
+  // NÃO congela em zero — continua contando, com sinal negativo. Num culto,
+  // "estourou por 4 minutos" é a informação que se precisa; um 00:00 parado
+  // não distingue "acabou agora" de "acabou há muito".
+  function chronoReading(c, now) {
+    if (!c) return { text: '', over: false };
+    const t = new Date(now == null ? Date.now() : now);
+    if (c.mode === 'clock') {
+      let h = t.getHours();
+      let suffix = '';
+      if (c.h12) {
+        suffix = h >= 12 ? ' PM' : ' AM';
+        h = h % 12 || 12;
+      }
+      const hh = c.h12 ? String(h) : pad2(h);
+      return { text: hh + ':' + pad2(t.getMinutes())
+        + (c.secs === false ? '' : ':' + pad2(t.getSeconds())) + suffix, over: false };
+    }
+    const elapsed = chronoElapsed(c, now == null ? Date.now() : now);
+    if (c.mode === 'timer') {
+      const rem = (c.durationMs || 0) - elapsed;
+      return { text: (rem < 0 ? '−' : '') + formatSpan(Math.abs(rem)), over: rem < 0 };
+    }
+    return { text: formatSpan(elapsed), over: false };
+  }
+
+  createStage.CHRONO_TICK_MS = CHRONO_TICK_MS;
+  createStage.chronoElapsed = chronoElapsed;
+  createStage.chronoReading = chronoReading;
+  createStage.formatSpan = formatSpan;
 })(this);

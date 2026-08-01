@@ -86,7 +86,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.28';
+const WEB_VERSION = '5.29';
 
 function renderVersionLabel() {
   // __SHELL_NAME__ = versionName do APK (ver native.js). Vazio no navegador e
@@ -977,6 +977,8 @@ const findSlideIndex = createStage.findSlideIndex;
 const pvFadeIn = createStage.fadeContentIn;
 const pvLayerIn = createStage.fadeLayerIn;
 const pvLayerOut = createStage.fadeLayerOut;
+const chronoReading = createStage.chronoReading;
+const CHRONO_TICK_MS = createStage.CHRONO_TICK_MS;
 
 // ===== Letra sincronizada na preview — mesma visualização do Display =====
 // A preview já espelha o Display para imagem/vídeo (stage.js) e YouTube
@@ -1131,6 +1133,7 @@ let pvTextActive = false;
 function hidePvText(restore = true) {
   if (!pvTextActive && pvTextEl.hidden) return;
   pvTextActive = false;
+  stopPvChronoTimer();   // espelha hideText no Display
   // Sai esmaecendo — e o texto NÃO é limpo aqui: apagá-lo agora deixaria o
   // cartão vazio visível durante todo o fade. O próximo showPvText sobrescreve.
   pvLayerOut(pvTextEl);
@@ -1159,11 +1162,45 @@ function restorePvSceneAfterText() {
   updatePvLyricSlide(authoritativeTime());
 }
 
+// Cronômetro na preview: mesmo desenho do Display (ver showText lá) — o valor
+// é derivado localmente do descritor, não recebido pronto. Os dois laços são
+// independentes de propósito: cada um lê o MESMO `startAt` do MESMO relógio do
+// aparelho, então convergem sem precisar sincronizar coisa nenhuma.
+let pvChronoDesc = null;
+let pvChronoTimer = null;
+
+function pvChronoTick() {
+  if (!pvChronoDesc) return;
+  const r = chronoReading(pvChronoDesc, Date.now());
+  pvTextMainEl.textContent = r.text;
+  pvTextMainEl.style.setProperty('--ch', r.text.length);  // ver .mode-chrono no CSS
+  pvTextContentEl.classList.toggle('chrono-over', r.over);
+}
+
+function startPvChrono(desc) {
+  pvChronoDesc = desc;
+  stopPvChronoTimer();
+  pvChronoTick();
+  if (desc.mode === 'clock' || desc.running) pvChronoTimer = setInterval(pvChronoTick, CHRONO_TICK_MS);
+}
+
+function stopPvChronoTimer() {
+  if (pvChronoTimer) { clearInterval(pvChronoTimer); pvChronoTimer = null; }
+}
+
 function showPvText(obj) {
   const wallpaper = obj.view === 'wallpaper';
   const isMsg = obj.mode === 'message';
+  const isChrono = obj.mode === 'chrono';
   pvTextContentEl.classList.toggle('mode-message', isMsg);
-  pvTextMainEl.textContent = obj.main || '';
+  pvTextContentEl.classList.toggle('mode-chrono', isChrono);
+  if (isChrono) {
+    startPvChrono(obj.chrono || {});
+  } else {
+    stopPvChronoTimer(); pvChronoDesc = null;
+    pvTextContentEl.classList.remove('chrono-over');
+    pvTextMainEl.textContent = obj.main || '';
+  }
   pvTextSubEl.textContent = obj.sub || '';
   if (pvTextActive) {
     // Já em cena (troca de versículo/mensagem): fade-in do texto.
@@ -1297,6 +1334,7 @@ async function load() {
   foldersV.forEach((f, i) => { folderCountsV[f.id] = (folderIdArrays[i] || []).length; });
   const opfsFoldersV = (await AVDB.getState('opfs-folders')) || [];
   const messagesV = (await AVDB.getState('messages')) || [];
+  const chronoPrefsV = (await AVDB.getState('chronoPrefs')) || null;
   const storedFit = await AVDB.getState('fit');
   const lyricsBgV = (await AVDB.getState('lyricsBg')) === 'image' ? 'image' : 'black';
   const downloadOkV = !!(await AVDB.getState('downloadOk'));
@@ -1334,6 +1372,7 @@ async function load() {
   folderCounts = folderCountsV;
   opfsFolders = opfsFoldersV;
   messages = messagesV;
+  applyChronoPrefs(chronoPrefsV);
   if (storedFit) mediaFit = storedFit;
   lyricsBg = lyricsBgV;
   downloadConsent = downloadOkV;
@@ -1437,6 +1476,18 @@ function renderRepeat() {
 }
 
 function renderNowPlaying() {
+  // Cronômetro/relógio/timer EM EXIBIÇÃO: o nome da ferramenta. Não há barra de
+  // progresso (o tempo dele não é o de uma mídia), e o ▶ segue valendo para o
+  // áudio de fundo, que continua tocando por baixo do cartão.
+  if (chronoProjecting()) {
+    const m = CHRONO_MODES.find((x) => x.id === chrono.mode);
+    npNameInnerEl.textContent = m ? m.name : 'Cronômetro';
+    applyTitleMarquee();
+    playPauseEl.querySelector('.msym').textContent = playing ? ICON.pause : ICON.play;
+    renderSimple();
+    pushNowPlaying();
+    return;
+  }
   // Mensagem EM EXIBIÇÃO: mostra "Mensagem" no now-playing.
   if (msgSession && msgSession.projecting) {
     npNameInnerEl.textContent = 'Mensagem ' + (msgSession.idx + 1);
@@ -1605,7 +1656,7 @@ function renderListTitle() {
   if (!appVersionEl.hidden) renderVersionLabel();
   if (activeTab === 'mic') {
     backBtnEl.hidden = true; addDirBtnEl.hidden = true; libSearchEl.hidden = true; libSearchEl.value = '';
-    listTitleEl.hidden = false; listTitleEl.textContent = 'Microfone';
+    listTitleEl.hidden = false; listTitleEl.textContent = 'Diversos';
     return;
   }
   if (activeTab === 'bible') {
@@ -2126,6 +2177,7 @@ function hideBibleVerse() {
 function projectBibleVerse(idx) {
   const s = bibleSession;
   if (!s || idx < 0 || idx >= s.verses.length) return;
+  clearChronoSession();   // cartão único: um provedor por vez
   s.idx = idx;
   s.projecting = true;
   const v = s.verses[idx];
@@ -2440,13 +2492,14 @@ function clearMsgSession() {
   renderMsgFab(); refreshMsgPopup();
 }
 // Encerra QUALQUER texto manual em cena (Bíblia ou Mensagem) — só um por vez.
-function clearManualText() { clearBibleSession(); clearMsgSession(); }
+function clearManualText() { clearBibleSession(); clearMsgSession(); clearChronoSession(); }
 
 // Projeta a mensagem de índice `idx` (Display + preview). Encerra a Bíblia (só
 // um texto manual por vez).
 function projectMessage(idx) {
   if (idx < 0 || idx >= messages.length) return;
   clearBibleSession();
+  clearChronoSession();
   msgSession = { idx, projecting: true };
   view = 'visual';
   persistCurrent();
@@ -2593,6 +2646,313 @@ function renderMic() {
   renderMicUI();
 }
 
+// ===== Cronômetro / Relógio / Timer (aba Diversos) =====
+// Terceiro provedor da Camada de Texto, ao lado da Bíblia e das Mensagens, e
+// pelo mesmo motivo: o que vai ao telão é um cartão de texto. A diferença é que
+// aqui o texto é DERIVADO do tempo, não digitado — ver chronoReading em
+// stage.js, e o laço em showText (display.js).
+//
+// `chrono` é a fonte única do estado; `chronoSession` diz apenas se ele está no
+// ar, exatamente como `msgSession.projecting`. Separar os dois é o que permite
+// deixar o cronômetro correndo aqui e projetá-lo depois — ou tirá-lo do telão
+// sem zerar a contagem.
+let chronoSession = null;   // { projecting } | null
+let chrono = {
+  mode: 'clock',            // 'clock' | 'stopwatch' | 'timer'
+  running: false,
+  startAt: 0,               // epoch ms da última partida
+  baseMs: 0,                // acumulado das voltas anteriores (pausas)
+  durationMs: 5 * 60000,    // alvo do timer
+  secs: true,               // relógio com segundos
+  h12: false,               // relógio em 12 h
+  label: '',                // sublinha dourada no telão (opcional)
+};
+let chronoPanelTimer = null;
+
+const CHRONO_MODES = [
+  { id: 'clock', name: 'Relógio' },
+  { id: 'stopwatch', name: 'Cronômetro' },
+  { id: 'timer', name: 'Timer' },
+];
+const CHRONO_PRESETS = [1, 3, 5, 10, 15, 30];
+
+function applyChronoPrefs(p) {
+  if (!p) return;
+  // Só as PREFERÊNCIAS voltam do banco. Uma contagem em curso não sobrevive ao
+  // fechamento do app de propósito: restaurar um cronômetro que "correu" com o
+  // app fechado mostraria um número sem significado nenhum.
+  if (CHRONO_MODES.some((m) => m.id === p.mode)) chrono.mode = p.mode;
+  if (typeof p.durationMs === 'number' && p.durationMs > 0) chrono.durationMs = p.durationMs;
+  if (typeof p.secs === 'boolean') chrono.secs = p.secs;
+  if (typeof p.h12 === 'boolean') chrono.h12 = p.h12;
+  if (typeof p.label === 'string') chrono.label = p.label;
+}
+
+function saveChronoPrefs() {
+  return AVDB.setState('chronoPrefs', {
+    mode: chrono.mode, durationMs: chrono.durationMs,
+    secs: chrono.secs, h12: chrono.h12, label: chrono.label,
+  });
+}
+
+function chronoProjecting() { return !!(chronoSession && chronoSession.projecting); }
+
+// O descritor enviado ao telão. É uma CÓPIA: o comando atravessa o barramento
+// (e o relay nativo o serializa), então mandar o objeto vivo convidaria a uma
+// mutação posterior a "vazar" para um comando já enviado.
+function chronoDescriptor() {
+  return {
+    mode: chrono.mode, running: chrono.running, startAt: chrono.startAt,
+    baseMs: chrono.baseMs, durationMs: chrono.durationMs,
+    secs: chrono.secs, h12: chrono.h12,
+  };
+}
+
+// Reenvia o descritor SE estiver no ar. Todo comando de start/pause/zerar/troca
+// de modo passa por aqui — é o único ponto que fala com o telão, então nenhum
+// caminho novo pode esquecer de atualizar a projeção.
+function pushChrono() {
+  if (!chronoProjecting()) return;
+  cmd({ type: 'text', mode: 'chrono', chrono: chronoDescriptor(), sub: chrono.label || '', view: 'visual' });
+}
+
+// Projeta (Display + preview). Encerra Bíblia e Mensagem: a Camada de Texto é
+// um cartão só, e só um provedor por vez (mesma regra de projectMessage).
+function projectChrono() {
+  clearBibleSession();
+  clearMsgSession();
+  chronoSession = { projecting: true };
+  view = 'visual';
+  persistCurrent();
+  cmd({ type: 'text', mode: 'chrono', chrono: chronoDescriptor(), sub: chrono.label || '', view: 'visual' });
+  renderControls();
+  renderNowPlaying();
+  renderChrono();
+}
+
+// Tira do telão SEM parar a contagem — espelha hideMessage/hideBibleVerse: um
+// áudio de fundo segue tocando, e o cronômetro segue correndo aqui para poder
+// voltar ao ar no ponto certo.
+function hideChrono() {
+  if (!chronoProjecting()) return;
+  chronoSession.projecting = false;
+  cmd({ type: 'text-hide' });
+  renderControls();
+  renderNowPlaying();
+  renderChrono();
+}
+
+function clearChronoSession() {
+  if (!chronoSession) return;
+  chronoSession = null;
+  renderNowPlaying();
+  if (activeTab === 'mic') renderChrono();
+}
+
+function chronoStart() {
+  if (chrono.running) return;
+  chrono.running = true;
+  chrono.startAt = Date.now();
+  pushChrono();
+  renderChrono();
+}
+
+// Pausar CONGELA o acumulado: sem isso, `startAt` sozinho perderia todo o
+// trecho anterior na retomada.
+function chronoPause() {
+  if (!chrono.running) return;
+  chrono.baseMs = createStage.chronoElapsed(chrono, Date.now());
+  chrono.running = false;
+  chrono.startAt = 0;
+  pushChrono();
+  renderChrono();
+}
+
+function chronoReset() {
+  chrono.baseMs = 0;
+  chrono.startAt = chrono.running ? Date.now() : 0;
+  pushChrono();
+  renderChrono();
+}
+
+function chronoSetMode(mode) {
+  if (chrono.mode === mode) return;
+  chrono.mode = mode;
+  // Trocar de ferramenta zera a contagem: levar o decorrido do cronômetro para
+  // dentro de um timer daria um valor que o operador não pediu nem espera.
+  chrono.running = false; chrono.baseMs = 0; chrono.startAt = 0;
+  saveChronoPrefs();
+  pushChrono();
+  renderChrono();
+}
+
+function chronoSetDuration(ms) {
+  chrono.durationMs = Math.max(1000, Math.round(ms));
+  saveChronoPrefs();
+  pushChrono();
+  renderChrono();
+}
+
+// Atualiza só o NÚMERO do painel (o resto do painel não muda a cada tick).
+// No-op quando a aba não está montada — o laço pode sobreviver a um render.
+function renderChronoReadout(r) {
+  const el = document.getElementById('chronoRead');
+  if (!el) return;
+  const rr = r || chronoReading(chrono, Date.now());
+  el.textContent = rr.text;
+  el.classList.toggle('over', rr.over);
+}
+
+function chronoPanelTick() { renderChronoReadout(); }
+
+function startChronoPanelTimer() {
+  stopChronoPanelTimer();
+  if (chrono.mode === 'clock' || chrono.running) {
+    chronoPanelTimer = setInterval(chronoPanelTick, CHRONO_TICK_MS);
+  }
+}
+
+function stopChronoPanelTimer() {
+  if (chronoPanelTimer) { clearInterval(chronoPanelTimer); chronoPanelTimer = null; }
+}
+
+function chronoSegBtn(m) {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'chrono-seg' + (chrono.mode === m.id ? ' active' : '');
+  b.textContent = m.name;
+  b.addEventListener('click', () => chronoSetMode(m.id));
+  return b;
+}
+
+function renderChrono() {
+  const host = document.getElementById('chronoWrap');
+  if (!host) return;
+  host.innerHTML = '';
+
+  const modes = document.createElement('div');
+  modes.className = 'chrono-modes';
+  CHRONO_MODES.forEach((m) => modes.appendChild(chronoSegBtn(m)));
+  host.appendChild(modes);
+
+  const read = document.createElement('div');
+  read.className = 'chrono-read'; read.id = 'chronoRead';
+  host.appendChild(read);
+
+  // ---- Timer: alvo da contagem ----
+  if (chrono.mode === 'timer') {
+    const presets = document.createElement('div');
+    presets.className = 'chrono-presets';
+    CHRONO_PRESETS.forEach((min) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'chrono-chip' + (chrono.durationMs === min * 60000 ? ' active' : '');
+      b.textContent = min + ' min';
+      b.addEventListener('click', () => chronoSetDuration(min * 60000));
+      presets.appendChild(b);
+    });
+    host.appendChild(presets);
+
+    const row = document.createElement('div');
+    row.className = 'chrono-custom';
+    const lab = document.createElement('span');
+    lab.className = 'chrono-custom-label'; lab.textContent = 'Minutos';
+    const inp = document.createElement('input');
+    inp.type = 'number'; inp.min = '1'; inp.max = '600'; inp.inputMode = 'numeric';
+    inp.className = 'chrono-custom-input';
+    inp.value = String(Math.max(1, Math.round(chrono.durationMs / 60000)));
+    // `change` (e não `input`): reprojetar a cada dígito faria o telão piscar
+    // valores intermediários enquanto o operador ainda digita.
+    inp.addEventListener('change', () => {
+      const v = parseInt(inp.value, 10);
+      if (isFinite(v) && v > 0) chronoSetDuration(v * 60000);
+      else renderChrono();
+    });
+    row.appendChild(lab); row.appendChild(inp);
+    host.appendChild(row);
+  }
+
+  // ---- Relógio: formato ----
+  if (chrono.mode === 'clock') {
+    const opts = document.createElement('div');
+    opts.className = 'chrono-opts';
+    const mk = (name, on, fn) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'chrono-chip' + (on ? ' active' : '');
+      b.textContent = name;
+      b.addEventListener('click', fn);
+      return b;
+    };
+    opts.appendChild(mk('Segundos', chrono.secs, () => {
+      chrono.secs = !chrono.secs; saveChronoPrefs(); pushChrono(); renderChrono();
+    }));
+    opts.appendChild(mk('12 h', chrono.h12, () => {
+      chrono.h12 = !chrono.h12; saveChronoPrefs(); pushChrono(); renderChrono();
+    }));
+    host.appendChild(opts);
+  }
+
+  // ---- Transporte (não existe para o relógio: a hora não se pausa) ----
+  if (chrono.mode !== 'clock') {
+    const acts = document.createElement('div');
+    acts.className = 'chrono-actions';
+    const run = document.createElement('button');
+    run.type = 'button';
+    run.className = 'chrono-btn primary';
+    // Ícone/rótulo = a AÇÃO, nunca o estado (ver "O ícone mostra a AÇÃO" na
+    // arquitetura): correndo, o botão oferece PAUSAR.
+    run.textContent = chrono.running ? 'Pausar' : 'Iniciar';
+    run.addEventListener('click', () => (chrono.running ? chronoPause() : chronoStart()));
+    const zero = document.createElement('button');
+    zero.type = 'button'; zero.className = 'chrono-btn';
+    zero.textContent = 'Zerar';
+    zero.addEventListener('click', chronoReset);
+    acts.appendChild(run); acts.appendChild(zero);
+    host.appendChild(acts);
+  }
+
+  // ---- Sublinha do telão ----
+  const labRow = document.createElement('div');
+  labRow.className = 'chrono-custom';
+  const labLab = document.createElement('span');
+  labLab.className = 'chrono-custom-label'; labLab.textContent = 'Legenda';
+  const labInp = document.createElement('input');
+  labInp.type = 'text'; labInp.className = 'chrono-label-input';
+  labInp.placeholder = 'opcional — ex: Início do culto';
+  labInp.maxLength = 60;
+  labInp.value = chrono.label;
+  labInp.addEventListener('change', () => {
+    chrono.label = labInp.value.trim();
+    saveChronoPrefs();
+    pushChrono();
+  });
+  labRow.appendChild(labLab); labRow.appendChild(labInp);
+  host.appendChild(labRow);
+
+  // ---- Projeção ----
+  const proj = document.createElement('button');
+  proj.type = 'button';
+  const live = chronoProjecting();
+  proj.className = 'chrono-project' + (live ? ' live' : '');
+  proj.textContent = live ? 'Tirar do telão' : 'Projetar no telão';
+  proj.addEventListener('click', () => (live ? hideChrono() : projectChrono()));
+  host.appendChild(proj);
+
+  renderChronoReadout();
+  startChronoPanelTimer();
+}
+
+// A aba Diversos reúne as ferramentas que não pertencem à biblioteca: o
+// microfone ao vivo e o cronômetro/relógio/timer.
+function renderDiversos() {
+  renderMic();
+  const host = document.createElement('div');
+  host.id = 'chronoWrap'; host.className = 'chrono-wrap';
+  libraryEl.appendChild(host);
+  renderChrono();
+}
+
 // ===== Mensagens: botão flutuante na preview + popup =====
 // Deixou de ser uma aba: um aviso de texto é uma interrupção rápida ("bem-vindos",
 // "desliguem o celular"), não uma seção da biblioteca que se navega. Vive como
@@ -2667,7 +3027,7 @@ function renderLibrary() {
   }
 
   if (activeTab === 'mic') {
-    renderMic();
+    renderDiversos();
     return;
   }
 
@@ -3380,8 +3740,10 @@ async function send(id) {
   // Atualiza cache do item atual para renderNowPlaying funcionar mesmo fora da aba ativa.
   currentItem = [...plItems, ...libItems].find((m) => m.id === id) || currentItem;
   // Independência áudio × texto: um ÁUDIO (música de fundo) NÃO encerra o texto
-  // manual em cena (Bíblia/Mensagem); qualquer VISUAL (vídeo/imagem/YouTube) encerra.
-  if (!((bibleSession || msgSession) && currentItem && currentItem.kind === 'audio')) clearManualText();
+  // manual em cena (Bíblia/Mensagem/cronômetro); qualquer VISUAL (vídeo/imagem/
+  // YouTube) encerra. Um louvor de fundo sob a contagem regressiva de abertura
+  // é justamente o uso normal.
+  if (!((bibleSession || msgSession || chronoSession) && currentItem && currentItem.kind === 'audio')) clearManualText();
   await persistCurrent();
   ytEnded = false;
   displayStatusAt = 0; // até o Display confirmar o novo item, a preview dirige
@@ -3419,6 +3781,10 @@ function step(delta) {
 // precedência visual: texto manual cobre a letra, e a letra volta a mandar
 // assim que o texto sai.
 function slideTarget() {
+  // O cronômetro não tem slides. Sem esta guarda, os botões de estrofe cairiam
+  // na letra do áudio de fundo — que está ESCONDIDO atrás do cartão: o operador
+  // apertaria "próxima estrofe" e a música saltaria, sem nada mudar na tela.
+  if (chronoProjecting()) return null;
   if (msgSession && msgSession.projecting) return 'message';
   if (bibleSession && bibleSession.projecting) return 'bible';
   const lyrics = currentItem && Array.isArray(currentItem.lyrics) ? currentItem.lyrics : null;
@@ -6105,6 +6471,10 @@ function switchTab(tab) {
   // Sair da aba com o microfone aberto o deixaria captando sem nada na tela
   // que mostrasse isso. O botão é push-to-talk: sem o botão, sem microfone.
   if (activeTab === 'mic' && (micPressed || micOn)) sendMic(false);
+  // O laço do painel morre com a aba (o cronômetro NÃO — ele segue correndo no
+  // estado, e a projeção tem laço próprio). Sem isto sobraria um timer de 5 Hz
+  // reescrevendo um nó que o `innerHTML = ''` da lista já descartou.
+  if (activeTab === 'mic') stopChronoPanelTimer();
   activeTab = tab;
   if (selectionMode) exitSelection();
   load();
@@ -6356,7 +6726,12 @@ function resendSceneToDisplay() {
   if (currentId && (playing || isImage)) {
     AVDB.sendCommand({ type: 'load', mediaId: currentId, view, muted, volume });
   }
-  if (bibleSession && bibleSession.projecting) {
+  // O cronômetro volta pelo DESCRITOR, não por um valor: o telão recalcula o
+  // número a partir do mesmo `startAt`, então ele reaparece no segundo certo —
+  // não no ponto em que a conexão caiu.
+  if (chronoProjecting()) {
+    AVDB.sendCommand({ type: 'text', mode: 'chrono', chrono: chronoDescriptor(), sub: chrono.label || '', view });
+  } else if (bibleSession && bibleSession.projecting) {
     const v = bibleSession.verses[bibleSession.idx];
     if (v) {
       const ref = bibleSession.bookName + ' ' + bibleSession.chapter + ':' + v.n;

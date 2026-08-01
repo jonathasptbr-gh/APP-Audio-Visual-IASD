@@ -100,6 +100,8 @@ const findSlideIndex = createStage.findSlideIndex;
 const animateFadeIn = createStage.fadeContentIn;
 const fadeLayerIn = createStage.fadeLayerIn;
 const fadeLayerOut = createStage.fadeLayerOut;
+const chronoReading = createStage.chronoReading;
+const CHRONO_TICK_MS = createStage.CHRONO_TICK_MS;
 
 // `fade` = a letra está saindo de cena para o operador ver (fim da música,
 // texto manual assumindo). Sem fade quando outra mídia já vai ocupar o lugar
@@ -251,11 +253,58 @@ let textActive = false;
 let textView = 'visual';
 let textMode = 'verse';
 
+// ===== Cronômetro / Relógio / Timer =====
+// É o MESMO cartão da Bíblia e das Mensagens (`mode: 'chrono'`), e isso não é
+// economia de CSS: herdando o cartão, herda também toda a regra de convivência
+// já madura — `load` de áudio mantém o cronômetro no ar, `load` visual o
+// encerra, a cortina do wallpaper o cobre, `text-hide` o tira sem parar o som
+// de fundo. Um layer novo teria que reimplementar as quatro, e envelheceria
+// separado.
+//
+// O que muda em relação a um versículo é só a ORIGEM do texto: em vez de vir
+// pronto no comando, é derivado a cada tick do descritor (ver chronoReading em
+// stage.js). Por isso o laço abaixo — e por isso ele só existe enquanto o modo
+// é 'chrono'.
+let chronoDesc = null;
+let chronoTimer = null;
+
+function chronoTick() {
+  if (!chronoDesc) return;
+  const r = chronoReading(chronoDesc, Date.now());
+  textMainEl.textContent = r.text;
+  // O CSS dimensiona a fonte a partir daqui (ver .mode-chrono em display.css):
+  // "09:59" e "12:34:56 PM" não podem sair do mesmo tamanho — o primeiro
+  // ficaria pequeno à toa, o segundo vazaria da tela.
+  textMainEl.style.setProperty('--ch', r.text.length);
+  textContentEl.classList.toggle('chrono-over', r.over);
+}
+
+function startChrono(desc) {
+  chronoDesc = desc;
+  stopChronoTimer();
+  chronoTick();
+  // O relógio e o timer/cronômetro EM MARCHA precisam de laço; um cronômetro
+  // pausado é um número parado, e manter um timer batendo nele só gastaria
+  // bateria com o app em cima de uma projeção que não muda.
+  if (desc.mode === 'clock' || desc.running) chronoTimer = setInterval(chronoTick, CHRONO_TICK_MS);
+}
+
+function stopChronoTimer() {
+  if (chronoTimer) { clearInterval(chronoTimer); chronoTimer = null; }
+}
+
 function showText(cmd) {
   const wallpaper = cmd.view === 'wallpaper';
-  textMode = cmd.mode === 'message' ? 'message' : 'verse';
+  textMode = cmd.mode === 'message' ? 'message' : (cmd.mode === 'chrono' ? 'chrono' : 'verse');
   textContentEl.classList.toggle('mode-message', textMode === 'message');
-  textMainEl.textContent = cmd.main || '';
+  textContentEl.classList.toggle('mode-chrono', textMode === 'chrono');
+  if (textMode === 'chrono') {
+    startChrono(cmd.chrono || {});
+  } else {
+    stopChronoTimer(); chronoDesc = null;
+    textContentEl.classList.remove('chrono-over');
+    textMainEl.textContent = cmd.main || '';
+  }
   textSubEl.textContent = cmd.sub || '';
   textSubEl.hidden = !cmd.sub;
   textView = wallpaper ? 'wallpaper' : 'visual';
@@ -287,6 +336,10 @@ function showText(cmd) {
 function hideText(restore = true) {
   if (!textActive) return;
   textActive = false;
+  // O laço do cronômetro para JUNTO com o cartão: fora de cena ele só gastaria
+  // bateria reescrevendo um nó invisível. `chronoDesc` fica (o texto também
+  // não é limpo — ver abaixo), então o número segue certo durante o fade.
+  stopChronoTimer();
   // Sai esmaecendo — e o texto NÃO é limpo aqui: apagá-lo agora deixaria o
   // cartão vazio visível durante todo o fade. O próximo showText sobrescreve.
   fadeLayerOut(textEl);
