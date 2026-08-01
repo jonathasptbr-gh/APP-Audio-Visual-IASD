@@ -86,7 +86,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.37';
+const WEB_VERSION = '5.38';
 
 function renderVersionLabel() {
   // __SHELL_NAME__ = versionName do APK (ver native.js). Vazio no navegador e
@@ -5857,11 +5857,16 @@ function lyricMatch(coll, s, q) {
 }
 
 // ===== Download das letras (roda no arranque, como o índice) =====
-// **Só os hinários, automaticamente.** São o acervo padrão, têm tamanho
-// conhecido (~1.100 no total) e são o que se busca por trecho no meio de um
-// culto. O catálogo de álbuns não tem teto — puxar a letra de todos eles sem
-// pedir seria gastar a internet do operador por conta própria. Álbuns seguem
-// pelo caminho de sempre: a letra chega quando a música é baixada.
+// **Todo o acervo indexado**, hinários e álbuns — a mesma cobertura do índice
+// de músicas. A busca por trecho não teria por que conhecer metade do acervo:
+// "aquele hino que fala em…" e "aquela música do álbum que fala em…" são a
+// mesma pergunta, e o operador não sabe (nem deveria precisar saber) de qual
+// coleção veio o que ele está procurando.
+//
+// **Hinários primeiro na fila.** São o que mais se busca, e a fila pode levar
+// alguns minutos na primeira abertura: se ela for interrompida (app fechado,
+// rede caiu), o que já desceu é o que mais importa. O resto continua na
+// próxima abertura, de onde parou.
 //
 // **Adia só em rede móvel CONHECIDA** — e a assimetria com `syncCollection` é
 // deliberada. Lá o que desce são centenas de MB de áudio, e perguntar é o certo.
@@ -5884,11 +5889,26 @@ async function syncLyrics() {
   if (lyricSyncRunning) return;
   if (networkType() === 'cellular') return;
 
-  const cols = FIXED_COLLECTIONS.filter((c) => collSongs(c.id).length);
-  const pendentes = [];
+  // Hinários antes dos álbuns (ver acima). Dentro de cada grupo, a ordem do
+  // acervo.
+  const cols = allCollections()
+    .filter((c) => collSongs(c.id).length)
+    .sort((a, b) => (a.kind === 'hymnal' ? 0 : 1) - (b.kind === 'hymnal' ? 0 : 1));
+
+  // Agrupado por `id_music`, e não por (coleção, música): a MESMA faixa aparece
+  // em várias coletâneas, e `music_{id}` é o mesmo documento para todas. Uma
+  // busca por par custaria três requisições para uma música em três álbuns —
+  // aqui custa uma, e o resultado é distribuído para todas as coleções que a
+  // contêm. É o que torna varrer o acervo inteiro viável.
+  const porMusica = new Map();  // id_music → { nome, destinos: [collId, ...] }
   for (const coll of cols) {
-    for (const s of songsMissingLyric(coll)) pendentes.push({ coll, s });
+    for (const s of songsMissingLyric(coll)) {
+      let e = porMusica.get(s.id_music);
+      if (!e) porMusica.set(s.id_music, (e = { nome: s.name, destinos: [] }));
+      e.destinos.push(coll.id);
+    }
   }
+  const pendentes = [...porMusica.entries()].map(([id, e]) => ({ id, ...e }));
   if (!pendentes.length) return;
 
   lyricSyncRunning = true;
@@ -5897,17 +5917,20 @@ async function syncLyrics() {
   let desdeGravacao = 0;
   const sujas = new Set();
   try {
-    await withBgWork(() => runLimited(pendentes, NET_CONCURRENCY, async ({ coll, s }) => {
-      bgItemStart(notifId, s.name);
+    await withBgWork(() => runLimited(pendentes, NET_CONCURRENCY, async (item) => {
+      bgItemStart(notifId, item.nome);
       try {
-        const meta = await Louvorja.fetchList('music_' + s.id_music);
-        lyricStoreFor(coll.id)[s.id_music] = lyricLinesFromMeta(meta) || LYRIC_NONE;
-        sujas.add(coll.id);
+        const meta = await Louvorja.fetchList('music_' + item.id);
+        const linhas = lyricLinesFromMeta(meta) || LYRIC_NONE;
+        for (const collId of item.destinos) {
+          lyricStoreFor(collId)[item.id] = linhas;
+          sujas.add(collId);
+        }
       } catch (_) {
         // Falha de rede não vira LYRIC_NONE: sem a marca, a próxima abertura
         // tenta de novo. Marcar aqui gravaria "não tem letra" por causa de um
-        // wi-fi que oscilou, e o hino ficaria fora da busca para sempre.
-      } finally { bgItemEnd(notifId, s.name); }
+        // wi-fi que oscilou, e a música ficaria fora da busca para sempre.
+      } finally { bgItemEnd(notifId, item.nome); }
       done++;
       bgTaskStep(notifId, done);
       if (++desdeGravacao >= LYRIC_BATCH) {
@@ -6070,12 +6093,11 @@ function hymnResultRow(coll, s, lyricHit) {
     if (!linhas) {
       const vazio = document.createElement('div');
       vazio.className = 'hymn-lyrics-empty';
-      // Distingue "não temos" de "não existe": nos hinários a letra vem no
-      // arranque, então a ausência aqui é quase sempre um álbum ainda não
-      // baixado — e aí o próprio ato de tocar resolve.
-      vazio.textContent = coll.kind === 'hymnal'
-        ? 'Letra ainda não baixada.'
-        : 'A letra chega quando a música for baixada.';
+      // Desde a v5.38 a letra cobre TODO o acervo, então a ausência passou a
+      // significar sempre a mesma coisa: a fila do arranque ainda não chegou
+      // nesta música (ou falhou). Duas mensagens diferentes sugeririam duas
+      // causas diferentes onde só há uma.
+      vazio.textContent = 'Letra ainda não baixada.';
       letra.appendChild(vazio);
       return;
     }
