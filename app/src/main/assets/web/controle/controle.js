@@ -29,8 +29,10 @@ const simpleSearchBtnEl = document.getElementById('simpleSearchBtn');
 const simpleNpNameEl = document.getElementById('simpleNpName');
 const simplePlayEl = document.getElementById('simplePlay');
 const simpleMuteEl = document.getElementById('simpleMute');
+const simpleLyricsEl = document.getElementById('simpleLyrics');
 const simpleVolWrapEl = document.getElementById('simpleVolWrap');
-const simpleVolSliderEl = document.getElementById('simpleVolSlider');
+const simpleVolUpEl = document.getElementById('simpleVolUp');
+const simpleVolDownEl = document.getElementById('simpleVolDown');
 const simpleVolValueEl = document.getElementById('simpleVolValue');
 const mixerEl = document.getElementById('mixer');
 const volToggleEl = document.getElementById('volToggle');
@@ -80,7 +82,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.24';
+const WEB_VERSION = '5.25';
 
 function renderVersionLabel() {
   // __SHELL_NAME__ = versionName do APK (ver native.js). Vazio no navegador e
@@ -1271,6 +1273,7 @@ async function load() {
   const messagesV = (await AVDB.getState('messages')) || [];
   const storedFit = await AVDB.getState('fit');
   const lyricsBgV = (await AVDB.getState('lyricsBg')) === 'image' ? 'image' : 'black';
+  const downloadOkV = !!(await AVDB.getState('downloadOk'));
   let libItemsV;
   if (activeTab === 'folders') {
     if (currentFolder && currentFolder._opfs) {
@@ -1307,6 +1310,7 @@ async function load() {
   messages = messagesV;
   if (storedFit) mediaFit = storedFit;
   lyricsBg = lyricsBgV;
+  downloadConsent = downloadOkV;
   libItems = libItemsV;
   currentItem = currentItemV;
 
@@ -1370,7 +1374,6 @@ function renderControls() {
   // mesmo volume: um só ponto os escreve, então nunca divergem.
   const volPct = Math.round(volume * 100);
   syncFader(volSliderEl, faderWrapEl, volValueEl, volPct);
-  syncFader(simpleVolSliderEl, simpleVolWrapEl, simpleVolValueEl, volPct);
   renderSimple();
   // A cortina (view) muda por aqui, não por renderNowPlaying — e o rótulo do
   // botão da notificação depende dela. A deduplicação segura o excesso.
@@ -3413,8 +3416,10 @@ function stepSlide(delta) {
 // sincronizada e a posição dentro dela (desabilita no primeiro/último slide).
 function renderSlideNav() {
   // Mesmo pulso da navegação de estrofe: a leitura auxiliar (popup da letra /
-  // do capítulo) acompanha o que está no ar sem um timer próprio.
+  // do capítulo) e a zona de letra do modo simplificado acompanham o que está
+  // no ar sem um timer próprio.
   refreshLyricsView();
+  refreshSimpleLyrics();
   const who = slideTarget(); // o que está NO AR — ver slideTarget()
   // Mensagens: passa/volta entre as mensagens salvas (nos extremos desabilita).
   if (who === 'message') {
@@ -3534,14 +3539,24 @@ function renderLyricsView() {
     lyricsViewBodyEl.appendChild(empty);
     return;
   }
-  if (src === 'lyrics') renderLyricsViewSong();
-  else renderLyricsViewBible();
+  if (src === 'lyrics') {
+    const track = currentItem.hymnTrack ? currentItem.hymnTrack + '. ' : '';
+    lyricsPopupTitleEl.textContent = track + (currentItem.hymnName || currentItem.name || 'Letra');
+    lvBuildSong(lyricsViewBodyEl, lvCurIdx);
+  } else {
+    const b = bibleSession;
+    // A sigla da versão só entra quando a lista de versões já foi baixada — sem
+    // ela `bibleVersionAbbr` devolve o rótulo genérico "Versão", que no título
+    // seria só ruído.
+    const abbr = bibleVersionName(b.versionId) ? ' · ' + bibleVersionAbbr(b.versionId) : '';
+    lyricsPopupTitleEl.textContent = b.bookName + ' ' + b.chapter + abbr;
+    lvBuildBible(lyricsViewBodyEl, lvCurIdx);
+  }
 }
 
-function renderLyricsViewSong() {
+// Desenha as estrofes da música em cena dentro de `el`, destacando `cur`.
+function lvBuildSong(el, cur) {
   const lyrics = currentItem.lyrics;
-  const track = currentItem.hymnTrack ? currentItem.hymnTrack + '. ' : '';
-  lyricsPopupTitleEl.textContent = track + (currentItem.hymnName || currentItem.name || 'Letra');
   lyrics.forEach((slide, i) => {
     // O slide de capa não tem letra (no telão é o título do hino). Vira uma
     // linha curta "Início": some do texto, mas continua sendo uma posição real
@@ -3564,18 +3579,14 @@ function renderLyricsViewSong() {
       txt.textContent = slide.text || '';
       row.appendChild(txt);
     }
-    if (i === lvCurIdx) row.classList.add('current');
-    lyricsViewBodyEl.appendChild(row);
+    if (i === cur) row.classList.add('current');
+    el.appendChild(row);
   });
 }
 
-function renderLyricsViewBible() {
+// Desenha o capítulo em leitura dentro de `el`, destacando `cur`.
+function lvBuildBible(el, cur) {
   const s = bibleSession;
-  // A sigla da versão só entra quando a lista de versões já foi baixada — sem
-  // ela `bibleVersionAbbr` devolve o rótulo genérico "Versão", que no título
-  // seria só ruído.
-  const abbr = bibleVersionName(s.versionId) ? ' · ' + bibleVersionAbbr(s.versionId) : '';
-  lyricsPopupTitleEl.textContent = s.bookName + ' ' + s.chapter + abbr;
   s.verses.forEach((v, i) => {
     const row = document.createElement('div');
     row.className = 'lv-row lv-row--verse';
@@ -3587,9 +3598,17 @@ function renderLyricsViewBible() {
     txt.className = 'lv-text';
     txt.textContent = v.text;
     row.append(n, txt);
-    if (i === lvCurIdx) row.classList.add('current');
-    lyricsViewBodyEl.appendChild(row);
+    if (i === cur) row.classList.add('current');
+    el.appendChild(row);
   });
+}
+
+// Move o destaque dentro de um container já desenhado (sem re-render).
+function lvMarkCurrent(el, idx) {
+  const prev = el.querySelector('.lv-row.current');
+  if (prev) prev.classList.remove('current');
+  const row = el.querySelector('.lv-row[data-i="' + idx + '"]');
+  if (row) row.classList.add('current');
 }
 
 // Chamado no mesmo pulso que a navegação de estrofe (renderSlideNav), que já
@@ -3602,24 +3621,67 @@ function refreshLyricsView() {
   if (!src) return;
   const idx = lvCurrentIndex(src);
   if (idx === lvCurIdx) return;
-  const prev = lyricsViewBodyEl.querySelector('.lv-row.current');
-  if (prev) prev.classList.remove('current');
   lvCurIdx = idx;
-  const row = lyricsViewBodyEl.querySelector('.lv-row[data-i="' + idx + '"]');
-  if (row) row.classList.add('current');
+  lvMarkCurrent(lyricsViewBodyEl, idx);
   lvScrollToCurrent(true);
 }
+
+// ===== Zona de letra do modo simplificado =====
+// A mesma letra do popup de leitura auxiliar, embutida na tela: ali o espaço
+// entre as ações e as teclas estava vazio, e é justamente o que o operador
+// quer olhar enquanto a música toca. Só a MÚSICA (a Bíblia não existe neste
+// modo), e também só leitura.
+let lvSimpleSig = '';
+let lvSimpleIdx = -1;
+let lvSimpleFollow = true;
+
+function refreshSimpleLyrics() {
+  if (appMode !== 'simple') return;
+  const has = !!(currentItem && Array.isArray(currentItem.lyrics) && currentItem.lyrics.length);
+  const sig = has ? (currentId + '|' + currentItem.lyrics.length) : 'none';
+  if (sig !== lvSimpleSig) {
+    lvSimpleSig = sig;
+    lvSimpleFollow = true;   // música nova: volta a acompanhar
+    simpleLyricsEl.innerHTML = '';
+    lvSimpleIdx = has ? findSlideIndex(currentItem.lyrics, authoritativeTime()) : -1;
+    if (!has) {
+      const empty = document.createElement('div');
+      empty.className = 'lv-empty';
+      empty.textContent = 'A letra da música aparece aqui.';
+      simpleLyricsEl.appendChild(empty);
+      return;
+    }
+    lvBuildSong(simpleLyricsEl, lvSimpleIdx);
+    requestAnimationFrame(() => lvScroll(simpleLyricsEl, lvSimpleFollow, false));
+    return;
+  }
+  if (!has) return;
+  const idx = findSlideIndex(currentItem.lyrics, authoritativeTime());
+  if (idx === lvSimpleIdx) return;
+  lvSimpleIdx = idx;
+  lvMarkCurrent(simpleLyricsEl, idx);
+  lvScroll(simpleLyricsEl, lvSimpleFollow, true);
+}
+
+// Rolar com o dedo para de disputar o scroll, como no popup — até a próxima
+// música (ou o próximo `sig`, que religa o acompanhamento).
+simpleLyricsEl.addEventListener('pointerdown', () => { lvSimpleFollow = false; });
+simpleLyricsEl.addEventListener('wheel', () => { lvSimpleFollow = false; }, { passive: true });
 
 // Centraliza a linha no ar. `smooth` só na atualização ao vivo — na abertura o
 // conteúdo precisa já nascer na posição certa, sem uma rolagem visível.
 // Rola o PRÓPRIO corpo do popup (scrollTop), não scrollIntoView: este último
 // mexeria também nos ancestrais, e a lista do app fica atrás da folha.
 function lvScrollToCurrent(smooth) {
-  if (!lvFollow) return;
-  const row = lyricsViewBodyEl.querySelector('.lv-row.current');
+  lvScroll(lyricsViewBodyEl, lvFollow, smooth);
+}
+
+function lvScroll(el, follow, smooth) {
+  if (!follow) return;
+  const row = el.querySelector('.lv-row.current');
   if (!row) return;
-  const top = row.offsetTop - (lyricsViewBodyEl.clientHeight - row.offsetHeight) / 2;
-  lyricsViewBodyEl.scrollTo({ top: Math.max(0, top), behavior: smooth ? 'smooth' : 'auto' });
+  const top = row.offsetTop - (el.clientHeight - row.offsetHeight) / 2;
+  el.scrollTo({ top: Math.max(0, top), behavior: smooth ? 'smooth' : 'auto' });
 }
 
 function resetAfterEnd() {
@@ -4838,6 +4900,10 @@ function hymnResultRow(coll, s) {
   if (s.has_instrumental_music) actions.appendChild(hymnVariantEl(coll, s, 'playback', 'Playback'));
 
   row.addEventListener('click', () => {
+    // No simplificado não há escolha de variante: o toque na linha toca o
+    // CANTADO. Abrir um acordeão com Cantado/Playback e dois "+" seria
+    // devolver ao operador exatamente a decisão que este modo poupa.
+    if (appMode === 'simple') { simplePlaySong(coll, s); return; }
     const open = li.classList.contains('expanded');
     // Acordeão: abrir uma fecha a anterior — duas linhas abertas ao mesmo
     // tempo empurrariam a lista e tirariam do lugar o que o operador mira.
@@ -4906,6 +4972,34 @@ async function resolveSongMediaId(coll, s, variant) {
   if (!fileId) return null;
   const rec = await AVDB.fileGet(fileId);
   return rec ? fileId : null;
+}
+
+// Toca a versão CANTADA direto (modo simplificado). Se a música ainda não
+// estiver no aparelho, pergunta ANTES de gastar internet — uma vez só: quem
+// respondeu "baixar" já disse como quer que o app se comporte, e repetir a
+// pergunta a cada música viraria ruído no meio do culto.
+async function simplePlaySong(coll, s) {
+  const { needsFull } = await songVariantsNeeded(coll, s);
+  if (needsFull && !(await ensureDownloadConsent())) return;
+  playSongVariant(coll, s, 'full');
+}
+
+// Persistido em `state.downloadOk`: a resposta vale para as próximas sessões
+// também — "só aparece na primeira vez" seria falso se voltasse toda semana.
+let downloadConsent = false;
+async function ensureDownloadConsent() {
+  if (downloadConsent) return true;
+  const ok = await appConfirm({
+    title: 'Baixar a música?',
+    message: 'Esta música ainda não está no aparelho. Baixar agora usa a internet '
+      + '(Wi-Fi ou dados móveis).\n\nEsta pergunta aparece só desta vez.',
+    okText: 'Baixar',
+    cancelText: 'Agora não',
+  });
+  if (!ok) return false;
+  downloadConsent = true;
+  await AVDB.setState('downloadOk', true);
+  return true;
 }
 
 async function playSongVariant(coll, s, variant) {
@@ -5733,11 +5827,11 @@ function applyVolume(v) {
   renderControls();   // escreve os dois faders (ver syncFader)
 }
 
-// QUAL fader está sob o dedo (null = nenhum). Precisa ser o elemento, e não um
-// booleano: há dois faders — o do mixer e a barra lateral do modo simplificado
-// — e só o que está sendo arrastado deve escapar da reescrita do valor.
+// QUAL fader está sob o dedo (null = nenhum). Elemento em vez de booleano
+// porque `syncFader` é chamada para cada fader e só o que está sendo arrastado
+// deve escapar da reescrita do valor.
 let volSeekingEl = null;
-[volSliderEl, simpleVolSliderEl].forEach((el) => {
+[volSliderEl].forEach((el) => {
   el.addEventListener('pointerdown', () => { volSeekingEl = el; bumpVolPeek(); });
   el.addEventListener('pointerup', () => { volSeekingEl = null; });
   el.addEventListener('input', () => { applyVolume(parseFloat(el.value) / 100); bumpVolPeek(); });
@@ -5793,6 +5887,33 @@ function renderSimple() {
   simpleMuteEl.classList.toggle('muted', muteToggleEl.classList.contains('muted'));
   simpleMuteEl.classList.toggle('blocked', muteToggleEl.classList.contains('blocked'));
   simpleMuteEl.title = muteToggleEl.title;
+  // Volume por teclas: o número é o indicador, e `--vol` desenha a barrinha de
+  // curso na base dele (ver .simple-vol-read::after).
+  const pct = Math.round(volume * 100);
+  simpleVolValueEl.textContent = String(pct);
+  simpleVolWrapEl.style.setProperty('--vol', String(pct / 100));
+  refreshSimpleLyrics();
+}
+
+// Volume em passos, como num controle remoto — o MESMO passo dos botões
+// físicos (VOL_KEY_STEP), para os dois caminhos não discordarem, e a mesma
+// `applyVolume` de sempre (clamp, desmutar ao subir de 0, comando, render).
+function simpleVolStep(dir) {
+  applyVolume(volume + dir * VOL_KEY_STEP);
+  persistCurrent();
+}
+
+// Segurar a tecla repete, como num controle de verdade. O primeiro passo sai
+// no `pointerdown` (resposta imediata); a repetição só começa depois de uma
+// pausa, senão um toque comum viraria dois.
+function holdRepeat(btn, fn) {
+  let delay = null, timer = null;
+  const stop = () => { clearTimeout(delay); clearInterval(timer); delay = timer = null; };
+  btn.addEventListener('pointerdown', () => {
+    fn();
+    delay = setTimeout(() => { timer = setInterval(fn, 120); }, 420);
+  });
+  ['pointerup', 'pointercancel', 'pointerleave'].forEach((ev) => btn.addEventListener(ev, stop));
 }
 
 // Estado da tela no cartão "Conectar a tela". No app a `Presentation` aparece
@@ -5825,6 +5946,8 @@ simpleSearchBtnEl.addEventListener('click', openHymnSearch);
 // lugar só.
 simplePlayEl.addEventListener('click', () => playPauseEl.click());
 simpleMuteEl.addEventListener('click', () => muteToggleEl.click());
+holdRepeat(simpleVolUpEl, () => simpleVolStep(1));
+holdRepeat(simpleVolDownEl, () => simpleVolStep(-1));
 simpleCastBtnEl.addEventListener('click', () => {
   if (window.__NATIVE__) AVNative.openCast();
   else window.open('../display/', '_blank');

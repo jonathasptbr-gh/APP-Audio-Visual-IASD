@@ -1422,16 +1422,19 @@ main {
    os mesmos controles do modo avançado (ver setAppMode/renderSimple em
    controle.js), que continuam existindo no DOM, só ocultos. */
 /* ---------- Modo simplificado ---------- */
+/* A tela toda é um CONTROLE: teclas grandes, nada de arrastar, e o que está
+   tocando no meio. Quem usa este modo costuma estar de pé, com o celular numa
+   mão só — mirar um slider fino ali é o pior alvo possível. */
 body.mode-simple main,
 body.mode-simple .bottombar { display: none; }
 .simple {
   position: fixed; inset: 0; z-index: 90;
-  display: none; background: var(--bg);
-  padding: env(safe-area-inset-top) env(safe-area-inset-right) max(env(safe-area-inset-bottom), 12px) env(safe-area-inset-left);
+  display: none; flex-direction: column; gap: .6rem;
+  background: var(--bg);
+  padding: calc(env(safe-area-inset-top) + .7rem) calc(env(safe-area-inset-right) + .7rem) max(env(safe-area-inset-bottom), 12px) calc(env(safe-area-inset-left) + .7rem);
 }
 .simple.open { display: flex; }
-.simple-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: .7rem; padding: .8rem; }
-.simple-head { display: flex; align-items: center; gap: .5rem; }
+.simple-head { display: flex; align-items: center; gap: .5rem; flex: none; }
 .simple-brand { flex: 1; min-width: 0; font-size: .9rem; font-weight: 800; letter-spacing: .03em; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .simple-brand b { color: var(--gold); }
 .simple-switch {
@@ -1439,51 +1442,69 @@ body.mode-simple .bottombar { display: none; }
   background: var(--surface); color: var(--muted);
   font-size: .78rem; font-family: inherit; padding: .4rem .6rem; cursor: pointer;
 }
-/* Os dois cartões de ação são o app inteiro neste modo: alvo grande, rótulo
-   direto, nada de ícone sem texto. */
-.simple-action {
-  display: flex; align-items: center; gap: .7rem; text-align: left;
-  padding: .9rem; cursor: pointer; font-family: inherit;
+
+/* Tecla: a peça única deste modo. Borda + fundo próprio para parecer botão
+   físico, e alvo grande o bastante para o polegar sem mirar. */
+.simple-key {
   border: 1px solid var(--line); border-radius: var(--radius-card);
   background: var(--panel); color: var(--text);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .25rem;
+  font-family: inherit; cursor: pointer; min-width: 0;
 }
-.simple-action-icon { flex: none; color: var(--accent); display: flex; }
-.simple-action-text { display: flex; flex-direction: column; gap: .15rem; min-width: 0; }
-.simple-action-title { font-size: 1rem; font-weight: 700; }
-.simple-action-sub { font-size: .78rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.simple-action.connected .simple-action-icon { color: var(--success); }
+.simple-key svg { display: block; color: var(--accent); }
+.simple-key-label { font-size: .9rem; font-weight: 700; }
+.simple-key-sub { font-size: .72rem; color: var(--muted); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.simple-actions { flex: none; display: grid; grid-template-columns: 1fr 1fr; gap: .6rem; }
+.simple-action { padding: .8rem .5rem; }
+/* Telão conectado: o ícone confirma sem precisar ler o subtítulo. */
+.simple-action.connected svg { color: var(--success); }
 
-/* O que está tocando + os dois controles. Ancorados na BASE, não no centro:
-   é onde o polegar alcança sem trocar a mão de posição, e é lá que ficam no
-   modo completo — quem troca de modo não precisa procurar. */
-.simple-now {
-  flex: 1; min-height: 0;
-  display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 1rem;
-  padding-bottom: .2rem;
-}
+/* Letra da música em cena — ocupa o espaço que sobra entre as ações e as
+   teclas. Mesmas linhas da leitura auxiliar do modo avançado (.lv-row). */
+.simple-song { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: .4rem; }
 .simple-np {
-  width: 100%; text-align: center; font-size: 1rem; font-weight: 600; color: var(--text);
+  flex: none; text-align: center; font-size: .95rem; font-weight: 700; color: var(--text);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.simple-transport { display: flex; gap: .8rem; width: 100%; }
-.simple-t-btn {
-  flex: 1; height: 76px;
-  border: 2px solid transparent; border-radius: var(--radius-card);
-  background: var(--surface); color: #fff;
-  display: flex; align-items: center; justify-content: center; cursor: pointer;
+.simple-lyrics {
+  position: relative;            /* offsetParent das linhas (ver lvScroll) */
+  flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+  display: flex; flex-direction: column; gap: .35rem;
+  padding: .5rem; border: 1px solid var(--line); border-radius: var(--radius-card);
+  background: var(--panel);
 }
-.simple-t-btn .msym { font-size: 34px; }
-.simple-t-btn.muted { border-color: var(--danger); background: var(--danger-soft); color: var(--danger-text); }
-.simple-t-btn.blocked { border-color: var(--gold); background: var(--gold-soft); color: var(--gold-text); animation: mute-blocked-pulse 1.2s ease-in-out infinite; }
+.simple-lyrics .lv-row { background: var(--panel-2); font-size: .9rem; }
+.simple-lyrics .lv-empty { margin: auto; color: var(--muted); font-size: .85rem; text-align: center; line-height: 1.5; }
 
-/* A barra de volume é a lateral INTEIRA: o controle mais usado deste modo não
-   divide espaço com nada. Mesmo componente do fader do mixer (`.fader` +
-   `.fader-value`, que são `position:absolute; inset:0` no wrapper). */
-.simple-vol { position: relative; flex: none; width: 88px; margin: .8rem .8rem .8rem 0; }
-.simple-vol .fader-value { font-size: .95rem; }
+/* Teclado do controle: transporte em cima, volume embaixo. */
+.simple-remote { flex: none; display: flex; flex-direction: column; gap: .6rem; }
+.simple-keys { display: grid; grid-template-columns: 1fr 1fr; gap: .6rem; }
+.simple-key--big { height: 76px; }
+.simple-key--big .msym { font-size: 34px; }
+.simple-key--big.muted { border-color: var(--danger); background: var(--danger-soft); color: var(--danger-text); }
+.simple-key--big.blocked { border-color: var(--gold); background: var(--gold-soft); color: var(--gold-text); animation: mute-blocked-pulse 1.2s ease-in-out infinite; }
+/* Volume: − e + são teclas iguais às outras; o indicador no meio mostra o
+   número e, embaixo, a mesma leitura do fader (quanto do curso está usado). */
+.simple-volrow { display: grid; grid-template-columns: 1fr 1.1fr 1fr; gap: .6rem; align-items: stretch; }
+.simple-key--vol { height: 76px; }
+.simple-key--vol svg { color: #fff; }
+.simple-vol-read {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .15rem;
+  border-radius: var(--radius-card); background: var(--surface);
+  position: relative; overflow: hidden;
+}
+/* Barra fina de preenchimento na base do indicador: o número diz o valor, ela
+   diz o curso — a mesma informação que o fader dava de relance. */
+.simple-vol-read::after {
+  content: ''; position: absolute; left: 0; bottom: 0; height: 4px;
+  width: calc(var(--vol, 1) * 100%);
+  background: var(--accent);
+}
+.simple-vol-num { font-size: 1.6rem; font-weight: 800; color: var(--text); line-height: 1; }
+.simple-vol-cap { font-size: .62rem; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
 
-/* No simplificado a busca serve para TOCAR: os botões de "+ Cronograma" e
-   "+ Playlist" pertencem ao fluxo do sonoplasta (montar a ordem do culto) e
-   só teriam como destino telas que este modo não mostra. O de tocar cresce e
-   ocupa o lugar deles. */
-body.mode-simple .hymn-add { display: none; }
+/* No simplificado a busca serve para TOCAR: um toque na linha já toca a versão
+   CANTADA (ver simplePlaySong). A faixa de ações — +Cronograma, +Playlist e a
+   escolha Cantado/Playback — pertence ao fluxo do sonoplasta e some inteira:
+   escolher variante é justamente a decisão que este modo poupa. */
+body.mode-simple .hymn-actions { display: none; }

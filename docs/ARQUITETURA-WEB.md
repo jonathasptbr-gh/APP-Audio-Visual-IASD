@@ -79,10 +79,10 @@ git push origin main
   `renderVersionLabel()`), o fallback estático do `<span id="appVersion">` em
   `controle/index.html` e `version` em `version.json` (é este último que
   dispara a atualização por OTA nos aparelhos). Versionamento incremental
-  simples (5.22, 5.23, 5.24…). **Versão atual: v5.24.**
+  simples (5.23, 5.24, 5.25…). **Versão atual: v5.25.**
   No app nativo o rótulo mostra os **dois índices** — `Web v5.17 · Shell v1.18`
   —, porque base web e shell atualizam por caminhos independentes (OTA ×
-  instalar APK); no navegador sai só `Controle v5.24`.
+  instalar APK); no navegador sai só `Controle v5.25`.
 
 ---
 
@@ -656,29 +656,50 @@ bloqueado pelo navegador) passa a existir em dois lugares. Na mesma linha,
 `renderSimple()` **copia o glifo e as classes** dos botões do mixer em vez de
 recalcular play/pause e mudo: se a regra mudar lá, muda aqui junto.
 
-O que a tela simplificada tem, e por quê:
+**A tela é um CONTROLE REMOTO**: teclas grandes (`.simple-key`), nada de
+arrastar. Quem usa este modo costuma estar de pé, com o celular numa mão só —
+mirar um alvo fino ali é o pior formato possível.
 
 | Elemento | O que faz |
 |---|---|
 | **Conectar a tela** (`#simpleCastBtn`) | `AVNative.openCast()` — o seletor de espelhamento do Android. O subtítulo mostra a tela conectada ao vivo (`AVNative.displays()`), porque "conectar" é a primeira dúvida de quem abre o app. No navegador vira o atalho para a tela do Display |
-| **Buscar música** (`#simpleSearchBtn`) | o MESMO popup de busca do acervo (`openHymnSearch`), com hinários e álbuns. Um toque no resultado já substitui a playlist e toca |
+| **Buscar música** (`#simpleSearchBtn`) | o MESMO popup de busca do acervo (`openHymnSearch`). Um toque na linha **toca a versão Cantada direto** (ver abaixo) |
+| **Letra** (`#simpleLyrics`) | a letra INTEIRA da música em cena, com o mesmo destaque e o mesmo acompanhamento da leitura auxiliar do modo avançado |
 | **Play/pause e mudo** | `.click()` em `#playpause` / `#muteToggle` |
+| **Volume** (`#simpleVolDown` / `#simpleVolUp`) | teclas **−** e **+** com o número no meio (`.simple-vol-read`), não um slider |
 | **Modo avançado** (`#simpleFullBtn`) | `setAppMode('full')` — a tela completa de sempre |
-| **Barra de volume** (`#simpleVolSlider`) | a **lateral inteira** da tela: é o controle mais usado deste modo e não divide espaço com nada. Mesmo componente do fader do mixer (`.fader` + `.fader-value`) |
 
-Os **dois faders coexistem** e mostram sempre o mesmo número: `renderControls()`
-escreve os dois por `syncFader()`, e `volSeekingEl` (o elemento sob o dedo, não
-um booleano) diz qual deles não pode ter o valor reescrito no meio de um
-arrasto. O volume dos dois passa por `applyVolume()` — a mesma função do gesto
-da preview em tela cheia e dos botões físicos.
+**Sem escolha de variante.** No simplificado o toque na linha da busca chama
+`simplePlaySong()`, que toca o **Cantado** e pronto: abrir o acordeão com
+Cantado/Playback e dois "+" seria devolver ao operador exatamente a decisão que
+este modo existe para poupar. A faixa de ações some inteira
+(`body.mode-simple .hymn-actions`), e no modo avançado a mesma linha continua
+abrindo o acordeão de sempre.
 
-Na busca, o simplificado esconde os botões de **+ Cronograma** e **+ Playlist**
-(`body.mode-simple .hymn-add`): eles pertencem ao fluxo de montar a ordem do
-culto e levariam a telas que este modo não mostra. O de tocar cresce e ocupa o
-lugar deles.
+**A pergunta do download aparece UMA vez.** Se a música ainda não está no
+aparelho, `ensureDownloadConsent()` pergunta antes de gastar internet e grava a
+resposta em `state.downloadOk` — quem respondeu "baixar" já disse como quer que
+o app se comporte, e repetir a pergunta a cada música viraria ruído no meio do
+culto. A verificação usa `songVariantsNeeded()`, a mesma regra da sincronização
+em massa (não basta ter `fileIdFull`: o arquivo pode ter sido apagado por fora).
+
+**Volume em degraus, não em curso.** `simpleVolStep()` usa o MESMO passo dos
+botões físicos (`VOL_KEY_STEP`) e a mesma `applyVolume()` — clamp, desmutar ao
+subir de 0, comando e render num lugar só. `holdRepeat()` faz a tecla repetir
+enquanto segurada, como num controle de verdade: o primeiro passo sai no
+`pointerdown` (resposta imediata) e a repetição só começa depois de uma pausa,
+senão um toque comum viraria dois. O indicador mostra o número e uma barrinha
+de curso na base (`--vol`, a mesma variável do fader).
+
+**A zona de letra reusa o renderizador da leitura auxiliar**: `lvBuildSong()` e
+`lvMarkCurrent()` receberam o CONTAINER como parâmetro, então o popup do modo
+avançado e a zona do simplificado desenham as mesmas linhas `.lv-row` com o
+mesmo destaque — e `refreshSimpleLyrics()` entra no mesmo pulso de
+`renderSlideNav()`, sem timer próprio. Rolar com o dedo desliga o
+acompanhamento até a próxima música, como no popup.
 
 A espiada do volume pelos botões físicos (`peekVolume`) **não roda no
-simplificado**: a barra já é a lateral inteira da tela, não há o que espiar.
+simplificado**: as teclas de volume já estão na tela, com o número ao lado.
 
 ### Layout geral
 
