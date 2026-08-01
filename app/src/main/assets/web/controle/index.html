@@ -103,7 +103,7 @@
     <div class="list-header">
       <button id="backBtn" class="back-btn" hidden><span class="msym">&#xe5c4;</span></button>
       <span class="list-title" id="listTitle">Cronograma</span>
-      <span id="appVersion" class="app-version">Controle v5.43</span>
+      <span id="appVersion" class="app-version">Controle v5.44</span>
       <input id="libSearch" class="lib-search" type="search" placeholder="Buscar na pasta…" hidden>
       <!-- Setas circulares = "sincronizar" (o mesmo desenho dos cards de coleção
            e do botão de re-sync na linha da pasta). folder_open fica reservado
@@ -118,10 +118,13 @@
          que reconstrói a lista, sem perder o listener de `change`. -->
     <input id="file" type="file" accept="image/*,video/*,audio/*" multiple hidden>
 
-    <!-- abas na base da seção de listas -->
+    <!-- abas na base da seção de listas.
+         SEM aba de Álbuns desde a v5.44: o acervo (categorias, pílulas e
+         cards) é o estado padrão da busca, e a aba virou um segundo caminho
+         para a mesma tela. Duas portas para o mesmo lugar, numa barra de
+         quatro botões, é espaço gasto sem informação nova. -->
     <div class="tabs">
       <button class="tab active" data-tab="imports" title="Cronograma"><span class="msym">&#xe413;</span></button>
-      <button class="tab" data-tab="albums" title="Álbuns"><span class="msym">&#xe03d;</span></button>
       <button class="tab" data-tab="bible" title="Bíblia">
         <!-- Ícone de Bíblia (SVG inline, fora do subset da fonte): livro aberto
              com uma cruz — distingue a aba de textos bíblicos das demais. -->
@@ -144,7 +147,9 @@
           <rect x="13.5" y="13.5" width="7" height="7" rx="1.6"/>
         </svg>
       </button>
-      <button class="tab-add" id="hymnSearchBtn" title="Buscar no acervo">
+      <!-- A ÚNICA porta do acervo desde a v5.44 (a aba de Álbuns saiu): abre
+           no navegador de coleções e vira busca ao digitar. -->
+      <button class="tab-add" id="hymnSearchBtn" title="Acervo: álbuns, hinários e busca">
         <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <circle cx="11" cy="11" r="7"/>
           <line x1="21" y1="21" x2="16.65" y2="16.65"/>
