@@ -827,7 +827,12 @@ main {
   display: flex; align-items: center; gap: .5rem;
   font-size: .74rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
   color: var(--muted);
-  padding: .7rem .2rem .1rem;
+  /* A direita reserva o MESMO espaço que o card gasta depois do botão de
+     baixar: sua borda (1px), seu padding (.7rem), a seta do acordeão (20px) e
+     o gap antes dela (.55rem). Sem isso o botão do grupo — que não tem seta —
+     ficava ~40px mais à direita que o do card logo abaixo, e a coluna de
+     downloads saía torta. */
+  padding: .7rem calc(1px + .7rem + 20px + .55rem) .1rem .2rem;
 }
 .coll-group:first-child { padding-top: .2rem; }
 .coll-group-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -842,7 +847,9 @@ main {
 .coll-group-count.done { color: var(--success); }
 .coll-group-count.busy { color: var(--accent); }
 .coll-group-btn {
-  flex-shrink: 0; width: 30px; height: 30px; padding: 0;
+  /* 34px = o mesmo alvo do `.coll-bar-dl` do card: alinhados na coluna, os
+     dois precisam ter também o mesmo tamanho, senão os centros discordam. */
+  flex-shrink: 0; width: 34px; height: 34px; padding: 0;
   border: none; appearance: none; -webkit-appearance: none;
   border-radius: var(--radius-btn);
   background: var(--accent-soft); color: var(--accent);

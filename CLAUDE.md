@@ -766,7 +766,7 @@ Rodar local: `./gradlew assembleDebug` (exige Android SDK instalado).
   (`#appVersion` em `assets/web/controle/index.html`) **e `version` em
   `assets/web/version.json`** — é este último que faz a atualização chegar
   aos aparelhos por OTA. O `versionCode`/`versionName` do APK vêm do CI.
-  **Versão atual: v5.46** (base web) · **shell 1.22** (`SHELL_VERSION` 14 —
+  **Versão atual: v5.47** (base web) · **shell 1.22** (`SHELL_VERSION` 14 —
   o shell passou a consultar `window.__avBack` no botão voltar; ver
   "Divergências"). O bundle segue com `minShell: 2`: num shell antigo ele
   funciona igual, só sem a escada do voltar — que é nativa e **só chega

@@ -2374,6 +2374,13 @@ A busca ganha assim **dois níveis**, e isso muda três coisas:
   busca, resultados: o mesmo número dizendo coisas diferentes, ao lado de um
   título que já explica a tela. O contador que importa é o `N/M` de baixados,
   que está em cada card e agora também no cabeçalho.
+- **Os botões de baixar formam UMA coluna** (v5.47). O do cabeçalho de grupo
+  não tem seta de acordeão depois dele, então caía ~40px à direita do botão do
+  card logo abaixo. `.coll-group` reserva à direita exatamente o que o card
+  gasta depois do seu botão — borda (1px), padding (`.7rem`), seta (20px) e o
+  gap antes dela (`.55rem`) — e os dois botões passaram a ter o mesmo alvo de
+  34px, porque alinhados na coluna eles também precisam do mesmo tamanho,
+  senão os centros discordam. Medido: todos com centro em x=351.
 - **Os hinários NÃO baixam em lote** (v5.46). São as duas maiores coleções do
   acervo (~1.100 músicas juntas): um botão só disparando as duas é um download
   que ninguém dimensiona antes de tocar, e que não dá para parar pela metade
