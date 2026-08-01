@@ -82,7 +82,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.26';
+const WEB_VERSION = '5.27';
 
 function renderVersionLabel() {
   // __SHELL_NAME__ = versionName do APK (ver native.js). Vazio no navegador e
@@ -1191,6 +1191,27 @@ function msym(code) {
 }
 function persistCurrent() {
   return AVDB.setState('current', { mediaId: currentId, view, muted, volume, at: Date.now() });
+}
+
+// Sessão nova, player LIMPO. A mídia que ficou selecionada na sessão anterior
+// não volta ao abrir o app: `current` é estado de uma sessão (o que estava no
+// ar naquele culto), não biblioteca. O Cronograma, a playlist, os favoritos, as
+// coleções e a Bíblia baixada continuam intactos — some só a seleção, e o item
+// segue a um toque de distância na lista.
+//
+// O volume, o mudo e a cortina (`view`) FICAM: são o ajuste da mesa, não uma
+// seleção — quem deixou o volume em 40 na semana passada não quer reabrir em
+// 100.
+//
+// E NÃO manda `clear` para o telão. No app os dois WebViews sobem juntos (o
+// Display já nasce no wallpaper, e nada é retomado sem comando explícito); no
+// navegador o Display é outra janela, que pode estar projetando — e uma recarga
+// do Controle (a do service worker, inclusive) apagaria a projeção no meio do
+// culto.
+async function clearCurrentSelection() {
+  const cur = (await AVDB.getState('current')) || {};
+  if (!cur.mediaId) return;
+  await AVDB.setState('current', { ...cur, mediaId: null, at: Date.now() });
 }
 
 // ===== miniaturas =====
@@ -6441,6 +6462,8 @@ document.addEventListener('visibilitychange', () => {
 
 (async function init() {
   await loadCollections();
+  // ANTES do load(): é ele que lê `current` e monta a tela a partir dela.
+  await clearCurrentSelection();
   await load();
   renderMsgFab(); // botão flutuante de mensagem começa no estado "abrir lista"
   // Wallpaper escolhido pelo operador (a preview espelha o telão).

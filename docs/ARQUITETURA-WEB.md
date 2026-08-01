@@ -79,10 +79,10 @@ git push origin main
   `renderVersionLabel()`), o fallback estático do `<span id="appVersion">` em
   `controle/index.html` e `version` em `version.json` (é este último que
   dispara a atualização por OTA nos aparelhos). Versionamento incremental
-  simples (5.24, 5.25, 5.26…). **Versão atual: v5.26.**
+  simples (5.25, 5.26, 5.27…). **Versão atual: v5.27.**
   No app nativo o rótulo mostra os **dois índices** — `Web v5.17 · Shell v1.18`
   —, porque base web e shell atualizam por caminhos independentes (OTA ×
-  instalar APK); no navegador sai só `Controle v5.26`.
+  instalar APK); no navegador sai só `Controle v5.27`.
 
 ---
 
@@ -213,7 +213,7 @@ O campo `kind` é derivado do `type` (ou definido pelo chamador para itens de UR
 | Chave | Conteúdo |
 |---|---|
 | `imports` / `playlist` | arrays de IDs de mídia |
-| `current` | `{ mediaId, view, muted, volume, at }` — estado de exibição atual |
+| `current` | `{ mediaId, view, muted, volume, at }` — estado de exibição atual. O `mediaId` é **limpo na abertura** (`clearCurrentSelection`): sessão nova começa com o player vazio; volume/mudo/cortina ficam, que são o ajuste da mesa e não uma seleção |
 | `repeat` | `'off'` \| `'all'` \| `'one'` \| `'shuffle'` |
 | `fade` | legado — as transições visuais (fade in/out) viraram **inerentes ao sistema** (`createStage.FADE`, fixo em `{in:true, out:true, time:0.6}` e compartilhado pelos dois apps, não configurável); esta chave **não é mais lida nem gravada** (fica ignorada se existir de versões antigas). Fade em toda troca visual: mídia, cortina do wallpaper (view toggle), letra e texto bíblico |
 | `fit` | `'contain'` \| `'cover'` \| `'fill'` — preenchimento da mídia (ajustar/preencher/esticar) no Display e na preview |
