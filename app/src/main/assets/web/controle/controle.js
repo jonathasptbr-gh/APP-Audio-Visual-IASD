@@ -88,7 +88,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.44';
+const WEB_VERSION = '5.45';
 
 function renderVersionLabel() {
   // __SHELL_NAME__ = versionName do APK (ver native.js). Vazio no navegador e
@@ -127,21 +127,19 @@ const newFolderInPickerBtnEl = document.getElementById('newFolderInPickerBtn');
 const hymnSearchBtnEl = document.getElementById('hymnSearchBtn');
 const hymnSearchPopupEl = document.getElementById('hymnSearchPopup');
 const hymnSearchCloseEl = document.getElementById('hymnSearchClose');
-const hymnSearchBackEl = document.getElementById('hymnSearchBack');
+const hymnSearchTotalEl = document.getElementById('hymnSearchTotal');
 const hymnSearchInputEl = document.getElementById('hymnSearchInput');
 const hymnResultsEl = document.getElementById('hymnResults');
 const collPopupEl = document.getElementById('collPopup');
 const collPopupTitleEl = document.getElementById('collPopupTitle');
 const collOptsEl = document.getElementById('collOpts');
 const collPopupCloseEl = document.getElementById('collPopupClose');
-const hymnSearchCountEl = document.getElementById('hymnSearchCount');
 const hymnSearchTitleEl = document.getElementById('hymnSearchTitle');
 const bibleVerPopupEl = document.getElementById('bibleVerPopup');
 const bibleVerListEl = document.getElementById('bibleVerList');
 const bibleVerCloseEl = document.getElementById('bibleVerClose');
 // Escopo da busca/lista: null = busca global no acervo (botão de lupa);
 // coll.id = lista de músicas de UMA coleção (toque no card do álbum).
-let searchScope = null;
 
 const ICON = {
   prev: '', // skip_previous
@@ -3837,9 +3835,10 @@ function categoryCards(cat) {
 // da busca (ver renderSearchResults). É uma função só de propósito — duas
 // cópias divergiriam no primeiro ajuste de categoria, e o operador veria dois
 // acervos diferentes conforme por onde entrou.
-function renderCollectionsList(alvo, redesenhar) {
+function renderCollectionsList(alvo, redesenhar, opts) {
   alvo = alvo || libraryEl;
   redesenhar = redesenhar || renderLibrary;
+  redesenharAcervo = redesenhar;
   const byId = new Map(allCollections().map((c) => [c.id, c]));
   let any = false;
 
@@ -3888,7 +3887,10 @@ function renderCollectionsList(alvo, redesenhar) {
   // as categorias. Só aparece em "Todos" — com um filtro ativo, "tudo" seria
   // ambíguo (tudo do filtro? tudo mesmo?), e o cabeçalho da categoria já cobre
   // o primeiro caso.
-  if (albumFilter === null) {
+  // `semTotal`: no popup do acervo esta barra subiu para o CABEÇALHO (ver
+  // renderAcervoTotal) — é a ação de maior alcance da tela e estava rolando
+  // junto com a lista, saindo de vista assim que se descia um pouco.
+  if (albumFilter === null && !(opts && opts.semTotal)) {
     const todas = allCollections().filter((c) => !isHymnalAlbum(c));
     if (todas.length > 1) header('Todo o acervo', todas, true, { confirmScale: true });
   }
@@ -3995,20 +3997,90 @@ function renderCollectionCard(coll, ctx) {
   }
   bar.appendChild(summary);
 
-  const cfg = document.createElement('button');
-  cfg.className = 'hymnal-card-btn coll-bar-btn cfg-btn' + (u.syncBusy ? ' busy' : '');
-  cfg.title = 'Opções de sincronização';
-  cfg.innerHTML = gearIconSvg();
-  cfg.addEventListener('click', (e) => { e.stopPropagation(); openCollectionOptions(coll); });
-  bar.appendChild(cfg);
+  // Seta de acordeão no lugar da engrenagem: o toque na barra ABRE A COLEÇÃO
+  // ali mesmo, e o que a barra precisa anunciar é isso. A engrenagem desceu
+  // para dentro do aberto (ver abaixo) — manutenção é o que se procura depois
+  // de já estar olhando o álbum, não antes.
+  const chevron = document.createElement('span');
+  chevron.className = 'coll-bar-chev msym';
+  chevron.textContent = '';   // expand_more
+  bar.appendChild(chevron);
 
   // Sem índice ainda não há lista para abrir — o toque leva às opções, que é
   // justamente onde está o sincronizar que resolve isso.
   bar.addEventListener('click', () => {
-    if (total > 0) openCollectionSongs(coll); else openCollectionOptions(coll);
+    if (!total) { openCollectionOptions(coll); return; }
+    // Acordeão: uma coleção aberta por vez. Duas listas de centenas de músicas
+    // abertas ao mesmo tempo empurrariam o acervo para fora da tela e tirariam
+    // do lugar exatamente o card que o operador mira.
+    const abrindo = !u.expanded;
+    allCollections().forEach((c) => { ui(c.id).expanded = false; });
+    u.expanded = abrindo;
+    redesenharAcervo();
   });
   li.appendChild(bar);
+
+  // ----- Aberto: engrenagem + as músicas da coleção -----
+  if (u.expanded && total > 0) {
+    li.classList.add('expanded');
+
+    const acoes = document.createElement('div'); acoes.className = 'coll-open-actions';
+    const cfg = document.createElement('button');
+    cfg.className = 'coll-open-cfg' + (u.syncBusy ? ' busy' : '');
+    cfg.title = 'Opções de sincronização';
+    cfg.innerHTML = gearIconSvg();
+    cfg.appendChild(document.createTextNode(' Sincronizar e opções'));
+    cfg.addEventListener('click', (e) => { e.stopPropagation(); openCollectionOptions(coll); });
+    acoes.appendChild(cfg);
+    li.appendChild(acoes);
+
+    // A lista sai INTEIRA, quantos itens tenha: aqui o operador está folheando
+    // um álbum, não filtrando o acervo — cortar num teto esconderia o fim de
+    // qualquer hinário. É o mesmo `hymnResultRow` da busca, sem o subtítulo da
+    // coleção (que é o próprio card em volta).
+    const lista = document.createElement('ul'); lista.className = 'coll-songs';
+    collSongs(coll.id).forEach((s) => lista.appendChild(hymnResultRow(coll, s, null, true)));
+    li.appendChild(lista);
+  }
   return li;
+}
+
+// Quem redesenha o acervo depende de onde ele está na tela. `renderCollectionsList`
+// recebe esse callback e o guarda aqui para os cards — eles são criados um a um
+// e não têm como saber o alvo sozinhos.
+let redesenharAcervo = () => {};
+
+// "Baixar todo o acervo", no cabeçalho do popup: o mesmo `syncGroup` e a mesma
+// chave de grupo (`grp:Todo o acervo`) da barra que existia na lista — só que
+// FIXO no alto. Ali é a ação de maior alcance da tela; dentro da lista, ela
+// saía de vista assim que o operador descia um pouco, que é justamente quando
+// ele está decidindo se baixa tudo ou escolhe um álbum.
+function renderAcervoTotal(redesenhar) {
+  hymnSearchTotalEl.innerHTML = '';
+  const todas = allCollections().filter((c) => !isHymnalAlbum(c));
+  if (todas.length < 2) return;
+  const key = 'grp:Todo o acervo';
+  const g = gui(key);
+  let downloaded = 0, total = 0;
+  for (const c of todas) { downloaded += countDownloaded(c.id); total += collSongs(c.id).length; }
+  const complete = total > 0 && downloaded >= total;
+
+  const info = document.createElement('span');
+  info.className = 'coll-group-count' + (g.busy ? ' busy' : (complete ? ' done' : ''));
+  info.textContent = g.status || (total ? downloaded + '/' + total : '—');
+  hymnSearchTotalEl.appendChild(info);
+
+  const btn = document.createElement('button');
+  btn.className = 'coll-group-btn' + (g.busy ? ' busy' : '');
+  btn.title = g.busy ? 'Cancelar o download'
+    : 'Baixar TODO o acervo (' + todas.length + ' coleções)';
+  btn.innerHTML = g.busy ? closeIconSvg() : downloadAllIconSvg();
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    syncGroup(key, 'Todo o acervo', todas, { confirmScale: true });
+    redesenhar();
+  });
+  hymnSearchTotalEl.appendChild(btn);
 }
 
 // ===== Opções de uma coleção (bottom-sheet da engrenagem) =====
@@ -6091,7 +6163,6 @@ async function syncLyrics() {
 
 // Busca GLOBAL (botão de lupa): escopo null = varre todas as coleções.
 function openHymnSearch() {
-  searchScope = null;
   hymnSearchTitleEl.textContent = 'Acervo';
   hymnSearchInputEl.placeholder = 'Nome, número ou trecho da letra…';
   hymnSearchInputEl.value = '';
@@ -6103,71 +6174,34 @@ function openHymnSearch() {
   // o operador decidir se vai digitar.
 }
 
-// Sair de uma coleção e voltar ao navegador do acervo — o mesmo popup, sem
-// fechá-lo. É o par do botão de voltar do cabeçalho e do gesto de voltar do
-// Android (ver __avBack).
-function searchLeaveScope() {
-  if (!searchScope) return false;
-  searchScope = null;
-  hymnSearchTitleEl.textContent = 'Acervo';
-  hymnSearchInputEl.placeholder = 'Nome, número ou trecho da letra…';
-  hymnSearchInputEl.value = '';
-  renderSearchResults('');
-  hymnResultsEl.scrollTop = 0;
-  return true;
-}
-
-function renderSearchBack() {
-  hymnSearchBackEl.hidden = !searchScope;
-}
-// Lista de músicas de UMA coleção (toque no card do álbum): reaproveita o
-// mesmo popup/rows da busca, escopado a essa coleção (mostra tudo por padrão,
-// e o campo filtra dentro dela). Não auto-foca o campo (o operador está
-// navegando a lista, não necessariamente digitando — evita abrir o teclado
-// cobrindo os resultados).
-function openCollectionSongs(coll) {
-  searchScope = coll.id;
-  hymnSearchTitleEl.textContent = coll.name;
-  hymnSearchInputEl.placeholder = 'Filtrar músicas…';
-  hymnSearchInputEl.value = '';
-  renderSearchResults('');
-  hymnSearchPopupEl.classList.add('open');
-}
 function closeHymnSearch() {
   hymnSearchPopupEl.classList.remove('open');
-  searchScope = null;
 }
 
-// Renderiza os resultados: escopo null = TODAS as coleções (busca global);
-// escopo = uma coleção (lista de músicas dela). Cada resultado carrega sua
-// coleção pra tocar/adicionar/baixar sob demanda.
-// Estado PADRÃO da busca global: o navegador do acervo — as mesmas categorias,
-// pílulas e cards da aba Álbuns (`renderCollectionsList`), aqui dentro.
+// Duas telas no mesmo popup, e **o campo é a chave**: vazio = o ACERVO (as
+// categorias, pílulas e cards, com as músicas de cada coleção dentro do próprio
+// acordeão); com texto = a lista de músicas que casam, de todo o acervo.
 //
-// Com o campo vazio a busca listava as primeiras 60 músicas de um acervo de
-// milhares: uma fatia sem critério, que não é resposta a pergunta nenhuma. Quem
-// abre a lupa sem saber o nome quer FOLHEAR, e folhear é por coleção — que é o
-// recorte que o próprio banco já dá e que a aba Álbuns já desenhava. Digitar
-// volta a listar músicas, exatamente como antes.
-function searchIsBrowsing(q) { return !searchScope && !q; }
+// Não há mais um "modo coleção" separado (v5.45). Entrar numa coleção era trocar
+// de tela e voltar; agora o álbum abre no lugar, com o acervo inteiro ainda
+// visível em volta — o operador não perde onde estava para ver o que tem dentro.
+function searchIsBrowsing(q) { return !q; }
 
 function renderSearchResults(query) {
   const q = normalizeForSearch(query).trim();
   if (searchIsBrowsing(q)) {
     hymnResultsEl.innerHTML = '';
-    hymnSearchCountEl.textContent = String(allCollections().length);
-    renderCollectionsList(hymnResultsEl, () => renderSearchResults(hymnSearchInputEl.value));
+    renderAcervoTotal(() => renderSearchResults(hymnSearchInputEl.value));
+    renderCollectionsList(hymnResultsEl, () => renderSearchResults(hymnSearchInputEl.value),
+      { semTotal: true });
     // Quem enche o disco é o download de música: a linha de uso vem junto do
     // acervo, que é onde se decide baixar (e onde se decide apagar).
     renderStorageUsage(hymnResultsEl, () => hymnSearchPopupEl.classList.contains('open')
       && searchIsBrowsing(normalizeForSearch(hymnSearchInputEl.value).trim()));
-    renderSearchBack();
     return;
   }
-  renderSearchBack();
-  const cols = searchScope ? allCollections().filter((c) => c.id === searchScope) : allCollections();
-  // A letra só é varrida com busca de verdade (ver LYRIC_MIN_Q); a lista
-  // completa de uma coleção não precisa do índice.
+  const cols = allCollections();
+  // A letra só é varrida com busca de verdade (ver LYRIC_MIN_Q).
   if (q.length >= LYRIC_MIN_Q) ensureLyricIndex();
 
   const porNome = [];    // { coll, song }
@@ -6198,24 +6232,20 @@ function renderSearchResults(query) {
   // hino de mesmo nome no topo — não os quinze que citam a expressão numa
   // estrofe. Dentro de cada grupo a ordem do acervo é preservada.
   const matches = porNome.concat(porLetra);
-  hymnSearchCountEl.textContent = String(matches.length);
   hymnResultsEl.innerHTML = '';
   if (totalIndexed === 0) {
-    hymnResultsEl.innerHTML = searchScope
-      ? '<li class="empty">Lista ainda não carregada.<br>Precisa de internet na primeira vez.</li>'
-      : '<li class="empty">Índice do acervo ainda não carregado.<br>Precisa de internet na primeira vez.</li>';
+    hymnResultsEl.innerHTML = '<li class="empty">Índice do acervo ainda não carregado.'
+      + '<br>Precisa de internet na primeira vez.</li>';
     return;
   }
   if (matches.length === 0) {
     hymnResultsEl.innerHTML = '<li class="empty">Nenhuma música encontrada.</li>';
     return;
   }
-  // Escopado a UMA coleção (toque no card do álbum): a lista sai
-  // INTEIRA, quantos itens tenha. Ali o operador está folheando um álbum, não
-  // filtrando o acervo — cortar em 60 escondia o fim de qualquer hinário.
-  // A busca GLOBAL mantém o teto: ela varre milhares de músicas de todos os
-  // álbuns, e renderizar tudo a cada tecla travaria o campo.
-  const LIMIT = searchScope ? Infinity : 60;
+  // Teto na busca: ela varre milhares de músicas de todos os álbuns, e
+  // renderizar tudo a cada tecla travaria o campo. Folhear uma coleção INTEIRA
+  // não passa mais por aqui — é o acordeão do card, que lista tudo.
+  const LIMIT = 60;
   matches.slice(0, LIMIT).forEach((m) => hymnResultsEl.appendChild(hymnResultRow(m.coll, m.song, m.hit)));
   if (matches.length > LIMIT) {
     const li = document.createElement('li'); li.className = 'empty';
@@ -6231,7 +6261,9 @@ function renderSearchResults(query) {
 // Cada variante (Cantado/Playback) é um grupo [tocar][+ Cronograma][+
 // Playlist]; o botão de tocar usa ícone de voz (Cantado) ou nota musical
 // (Playback). Playback só aparece se a música tiver.
-function hymnResultRow(coll, s, lyricHit) {
+// `semColecao` = a linha já está DENTRO do card da coleção (acordeão do
+// acervo): repetir "Album 1" em cada uma das dez faixas é ruído.
+function hymnResultRow(coll, s, lyricHit, semColecao) {
   const li = document.createElement('li');
   li.className = 'lib-item hymn-result';
 
@@ -6243,10 +6275,9 @@ function hymnResultRow(coll, s, lyricHit) {
   const name = document.createElement('span'); name.className = 'row-name hymn-name';
   name.textContent = songLabel(coll, s);
   info.appendChild(name);
-  // Subtítulo: a coleção de origem — só na busca global, porque no escopo de
-  // uma coleção o próprio título do popup já diz de onde vem. A duração saiu
-  // daqui e virou coluna própria à direita.
-  if (!searchScope) {
+  // Subtítulo: a coleção de origem. A duração saiu daqui e virou coluna própria
+  // à direita.
+  if (!semColecao) {
     const sub = document.createElement('span'); sub.className = 'hymn-sub';
     sub.textContent = coll.name;
     info.appendChild(sub);
@@ -7594,7 +7625,6 @@ libSearchEl.addEventListener('input', debounce(() => {
 
 hymnSearchBtnEl.addEventListener('click', openHymnSearch);
 hymnSearchInputEl.addEventListener('input', debounce(() => renderSearchResults(hymnSearchInputEl.value), SEARCH_DEBOUNCE_MS));
-hymnSearchBackEl.addEventListener('click', searchLeaveScope);
 
 // Mantém o indicador de Wi-Fi/dados móveis dos cards de coleção atualizado
 // em tempo real (o navegador dispara 'change' quando o tipo de conexão muda).
@@ -7823,34 +7853,28 @@ window.__avBack = function () {
     closeAppDialog(appDialogInputEl.hidden ? false : null);
     return true;
   }
-  // 2. Dentro de uma COLEÇÃO na busca: sobe um nível (volta ao acervo) em vez
-  //    de fechar o popup. Desde a v5.43 a busca tem dois níveis — acervo e
-  //    coleção —, e pular do segundo direto para fora seria perder o caminho
-  //    andado. O ✕ e o toque no fundo continuam fechando de uma vez: quem os
-  //    toca está saindo, não voltando.
-  if (hymnSearchPopupEl.classList.contains('open') && searchLeaveScope()) return true;
-  // 3. Bottom-sheets. Fecha o ÚLTIMO da tabela que estiver aberto — normalmente
+  // 2. Bottom-sheets. Fecha o ÚLTIMO da tabela que estiver aberto — normalmente
   //    há um só, mas se houver dois o de cima é o que o operador vê.
   for (let i = POPUPS.length - 1; i >= 0; i--) {
     const [backdrop, , close] = POPUPS[i];
     if (backdrop.classList.contains('open')) { close(); return true; }
   }
-  // 4. Preview em tela cheia — que, sem telão conectado, É a projeção. Sair
+  // 3. Preview em tela cheia — que, sem telão conectado, É a projeção. Sair
   //    dela é exatamente o que o voltar significa aqui.
   if (document.fullscreenElement) {
     try { document.exitFullscreen(); } catch (_) {}
     return true;
   }
-  // 5. Coluna do mixer aberta no fader.
+  // 4. Coluna do mixer aberta no fader.
   if (mixerEl.classList.contains('vol-open')) { closeVolume(); return true; }
-  // 6. Seleção múltipla: o voltar cancela a seleção, não o app.
+  // 5. Seleção múltipla: o voltar cancela a seleção, não o app.
   if (selectionMode) { exitSelection(); return true; }
-  // 7. Sub-tela com voltar próprio (pasta aberta, Favoritos, telas da Bíblia).
+  // 6. Sub-tela com voltar próprio (pasta aberta, Favoritos, telas da Bíblia).
   //    Reusa `navigateBack` em vez de reimplementar a hierarquia: ela já sabe
   //    que a Bíblia sobe leitura→capítulos→livros e que a raiz dos Favoritos
   //    volta ao Cronograma.
   if (!backBtnEl.hidden) { navigateBack(); return true; }
-  // 8. Fora do Cronograma: volta para ele. É a tela inicial da biblioteca, e
+  // 7. Fora do Cronograma: volta para ele. É a tela inicial da biblioteca, e
   //    sem este degrau o voltar pularia de "estou na Bíblia" direto para
   //    minimizar o app.
   if (activeTab !== 'imports') { switchTab('imports'); return true; }

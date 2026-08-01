@@ -2328,15 +2328,43 @@ A busca ganha assim **dois níveis**, e isso muda três coisas:
 - **Digitar troca o nível.** `searchIsBrowsing(q)` é `!searchScope && !q`: com
   texto, volta a listar músicas exatamente como antes; apagando, o acervo
   retorna. Nenhuma outra regra da busca mudou.
-- **Tocar num card entra na coleção** (`openCollectionSongs`, que já existia
-  para o card da aba) e o cabeçalho ganha um **voltar** — só ali, porque na raiz
-  o ✕ já é a saída. O voltar do Android faz o mesmo (degrau 2 de `__avBack`,
-  antes dos bottom-sheets); o ✕ e o toque no fundo continuam fechando de uma
-  vez, porque quem os toca está saindo, não voltando.
+- **Tocar num card abre a coleção NO PRÓPRIO CARD** (acordeão), com o acervo
+  inteiro ainda visível em volta. Até a v5.44 era uma segunda tela, com um
+  voltar no cabeçalho e um degrau próprio em `__avBack`; entrar e sair para ver
+  o que tem dentro de um álbum é caro quando a pergunta é "em qual deles está
+  aquela música?". Uma coleção aberta por vez — duas listas de centenas de
+  faixas empurrariam o acervo para fora da tela.
+  - A lista sai **inteira**, sem teto: quem abriu um álbum quer percorrê-lo.
+    O teto de 60 é da BUSCA, que varre milhares de músicas a cada tecla.
+  - As linhas são as mesmas `hymnResultRow` da busca, **sem o subtítulo da
+    coleção** (`semColecao`) — repetir "Album 1" nas dez faixas é ruído; o card
+    em volta já diz de quem elas são.
+  - **A engrenagem desceu para dentro do aberto** (`.coll-open-cfg`), larga e
+    rotulada. Manutenção — sincronizar, excluir, peso — é o que se procura
+    depois de já estar olhando o álbum, não antes; na barra ela era um ícone
+    mudo disputando o toque com a própria linha, que agora abre a coleção.
 - **O campo não rouba mais o foco na abertura.** Enquanto ela era uma lista de
   músicas, o teclado subir junto era o certo — não havia mais nada a fazer ali.
   Agora a abertura é um acervo para folhear, e o teclado cobriria metade dele
   antes de o operador decidir se vai digitar.
+
+#### Tela cheia, e a ação de maior alcance no título (v5.45)
+
+- **O popup ocupa a tela toda** (`.popup-sheet--full`, sem cantos
+  arredondados). É a tela em que o operador passa mais tempo antes do culto —
+  folhear álbuns, abrir letras, decidir o que baixar — e a folha de 80vh
+  deixava uma faixa morta no topo enquanto a lista rolava apertada embaixo.
+  Cantos retos porque cantos arredondados anunciam "há algo atrás", e aqui não
+  há.
+- **"Baixar todo o acervo" subiu para o cabeçalho** (`renderAcervoTotal`,
+  mesmo `syncGroup` e mesma chave `grp:Todo o acervo`). Dentro da lista ela
+  saía de vista ao primeiro rolar — justamente quando o operador está
+  decidindo entre baixar tudo e escolher um álbum. `renderCollectionsList`
+  ganhou `opts.semTotal` para não desenhá-la duas vezes.
+- **O contador de itens saiu.** Na abertura ele contava coleções e durante a
+  busca, resultados: o mesmo número dizendo coisas diferentes, ao lado de um
+  título que já explica a tela. O contador que importa é o `N/M` de baixados,
+  que está em cada card e agora também no cabeçalho.
 
 #### E a aba de Álbuns saiu (v5.44)
 

@@ -103,7 +103,7 @@
     <div class="list-header">
       <button id="backBtn" class="back-btn" hidden><span class="msym">&#xe5c4;</span></button>
       <span class="list-title" id="listTitle">Cronograma</span>
-      <span id="appVersion" class="app-version">Controle v5.44</span>
+      <span id="appVersion" class="app-version">Controle v5.45</span>
       <input id="libSearch" class="lib-search" type="search" placeholder="Buscar na pasta…" hidden>
       <!-- Setas circulares = "sincronizar" (o mesmo desenho dos cards de coleção
            e do botão de re-sync na linha da pasta). folder_open fica reservado
@@ -453,17 +453,20 @@
     </div>
   </div>
 
-  <!-- popup de busca GLOBAL no acervo (hinários + álbuns) — desliza do topo -->
-  <div id="hymnSearchPopup" class="popup-backdrop">
-    <div class="popup-sheet">
+  <!-- O ACERVO: hinários e álbuns por categoria, com as músicas de cada um
+       dentro do próprio acordeão, e a busca por nome/número/trecho no mesmo
+       campo. Ocupa a TELA TODA (.popup-sheet--full): é a tela em que o
+       operador passa mais tempo antes do culto, e uma folha de 80% deixava
+       uma faixa morta no topo. -->
+  <div id="hymnSearchPopup" class="popup-backdrop popup-backdrop--full">
+    <div class="popup-sheet popup-sheet--full">
       <div class="popup-header">
-        <!-- Voltar para o navegador de acervo. Só aparece DENTRO de uma
-             coleção: ali o ✕ fecharia o popup inteiro, e quem entrou num
-             álbum quer voltar à lista de álbuns, não sair da busca. -->
-        <button id="hymnSearchBack" class="popup-back" title="Voltar ao acervo" hidden><span class="msym">&#xe5c4;</span></button>
         <span class="msym popup-header-icon">&#xe3a1;</span>
-        <span class="popup-title" id="hymnSearchTitle">Buscar no acervo</span>
-        <span id="hymnSearchCount" class="popup-count">0</span>
+        <span class="popup-title" id="hymnSearchTitle">Acervo</span>
+        <!-- "Baixar todo o acervo" mora AQUI, no título: é a ação de maior
+             alcance da tela e, dentro da lista, saía de vista ao primeiro
+             rolar. Preenchido por renderAcervoTotal. -->
+        <span id="hymnSearchTotal" class="popup-total"></span>
         <button id="hymnSearchClose" class="popup-close" title="Fechar"><span class="msym">&#xe14c;</span></button>
       </div>
       <div class="hymn-search-bar">
