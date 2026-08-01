@@ -18,6 +18,23 @@ const muteToggleEl = document.getElementById('muteToggle');
 const volSliderEl = document.getElementById('volSlider');
 const volValueEl = document.getElementById('volValue');
 const faderWrapEl = document.querySelector('.fader-wrap');
+
+// Modo de uso (ver "Modos de uso" mais abaixo)
+const modePickerEl = document.getElementById('modePicker');
+const modeSimpleBtnEl = document.getElementById('modeSimpleBtn');
+const modeFullBtnEl = document.getElementById('modeFullBtn');
+const appModeSegEl = document.getElementById('appModeSeg');
+const simpleModeEl = document.getElementById('simpleMode');
+const simpleFullBtnEl = document.getElementById('simpleFullBtn');
+const simpleCastBtnEl = document.getElementById('simpleCastBtn');
+const simpleCastStatusEl = document.getElementById('simpleCastStatus');
+const simpleSearchBtnEl = document.getElementById('simpleSearchBtn');
+const simpleNpNameEl = document.getElementById('simpleNpName');
+const simplePlayEl = document.getElementById('simplePlay');
+const simpleMuteEl = document.getElementById('simpleMute');
+const simpleVolWrapEl = document.getElementById('simpleVolWrap');
+const simpleVolSliderEl = document.getElementById('simpleVolSlider');
+const simpleVolValueEl = document.getElementById('simpleVolValue');
 const mixerEl = document.getElementById('mixer');
 const volToggleEl = document.getElementById('volToggle');
 const volCloseEl = document.getElementById('volClose');
@@ -66,7 +83,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.22';
+const WEB_VERSION = '5.23';
 
 function renderVersionLabel() {
   // __SHELL_NAME__ = versionName do APK (ver native.js). Vazio no navegador e
@@ -1352,20 +1369,30 @@ function renderControls() {
   muteToggleEl.title = blocked
     ? 'Sem áudio no Display — toque para tentar liberar'
     : muted ? 'Tirar o mudo' : 'Mutar';
-  if (!volSeeking) volSliderEl.value = Math.round(volume * 100);
-  // O trilho do fader é desenhado pelo nosso CSS (ver `.fader`), porque a
-  // espessura do trilho nativo é fixa e não acompanha a largura da coluna —
-  // e `appearance: none` desliga junto o preenchimento do `accent-color`.
-  // `--vol` é esse preenchimento, escrito no MESMO ponto em que o valor do
-  // fader é sincronizado (aqui e, durante o arrasto, por applyVolume antes de
-  // chamar esta função), para os dois nunca discordarem. Vai no `.fader-wrap`
-  // porque o número dentro do cap é irmão do fader e usa a mesma conta.
-  const volPct = Math.round(parseFloat(volSliderEl.value) || 0);
-  faderWrapEl.style.setProperty('--vol', String(volPct / 100));
-  volValueEl.textContent = String(volPct);
+  // Os DOIS faders (mixer e barra lateral do modo simplificado) mostram o
+  // mesmo volume: um só ponto os escreve, então nunca divergem.
+  const volPct = Math.round(volume * 100);
+  syncFader(volSliderEl, faderWrapEl, volValueEl, volPct);
+  syncFader(simpleVolSliderEl, simpleVolWrapEl, simpleVolValueEl, volPct);
+  renderSimple();
   // A cortina (view) muda por aqui, não por renderNowPlaying — e o rótulo do
   // botão da notificação depende dela. A deduplicação segura o excesso.
   pushNowPlaying();
+}
+
+// Põe um fader (trilho + número) no volume atual. O trilho é desenhado pelo
+// nosso CSS (ver `.fader`), porque a espessura do trilho nativo é fixa e não
+// acompanha a largura da coluna — e `appearance: none` desliga junto o
+// preenchimento que vinha do `accent-color`. `--vol` é esse preenchimento, e
+// mora no WRAPPER porque o número dentro do cap é irmão do input.
+//
+// O input que o dedo está arrastando não é reescrito: o valor voltaria
+// arredondado no meio do movimento. O preenchimento e o número, sim — eles
+// devem seguir o dedo.
+function syncFader(input, wrap, label, pct) {
+  if (volSeekingEl !== input) input.value = pct;
+  wrap.style.setProperty('--vol', String(pct / 100));
+  label.textContent = String(pct);
 }
 
 // EXCEÇÃO à convenção "ícone = ação": este botão CICLA por quatro modos
@@ -1389,6 +1416,7 @@ function renderNowPlaying() {
     npNameInnerEl.textContent = 'Mensagem ' + (msgSession.idx + 1);
     applyTitleMarquee();
     playPauseEl.querySelector('.msym').textContent = playing ? ICON.pause : ICON.play;
+    renderSimple();
     pushNowPlaying();
     return;
   }
@@ -1401,6 +1429,7 @@ function renderNowPlaying() {
     applyTitleMarquee();
     playPauseEl.querySelector('.msym').textContent = ICON.play;
     seekEl.disabled = true;
+    renderSimple();
     pushNowPlaying();
     return;
   }
@@ -1412,6 +1441,7 @@ function renderNowPlaying() {
   playPauseEl.querySelector('.msym').textContent = playing ? ICON.pause : ICON.play;
   const isTimed = cur && (cur.kind === 'video' || cur.kind === 'audio');
   seekEl.disabled = !isTimed;
+  renderSimple();
   pushNowPlaying();
 }
 
@@ -1523,6 +1553,7 @@ function pushNowPlaying() {
 function setPlaying(v) {
   playing = !!v;
   playPauseEl.querySelector('.msym').textContent = playing ? ICON.pause : ICON.play;
+  renderSimple();   // o botão do modo simplificado espelha este
   pushNowPlaying();
 }
 
@@ -4912,6 +4943,7 @@ async function addSongToPlaylist(coll, s, variant) {
 
 // ===== transições (fade in/out) =====
 function openFadePopup() {
+  renderAppModeSeg();
   renderFitSeg();
   renderLyricsBgSeg();
   renderWallSeg();
@@ -5635,6 +5667,9 @@ function cancelVolPeek() {
 }
 
 function peekVolume() {
+  // No modo simplificado a barra de volume já é a lateral inteira da tela:
+  // não há o que espiar, e mexer no mixer escondido não teria efeito nenhum.
+  if (appMode === 'simple') return;
   const open = mixerEl.classList.contains('vol-open') && !mixerEl.classList.contains('vol-closing');
   if (open && !volPeekOwned) return; // aberto pelo operador: a tecla não mexe nisso
   volPeekOwned = true;
@@ -5698,15 +5733,103 @@ function applyVolume(v) {
   volume = Math.max(0, Math.min(1, v));
   if (volume > 0 && muted) { muted = false; cmd({ type: 'mute', muted }); }
   cmd({ type: 'volume', volume });
-  volSliderEl.value = Math.round(volume * 100);
-  renderControls();
+  renderControls();   // escreve os dois faders (ver syncFader)
 }
 
-let volSeeking = false;
-volSliderEl.addEventListener('pointerdown', () => { volSeeking = true; bumpVolPeek(); });
-volSliderEl.addEventListener('pointerup', () => { volSeeking = false; });
-volSliderEl.addEventListener('input', () => { applyVolume(parseFloat(volSliderEl.value) / 100); bumpVolPeek(); });
-volSliderEl.addEventListener('change', () => { volSeeking = false; persistCurrent(); });
+// QUAL fader está sob o dedo (null = nenhum). Precisa ser o elemento, e não um
+// booleano: há dois faders — o do mixer e a barra lateral do modo simplificado
+// — e só o que está sendo arrastado deve escapar da reescrita do valor.
+let volSeekingEl = null;
+[volSliderEl, simpleVolSliderEl].forEach((el) => {
+  el.addEventListener('pointerdown', () => { volSeekingEl = el; bumpVolPeek(); });
+  el.addEventListener('pointerup', () => { volSeekingEl = null; });
+  el.addEventListener('input', () => { applyVolume(parseFloat(el.value) / 100); bumpVolPeek(); });
+  el.addEventListener('change', () => { volSeekingEl = null; persistCurrent(); });
+});
+
+
+// ===== Modos de uso: simplificado × sonoplasta completo =====
+// O app atende duas pessoas diferentes: quem só precisa conectar a tela e
+// tocar um louvor, e o sonoplasta que opera o culto inteiro. A escolha é
+// explícita na abertura e NÃO é lembrada — quem abre hoje pode não ser quem
+// abre no próximo culto, e a pergunta custa um toque.
+//
+// O simplificado não é uma segunda implementação do transporte: os botões
+// dele acionam os MESMOS controles do modo completo por `.click()` (o mesmo
+// padrão da notificação nativa), e o volume passa pelo mesmo `applyVolume`.
+// Assim nenhuma regra de borda — texto sem áudio de fundo, YouTube que precisa
+// recarregar, mudo bloqueado pelo navegador — existe em dois lugares.
+let appMode = null;             // null = ninguém escolheu ainda
+let lastDisplays = [];          // telas conectadas (ponte nativa)
+
+function setAppMode(mode) {
+  appMode = mode === 'simple' ? 'simple' : 'full';
+  document.body.classList.toggle('mode-simple', appMode === 'simple');
+  simpleModeEl.classList.toggle('open', appMode === 'simple');
+  modePickerEl.classList.remove('open');
+  renderAppModeSeg();
+  renderSimple();
+  renderSimpleCast();
+  // Sair do simplificado com a busca aberta deixaria o popup por cima da tela
+  // completa sem nada que explicasse por quê.
+  if (appMode === 'full') closeHymnSearch();
+}
+
+function renderAppModeSeg() {
+  appModeSegEl.querySelectorAll('.fit-opt').forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.mode === appMode);
+  });
+}
+
+// A tela simplificada é um ESPELHO dos controles reais: copia o glifo e o
+// estado dos botões do mixer/transporte em vez de recalcular play/pause e
+// mudo por conta própria. Se a regra mudar lá, muda aqui junto.
+function renderSimple() {
+  if (appMode !== 'simple') return;
+  simpleNpNameEl.textContent = npNameInnerEl.textContent || 'Nada tocando';
+  simplePlayEl.querySelector('.msym').textContent = playPauseEl.querySelector('.msym').textContent;
+  simpleMuteEl.querySelector('.msym').textContent = muteToggleEl.querySelector('.msym').textContent;
+  simpleMuteEl.classList.toggle('muted', muteToggleEl.classList.contains('muted'));
+  simpleMuteEl.classList.toggle('blocked', muteToggleEl.classList.contains('blocked'));
+  simpleMuteEl.title = muteToggleEl.title;
+}
+
+// Estado da tela no cartão "Conectar a tela". No app a `Presentation` aparece
+// sozinha quando há telão, então o cartão informa o que já está conectado — e
+// o toque abre o seletor de espelhamento. No navegador não há Presentation
+// nem seletor: o cartão vira o atalho para a tela do Display.
+function renderSimpleCast() {
+  if (appMode !== 'simple') return;
+  if (!window.__NATIVE__) {
+    simpleCastStatusEl.textContent = 'Abrir a tela do Display';
+    return;
+  }
+  const tv = lastDisplays[0] || null;
+  simpleCastBtnEl.classList.toggle('connected', !!tv);
+  simpleCastStatusEl.textContent = tv
+    ? 'Conectado: ' + (tv.name || 'TV')
+    : 'Toque para escolher a tela';
+}
+
+modeSimpleBtnEl.addEventListener('click', () => setAppMode('simple'));
+modeFullBtnEl.addEventListener('click', () => setAppMode('full'));
+simpleFullBtnEl.addEventListener('click', () => setAppMode('full'));
+appModeSegEl.addEventListener('click', (e) => {
+  const btn = e.target.closest('.fit-opt');
+  if (!btn) return;
+  setAppMode(btn.dataset.mode);
+  closeFadePopup();   // a escolha já mudou a tela inteira atrás do popup
+});
+simpleSearchBtnEl.addEventListener('click', openHymnSearch);
+// Os controles do simplificado são os do modo completo, acionados por click():
+// um botão `disabled` continua sendo um no-op natural, e as bordas ficam num
+// lugar só.
+simplePlayEl.addEventListener('click', () => playPauseEl.click());
+simpleMuteEl.addEventListener('click', () => muteToggleEl.click());
+simpleCastBtnEl.addEventListener('click', () => {
+  if (window.__NATIVE__) AVNative.openCast();
+  else window.open('../display/', '_blank');
+});
 
 // ===== Botões físicos de volume =====
 // No app eles passam a mexer no fader daqui, não na saída do sistema: com
@@ -5997,6 +6120,8 @@ wallResetEl.addEventListener('click', () => { setWallpaper(null); });
 if (window.__NATIVE__) {
   const renderDisplayStatus = (list) => {
     const tv = (list && list[0]) || null;
+    lastDisplays = list || [];
+    renderSimpleCast();
     openDisplayBtnEl.disabled = true;
     openDisplayBtnEl.classList.toggle('connected', !!tv);
     displayStatusTextEl.textContent = tv

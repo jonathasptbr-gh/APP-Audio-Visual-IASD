@@ -12,11 +12,84 @@
   <link rel="stylesheet" href="controle.css">
 </head>
 <body>
+  <!-- Escolha do MODO DE USO, na abertura. Nasce visível no HTML (sem esperar
+       JS/IndexedDB) e NÃO é lembrada entre sessões: quem abre o app hoje pode
+       não ser quem abre no próximo culto, e a pergunta custa um toque. -->
+  <div id="modePicker" class="mode-picker open">
+    <div class="mode-card">
+      <div class="mode-brand">Audio Visual <b>IASD</b></div>
+      <div class="mode-q">Como você vai usar agora?</div>
+      <button type="button" id="modeSimpleBtn" class="mode-opt">
+        <span class="mode-opt-title">Simplificado</span>
+        <span class="mode-opt-sub">Conectar a tela e tocar música</span>
+      </button>
+      <button type="button" id="modeFullBtn" class="mode-opt mode-opt--full">
+        <span class="mode-opt-title">Sonoplasta completo</span>
+        <span class="mode-opt-sub">Cronograma, álbuns, Bíblia, letra, playlist e todos os controles</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- MODO SIMPLIFICADO: conectar a tela, buscar a música, tocar. Os controles
+       são os mesmos botões do modo completo acionados por `.click()` (ver
+       controle.js) — nenhuma regra de transporte é reescrita aqui. -->
+  <div id="simpleMode" class="simple">
+    <div class="simple-main">
+      <div class="simple-head">
+        <span class="simple-brand">Audio Visual <b>IASD</b></span>
+        <button type="button" id="simpleFullBtn" class="simple-switch">Modo completo</button>
+      </div>
+
+      <button type="button" id="simpleCastBtn" class="simple-action">
+        <span class="simple-action-icon">
+          <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M3 19a2 2 0 0 1 2 2"/>
+            <path d="M3 15.5a5.5 5.5 0 0 1 5.5 5.5"/>
+            <path d="M3 12a9 9 0 0 1 9 9"/>
+            <path d="M8.5 5h10A2.5 2.5 0 0 1 21 7.5v9a2.5 2.5 0 0 1-2.5 2.5H16"/>
+          </svg>
+        </span>
+        <span class="simple-action-text">
+          <span class="simple-action-title">Conectar a tela</span>
+          <span class="simple-action-sub" id="simpleCastStatus">Abrir a lista de telas</span>
+        </span>
+      </button>
+
+      <button type="button" id="simpleSearchBtn" class="simple-action">
+        <span class="simple-action-icon">
+          <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="11" cy="11" r="7"/>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
+        </span>
+        <span class="simple-action-text">
+          <span class="simple-action-title">Buscar música</span>
+          <span class="simple-action-sub">Hinários e álbuns</span>
+        </span>
+      </button>
+
+      <div class="simple-now">
+        <div class="simple-np" id="simpleNpName">Nada tocando</div>
+        <div class="simple-transport">
+          <button type="button" id="simplePlay" class="simple-t-btn" title="Play/Pause"><span class="msym">&#xe037;</span></button>
+          <button type="button" id="simpleMute" class="simple-t-btn" title="Mudo"><span class="msym">&#xe050;</span></button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Barra de volume: a lateral inteira da tela. Mesmo componente do fader
+         do mixer (`.fader` + `.fader-value`), só que ocupando toda a altura. -->
+    <div class="simple-vol" id="simpleVolWrap">
+      <input type="range" id="simpleVolSlider" class="fader" min="0" max="100" value="100" aria-label="Volume da mídia">
+      <span id="simpleVolValue" class="fader-value" aria-hidden="true">100</span>
+    </div>
+  </div>
+
   <main>
     <div class="list-header">
       <button id="backBtn" class="back-btn" hidden><span class="msym">&#xe5c4;</span></button>
       <span class="list-title" id="listTitle">Cronograma</span>
-      <span id="appVersion" class="app-version">Controle v5.22</span>
+      <span id="appVersion" class="app-version">Controle v5.23</span>
       <input id="libSearch" class="lib-search" type="search" placeholder="Buscar na pasta…" hidden>
       <!-- Setas circulares = "sincronizar" (o mesmo desenho dos cards de coleção
            e do botão de re-sync na linha da pasta). folder_open fica reservado
@@ -259,6 +332,15 @@
         <button id="fadePopupClose" class="popup-close" title="Fechar"><span class="msym">&#xe14c;</span></button>
       </div>
       <div class="fade-opts">
+        <!-- Modo de uso: a mesma escolha da abertura, para trocar sem fechar o
+             app. No simplificado o caminho de volta é o botão do cabeçalho. -->
+        <div class="fade-row fade-row--fit">
+          <span>Modo do app</span>
+          <div class="fit-seg" id="appModeSeg">
+            <button type="button" class="fit-opt" data-mode="simple">Simplificado</button>
+            <button type="button" class="fit-opt" data-mode="full">Completo</button>
+          </div>
+        </div>
         <div class="fade-row fade-row--fit">
           <span>Preenchimento da mídia</span>
           <div class="fit-seg" id="fitSeg">
