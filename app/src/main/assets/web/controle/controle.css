@@ -131,7 +131,7 @@ input, textarea { user-select: text !important; -webkit-user-select: text !impor
 :is(
   .ctl-btn, .t-btn, .slide-nav-btn, .pv-fab,
   .tab, .tab-add, .import-btn, .add-dir-btn, .back-btn, .sel-btn,
-  .row-btn, .row-handle, .popup-close, .new-folder-btn, .folder-pick-btn,
+  .row-btn, .row-handle, .popup-close, .popup-back, .new-folder-btn, .folder-pick-btn,
   .coll-pill, .coll-bar, .coll-bar-btn, .coll-group-btn, .hymnal-card-btn,
   .bible-cell, .bible-ref-part, .bible-vsec, .bible-ver-row,
   .hymn-row, .msg-add-btn, .msg-item,
@@ -1425,6 +1425,17 @@ main {
   display: flex; align-items: center; justify-content: center; cursor: pointer;
 }
 .popup-close .msym { font-size: var(--icon-sm); }
+/* Voltar dentro do popup (busca: coleção → acervo). Accent, e não `--muted`
+   como o ✕: um leva adiante no caminho, o outro desiste dele — e no cabeçalho
+   os dois ficam a centímetros um do outro. */
+.popup-back {
+  width: 34px; height: 34px; border: none; border-radius: var(--radius-btn);
+  background: var(--surface-2); color: var(--accent);
+  display: flex; align-items: center; justify-content: center; cursor: pointer;
+  flex-shrink: 0;
+}
+.popup-back[hidden] { display: none; }
+.popup-back .msym { font-size: var(--icon-sm); }
 
 .popup-list {
   flex: 1; overflow-y: auto;
@@ -1566,6 +1577,18 @@ main {
   border: 1px solid var(--line); border-radius: var(--radius-btn);
   background: var(--bg);
   animation: hymn-actions-in .18s ease both;
+}
+/* Uma ESTROFE por bloco. O espaço entre blocos é o que a divide — mais
+   confiável que uma linha em branco, que some quando a estrofe já termina
+   perto do fim do bloco de rolagem. */
+.hymn-stanza + .hymn-stanza { margin-top: .7rem; }
+/* Rótulo da seção ("Refrão", "1ª Estrofe"): vem do `aux_lyric` do banco. Em
+   dourado e caixa alta pequena — é metadado, não letra a cantar, e precisa se
+   distinguir dela à primeira vista sem roubar o olho. */
+.hymn-stanza-label {
+  font-size: .68rem; font-weight: 800; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--gold);
+  margin-bottom: .15rem;
 }
 .hymn-lyrics-line {
   font-size: .88rem; line-height: 1.5; color: var(--text);

@@ -2283,8 +2283,61 @@ slides. O índice de busca (`buildLyricIndex`) lê os **dois**, chaveado por
 - **Indexa TODA linha**, inclusive `aux_lyric` e estrofes sem `show_slide` — ao
   contrário de `buildLyricSlides`, que filtra o que vira slide. Uma estrofe que
   não é projetada continua sendo letra da música, e para buscar isso só ajuda.
+- **Guardado por ESTROFE desde a v5.43** — `[{ a: rótulo|null, l: [linhas] }]`.
+  O banco já entrega assim: cada entrada de `music_{id}.lyric` **é** uma
+  estrofe, com `order` e `aux_lyric` (o rótulo: "Refrão", "1ª Estrofe"). Até a
+  v5.42 guardávamos só as linhas achatadas — o formato de que a BUSCA precisa —,
+  e a visualização da letra completa herdava esse achatamento: trinta linhas
+  seguidas, sem respiro e sem dizer onde entra o refrão, que é exatamente o que
+  o operador procura quando abre a letra. Guardar por estrofe não custa nada à
+  busca (`lyricFlatLines` achata na hora de indexar, e o rótulo entra junto —
+  "refrão" é palavra que se digita); o caminho inverso, inferir estrofes de
+  linhas soltas, **não existe**. Por isso a mudança é no armazenamento, e não
+  só na tela.
+  - `lyricStanzas` normaliza os dois formatos: um registro legado vira UMA
+    estrofe sem rótulo — que é exatamente o que ele já era na tela.
+  - O legado entra na mesma fila do que nunca foi baixado (`songsMissingLyric`):
+    uma passagem única, em segundo plano e só em wi-fi, como a primeira carga.
+    `LYRIC_NONE` (0) **não** entra — já sabemos que a música não tem letra, e o
+    formato não muda isso.
+  - Quem já tem a música BAIXADA nem espera a fila: os slides do arquivo
+    (`stanzasFromSlides`) sempre tiveram a divisão, com `auxText` por slide — ela
+    só era descartada. Por isso `songLyricStanzas` prefere os slides quando o
+    acervo de texto ainda está no formato antigo.
 - Roda como fase 3 do `refreshCollections`, fire-and-forget, com o progresso na
   notificação pelo mesmo `withBgWork` do resto do trabalho de massa.
+
+### O acervo É o estado padrão da busca (v5.43)
+
+Com o campo vazio, a busca listava as primeiras 60 músicas de um acervo de
+milhares: uma fatia sem critério, que não responde pergunta nenhuma. Quem abre a
+lupa **sem saber o nome** quer folhear — e folhear é por coleção, que é o
+recorte que o próprio banco dá e que a aba Álbuns já desenhava.
+
+Então a abertura da busca passou a ser esse navegador: as mesmas pílulas de
+filtro, os mesmos cabeçalhos de categoria e os mesmos cards. **É a mesma
+função** — `renderCollectionsList(alvo, redesenhar)` ganhou o elemento-alvo e o
+callback de redesenho como parâmetros, e a aba Álbuns continua chamando-a sem
+argumentos. Duas cópias divergiriam no primeiro ajuste de categoria, e o
+operador veria dois acervos diferentes conforme por onde entrou.
+
+A busca ganha assim **dois níveis**, e isso muda três coisas:
+
+- **Digitar troca o nível.** `searchIsBrowsing(q)` é `!searchScope && !q`: com
+  texto, volta a listar músicas exatamente como antes; apagando, o acervo
+  retorna. Nenhuma outra regra da busca mudou.
+- **Tocar num card entra na coleção** (`openCollectionSongs`, que já existia
+  para o card da aba) e o cabeçalho ganha um **voltar** — só ali, porque na raiz
+  o ✕ já é a saída. O voltar do Android faz o mesmo (degrau 2 de `__avBack`,
+  antes dos bottom-sheets); o ✕ e o toque no fundo continuam fechando de uma
+  vez, porque quem os toca está saindo, não voltando.
+- **O campo não rouba mais o foco na abertura.** Enquanto ela era uma lista de
+  músicas, o teclado subir junto era o certo — não havia mais nada a fazer ali.
+  Agora a abertura é um acervo para folhear, e o teclado cobriria metade dele
+  antes de o operador decidir se vai digitar.
+
+O `albumFilter` é **compartilhado** com a aba de propósito: é um acervo só, e
+uma pílula escolhida num lugar valer no outro é o comportamento previsível.
 
 ### Letra completa no resultado aberto (v5.37)
 
