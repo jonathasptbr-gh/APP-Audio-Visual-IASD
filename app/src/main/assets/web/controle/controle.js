@@ -88,7 +88,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.42';
+const WEB_VERSION = '5.43';
 
 function renderVersionLabel() {
   // __SHELL_NAME__ = versionName do APK (ver native.js). Vazio no navegador e
@@ -127,6 +127,7 @@ const newFolderInPickerBtnEl = document.getElementById('newFolderInPickerBtn');
 const hymnSearchBtnEl = document.getElementById('hymnSearchBtn');
 const hymnSearchPopupEl = document.getElementById('hymnSearchPopup');
 const hymnSearchCloseEl = document.getElementById('hymnSearchClose');
+const hymnSearchBackEl = document.getElementById('hymnSearchBack');
 const hymnSearchInputEl = document.getElementById('hymnSearchInput');
 const hymnResultsEl = document.getElementById('hymnResults');
 const collPopupEl = document.getElementById('collPopup');
@@ -3800,7 +3801,7 @@ async function desnumerarAlbunsBaixados() {
 // Pílulas de filtro no topo: Todos · Hinários · uma por categoria do banco.
 // Com dezenas de álbuns em várias categorias, rolar a lista inteira para achar
 // "os CDs oficiais" é lento — a pílula corta direto para o grupo.
-function renderCollectionFilters() {
+function renderCollectionFilters(alvo, redesenhar) {
   const li = document.createElement('li');
   li.className = 'coll-filters';
   const add = (label, value) => {
@@ -3811,8 +3812,8 @@ function renderCollectionFilters() {
     b.addEventListener('click', () => {
       if (albumFilter === value) return;
       albumFilter = value;
-      renderLibrary();
-      libraryEl.scrollTop = 0;
+      redesenhar();
+      alvo.scrollTop = 0;
     });
     li.appendChild(b);
   };
@@ -3838,11 +3839,17 @@ function categoryCards(cat) {
   return out;
 }
 
-function renderCollectionsList() {
+// O MESMO navegador de acervo, em dois lugares: a aba Álbuns e o estado padrão
+// da busca (ver renderSearchResults). É uma função só de propósito — duas
+// cópias divergiriam no primeiro ajuste de categoria, e o operador veria dois
+// acervos diferentes conforme por onde entrou.
+function renderCollectionsList(alvo, redesenhar) {
+  alvo = alvo || libraryEl;
+  redesenhar = redesenhar || renderLibrary;
   const byId = new Map(allCollections().map((c) => [c.id, c]));
   let any = false;
 
-  libraryEl.appendChild(renderCollectionFilters());
+  alvo.appendChild(renderCollectionFilters(alvo, redesenhar));
 
   // Cabeçalho de grupo: nome + resumo (baixados/total do grupo inteiro) + o
   // botão que baixa a COLEÇÃO COMPLETA. Com um filtro ativo o nome é omitido
@@ -3880,7 +3887,7 @@ function renderCollectionsList() {
       btn.addEventListener('click', (e) => { e.stopPropagation(); syncGroup(key, text, colls, opts); });
       li.appendChild(btn);
     }
-    libraryEl.appendChild(li);
+    alvo.appendChild(li);
   };
 
   // Baixar TODO o acervo de uma vez: os hinários mais todos os álbuns de todas
@@ -3896,7 +3903,7 @@ function renderCollectionsList() {
   const fixed = showHymnals ? FIXED_COLLECTIONS.filter((c) => byId.has(c.id)) : [];
   if (fixed.length) {
     header('Hinários', fixed, albumFilter === null);
-    fixed.forEach((coll) => { libraryEl.appendChild(renderCollectionCard(coll)); any = true; });
+    fixed.forEach((coll) => { alvo.appendChild(renderCollectionCard(coll)); any = true; });
   }
 
   for (const cat of albumCatalog.categories) {
@@ -3905,7 +3912,7 @@ function renderCollectionsList() {
     const cards = categoryCards(cat);
     if (!cards.length) continue;
     header(cat.name, cards.map((x) => x.coll), albumFilter === null);
-    cards.forEach(({ coll, ctx }) => { libraryEl.appendChild(renderCollectionCard(coll, ctx)); any = true; });
+    cards.forEach(({ coll, ctx }) => { alvo.appendChild(renderCollectionCard(coll, ctx)); any = true; });
   }
 
   // Álbuns conhecidos que nenhuma categoria reivindicou (catálogo antigo,
@@ -3916,7 +3923,7 @@ function renderCollectionsList() {
     if (!any) {
       const empty = document.createElement('li'); empty.className = 'empty';
       empty.textContent = 'Nada nesta seção.';
-      libraryEl.appendChild(empty);
+      alvo.appendChild(empty);
     }
     return;
   }
@@ -3926,13 +3933,13 @@ function renderCollectionsList() {
     .filter((c) => c && !claimed.has(c.id) && !isHymnalAlbum(c));
   if (orphans.length) {
     header(albumCatalog.categories.length ? 'Outros álbuns' : 'Álbuns', orphans, true);
-    orphans.forEach((coll) => { libraryEl.appendChild(renderCollectionCard(coll)); any = true; });
+    orphans.forEach((coll) => { alvo.appendChild(renderCollectionCard(coll)); any = true; });
   }
 
   if (!any) {
     const empty = document.createElement('li'); empty.className = 'empty';
     empty.textContent = 'Nenhuma coleção disponível.';
-    libraryEl.appendChild(empty);
+    alvo.appendChild(empty);
   }
 }
 
@@ -5333,10 +5340,10 @@ async function fetchCollectionIndex(coll) {
     // ver docs/FONTE-DE-DADOS-LOUVORJA.md §5.3). Quando manda, é de graça:
     // aproveitamos e a música nem entra na fila de download de letras.
     if (row.lyric) {
-      const linhas = typeof row.lyric === 'string'
-        ? normalizeLyricText(row.lyric).split('\n').map((x) => x.trim()).filter(Boolean)
-        : lyricLinesFromMeta(row);
-      if (linhas && linhas.length) { lyricStoreFor(coll.id)[row.id_music] = linhas; colheu = true; }
+      const est = typeof row.lyric === 'string'
+        ? [{ a: null, l: normalizeLyricText(row.lyric).split('\n').map((x) => x.trim()).filter(Boolean) }]
+        : lyricStanzasFromMeta(row);
+      if (est && est.length) { lyricStoreFor(coll.id)[row.id_music] = est; colheu = true; }
     }
     s.has_instrumental_music = !!row.has_instrumental_music;
     s._norm = normalizeForSearch(row.name);
@@ -5769,7 +5776,7 @@ function normalizeForSearch(s) {
 // Guardado em `state` por coleção (`lyrics:<collId>`), gravado em LOTES: são
 // centenas de músicas, e reescrever o blob inteiro a cada uma tornaria o
 // download quadrático.
-let lyricStore = {};          // { [collId]: { [id_music]: string[] | 0 } }
+let lyricStore = {};          // { [collId]: { [id_music]: [{a,l}] | string[] (legado) | 0 } }
 let lyricSyncRunning = false;
 
 // `0` (e não ausência) marca "já perguntamos e esta música não tem letra" —
@@ -5790,18 +5797,61 @@ function saveLyricStore(collId) {
   return AVDB.setState('lyrics:' + collId, lyricStoreFor(collId));
 }
 
-// Extrai as linhas de texto de um registro `music_{id}`. Ao contrário de
-// `buildLyricSlides`, NÃO filtra por `show_slide`: uma linha que não vira slide
-// continua sendo letra da música, e para BUSCAR isso só ajuda.
-function lyricLinesFromMeta(meta) {
+// ===== A letra é uma lista de ESTROFES, não de linhas soltas =====
+// O banco já entrega assim: cada entrada de `music_{id}.lyric` **é** uma
+// estrofe, com `order`, o texto (linhas separadas por `<br>`) e `aux_lyric`,
+// que é o RÓTULO da seção ("Refrão", "1ª Estrofe"). Até a v5.42 guardávamos só
+// as linhas achatadas — o formato de que a BUSCA precisa —, e a visualização da
+// letra completa herdava esse achatamento: trinta linhas seguidas, sem respiro
+// e sem dizer onde entra o refrão, que é justamente o que o operador procura
+// quando abre a letra.
+//
+// Guardar por estrofe não custa nada à busca: ela achata na hora de indexar
+// (`lyricFlatLines`). O caminho inverso — inferir estrofes de linhas soltas —
+// não existe, e é por isso que a mudança é no armazenamento e não só na tela.
+//
+// Formato: `[{ a: rótulo|null, l: [linhas] }]`. O legado (`['linha', ...]`)
+// continua sendo lido; `lyricStanzas` normaliza os dois.
+function lyricIsStanzas(v) {
+  return Array.isArray(v) && v.length > 0 && typeof v[0] === 'object' && v[0] !== null;
+}
+
+// Sempre `[{a, l}]`, venha do formato novo ou do antigo. Uma letra legada vira
+// UMA estrofe só — que é exatamente o que ela era na tela antes disto.
+function lyricStanzas(v) {
+  if (lyricIsStanzas(v)) return v.map((e) => ({ a: e.a || null, l: e.l || [] }));
+  if (Array.isArray(v) && v.length) return [{ a: null, l: v.filter((x) => typeof x === 'string') }];
+  return null;
+}
+
+// Achata para a BUSCA (índice e casamento por trecho). O rótulo entra junto:
+// "refrão" é palavra que se digita, e ignorá-la tiraria da busca um texto que
+// está na letra.
+function lyricFlatLines(v) {
+  const est = lyricStanzas(v);
+  if (!est) return null;
   const out = [];
-  for (const l of Object.values((meta && meta.lyric) || {})) {
-    if (!l) continue;
-    for (const campo of [l.lyric, l.aux_lyric]) {
-      const t = normalizeLyricText(campo);
-      if (!t) continue;
-      for (const ln of t.split('\n')) { const x = ln.trim(); if (x) out.push(x); }
-    }
+  for (const e of est) {
+    if (e.a) out.push(e.a);
+    for (const ln of e.l) if (ln) out.push(ln);
+  }
+  return out.length ? out : null;
+}
+
+// Extrai as ESTROFES de um registro `music_{id}`, na ordem do banco. Ao
+// contrário de `buildLyricSlides`, NÃO filtra por `show_slide`: uma estrofe que
+// não vira slide continua sendo letra da música, e para BUSCAR isso só ajuda.
+function lyricStanzasFromMeta(meta) {
+  const linhas = Object.values((meta && meta.lyric) || {})
+    .filter(Boolean)
+    .sort((a, b) => (a.order || 0) - (b.order || 0));
+  const out = [];
+  for (const l of linhas) {
+    const texto = normalizeLyricText(l.lyric);
+    const rotulo = normalizeLyricText(l.aux_lyric).replace(/\n+/g, ' ').trim();
+    const ls = texto ? texto.split('\n').map((x) => x.trim()).filter(Boolean) : [];
+    if (!ls.length && !rotulo) continue;
+    out.push({ a: rotulo || null, l: ls });
   }
   return out.length ? out : null;
 }
@@ -5831,16 +5881,19 @@ const LYRIC_MIN_Q = 3;
 // Linhas a partir dos SLIDES de um arquivo baixado. Uma estrofe pode ter
 // várias linhas (o `<br>` da API vira `\n` em normalizeLyricText); quebrar aqui
 // faz o trecho exibido ser UMA linha, e não o bloco inteiro.
-function linesFromSlides(slides) {
-  const lines = [];
+// Cada slide já É uma estrofe — `text` com as linhas e `auxText` com o rótulo.
+// Este é o caminho do que está BAIXADO no aparelho, e ele nunca precisou de
+// upgrade de formato: a estrutura sempre esteve ali, só era descartada.
+function stanzasFromSlides(slides) {
+  const out = [];
   for (const slide of slides || []) {
-    if (!slide || !slide.text) continue;
-    for (const ln of String(slide.text).split('\n')) {
-      const t = ln.trim();
-      if (t) lines.push(t);
-    }
+    if (!slide || slide.cover) continue;
+    const ls = String(slide.text || '').split('\n').map((x) => x.trim()).filter(Boolean);
+    const rotulo = String(slide.auxText || '').trim();
+    if (!ls.length && !rotulo) continue;
+    out.push({ a: rotulo || null, l: ls });
   }
-  return lines;
+  return out;
 }
 
 async function buildLyricIndex() {
@@ -5858,10 +5911,10 @@ async function buildLyricIndex() {
     for (const s of collSongs(coll.id)) {
       // O acervo de letras vem PRIMEIRO: é texto puro e completo. Os slides
       // são o complemento para o que ele não cobre (álbuns, músicas avulsas).
-      let lines = store && Array.isArray(store[s.id_music]) ? store[s.id_music] : null;
+      let lines = store ? lyricFlatLines(store[s.id_music]) : null;
       if (!lines) {
         const slides = porArquivo.get(s.fileIdFull) || porArquivo.get(s.fileIdPlayback);
-        if (slides) lines = linesFromSlides(slides);
+        if (slides) lines = lyricFlatLines(stanzasFromSlides(slides));
       }
       if (!lines || !lines.length) continue;
       map.set(coll.id + ':' + s.id_music, { norm: normalizeForSearch(lines.join('\n')), lines });
@@ -5890,17 +5943,22 @@ function invalidateLyricIndex() { lyricIndex = null; }
 // Linhas da letra de UMA música, das duas fontes (acervo de texto primeiro,
 // slides do arquivo baixado como complemento). Assíncrona por causa do
 // `fileGet`; o acervo de texto, que cobre os hinários, resolve sem esperar IDB.
-async function songLyricLines(coll, s) {
+async function songLyricStanzas(coll, s) {
   const store = lyricStore[coll.id];
-  if (store && Array.isArray(store[s.id_music]) && store[s.id_music].length) return store[s.id_music];
+  const doAcervo = store ? lyricStanzas(store[s.id_music]) : null;
+  // O acervo de texto vem primeiro, MAS um registro legado (linhas soltas, uma
+  // "estrofe" só) perde para os slides do arquivo baixado, que trazem a divisão
+  // de verdade. Enquanto a fila não reescreve o legado, quem já tem a música no
+  // aparelho já vê a letra dividida.
+  if (doAcervo && (doAcervo.length > 1 || doAcervo[0].a)) return doAcervo;
   for (const fid of [s.fileIdFull, s.fileIdPlayback]) {
     if (!fid) continue;
     const rec = await AVDB.fileGet(fid).catch(() => null);
     if (!rec || !Array.isArray(rec.lyrics)) continue;
-    const linhas = linesFromSlides(rec.lyrics);
-    if (linhas.length) return linhas;
+    const est = stanzasFromSlides(rec.lyrics);
+    if (est.length) return est;
   }
-  return null;
+  return doAcervo;
 }
 
 // Devolve a LINHA da letra que casa com a busca, ou null.
@@ -5938,9 +5996,21 @@ function lyricMatch(coll, s, q) {
 // possível. Na dúvida, baixa; a certeza de estar no plano de dados é que adia.
 // E não pergunta nada no arranque: um diálogo ao abrir o app chegaria
 // justamente quando o operador quer é ligar o telão.
+// Falta letra, OU a que existe está no formato antigo (linhas soltas, sem
+// estrofe). O legado entra na mesma fila do que nunca foi baixado: é uma
+// passagem única, em segundo plano e só em wi-fi, exatamente como a primeira
+// carga foi. Inferir estrofes a partir de linhas achatadas não é possível —
+// por isso o upgrade custa uma releitura do `music_{id}`, e não uma conversão
+// local.
+// `LYRIC_NONE` (0) NÃO entra: já sabemos que essa música não tem letra, e
+// nada muda com o formato novo.
 function songsMissingLyric(coll) {
   const store = lyricStoreFor(coll.id);
-  return collSongs(coll.id).filter((s) => store[s.id_music] === undefined);
+  return collSongs(coll.id).filter((s) => {
+    const v = store[s.id_music];
+    if (v === undefined) return true;
+    return Array.isArray(v) && v.length > 0 && !lyricIsStanzas(v);
+  });
 }
 
 async function syncLyrics() {
@@ -5979,7 +6049,7 @@ async function syncLyrics() {
       bgItemStart(notifId, item.nome);
       try {
         const meta = await Louvorja.fetchList('music_' + item.id);
-        const linhas = lyricLinesFromMeta(meta) || LYRIC_NONE;
+        const linhas = lyricStanzasFromMeta(meta) || LYRIC_NONE;
         for (const collId of item.destinos) {
           lyricStoreFor(collId)[item.id] = linhas;
           sujas.add(collId);
@@ -6016,12 +6086,33 @@ async function syncLyrics() {
 // Busca GLOBAL (botão de lupa): escopo null = varre todas as coleções.
 function openHymnSearch() {
   searchScope = null;
-  hymnSearchTitleEl.textContent = 'Buscar no acervo';
+  hymnSearchTitleEl.textContent = 'Acervo';
   hymnSearchInputEl.placeholder = 'Nome, número ou trecho da letra…';
   hymnSearchInputEl.value = '';
   renderSearchResults('');
   hymnSearchPopupEl.classList.add('open');
-  setTimeout(() => hymnSearchInputEl.focus(), 50);
+  // **Sem foco automático.** Enquanto a abertura era uma lista de músicas, o
+  // teclado subir junto era o certo — não havia mais nada a fazer ali. Agora a
+  // abertura é o acervo para folhear, e o teclado cobriria metade dele antes de
+  // o operador decidir se vai digitar.
+}
+
+// Sair de uma coleção e voltar ao navegador do acervo — o mesmo popup, sem
+// fechá-lo. É o par do botão de voltar do cabeçalho e do gesto de voltar do
+// Android (ver __avBack).
+function searchLeaveScope() {
+  if (!searchScope) return false;
+  searchScope = null;
+  hymnSearchTitleEl.textContent = 'Acervo';
+  hymnSearchInputEl.placeholder = 'Nome, número ou trecho da letra…';
+  hymnSearchInputEl.value = '';
+  renderSearchResults('');
+  hymnResultsEl.scrollTop = 0;
+  return true;
+}
+
+function renderSearchBack() {
+  hymnSearchBackEl.hidden = !searchScope;
 }
 // Lista de músicas de UMA coleção (toque no card do álbum): reaproveita o
 // mesmo popup/rows da busca, escopado a essa coleção (mostra tudo por padrão,
@@ -6044,8 +6135,26 @@ function closeHymnSearch() {
 // Renderiza os resultados: escopo null = TODAS as coleções (busca global);
 // escopo = uma coleção (lista de músicas dela). Cada resultado carrega sua
 // coleção pra tocar/adicionar/baixar sob demanda.
+// Estado PADRÃO da busca global: o navegador do acervo — as mesmas categorias,
+// pílulas e cards da aba Álbuns (`renderCollectionsList`), aqui dentro.
+//
+// Com o campo vazio a busca listava as primeiras 60 músicas de um acervo de
+// milhares: uma fatia sem critério, que não é resposta a pergunta nenhuma. Quem
+// abre a lupa sem saber o nome quer FOLHEAR, e folhear é por coleção — que é o
+// recorte que o próprio banco já dá e que a aba Álbuns já desenhava. Digitar
+// volta a listar músicas, exatamente como antes.
+function searchIsBrowsing(q) { return !searchScope && !q; }
+
 function renderSearchResults(query) {
   const q = normalizeForSearch(query).trim();
+  if (searchIsBrowsing(q)) {
+    hymnResultsEl.innerHTML = '';
+    hymnSearchCountEl.textContent = String(allCollections().length);
+    renderCollectionsList(hymnResultsEl, () => renderSearchResults(hymnSearchInputEl.value));
+    renderSearchBack();
+    return;
+  }
+  renderSearchBack();
   const cols = searchScope ? allCollections().filter((c) => c.id === searchScope) : allCollections();
   // A letra só é varrida com busca de verdade (ver LYRIC_MIN_Q); a lista
   // completa de uma coleção não precisa do índice.
@@ -6158,9 +6267,9 @@ function hymnResultRow(coll, s, lyricHit) {
   async function montarLetra() {
     if (letraMontada) return;
     letraMontada = true;
-    const linhas = await songLyricLines(coll, s);
+    const estrofes = await songLyricStanzas(coll, s);
     letra.innerHTML = '';
-    if (!linhas) {
+    if (!estrofes) {
       const vazio = document.createElement('div');
       vazio.className = 'hymn-lyrics-empty';
       // Desde a v5.38 a letra cobre TODO o acervo, então a ausência passou a
@@ -6173,18 +6282,33 @@ function hymnResultRow(coll, s, lyricHit) {
     }
     const q = normalizeForSearch(hymnSearchInputEl.value).trim();
     let alvo = null;
-    linhas.forEach((ln) => {
-      const d = document.createElement('div');
-      d.className = 'hymn-lyrics-line';
-      d.textContent = ln;
-      // A linha que casou com a busca fica marcada: o operador digitou um
-      // trecho justamente para achá-lo, e numa letra de 30 linhas procurá-lo
-      // de novo com os olhos é trabalho que o app pode poupar.
-      if (q.length >= LYRIC_MIN_Q && normalizeForSearch(ln).includes(q)) {
-        d.classList.add('hit');
-        if (!alvo) alvo = d;
+    // Uma ESTROFE por bloco, com o rótulo ("Refrão") acima quando o banco o
+    // traz. É a divisão que o operador enxerga no hinário e a que ele vai
+    // projetar — trinta linhas seguidas eram um paredão em que não se acha
+    // nada de relance.
+    estrofes.forEach((est) => {
+      const bloco = document.createElement('div');
+      bloco.className = 'hymn-stanza';
+      if (est.a) {
+        const rot = document.createElement('div');
+        rot.className = 'hymn-stanza-label';
+        rot.textContent = est.a;
+        bloco.appendChild(rot);
       }
-      letra.appendChild(d);
+      est.l.forEach((ln) => {
+        const d = document.createElement('div');
+        d.className = 'hymn-lyrics-line';
+        d.textContent = ln;
+        // A linha que casou com a busca fica marcada: o operador digitou um
+        // trecho justamente para achá-lo, e numa letra de 30 linhas procurá-lo
+        // de novo com os olhos é trabalho que o app pode poupar.
+        if (q.length >= LYRIC_MIN_Q && normalizeForSearch(ln).includes(q)) {
+          d.classList.add('hit');
+          if (!alvo) alvo = d;
+        }
+        bloco.appendChild(d);
+      });
+      letra.appendChild(bloco);
     });
     if (alvo) alvo.scrollIntoView({ block: 'center' });
   }
@@ -7460,6 +7584,7 @@ libSearchEl.addEventListener('input', debounce(() => {
 
 hymnSearchBtnEl.addEventListener('click', openHymnSearch);
 hymnSearchInputEl.addEventListener('input', debounce(() => renderSearchResults(hymnSearchInputEl.value), SEARCH_DEBOUNCE_MS));
+hymnSearchBackEl.addEventListener('click', searchLeaveScope);
 
 // Mantém o indicador de Wi-Fi/dados móveis dos cards de coleção atualizado
 // em tempo real (o navegador dispara 'change' quando o tipo de conexão muda).
@@ -7688,28 +7813,34 @@ window.__avBack = function () {
     closeAppDialog(appDialogInputEl.hidden ? false : null);
     return true;
   }
-  // 2. Bottom-sheets. Fecha o ÚLTIMO da tabela que estiver aberto — normalmente
+  // 2. Dentro de uma COLEÇÃO na busca: sobe um nível (volta ao acervo) em vez
+  //    de fechar o popup. Desde a v5.43 a busca tem dois níveis — acervo e
+  //    coleção —, e pular do segundo direto para fora seria perder o caminho
+  //    andado. O ✕ e o toque no fundo continuam fechando de uma vez: quem os
+  //    toca está saindo, não voltando.
+  if (hymnSearchPopupEl.classList.contains('open') && searchLeaveScope()) return true;
+  // 3. Bottom-sheets. Fecha o ÚLTIMO da tabela que estiver aberto — normalmente
   //    há um só, mas se houver dois o de cima é o que o operador vê.
   for (let i = POPUPS.length - 1; i >= 0; i--) {
     const [backdrop, , close] = POPUPS[i];
     if (backdrop.classList.contains('open')) { close(); return true; }
   }
-  // 3. Preview em tela cheia — que, sem telão conectado, É a projeção. Sair
+  // 4. Preview em tela cheia — que, sem telão conectado, É a projeção. Sair
   //    dela é exatamente o que o voltar significa aqui.
   if (document.fullscreenElement) {
     try { document.exitFullscreen(); } catch (_) {}
     return true;
   }
-  // 4. Coluna do mixer aberta no fader.
+  // 5. Coluna do mixer aberta no fader.
   if (mixerEl.classList.contains('vol-open')) { closeVolume(); return true; }
-  // 5. Seleção múltipla: o voltar cancela a seleção, não o app.
+  // 6. Seleção múltipla: o voltar cancela a seleção, não o app.
   if (selectionMode) { exitSelection(); return true; }
-  // 6. Sub-tela com voltar próprio (pasta aberta, Favoritos, telas da Bíblia).
+  // 7. Sub-tela com voltar próprio (pasta aberta, Favoritos, telas da Bíblia).
   //    Reusa `navigateBack` em vez de reimplementar a hierarquia: ela já sabe
   //    que a Bíblia sobe leitura→capítulos→livros e que a raiz dos Favoritos
   //    volta ao Cronograma.
   if (!backBtnEl.hidden) { navigateBack(); return true; }
-  // 7. Fora do Cronograma: volta para ele. É a tela inicial da biblioteca, e
+  // 8. Fora do Cronograma: volta para ele. É a tela inicial da biblioteca, e
   //    sem este degrau o voltar pularia de "estou na Bíblia" direto para
   //    minimizar o app.
   if (activeTab !== 'imports') { switchTab('imports'); return true; }
