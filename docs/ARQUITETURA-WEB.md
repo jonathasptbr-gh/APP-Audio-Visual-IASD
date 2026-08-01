@@ -2153,11 +2153,22 @@ slides. O índice de busca (`buildLyricIndex`) lê os **dois**, chaveado por
   `fetchCollectionIndex` colhe dali e a música nem entra na fila. Verificado
   contra uma API simulada: com o campo presente, **zero** requisições
   `music_{id}`.
-- **Só os hinários, automaticamente.** São o acervo padrão, têm tamanho
-  conhecido (~1.100) e são o que se busca por trecho no meio de um culto. O
-  catálogo de álbuns não tem teto — puxar a letra de todos sem pedir seria
-  gastar a internet do operador por conta própria. Álbuns seguem pelo caminho
-  de sempre: a letra chega quando a música é baixada.
+- **Todo o acervo indexado** (v5.38): hinários **e** álbuns, a mesma cobertura
+  do índice de músicas. A busca por trecho não teria por que conhecer metade do
+  acervo — "aquele hino que fala em…" e "aquela música do álbum que fala em…"
+  são a mesma pergunta, e o operador não sabe (nem deveria precisar saber) de
+  qual coleção veio o que procura.
+- **Hinários primeiro na fila.** São o que mais se busca, e a fila pode levar
+  alguns minutos na primeira abertura: se ela for interrompida (app fechado,
+  rede caiu), o que já desceu é o que mais importa. Verificado: os 20 primeiros
+  pedidos são todos do hinário, com os álbuns já indexados na fila.
+- **Agrupado por `id_music`, não por (coleção, música).** A MESMA faixa aparece
+  em várias coletâneas, e `music_{id}` é o mesmo documento para todas — uma
+  busca por par custaria três requisições para uma faixa em três álbuns. Aqui
+  custa uma, e o resultado é distribuído para todas as coleções que a contêm. É
+  o que torna varrer o acervo inteiro viável. Medido: 3 álbuns de 10 faixas com
+  uma compartilhada + 20 hinos = **48 requisições**, não 50, e nenhuma música
+  pedida duas vezes.
 - **Adia só em rede móvel CONHECIDA** (`networkType() === 'cellular'`), e a
   assimetria com `syncCollection` é deliberada: lá descem centenas de MB de
   áudio e perguntar é o certo; aqui é JSON de texto, poucos MB no hinário
@@ -2197,9 +2208,9 @@ nada e sem sair da lista.
 - **Rola por dentro**, com teto de `40vh`. Solta, uma letra de 40 linhas
   empurraria os resultados seguintes para fora da tela — e o operador perderia
   de vista justamente a lista que estava percorrendo.
-- **Sem letra, explica por quê**, e distingue os dois casos: nos hinários ela
-  vem no arranque, então a ausência é anômala ("Letra ainda não baixada"); num
-  álbum é o normal ("A letra chega quando a música for baixada").
+- **Sem letra, explica por quê.** Desde a v5.38 a letra cobre todo o acervo, e
+  a ausência passou a significar sempre a mesma coisa — a fila do arranque
+  ainda não chegou nesta música (ou falhou). A mensagem é única.
 - A fonte é `songLyricLines`, que lê os mesmos dois acervos da busca (texto
   primeiro, slides do arquivo baixado como complemento).
 
@@ -2214,9 +2225,8 @@ arquivo (store `files`) quando a música é baixada — então o índice sai de 
 leitura do IDB**, sem nenhuma requisição, e funciona offline, que é o estado
 normal no meio de um culto.
 
-- **Alcance** (desde a v5.36): os **hinários inteiros**, baixados no arranque —
-  ver "Acervo de LETRAS" acima. Para **álbuns**, segue valendo o que está
-  baixado, porque a letra deles só chega com a música.
+- **Alcance** (desde a v5.38): **todo o acervo indexado**, hinários e álbuns —
+  ver "Acervo de LETRAS" acima. Não depende mais de a música estar baixada.
 - **Título ANTES de letra, sempre.** Quem digita "Firme nas Promessas" quer o
   hino de mesmo nome no topo, não os quinze que citam a expressão numa estrofe.
   São dois grupos concatenados (`porNome` + `porLetra`), e quem casa por título
@@ -2237,8 +2247,8 @@ normal no meio de um culto.
   É invalidado (`invalidateLyricIndex`) no ponto exato em que uma letra nova é
   gravada — invalidar em vez de reconstruir evita pagar a leitura no meio de uma
   sincronização em massa.
-- **Custo medido**: com 700 letras indexadas, **9,3 ms por tecla** incluindo o
-  render dos resultados. A varredura é `String.includes` sobre um texto
+- **Custo medido**: com **3.000** letras indexadas — a escala do acervo inteiro
+  —, **16,5 ms por tecla** incluindo o render dos resultados. A varredura é `String.includes` sobre um texto
   normalizado uma única vez por música.
 - **Acento não atrapalha**: índice e consulta passam pelo mesmo
   `normalizeForSearch` (NFD + remoção de diacríticos), então "criacao" acha
