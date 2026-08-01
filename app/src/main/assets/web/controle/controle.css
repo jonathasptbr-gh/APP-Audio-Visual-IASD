@@ -1348,32 +1348,35 @@ main {
   position: relative;         /* offsetParent das linhas — ver lvScrollToCurrent */
   flex: 1; overflow-y: auto;
   padding: .6rem .9rem 1rem;
-  display: flex; flex-direction: column; gap: .4rem;
+  display: flex; flex-direction: column; gap: .55rem;
   overscroll-behavior: contain;
 }
+/* UM bloco de texto, não uma pilha de cartões. Cada estrofe/versículo é um
+   parágrafo: sem fundo, sem moldura e sem o padding que cada cartão cobrava —
+   numa tela de celular aquilo custava mais da metade da altura em enfeite, e
+   a letra é justamente o que se quer ver de uma vez.
+   O destaque do que está no ar vira uma BARRA na margem + a cor de acento; o
+   `padding-left` fixo (com a borda transparente nos demais) garante que o
+   texto não se desloque quando a estrofe muda. */
 .lv-row {
   flex-shrink: 0;
-  background: var(--panel-2); border: 2px solid transparent;
-  border-radius: var(--radius-card); padding: .55rem .7rem;
-  font-size: .95rem; line-height: 1.45; color: var(--text);
+  border-left: 2px solid transparent; padding-left: .55rem;
+  font-size: .95rem; line-height: 1.5; color: var(--text);
 }
 /* A quebra de linha da própria letra (\n vindo dos <br> da API) é intencional
    — o mesmo motivo do pre-line em .lyrics-line no telão. */
 .lv-row .lv-text { white-space: pre-line; }
-.lv-row--cover { color: var(--muted); font-size: .8rem; text-align: center; padding: .35rem .7rem; }
+.lv-row--cover { color: var(--muted); font-size: .78rem; letter-spacing: .04em; text-transform: uppercase; }
 .lv-aux {
   font-size: .7rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
-  color: var(--muted); margin-bottom: .2rem;
+  color: var(--muted);
 }
-/* Versículo: o número fica à margem, como numa Bíblia impressa. */
-.lv-row--verse { display: flex; gap: .5rem; align-items: baseline; }
-.lv-row--verse .lv-num {
-  flex-shrink: 0; min-width: 1.6em; text-align: right;
-  font-size: .78rem; font-weight: 700; color: var(--accent);
-}
-/* No ar agora. Mesma marcação de "atual" do resto do app (borda accent). */
-.lv-row.current { border-color: var(--accent); background: var(--accent-soft); }
-.lv-row.current .lv-aux, .lv-row.current .lv-num { color: var(--accent); }
+/* Versículo: o número entra na linha do texto, como numa Bíblia impressa. */
+.lv-row--verse .lv-num { font-size: .78rem; font-weight: 700; color: var(--accent); margin-right: .3rem; }
+/* No ar agora: barra na margem + texto em acento. Sem cartão, o contraste da
+   cor é o que separa — e continua legível de relance. */
+.lv-row.current { border-left-color: var(--accent); color: var(--accent); font-weight: 600; }
+.lv-row.current .lv-aux { color: var(--accent); }
 
 /* Nota: o antigo "toast" flutuante foi removido — as informações agora são
    transmitidas pela própria interface (ver flash() em controle.js, hoje um
@@ -1469,11 +1472,10 @@ body.mode-simple .bottombar { display: none; }
 .simple-lyrics {
   position: relative;            /* offsetParent das linhas (ver lvScroll) */
   flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
-  display: flex; flex-direction: column; gap: .35rem;
-  padding: .5rem; border: 1px solid var(--line); border-radius: var(--radius-card);
+  display: flex; flex-direction: column; gap: .5rem;
+  padding: .7rem .6rem; border: 1px solid var(--line); border-radius: var(--radius-card);
   background: var(--panel);
 }
-.simple-lyrics .lv-row { background: var(--panel-2); font-size: .9rem; }
 .simple-lyrics .lv-empty { margin: auto; color: var(--muted); font-size: .85rem; text-align: center; line-height: 1.5; }
 
 /* Teclado do controle: transporte em cima, volume embaixo. */

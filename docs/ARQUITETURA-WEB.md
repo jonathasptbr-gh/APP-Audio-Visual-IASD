@@ -79,10 +79,10 @@ git push origin main
   `renderVersionLabel()`), o fallback estático do `<span id="appVersion">` em
   `controle/index.html` e `version` em `version.json` (é este último que
   dispara a atualização por OTA nos aparelhos). Versionamento incremental
-  simples (5.23, 5.24, 5.25…). **Versão atual: v5.25.**
+  simples (5.24, 5.25, 5.26…). **Versão atual: v5.26.**
   No app nativo o rótulo mostra os **dois índices** — `Web v5.17 · Shell v1.18`
   —, porque base web e shell atualizam por caminhos independentes (OTA ×
-  instalar APK); no navegador sai só `Controle v5.25`.
+  instalar APK); no navegador sai só `Controle v5.26`.
 
 ---
 
@@ -1111,6 +1111,14 @@ mixer (`#lyricsViewBtn`, folha com linhas) abre um bottom-sheet **com scroll**
   ao telão continua saindo dos botões de estrofe/versículo (`stepSlide`) e da
   tela da Bíblia. Um popup de consulta que também projeta seria a pior hora
   possível para um toque errado.
+- **Um BLOCO de texto, não uma pilha de cartões**: cada estrofe/versículo é um
+  parágrafo — sem fundo, sem moldura e sem o padding que cada cartão cobrava.
+  Numa tela de celular aquilo custava mais da metade da altura em enfeite, e a
+  letra é justamente o que se quer ver de uma vez. O destaque do que está no ar
+  virou uma **barra na margem + a cor de acento**; todas as linhas têm o mesmo
+  `padding-left` (com a borda transparente nas demais), então o texto não se
+  desloca quando a estrofe muda. Na Bíblia o número do versículo entra na linha
+  do texto, como numa Bíblia impressa.
 - **Acompanha sozinho, mas não disputa**: a linha no ar fica destacada
   (`.lv-row.current`) e a lista rola até centralizá-la — até o operador rolar
   com o dedo (`lvFollow`, desligado no primeiro `pointerdown`/`wheel`, religado
