@@ -311,6 +311,27 @@ html, body {
    longe, e o sinal de menos sozinho é pequeno demais para isso. */
 .text-content.mode-chrono.chrono-over .text-main { color: var(--danger); }
 
+/* Sorteio: mesmo cartão, mesmo dimensionamento pelo conteúdo — um nome longo
+   ("Maria Aparecida") e um número de dois dígitos não podem sair do mesmo
+   corpo. Sem `tabular-nums` aqui: o resultado de texto é prosa, e a métrica
+   tabular deixaria os nomes com espaçamento estranho. */
+.text-content.mode-draw .text-main {
+  font-size: min(24cqmin, calc(86cqw / var(--ch, 8) / 0.66));
+  font-weight: 800; line-height: 1.05; letter-spacing: .01em;
+  white-space: nowrap; -webkit-line-clamp: 1;
+}
+/* Enquanto ROLA: esmaecido e levemente menor — o olho lê "ainda não é este".
+   Ao assentar, o valor volta ao tamanho e à opacidade plenos, e essa mudança
+   é o próprio anúncio do resultado; sem ela, o número final seria apenas mais
+   um quadro do rolo. */
+.text-content.mode-draw.draw-rolling .text-main {
+  opacity: .55; transform: scale(.94);
+  color: var(--gold);
+}
+.text-content.mode-draw .text-main {
+  transition: opacity .18s ease, transform .18s cubic-bezier(.2,1.5,.4,1), color .18s ease;
+}
+
 /* Fundo preto evita flash branco enquanto o player do YouTube carrega.
    pointer-events:none: toques/hover no telão nunca invocam a UI do player
    (título, controles) — todo o transporte vem do Controle via IFrame Player

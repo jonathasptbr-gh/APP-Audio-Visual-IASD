@@ -717,8 +717,53 @@
     return { text: formatSpan(elapsed), over: false };
   }
 
+  // ===== Sorteio (aba Diversos) =====
+  // Mesmo desenho do cronômetro: o Controle SORTEIA e manda um descritor; os
+  // dois lados apenas derivam o que mostrar. Quem sorteia tem que ser um só —
+  // se cada tela rodasse o próprio `Math.random`, o telão e a preview
+  // anunciariam ganhadores diferentes, que é o pior defeito possível aqui.
+  //
+  // O rolar dos números até assentar é local: `rollUntil` (epoch ms) diz até
+  // quando rolar, e o quadro exibido é função do tempo restante. Duas
+  // consequências: nenhum comando trafega durante a animação, e o telão que
+  // reconectar no meio do rolo entra no MESMO quadro em que os outros estão.
+  //
+  // Descritor:
+  //   { kind:'number'|'text', value, seed, rollUntil, min, max, pool:[...] }
+  const DRAW_FRAME_MS = 70;    // ~14 quadros/s: rápido o bastante para borrar
+
+  // PRNG determinístico (mulberry32). O ruído do rolo precisa ser IGUAL nos dois
+  // lados — a preview existe para mostrar o que o telão está mostrando, e dois
+  // ruídos diferentes a tornariam uma tela paralela em vez de um espelho.
+  function rnd32(seed) {
+    let t = (seed + 0x6D2B79F5) | 0;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  }
+
+  function drawReading(d, now) {
+    if (!d || d.value == null || d.value === '') return { text: '—', rolling: false };
+    const t = now == null ? Date.now() : now;
+    if (!d.rollUntil || t >= d.rollUntil) return { text: String(d.value), rolling: false };
+    // O quadro sai do tempo QUE FALTA, não do decorrido: assim ele é uma função
+    // pura de (descritor, relógio) e qualquer tela que entre agora — inclusive
+    // um telão que acabou de reconectar — cai no mesmo quadro das demais.
+    const frame = Math.floor((d.rollUntil - t) / DRAW_FRAME_MS);
+    const r = rnd32((d.seed || 0) + frame * 7919);
+    if (d.kind === 'text') {
+      const pool = Array.isArray(d.pool) && d.pool.length ? d.pool : [String(d.value)];
+      return { text: String(pool[Math.floor(r * pool.length)]), rolling: true };
+    }
+    const min = typeof d.min === 'number' ? d.min : 0;
+    const max = typeof d.max === 'number' ? d.max : 99;
+    return { text: String(min + Math.floor(r * (max - min + 1))), rolling: true };
+  }
+
   createStage.CHRONO_TICK_MS = CHRONO_TICK_MS;
   createStage.chronoElapsed = chronoElapsed;
   createStage.chronoReading = chronoReading;
   createStage.formatSpan = formatSpan;
+  createStage.DRAW_FRAME_MS = DRAW_FRAME_MS;
+  createStage.drawReading = drawReading;
 })(this);

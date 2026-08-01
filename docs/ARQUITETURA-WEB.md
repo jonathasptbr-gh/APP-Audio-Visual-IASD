@@ -1166,8 +1166,8 @@ normal do app** (`.tabs` sem fundo/card próprio). São **quatro**:
 - **Bíblia** (`bible`) — seleção e projeção de textos bíblicos. Não é uma lista
   de mídia; ver a seção **"Bíblia"** abaixo.
 - **Diversos** (`activeTab` segue sendo `'mic'`, por herança) — as **ferramentas
-  que não são acervo**: o microfone ao vivo (push-to-talk) e o
-  **cronômetro/relógio/timer**. Ver "Diversos" abaixo.
+  que não são acervo**: o microfone ao vivo (push-to-talk), o
+  **cronômetro/relógio/timer** e o **sorteio**. Ver "Diversos" abaixo.
 
 > A aba nasceu como **Microfone**, com uma ferramenta só. Ao ganhar a segunda,
 > virou **Diversos** e o ícone deixou de ser o microfone: com mais de uma coisa
@@ -2050,6 +2050,7 @@ tudo — cobre/revela "de graça", sem tocar em `stage.js`). Os três são:
 | **Bíblia** | manual (operador avança versículo) | banco LouvorJA | `#text` / `#pvText` |
 | **Mensagens** | manual (operador avança mensagem) | `state.messages` (texto puro) | `#text` / `#pvText` |
 | **Cronômetro/relógio/timer** | **derivado do relógio** (sem avanço) | o próprio tempo (`chronoReading`) | `#text` / `#pvText` |
+| **Sorteio** | **derivado** (rolo até assentar) | faixa numérica ou lista de opções (`drawReading`) | `#text` / `#pvText` |
 
 > **Mensagens não tem aba** — vive no botão flutuante `#pvMsgBtn`, no canto
 > inferior esquerdo da preview. O **mesmo botão faz as duas coisas**, conforme
@@ -2156,6 +2157,13 @@ exibindo exatamente o mesmo valor do Controle.
 - **O painel do Controle tem laço próprio**, com vida ligada à aba: o operador
   precisa ver a contagem correr **antes** de projetar. Sair da aba não para a
   contagem (ela vive no estado), só o laço do painel.
+- **Cronômetro e sorteio dividem UM laço só** no cartão (`liveKind`/`liveDesc`
+  no Display, `pvLiveKind`/`pvLiveDesc` no Controle). O cartão é um só, então
+  dois timers escrevendo no mesmo nó nunca seriam ambos corretos — bastaria um
+  esquecer de parar o outro para o sorteio ser sobrescrito pelo relógio. Com um
+  registro único isso é estruturalmente impossível, em vez de depender de
+  lembrar. (No PAINEL são dois laços, e ali está certo: são duas seções lado a
+  lado, cada uma com o seu próprio nó.)
 - **Um provedor por vez.** `projectChrono` encerra Bíblia e Mensagem, e as duas
   encerram o cronômetro — é um cartão só. Enquanto ele está no ar,
   `slideTarget()` devolve `null`: sem essa guarda, os botões de estrofe cairiam
@@ -2168,6 +2176,57 @@ exibindo exatamente o mesmo valor do Controle.
   mostraria um número sem significado.
 - A ferramenta vive só no **modo avançado**, como o microfone: o simplificado
   existe para quem quer conectar a tela e tocar um louvor.
+
+### Diversos: sorteio
+
+Quarto provedor da Camada de Texto, na mesma aba. Sorteia **número** (faixa
+de/até) ou **texto** (lista de opções — nomes, prêmios, perguntas).
+
+**Quem sorteia é só o Controle.** Se cada tela rodasse o próprio `Math.random`,
+o telão e a preview anunciariam **ganhadores diferentes** — o pior defeito
+possível aqui, e público. O resultado viaja pronto no descritor; o que cada
+lado faz sozinho é só a animação até ele.
+
+```js
+{ type:'text', mode:'draw', sub:'<legenda>', view:'visual',
+  draw: { kind:'number'|'text', value, seed, rollUntil,
+          min, max, pool:[<amostra do ruído>] } }
+```
+
+- **O rolo é local, e determinístico.** `rollUntil` diz até quando rolar; o
+  quadro exibido sai de `rnd32(seed + quadro)` — um PRNG semeado (mulberry32),
+  não `Math.random`. É isso que faz telão e preview piscarem **os mesmos
+  valores**: a preview existe para mostrar o que o telão mostra, e dois ruídos
+  diferentes a tornariam uma tela paralela em vez de um espelho. Medido: 8 de 8
+  quadros idênticos durante o rolo.
+- **O quadro sai do tempo QUE FALTA**, não do decorrido — assim ele é função
+  pura de (descritor, relógio), e um telão que reconecta **no meio do rolo**
+  entra no mesmo quadro dos demais e assenta no mesmo ganhador. Verificado
+  recarregando o Display durante a animação.
+- **Semente nova a cada rodada**: sem ela o ruído seria idêntico toda vez, e um
+  sorteio que "roda igual" parece decidido de antemão.
+- **A amostra do ruído é limitada** (`DRAW_POOL_CAP`, 40). O que pisca antes de
+  assentar não é o sorteio — mandar uma lista de 500 nomes pelo barramento a
+  cada rodada seria pagar caro por decoração.
+- **"Não repetir" (padrão)** guarda os já sorteados e os exclui das próximas
+  rodadas; a lista fica **à vista**, em ordem inversa, porque numa rifa a
+  pergunta seguinte é sempre "quem já saiu?" e o contador sozinho não responde.
+  Esgotado, o botão desabilita em vez de repetir alguém.
+- **Números não materializam a faixa.** Amostragem por rejeição enquanto sobra
+  folga, varredura só quando aperta: um "de 1 até 100000" viraria um array de
+  100 mil strings a cada sorteio, e no fim (quase tudo já sorteado) a rejeição
+  é que ficaria cara. A faixa é limitada a `DRAW_SPAN_CAP` (100000).
+- **O resultado e o histórico PERSISTEM** (`state.drawPrefs`), ao contrário do
+  cronômetro. Um cronômetro restaurado mostraria um tempo que não correu; um
+  sorteio não depende do relógio — e perder "quem já foi sorteado" porque o app
+  fechou no meio faria a rodada seguinte repetir alguém, que é exatamente o
+  erro que "não repetir" existe para impedir.
+- **Trocar número↔texto zera o histórico**: "12" e "Maria" não pertencem ao
+  mesmo conjunto, e manter os dois faria o filtro excluir valores que nem podem
+  sair.
+- **Verificado uniforme**, que é a promessa central: 6.000 sorteios em 1–6 dão
+  X² = 9,59 (corte de 1% = 15,09) e 5.000 em cinco nomes dão X² = 5,09 (corte
+  13,28).
 
 ### Entradas e saídas de camada sempre com fade (`fadeLayerIn`/`fadeLayerOut`)
 

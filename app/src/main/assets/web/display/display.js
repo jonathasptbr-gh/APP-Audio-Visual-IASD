@@ -102,6 +102,8 @@ const fadeLayerIn = createStage.fadeLayerIn;
 const fadeLayerOut = createStage.fadeLayerOut;
 const chronoReading = createStage.chronoReading;
 const CHRONO_TICK_MS = createStage.CHRONO_TICK_MS;
+const drawReading = createStage.drawReading;
+const DRAW_FRAME_MS = createStage.DRAW_FRAME_MS;
 
 // `fade` = a letra está saindo de cena para o operador ver (fim da música,
 // texto manual assumindo). Sem fade quando outra mídia já vai ocupar o lugar
@@ -253,56 +255,86 @@ let textActive = false;
 let textView = 'visual';
 let textMode = 'verse';
 
-// ===== Cronômetro / Relógio / Timer =====
-// É o MESMO cartão da Bíblia e das Mensagens (`mode: 'chrono'`), e isso não é
-// economia de CSS: herdando o cartão, herda também toda a regra de convivência
-// já madura — `load` de áudio mantém o cronômetro no ar, `load` visual o
-// encerra, a cortina do wallpaper o cobre, `text-hide` o tira sem parar o som
+// ===== Texto VIVO: cronômetro/relógio/timer e sorteio =====
+// É o MESMO cartão da Bíblia e das Mensagens (`mode: 'chrono'` | `'draw'`), e
+// isso não é economia de CSS: herdando o cartão, herda também toda a regra de
+// convivência já madura — `load` de áudio mantém o cartão no ar, `load` visual
+// o encerra, a cortina do wallpaper o cobre, `text-hide` o tira sem parar o som
 // de fundo. Um layer novo teria que reimplementar as quatro, e envelheceria
 // separado.
 //
 // O que muda em relação a um versículo é só a ORIGEM do texto: em vez de vir
-// pronto no comando, é derivado a cada tick do descritor (ver chronoReading em
-// stage.js). Por isso o laço abaixo — e por isso ele só existe enquanto o modo
-// é 'chrono'.
-let chronoDesc = null;
-let chronoTimer = null;
+// pronto no comando, é DERIVADO a cada tick de um descritor (ver chronoReading
+// e drawReading em stage.js).
+//
+// Os dois modos vivos dividem UM laço só, de propósito: o cartão é um só, então
+// dois timers escrevendo no mesmo nó nunca seriam ambos corretos — bastaria um
+// esquecer de parar o outro para o sorteio ser sobrescrito pelo relógio. Com um
+// registro único isso é estruturalmente impossível.
+let liveKind = '';    // 'chrono' | 'draw' | ''
+let liveDesc = null;
+let liveTimer = null;
 
-function chronoTick() {
-  if (!chronoDesc) return;
-  const r = chronoReading(chronoDesc, Date.now());
+function liveReading() {
+  if (liveKind === 'draw') return drawReading(liveDesc, Date.now());
+  if (liveKind === 'chrono') return chronoReading(liveDesc, Date.now());
+  return null;
+}
+
+function liveTick() {
+  const r = liveReading();
+  if (!r) return;
   textMainEl.textContent = r.text;
   // O CSS dimensiona a fonte a partir daqui (ver .mode-chrono em display.css):
   // "09:59" e "12:34:56 PM" não podem sair do mesmo tamanho — o primeiro
   // ficaria pequeno à toa, o segundo vazaria da tela.
   textMainEl.style.setProperty('--ch', r.text.length);
-  textContentEl.classList.toggle('chrono-over', r.over);
+  textContentEl.classList.toggle('chrono-over', !!r.over);
+  textContentEl.classList.toggle('draw-rolling', !!r.rolling);
+  // O sorteio ASSENTOU: nada mais muda até o próximo comando, e um laço batendo
+  // num número parado só gastaria bateria.
+  if (liveKind === 'draw' && !r.rolling) stopLiveTimer();
 }
 
-function startChrono(desc) {
-  chronoDesc = desc;
-  stopChronoTimer();
-  chronoTick();
+function startLive(kind, desc) {
+  liveKind = kind; liveDesc = desc || {};
+  stopLiveTimer();
+  liveTick();
+  if (kind === 'draw') {
+    // Só rola enquanto há rolo; depois o próprio liveTick se desliga.
+    if (liveDesc.rollUntil && Date.now() < liveDesc.rollUntil) {
+      liveTimer = setInterval(liveTick, DRAW_FRAME_MS);
+    }
+    return;
+  }
   // O relógio e o timer/cronômetro EM MARCHA precisam de laço; um cronômetro
   // pausado é um número parado, e manter um timer batendo nele só gastaria
   // bateria com o app em cima de uma projeção que não muda.
-  if (desc.mode === 'clock' || desc.running) chronoTimer = setInterval(chronoTick, CHRONO_TICK_MS);
+  if (liveDesc.mode === 'clock' || liveDesc.running) liveTimer = setInterval(liveTick, CHRONO_TICK_MS);
 }
 
-function stopChronoTimer() {
-  if (chronoTimer) { clearInterval(chronoTimer); chronoTimer = null; }
+function stopLiveTimer() {
+  if (liveTimer) { clearInterval(liveTimer); liveTimer = null; }
+}
+
+function clearLive() {
+  stopLiveTimer(); liveKind = ''; liveDesc = null;
+  textContentEl.classList.remove('chrono-over', 'draw-rolling');
 }
 
 function showText(cmd) {
   const wallpaper = cmd.view === 'wallpaper';
-  textMode = cmd.mode === 'message' ? 'message' : (cmd.mode === 'chrono' ? 'chrono' : 'verse');
+  textMode = cmd.mode === 'message' ? 'message'
+    : (cmd.mode === 'chrono' || cmd.mode === 'draw') ? cmd.mode : 'verse';
   textContentEl.classList.toggle('mode-message', textMode === 'message');
   textContentEl.classList.toggle('mode-chrono', textMode === 'chrono');
+  textContentEl.classList.toggle('mode-draw', textMode === 'draw');
   if (textMode === 'chrono') {
-    startChrono(cmd.chrono || {});
+    startLive('chrono', cmd.chrono || {});
+  } else if (textMode === 'draw') {
+    startLive('draw', cmd.draw || {});
   } else {
-    stopChronoTimer(); chronoDesc = null;
-    textContentEl.classList.remove('chrono-over');
+    clearLive();
     textMainEl.textContent = cmd.main || '';
   }
   textSubEl.textContent = cmd.sub || '';
@@ -336,10 +368,10 @@ function showText(cmd) {
 function hideText(restore = true) {
   if (!textActive) return;
   textActive = false;
-  // O laço do cronômetro para JUNTO com o cartão: fora de cena ele só gastaria
-  // bateria reescrevendo um nó invisível. `chronoDesc` fica (o texto também
-  // não é limpo — ver abaixo), então o número segue certo durante o fade.
-  stopChronoTimer();
+  // O laço do texto vivo para JUNTO com o cartão: fora de cena ele só gastaria
+  // bateria reescrevendo um nó invisível. O descritor fica (o texto também não
+  // é limpo — ver abaixo), então o valor segue certo durante o fade.
+  stopLiveTimer();
   // Sai esmaecendo — e o texto NÃO é limpo aqui: apagá-lo agora deixaria o
   // cartão vazio visível durante todo o fade. O próximo showText sobrescreve.
   fadeLayerOut(textEl);
