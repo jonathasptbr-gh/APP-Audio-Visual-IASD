@@ -23,22 +23,50 @@ input, textarea { user-select: text !important; -webkit-user-select: text !impor
    CSS compartilhado), então a sincronização é manual. Ver seção "Design
    System" no CLAUDE.md. */
 :root {
-  /* superfícies / fundo */
-  --bg: #0a0a0a;
-  --panel: #161616;
-  --panel-2: #202020;
-  --bar: #111111;
-  --line: #1e1e1e;                       /* separadores/bordas escuras */
-  --surface: rgba(255, 255, 255, .06);   /* fundo padrão de botão/controle */
-  --surface-2: rgba(255, 255, 255, .07); /* chip/campo/badge levemente mais claro */
+  /* ---------- Superfícies: uma ESCADA de elevação ----------
+     O que importa aqui não é cada cor isolada, é o DEGRAU entre elas. A escala
+     anterior era quase plana e, no celular, botão e fundo viravam a mesma
+     mancha preta: medido na tela renderizada, fundo × barra de abas dava
+     1,05:1 e as bordas, 1,19:1 — abaixo do que o olho separa fora de um quarto
+     escuro. (Razões de contraste WCAG; para blocos grandes, ~1,3:1 já é um
+     degrau claramente visível, e é o piso adotado aqui.)
+
+     A correção foi pelos DOIS lados: o fundo subiu de #0a0a0a para um cinza
+     real, e os elementos da frente subiram MAIS, para o degrau crescer em vez
+     de só deslocar. Medido depois: painel 1,28:1, botão 1,39:1, borda 1,95:1.
+
+     `--surface`/`--surface-2` são branco com alfa de propósito: assim um botão
+     mantém o mesmo degrau relativo esteja ele sobre o fundo, sobre a barra ou
+     dentro de um cartão — três valores fixos divergiriam no primeiro ajuste. */
+  --bg: #121212;
+  --panel: #2a2a2a;
+  --panel-2: #383838;
+  --bar: #232323;
+  --line: #454545;                       /* separadores/bordas — 1,95:1 contra o fundo */
+  --surface: rgba(255, 255, 255, .12);   /* fundo padrão de botão/controle */
+  --surface-2: rgba(255, 255, 255, .18); /* chip/campo/badge levemente mais claro */
 
   /* texto */
-  --text: #eaeaea;
-  --muted: #777777;
+  --text: #f2f2f2;
+  /* #777 dava 3,94:1 — reprovado no mínimo AA (4,5:1) para texto pequeno, e
+     este é justamente o tom dos rótulos de campo e das abas inativas. */
+  --muted: #a3a3a3;
 
-  /* marca primária (azul) */
-  --accent: #2f81f7;
-  --accent-soft: rgba(47, 129, 247, .18);
+  /* ---------- Marca primária (azul), em DOIS papéis ----------
+     Um azul só não serve aos dois usos, e isso é aritmética, não gosto: para
+     ser legível COMO TEXTO sobre o fundo escuro ele precisa ser claro; para
+     receber TEXTO BRANCO por cima precisa ser escuro. O valor único de antes
+     (#2f81f7) dava 3,75:1 de branco sobre azul na aba ativa — reprovado no
+     mínimo AA (4,5:1) — e, depois que o fundo subiu para #121212, caía para
+     2,66:1 como cor de texto, que é pior ainda.
+
+     `--accent`     → texto, ícones e bordas sobre fundo escuro (7,4:1)
+     `--accent-fill`→ fundo de elemento com texto branco por cima (4,6:1)
+     Elementos puramente decorativos (barra de progresso, linha de arraste,
+     trilho de scroll) seguem no `--accent` claro, que é o que os destaca. */
+  --accent: #58a6ff;
+  --accent-fill: #1f6feb;
+  --accent-soft: rgba(88, 166, 255, .18);
 
   /* marca secundária (dourado "IASD") — manter em sync com display.css */
   --gold: #fbc02d;
@@ -516,7 +544,7 @@ body {
 /* Botão de volume: preenchido de azul (accent) com o ícone de mixer em branco
    — visualmente distinto e prominente na base da coluna. Seletor com `.mixer`
    para ganhar de `.ctl-btn` (mesma especificidade, definido depois). */
-.mixer .vol-btn { background: var(--accent); color: #fff; }
+.mixer .vol-btn { background: var(--accent-fill); color: #fff; }
 /* O fader OCUPA A COLUNA INTEIRA, como os botões que ele substitui: mesma
    largura, mesmo raio, mesmo fundo (`--surface`) — a coluna não muda de
    espessura ao abrir o volume, só de conteúdo.
@@ -647,7 +675,7 @@ main {
 
 .pl-badge {
   position: absolute; top: 2px; right: 2px;
-  background: var(--accent); color: #fff;
+  background: var(--accent-fill); color: #fff;
   font-size: .58rem; font-weight: 700;
   border-radius: var(--radius-pill); padding: 1px .3rem;
   min-width: 14px; text-align: center; line-height: 1.4;
@@ -665,7 +693,7 @@ main {
 /* Ativa PREENCHIDA em accent, não mais uma linha de 2px embaixo: sobre um
    trilho com fundo, o sublinhado fino era o elemento de menor contraste da
    tela justamente no que precisa ser mais óbvio — onde eu estou. */
-.tab.active { background: var(--accent); color: #fff; }
+.tab.active { background: var(--accent-fill); color: #fff; }
 
 /* Fim da lista do Cronograma: "Importar arquivos" e "Pastas" lado a lado — as
    duas respondem à mesma pergunta ("de onde vem a mídia?") e ficam onde o
@@ -789,7 +817,7 @@ main {
   padding: .32rem .7rem; font-size: .76rem; font-weight: 700;
   cursor: pointer; appearance: none; -webkit-appearance: none; white-space: nowrap;
 }
-.coll-pill.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.coll-pill.active { background: var(--accent-fill); border-color: var(--accent); color: #fff; }
 
 /* Cabeçalho de grupo: o nome da CATEGORIA do banco. A aba Álbuns reproduz a
    hierarquia categoria → álbum; sem isso a lista era um monte plano de
@@ -985,7 +1013,7 @@ main {
    externo destaca mesmo quando a grade rola e a célula fica meio cortada. */
 .bible-cell.active { outline: 2px solid #fff; outline-offset: -2px; }
 .bible-cell--num.active {
-  background: var(--accent); color: #fff;
+  background: var(--accent-fill); color: #fff;
   outline: 2px solid #fff; outline-offset: -2px;
   box-shadow: 0 0 0 2px var(--accent-soft);
   font-weight: 800;
@@ -1113,7 +1141,7 @@ main {
   font-size: .84rem; font-weight: 800; cursor: pointer;
   appearance: none; -webkit-appearance: none;
 }
-.misc-tab.active { background: var(--accent); color: #fff; }
+.misc-tab.active { background: var(--accent-fill); color: #fff; }
 /* Ponto = está PROJETANDO. Trocar de ferramenta não tira do telão a que estava
    no ar; sem o ponto, descobrir qual é exigiria visitar cada uma. O anel claro
    existe só no segmento ativo, onde vermelho sobre azul perderia contraste. */
@@ -1389,7 +1417,7 @@ main {
 .popup-header-icon { font-size: 20px; color: var(--accent); }
 .popup-title { font-size: .95rem; font-weight: 700; flex: 1; }
 .popup-count {
-  background: var(--accent); color: #fff;
+  background: var(--accent-fill); color: #fff;
   font-size: .72rem; font-weight: 700;
   border-radius: var(--radius-pill); padding: 0 .45rem; min-width: 20px; text-align: center;
 }
@@ -1548,7 +1576,7 @@ main {
   background: var(--surface); color: var(--muted);
   font-size: .82rem; font-weight: 600; cursor: pointer;
 }
-.fit-opt.active { background: var(--accent); color: #fff; }
+.fit-opt.active { background: var(--accent-fill); color: #fff; }
 
 /* ---------- Leitura auxiliar (letra completa / capítulo inteiro) ---------- */
 /* Bottom-sheet de LEITURA, aberto pelo botão do mixer: a íntegra do que está
@@ -1627,7 +1655,7 @@ main {
   background: var(--surface-2); color: var(--text);
   font-size: .9rem; font-weight: 600; cursor: pointer; font-family: inherit;
 }
-.dialog-btn.primary { background: var(--accent); color: #fff; }
+.dialog-btn.primary { background: var(--accent-fill); color: #fff; }
 
 /* ---------- Modos de uso (simplificado × sonoplasta completo) ---------- */
 /* O app atende duas pessoas diferentes: quem só precisa conectar a tela e
