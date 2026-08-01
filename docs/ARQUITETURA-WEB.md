@@ -2111,6 +2111,28 @@ Texto é **desacoplada do ciclo de vida da mídia do stage** — `showText`/
   último é o item SELECIONADO e continua apontando para a música terminada — era
   exatamente ele que fazia a preview achar que ainda havia algo em cena.
 
+### Botão voltar do aparelho (`__avBack`)
+
+O shell entrega o botão voltar do Android a `window.__avBack()`; devolver `true`
+significa "consumi o toque", `false` faz a Activity minimizar (a projeção segue
+viva — sair do app por engano num culto derrubaria o telão). A escada completa,
+o prazo de resposta e o porquê de a decisão ser do lado web estão em
+[`CLAUDE.md`](../CLAUDE.md), seção "Botão voltar: fecha antes de minimizar".
+
+Do lado web importam duas coisas:
+
+- **A tabela `POPUPS` é a fonte única.** Ela já registrava o ✕ e o toque no
+  fundo; agora registra também o voltar. Um popup novo entra numa linha e passa
+  a ser fechável pelos três caminhos — duas listas divergiriam no primeiro que
+  alguém esquecesse de acrescentar na segunda.
+- **A hierarquia não é reimplementada.** O degrau de sub-tela chama
+  `navigateBack()`, a mesma função do `#backBtn`, que já sabe que a Bíblia sobe
+  leitura→capítulos→livros e que a raiz dos Favoritos volta ao Cronograma.
+
+`__avBack` **não** usa `history`: no navegador não há botão voltar do sistema, e
+a função simplesmente nunca é chamada lá. A base continua rodando nos dois
+contextos sem guarda nenhuma.
+
 ### Diversos: o seletor de ferramenta
 
 A aba reúne quatro ferramentas, e três delas empilhadas **não cabiam** numa tela

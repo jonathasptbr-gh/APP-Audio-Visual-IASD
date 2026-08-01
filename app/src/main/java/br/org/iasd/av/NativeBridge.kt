@@ -69,7 +69,7 @@ class NativeBridge(
          * exijam mais do que o shell instalado oferece (ver [WebUpdater]).
          * Subir SEMPRE que a superfície da ponte mudar.
          */
-        const val SHELL_VERSION = 13
+        const val SHELL_VERSION = 14
     }
 
     private val io = Executors.newSingleThreadExecutor()

@@ -86,7 +86,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.32';
+const WEB_VERSION = '5.33';
 
 function renderVersionLabel() {
   // __SHELL_NAME__ = versionName do APK (ver native.js). Vazio no navegador e
@@ -7183,7 +7183,11 @@ newFolderInPickerBtnEl.addEventListener('click', async () => {
 // Fechamento dos bottom-sheets: todos se comportam igual — o ✕ fecha e tocar
 // no fundo (fora da folha) também. O par de listeners estava copiado seis
 // vezes; aqui é uma tabela, e um popup novo entra com uma linha.
-[
+// A mesma tabela é a fonte do botão VOLTAR do Android (ver `__avBack`): um
+// popup novo entra numa linha e já passa a ser fechável pelos três caminhos
+// (✕, toque no fundo, botão do aparelho). Duas listas divergiriam no primeiro
+// popup que alguém esquecesse de acrescentar na segunda.
+const POPUPS = [
   [collPopupEl, collPopupCloseEl, closeCollectionOptions],
   [plPopupEl, plPopupCloseEl, closePlPopup],
   [hymnSearchPopupEl, hymnSearchCloseEl, closeHymnSearch],
@@ -7191,11 +7195,61 @@ newFolderInPickerBtnEl.addEventListener('click', async () => {
   [fadePopupEl, fadePopupCloseEl, closeFadePopup],
   [lyricsPopupEl, lyricsPopupCloseEl, closeLyricsPopup],
   [folderPopupEl, folderPopupCloseEl, closeFolderPicker],
-].forEach(([backdrop, closeBtn, close]) => {
+];
+POPUPS.forEach(([backdrop, closeBtn, close]) => {
   closeBtn.addEventListener('click', close);
   // Só o próprio backdrop: um clique dentro da folha não fecha.
   backdrop.addEventListener('click', (e) => { if (e.target === backdrop) close(); });
 });
+
+// ===== Botão VOLTAR do aparelho (`__avBack`) =====
+// Até a v5.32 o voltar só mandava a tarefa para segundo plano — sair por engano
+// no meio de um culto derrubaria a projeção, e essa continua sendo a regra no
+// fim da fila. O que faltava era a fila: com um popup aberto, uma pasta aberta
+// ou a preview em tela cheia, o gesto que TODO usuário de Android conhece para
+// "fechar isto" minimizava o app inteiro.
+//
+// Devolve `true` se consumiu o toque; `false` faz a Activity minimizar (ver
+// MainActivity.onBackPressedDispatcher). A ordem é do mais efêmero ao mais
+// permanente — é a ordem em que as coisas foram abertas, e portanto a ordem em
+// que se espera desfazê-las.
+//
+// Vive só no app: no navegador não há botão voltar do sistema, e a base precisa
+// continuar rodando lá (por isso nada aqui depende de `history`).
+window.__avBack = function () {
+  // 1. Diálogo modal (confirmar/renomear): cancela, como o botão Cancelar.
+  if (appDialogEl.classList.contains('open')) {
+    closeAppDialog(appDialogInputEl.hidden ? false : null);
+    return true;
+  }
+  // 2. Bottom-sheets. Fecha o ÚLTIMO da tabela que estiver aberto — normalmente
+  //    há um só, mas se houver dois o de cima é o que o operador vê.
+  for (let i = POPUPS.length - 1; i >= 0; i--) {
+    const [backdrop, , close] = POPUPS[i];
+    if (backdrop.classList.contains('open')) { close(); return true; }
+  }
+  // 3. Preview em tela cheia — que, sem telão conectado, É a projeção. Sair
+  //    dela é exatamente o que o voltar significa aqui.
+  if (document.fullscreenElement) {
+    try { document.exitFullscreen(); } catch (_) {}
+    return true;
+  }
+  // 4. Coluna do mixer aberta no fader.
+  if (mixerEl.classList.contains('vol-open')) { closeVolume(); return true; }
+  // 5. Seleção múltipla: o voltar cancela a seleção, não o app.
+  if (selectionMode) { exitSelection(); return true; }
+  // 6. Sub-tela com voltar próprio (pasta aberta, Favoritos, telas da Bíblia).
+  //    Reusa `navigateBack` em vez de reimplementar a hierarquia: ela já sabe
+  //    que a Bíblia sobe leitura→capítulos→livros e que a raiz dos Favoritos
+  //    volta ao Cronograma.
+  if (!backBtnEl.hidden) { navigateBack(); return true; }
+  // 7. Fora do Cronograma: volta para ele. É a tela inicial da biblioteca, e
+  //    sem este degrau o voltar pularia de "estou na Bíblia" direto para
+  //    minimizar o app.
+  if (activeTab !== 'imports') { switchTab('imports'); return true; }
+  // Nada aberto: a Activity minimiza (a projeção segue viva).
+  return false;
+};
 
 seekEl.addEventListener('pointerdown', () => { seeking = true; });
 seekEl.addEventListener('pointerup', () => { seeking = false; });

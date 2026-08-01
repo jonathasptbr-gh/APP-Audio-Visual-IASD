@@ -500,7 +500,7 @@ contextos.
 | Fullscreen da preview | `requestFullscreen` + Screen Orientation API | idem, com trava de paisagem **nativa** (`onShowCustomView`) |
 | Botões físicos de volume | o navegador não os recebe | **interceptados** e ligados ao fader do app (ver abaixo) |
 | Microfone (`getUserMedia`) | o navegador pergunta | `MicChromeClient` + permissão `RECORD_AUDIO` (ver abaixo) |
-| Botão voltar | — | manda a tarefa para segundo plano (sair por engano derrubaria a projeção) |
+| Botão voltar | — | **fecha o que estiver aberto** (popup, sub-tela, aba) e só então manda a tarefa para segundo plano (ver abaixo) |
 | Controles fora do app | — | **notificação + tela de bloqueio + botões de mídia** via `MediaSession` (ver seção acima) |
 | Download com o app minimizado | a aba continua baixando | **foreground service + wake lock** — sem isso o processo é congelado (ver seção acima) |
 | Atualização da base web | service worker (cache-first + reload) | **OTA** — bundle publicado em `web-latest`, aplicado no próximo lançamento (ver seção acima) |
@@ -542,6 +542,43 @@ formato, não do código. A latência do WebView (~0,1–0,3 s) é inerente.
 O microfone fecha sozinho ao soltar o botão, ao **trocar de aba** e quando o
 app vai para **segundo plano**: push-to-talk que sobrevive ao botão vira um
 microfone esquecido ligado.
+
+### Botão voltar: fecha antes de minimizar
+
+Sair do app por engano durante um culto derrubaria a projeção, então o voltar
+**nunca** encerra a Activity — no fim da fila ele apenas manda a tarefa para
+segundo plano, com a sessão e a `Presentation` vivas. Isso não mudou.
+
+O que faltava era a **fila**: com um popup aberto, uma pasta aberta ou a preview
+em tela cheia, o gesto que todo usuário de Android conhece para "fechar isto"
+minimizava o app inteiro.
+
+**Quem decide é o lado web** (`window.__avBack`, em `controle.js`) — invariante
+5: a hierarquia de navegação já existe lá, e reimplementá-la em Kotlin seria
+duplicar o que `navigateBack()` faz. `MainActivity.handleBack()` só pergunta e
+obedece. A ordem vai do mais efêmero ao mais permanente, que é a ordem em que
+as coisas foram abertas:
+
+1. diálogo modal (cancela, como o botão Cancelar)
+2. bottom-sheet aberto (o de cima, se houver mais de um)
+3. preview em tela cheia — que, sem telão conectado, **é** a projeção
+4. coluna do mixer aberta no fader
+5. seleção múltipla
+6. sub-tela com voltar próprio (pasta, Favoritos, telas da Bíblia) → `navigateBack()`
+7. aba diferente do Cronograma → volta para ele
+8. nada aberto → `moveTaskToBack`
+
+A tabela de popups é **a mesma** que registra o ✕ e o toque no fundo
+(`POPUPS`): um popup novo entra numa linha e já é fechável pelos três caminhos.
+Duas listas divergiriam no primeiro que alguém esquecesse de acrescentar.
+
+**A resposta é assíncrona, e por isso há um prazo** (`BACK_JS_TIMEOUT_MS`,
+350 ms). `evaluateJavascript` responde por callback; se o renderer morreu, está
+travado, ou o bundle é anterior à v5.33 e não tem `__avBack`, esse callback pode
+nunca chegar — e um botão voltar que não faz **nada** é pior que um que
+minimiza. O `postDelayed` garante a resposta padrão e um `AtomicBoolean` faz o
+primeiro dos dois caminhos vencer, para não minimizar depois de o web já ter
+fechado um popup.
 
 ### Botões físicos de volume
 
@@ -728,6 +765,8 @@ Rodar local: `./gradlew assembleDebug` (exige Android SDK instalado).
   (`#appVersion` em `assets/web/controle/index.html`) **e `version` em
   `assets/web/version.json`** — é este último que faz a atualização chegar
   aos aparelhos por OTA. O `versionCode`/`versionName` do APK vêm do CI.
-  **Versão atual: v5.32** (base web) · **shell 1.21** (`SHELL_VERSION` 13 —
-  a superfície da ponte não mudou desde a 1.20; o APK novo é a mesma casca com
-  a base web mais recente embutida).
+  **Versão atual: v5.33** (base web) · **shell 1.22** (`SHELL_VERSION` 14 —
+  o shell passou a consultar `window.__avBack` no botão voltar; ver
+  "Divergências"). O bundle segue com `minShell: 2`: num shell antigo ele
+  funciona igual, só sem a escada do voltar — que é nativa e **só chega
+  instalando o APK novo**, não pelo OTA.
