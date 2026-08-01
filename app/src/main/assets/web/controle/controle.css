@@ -1416,34 +1416,11 @@ main {
 
 /* ---------- Modos de uso (simplificado × sonoplasta completo) ---------- */
 /* O app atende duas pessoas diferentes: quem só precisa conectar a tela e
-   tocar um louvor, e o sonoplasta que opera o culto inteiro. Em vez de
-   esconder recursos atrás de configurações, a escolha é explícita na abertura.
+   tocar um louvor, e o sonoplasta que opera o culto inteiro. Abre SEMPRE no
+   simplificado; o avançado fica a um toque, no botão do cabeçalho.
    O modo simplificado NÃO é uma segunda implementação: os botões dele acionam
-   os mesmos controles do modo completo (ver setAppMode/renderSimple em
+   os mesmos controles do modo avançado (ver setAppMode/renderSimple em
    controle.js), que continuam existindo no DOM, só ocultos. */
-.mode-picker {
-  position: fixed; inset: 0; z-index: 400;
-  background: var(--bg);
-  display: none; align-items: center; justify-content: center;
-  padding: 1.2rem calc(1.2rem + env(safe-area-inset-right)) calc(1.2rem + env(safe-area-inset-bottom)) calc(1.2rem + env(safe-area-inset-left));
-}
-.mode-picker.open { display: flex; }
-.mode-card { width: 100%; max-width: 420px; display: flex; flex-direction: column; gap: .7rem; }
-.mode-brand { font-size: 1.15rem; font-weight: 800; letter-spacing: .04em; text-align: center; color: var(--text); }
-.mode-brand b { color: var(--gold); }
-.mode-q { text-align: center; color: var(--muted); font-size: .9rem; margin-bottom: .5rem; }
-.mode-opt {
-  display: flex; flex-direction: column; gap: .25rem; text-align: left;
-  padding: 1rem; cursor: pointer; font-family: inherit;
-  border: 2px solid var(--accent); border-radius: var(--radius-card);
-  background: var(--accent-soft); color: var(--text);
-}
-/* O completo é o caminho de sempre — fica neutro para o simplificado ser a
-   resposta óbvia de quem abriu o app só para tocar um louvor. */
-.mode-opt--full { border-color: var(--line); background: var(--surface); }
-.mode-opt-title { font-size: 1.02rem; font-weight: 700; }
-.mode-opt-sub { font-size: .82rem; color: var(--muted); line-height: 1.35; }
-
 /* ---------- Modo simplificado ---------- */
 body.mode-simple main,
 body.mode-simple .bottombar { display: none; }
