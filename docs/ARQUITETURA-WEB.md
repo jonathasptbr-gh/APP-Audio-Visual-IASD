@@ -1435,7 +1435,8 @@ Três consequências, e a terceira é a que menos se vê:
 O que antes era exclusivo do Hinário 2022 virou um **sistema genérico de
 coleções**, todo parametrizado por uma `coll = { id, name, kind, source, iconKey }`
 (ver `allCollections()`/`FIXED_COLLECTIONS` em `controle.js`). Cada coleção tem
-**uma pasta OPFS própria** (`folders/<coll.id>/`) e um **card** na aba Álbuns.
+**uma pasta OPFS própria** (`folders/<coll.id>/`) e um **card** no acervo (o
+estado padrão da busca; até a v5.43, a aba Álbuns).
 Dois tipos:
 
 - **`hymnal`** (fixas): a `source` é um arquivo de **lista** (`pt_hymnal`,
@@ -2312,14 +2313,15 @@ slides. O índice de busca (`buildLyricIndex`) lê os **dois**, chaveado por
 Com o campo vazio, a busca listava as primeiras 60 músicas de um acervo de
 milhares: uma fatia sem critério, que não responde pergunta nenhuma. Quem abre a
 lupa **sem saber o nome** quer folhear — e folhear é por coleção, que é o
-recorte que o próprio banco dá e que a aba Álbuns já desenhava.
+recorte que o próprio banco dá e que a aba Álbuns desenhava (ela saiu na
+v5.44 — ver abaixo).
 
 Então a abertura da busca passou a ser esse navegador: as mesmas pílulas de
 filtro, os mesmos cabeçalhos de categoria e os mesmos cards. **É a mesma
 função** — `renderCollectionsList(alvo, redesenhar)` ganhou o elemento-alvo e o
-callback de redesenho como parâmetros, e a aba Álbuns continua chamando-a sem
-argumentos. Duas cópias divergiriam no primeiro ajuste de categoria, e o
-operador veria dois acervos diferentes conforme por onde entrou.
+callback de redesenho como parâmetros. Duas cópias divergiriam no primeiro
+ajuste de categoria, e o operador veria dois acervos diferentes conforme por
+onde entrou.
 
 A busca ganha assim **dois níveis**, e isso muda três coisas:
 
@@ -2336,8 +2338,25 @@ A busca ganha assim **dois níveis**, e isso muda três coisas:
   Agora a abertura é um acervo para folhear, e o teclado cobriria metade dele
   antes de o operador decidir se vai digitar.
 
-O `albumFilter` é **compartilhado** com a aba de propósito: é um acervo só, e
-uma pílula escolhida num lugar valer no outro é o comportamento previsível.
+#### E a aba de Álbuns saiu (v5.44)
+
+Com o acervo desenhado dentro da busca, a aba virou uma segunda porta para a
+mesma tela — e duas portas para o mesmo lugar, numa barra de quatro botões, é
+espaço gasto sem informação nova. A **lupa** passa a ser a única entrada:
+`activeTab` nunca mais vale `'albums'`, e `TAB_ORDER` (que decide a direção do
+deslize entre abas) perdeu a entrada.
+
+Nada de função se perdeu — é a mesma `renderCollectionsList`, com os mesmos
+cards, cabeçalhos de grupo e botões de sincronizar. Duas peças foram junto:
+
+- **A linha de uso de disco** (`renderStorageUsage`) ganhou `alvo` e a condição
+  `valido()` e acompanhou o acervo. Ela mede OPFS + IDB, e quem enche o disco é
+  o download de música: o lugar dela é onde se decide baixar — e apagar. Segue
+  também em Favoritos, onde já estava.
+- **O refresh periódico** (`renderCollectionsNow`, que acompanha o progresso de
+  um download em curso) passou a redesenhar o popup — e **só quando ele está
+  mostrando o acervo**. Redesenhar por baixo de uma lista de músicas tiraria do
+  lugar exatamente o que o operador está mirando.
 
 ### Letra completa no resultado aberto (v5.37)
 

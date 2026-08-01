@@ -88,7 +88,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.43';
+const WEB_VERSION = '5.44';
 
 function renderVersionLabel() {
   // __SHELL_NAME__ = versionName do APK (ver native.js). Vazio no navegador e
@@ -1371,8 +1371,8 @@ async function load() {
       libItemsV = currentFolder ? await loadFolderMediaItems(currentFolder.id) : [];
     }
   } else if (activeTab === 'imports' || activeTab === 'playlist') {
-    // Só as abas que são de fato listas de IDs de mídia. As abas 'albums',
-    // 'bible' e 'messages' NÃO são listas de mídia — e 'messages' guarda
+    // Só as abas que são de fato listas de IDs de mídia. 'bible' e 'messages'
+    // NÃO são listas de mídia — e 'messages' guarda
     // objetos {id,text} no mesmo state key, então passar isso por listItems
     // (getMedia por id) lançaria DataError e quebraria o load() inteiro.
     libItemsV = await AVDB.listItems(activeTab);
@@ -3513,12 +3513,6 @@ function renderLibrary() {
   // base — que é justamente o que o acordeão veio resolver.
   libraryEl.classList.toggle('lib-misc', activeTab === 'mic');
 
-  if (activeTab === 'albums') {
-    renderCollectionsList();
-    renderStorageUsage();
-    return;
-  }
-
   if (activeTab === 'bible') {
     renderBible();
     return;
@@ -4140,7 +4134,13 @@ function refreshCollectionsIfVisible() {
   }, COLL_REFRESH_MS);
 }
 function renderCollectionsNow() {
-  if (activeTab === 'albums') renderLibrary();
+  // O acervo não tem mais aba própria (v5.44): quem o mostra é o estado padrão
+  // da busca. Só redesenha se ele estiver de fato à vista — redesenhar por
+  // baixo de uma lista de músicas tiraria do lugar o que o operador mira.
+  if (hymnSearchPopupEl.classList.contains('open')
+      && searchIsBrowsing(normalizeForSearch(hymnSearchInputEl.value).trim())) {
+    renderSearchResults(hymnSearchInputEl.value);
+  }
   // O popup de opções mostra o mesmo estado (progresso, baixados/total): se
   // estiver aberto, precisa acompanhar sem o operador fechar e reabrir.
   refreshCollectionOptions();
@@ -4257,20 +4257,26 @@ async function promptNewFavorite() {
   if (name && name.trim()) await createFolder(name.trim());
 }
 
-// Rodapé com o uso de armazenamento do origin (OPFS + IDB).
-function renderStorageUsage() {
+// Rodapé com o uso de armazenamento do origin (OPFS + IDB). `alvo` porque esta
+// linha vive em dois lugares: a tela de Favoritos e o acervo dentro da busca —
+// e é lá que ela mais importa, já que quem ocupa o disco é o download de
+// música. `valido` é a condição de que a tela ainda é a mesma quando o
+// `estimate()` responde (ele é assíncrono; a aba pode ter mudado no meio).
+function renderStorageUsage(alvo, valido) {
+  alvo = alvo || libraryEl;
+  valido = valido || (() => activeTab === 'folders' && !currentFolder);
   if (!(navigator.storage && navigator.storage.estimate)) return;
   navigator.storage.estimate().then(({ usage, quota }) => {
-    if ((activeTab !== 'folders' && activeTab !== 'albums') || currentFolder) return; // aba mudou enquanto aguardava
+    if (!valido()) return;
     // Remove uma linha anterior antes de anexar: sem isto, dois estimate()
     // pendentes (renderFolderList chamado em sequência) empilhariam duas
     // linhas de uso na mesma lista.
-    const old = libraryEl.querySelector('.storage-usage');
+    const old = alvo.querySelector('.storage-usage');
     if (old) old.remove();
     const li = document.createElement('li');
     li.className = 'empty storage-usage';
     li.textContent = fmtBytes(usage || 0) + ' usados de ' + fmtBytes(quota || 0) + ' disponíveis';
-    libraryEl.appendChild(li);
+    alvo.appendChild(li);
   }).catch(() => {});
 }
 
@@ -6151,6 +6157,10 @@ function renderSearchResults(query) {
     hymnResultsEl.innerHTML = '';
     hymnSearchCountEl.textContent = String(allCollections().length);
     renderCollectionsList(hymnResultsEl, () => renderSearchResults(hymnSearchInputEl.value));
+    // Quem enche o disco é o download de música: a linha de uso vem junto do
+    // acervo, que é onde se decide baixar (e onde se decide apagar).
+    renderStorageUsage(hymnResultsEl, () => hymnSearchPopupEl.classList.contains('open')
+      && searchIsBrowsing(normalizeForSearch(hymnSearchInputEl.value).trim()));
     renderSearchBack();
     return;
   }
@@ -7516,7 +7526,7 @@ plBtnEl.addEventListener('click', openPlPopup);
 // Favoritos e Mensagens não têm aba, mas Favoritos ainda é uma TELA
 // (activeTab 'folders') e precisa de posição aqui para a direção do deslize
 // sair certa.
-const TAB_ORDER = ['imports', 'folders', 'albums', 'bible', 'mic'];
+const TAB_ORDER = ['imports', 'folders', 'bible', 'mic'];
 const prefersReducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 // Anima a entrada da lista ao trocar de aba: leve deslize direcional + fade.
