@@ -1715,10 +1715,16 @@ body.mode-simple .bottombar { display: none; }
 .simple-head { display: flex; align-items: center; gap: .5rem; flex: none; }
 .simple-brand { flex: 1; min-width: 0; font-size: .9rem; font-weight: 800; letter-spacing: .03em; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .simple-brand b { color: var(--gold); }
+/* A saída para a mesa completa. Era texto `--muted` sobre `--surface` — 5,4:1,
+   dentro do mínimo, mas lida como legenda: quem não sabia que existiam dois
+   modos não a via como botão. Passa a texto pleno sobre a superfície mais
+   clara, com a borda de accent contornando: continua discreto (não é a ação
+   principal de ninguém) e agora se ANUNCIA como controle. */
 .simple-switch {
-  border: 1px solid var(--line); border-radius: var(--radius-btn);
-  background: var(--surface); color: var(--muted);
-  font-size: .78rem; font-family: inherit; padding: .4rem .6rem; cursor: pointer;
+  border: 1px solid var(--accent); border-radius: var(--radius-btn);
+  background: var(--surface-2); color: var(--text);
+  font-size: .8rem; font-weight: 600; font-family: inherit;
+  padding: .48rem .8rem; cursor: pointer;
 }
 
 /* Tecla: a peça única deste modo. Borda + fundo próprio para parecer botão
@@ -1744,8 +1750,6 @@ body.mode-simple .bottombar { display: none; }
    botão de conectar, que é a única ação que resolve o bloqueio. */
 .simple-veil {
   position: absolute; inset: 0; z-index: 1;
-  display: flex; align-items: center; justify-content: center;
-  padding: 1.2rem;
   background: rgba(18, 18, 18, .55);
   backdrop-filter: blur(7px); -webkit-backdrop-filter: blur(7px);
 }
@@ -1758,17 +1762,45 @@ body.mode-simple .bottombar { display: none; }
 /* `display:flex` aqui venceria o `display:none` que o UA dá a [hidden] — sem
    esta linha a cortina nunca sairia da frente. */
 .simple-veil[hidden] { display: none; }
-.simple-veil-card { text-align: center; max-width: 22rem; }
-.simple-veil-title { font-size: 1rem; font-weight: 800; color: var(--text); }
-.simple-veil-sub { margin-top: .3rem; font-size: .82rem; color: var(--muted); line-height: 1.45; }
-.simple.locked .simple-head,
-.simple.locked .simple-actions { position: relative; z-index: 2; }
+.simple.locked .simple-head { position: relative; z-index: 2; }
+/* Bloqueado, a faixa de ações deixa de ser uma faixa: vira UMA coluna no
+   centro da tela, com a mensagem e o botão que a resolve. É o único conteúdo
+   legível, então fica onde o olho já está — e centralizar o grupo inteiro
+   (mensagem + botão) num bloco só dispensa medir a altura de um para
+   posicionar o outro. */
+.simple.locked .simple-actions {
+  position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%);
+  z-index: 2;
+  display: flex; flex-direction: column; gap: 1rem;
+  padding: 0 1.1rem;
+}
 /* Só o botão de conectar fica na frente: com a tela bloqueada, buscar música
-   não leva a lugar nenhum. Ele passa a ocupar a linha inteira — é a única
-   ação, e um botão de meia largura ao lado de um vazio pareceria defeito. */
-.simple.locked .simple-actions { grid-template-columns: 1fr; }
+   não leva a lugar nenhum. */
 .simple.locked #simpleSearchBtn { display: none; }
-.simple.locked .simple-action { padding: 1.1rem .6rem; }
+/* Em DESTAQUE: preenchido no accent, não a mesma tecla escura das outras.
+   Contornado ele pesava igual ao teclado embaçado atrás — e a única ação
+   possível da tela não pode disputar atenção com o que está bloqueado. */
+.simple.locked #simpleCastBtn {
+  padding: 1.5rem 1rem; gap: .5rem;
+  background: var(--accent-fill); border-color: var(--accent-fill); color: #fff;
+  box-shadow: 0 12px 34px rgba(31, 111, 235, .38);
+}
+.simple.locked #simpleCastBtn svg { color: #fff; width: 40px; height: 40px; }
+.simple.locked #simpleCastBtn .simple-key-label { font-size: 1.08rem; font-weight: 800; }
+/* Branco puro também no subtítulo: sobre o azul preenchido, um cinza de
+   apoio cairia abaixo do mínimo de leitura (ver test-contraste). */
+.simple.locked #simpleCastBtn .simple-key-sub { color: #fff; font-size: .8rem; }
+
+.simple-gate-msg { display: none; text-align: center; }
+/* A mensagem é legenda do botão, não par dele: sai do fluxo e se pendura
+   acima. Assim quem fica no MEIO exato da tela é o botão — centralizar o
+   grupo o empurraria para baixo do centro pela altura do texto. */
+.simple.locked .simple-gate-msg {
+  display: block; position: absolute; left: 0; right: 0; bottom: calc(100% + 1rem);
+  padding: 0 1.1rem;
+}
+.simple-gate-title { font-size: 1.05rem; font-weight: 800; color: var(--text); }
+.simple-gate-sub { margin-top: .35rem; font-size: .85rem; color: var(--muted); line-height: 1.45; }
 
 /* Letra da música em cena — ocupa o espaço que sobra entre as ações e as
    teclas. Mesmas linhas da leitura auxiliar do modo avançado (.lv-row). */

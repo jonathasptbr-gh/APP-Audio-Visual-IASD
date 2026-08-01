@@ -24,8 +24,18 @@
       <button type="button" id="simpleFullBtn" class="simple-switch">Modo avançado</button>
     </div>
 
-    <!-- As duas ações no alto, lado a lado: teclas grandes de ícone + rótulo. -->
+    <!-- As duas ações no alto, lado a lado: teclas grandes de ícone + rótulo.
+         Com a tela bloqueada esta faixa sai do fluxo e vai para o CENTRO da
+         tela, só com o botão de conectar (ver .simple.locked .simple-actions).
+         A mensagem do bloqueio mora aqui dentro, e não na cortina, para ficar
+         presa ao botão que a resolve — pendurada acima dele, fora do fluxo,
+         para que quem fique no meio exato seja o botão. -->
     <div class="simple-actions">
+      <div class="simple-gate-msg">
+        <div class="simple-gate-title">Nenhuma tela conectada</div>
+        <div class="simple-gate-sub">Conecte o telão para operar por aqui.</div>
+      </div>
+
       <button type="button" id="simpleCastBtn" class="simple-key simple-action">
         <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M3 19a2 2 0 0 1 2 2"/>
@@ -90,20 +100,16 @@
          projeção É o telão. A cortina embaça e intercepta tudo o que está
          atrás dela; o que fica na frente é só o botão de conectar (e o
          "Modo avançado" do cabeçalho, que é a saída de quem vai projetar
-         pela preview em tela cheia). Ver renderSimpleGate em controle.js. -->
-    <div class="simple-veil" id="simpleVeil" hidden>
-      <div class="simple-veil-card">
-        <div class="simple-veil-title">Nenhuma tela conectada</div>
-        <div class="simple-veil-sub">Conecte o telão para operar por aqui.</div>
-      </div>
-    </div>
+         pela preview em tela cheia). Ela é só o vidro fosco: o texto e o
+         botão vivem em .simple-actions, acima dela. Ver renderSimpleGate. -->
+    <div class="simple-veil" id="simpleVeil" hidden></div>
   </div>
 
   <main>
     <div class="list-header">
       <button id="backBtn" class="back-btn" hidden><span class="msym">&#xe5c4;</span></button>
       <span class="list-title" id="listTitle">Cronograma</span>
-      <span id="appVersion" class="app-version">Controle v5.39</span>
+      <span id="appVersion" class="app-version">Controle v5.40</span>
       <input id="libSearch" class="lib-search" type="search" placeholder="Buscar na pasta…" hidden>
       <!-- Setas circulares = "sincronizar" (o mesmo desenho dos cards de coleção
            e do botão de re-sync na linha da pasta). folder_open fica reservado
