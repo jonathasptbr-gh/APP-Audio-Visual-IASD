@@ -30,6 +30,10 @@ const simpleNpNameEl = document.getElementById('simpleNpName');
 const simplePlayEl = document.getElementById('simplePlay');
 const simpleMuteEl = document.getElementById('simpleMute');
 const simpleLyricsEl = document.getElementById('simpleLyrics');
+const simpleTimeEl = document.getElementById('simpleTime');
+const simpleTimeCurEl = document.getElementById('simpleTimeCur');
+const simpleTimeDurEl = document.getElementById('simpleTimeDur');
+const simpleTimeFillEl = document.getElementById('simpleTimeFill');
 const simpleVolWrapEl = document.getElementById('simpleVolWrap');
 const simpleVolUpEl = document.getElementById('simpleVolUp');
 const simpleVolDownEl = document.getElementById('simpleVolDown');
@@ -82,7 +86,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.27';
+const WEB_VERSION = '5.28';
 
 function renderVersionLabel() {
   // __SHELL_NAME__ = versionName do APK (ver native.js). Vazio no navegador e
@@ -766,6 +770,7 @@ function ytPreviewTick() {
     seekEl.value = t;
     curTimeEl.textContent = fmtTime(t);
   }
+  renderSimpleTime();   // o YouTube não passa por renderSlideNav
 }
 function onYtPreviewState(e) {
   if (ytDisplayActive()) return; // Display presente é a fonte — ignora eventos locais
@@ -3441,6 +3446,7 @@ function renderSlideNav() {
   // no ar sem um timer próprio.
   refreshLyricsView();
   refreshSimpleLyrics();
+  renderSimpleTime();
   const who = slideTarget(); // o que está NO AR — ver slideTarget()
   // Mensagens: passa/volta entre as mensagens salvas (nos extremos desabilita).
   if (who === 'message') {
@@ -5913,7 +5919,24 @@ function renderSimple() {
   const pct = Math.round(volume * 100);
   simpleVolValueEl.textContent = String(pct);
   simpleVolWrapEl.style.setProperty('--vol', String(pct / 100));
+  renderSimpleTime();
   refreshSimpleLyrics();
+}
+
+// Linha do tempo do simplificado. Espelha a MESMA barra do modo avançado
+// (`#seek`) em vez de reconstruir a posição: aquela já é alimentada pelas três
+// fontes possíveis — a preview local, o `display-status` do telão e o polling
+// do YouTube — e é ela que sabe quando o item nem tem duração (imagem, texto).
+function renderSimpleTime() {
+  if (appMode !== 'simple') return;
+  const dur = parseFloat(seekEl.max) || 0;
+  const cur = parseFloat(seekEl.value) || 0;
+  const timed = !seekEl.disabled && dur > 0;
+  simpleTimeEl.hidden = !timed;
+  if (!timed) return;
+  simpleTimeCurEl.textContent = fmtTime(cur);
+  simpleTimeDurEl.textContent = fmtTime(dur);
+  simpleTimeFillEl.style.width = Math.max(0, Math.min(100, (cur / dur) * 100)) + '%';
 }
 
 // Volume em passos, como num controle remoto — o MESMO passo dos botões
@@ -6401,6 +6424,7 @@ AVDB.onCommand((msg) => {
       curTimeEl.textContent = fmtTime(msg.currentTime);
     }
     if (isYoutube) {
+      renderSimpleTime();   // idem: o ramo do YouTube não chama renderSlideNav
       ytResyncPreviewToDisplay(playing, msg.currentTime);
     } else {
       updatePvLyricSlide(lastDisplayTime);

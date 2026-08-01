@@ -1469,6 +1469,13 @@ body.mode-simple .bottombar { display: none; }
   flex: none; text-align: center; font-size: .95rem; font-weight: 700; color: var(--text);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+/* Linha do tempo: fina, sem alça e sem alvo de toque — é um indicador, não um
+   controle (ver o comentário no index.html). Os números flanqueiam a barra
+   para não roubarem altura da letra. */
+.simple-time { flex: none; display: flex; align-items: center; gap: .5rem; }
+.simple-time-num { font-size: .72rem; font-variant-numeric: tabular-nums; color: var(--muted); flex: none; }
+.simple-time-bar { flex: 1; height: 4px; border-radius: var(--radius-pill); background: var(--surface); overflow: hidden; }
+.simple-time-fill { height: 100%; width: 0; background: var(--accent); border-radius: inherit; }
 .simple-lyrics {
   position: relative;            /* offsetParent das linhas (ver lvScroll) */
   flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
