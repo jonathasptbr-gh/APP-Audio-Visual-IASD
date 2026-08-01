@@ -86,7 +86,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.30';
+const WEB_VERSION = '5.31';
 
 function renderVersionLabel() {
   // __SHELL_NAME__ = versionName do APK (ver native.js). Vazio no navegador e
@@ -131,10 +131,6 @@ const collPopupEl = document.getElementById('collPopup');
 const collPopupTitleEl = document.getElementById('collPopupTitle');
 const collOptsEl = document.getElementById('collOpts');
 const collPopupCloseEl = document.getElementById('collPopupClose');
-const msgPopupEl = document.getElementById('msgPopup');
-const msgOptsEl = document.getElementById('msgOpts');
-const msgPopupCloseEl = document.getElementById('msgPopupClose');
-const pvMsgBtnEl = document.getElementById('pvMsgBtn');
 const hymnSearchCountEl = document.getElementById('hymnSearchCount');
 const hymnSearchTitleEl = document.getElementById('hymnSearchTitle');
 const bibleVerPopupEl = document.getElementById('bibleVerPopup');
@@ -2524,7 +2520,7 @@ function clearMsgSession() {
   msgSession = null;
   renderSlideNav();
   renderNowPlaying();
-  renderMsgFab(); refreshMsgPopup();
+  refreshDiversos();
 }
 // Encerra QUALQUER texto manual em cena (Bíblia ou Mensagem) — só um por vez.
 function clearManualText() {
@@ -2545,7 +2541,7 @@ function projectMessage(idx) {
   renderControls();
   renderNowPlaying();
   renderSlideNav();
-  renderMsgFab(); refreshMsgPopup();
+  refreshDiversos();
 }
 
 // Tira a mensagem do telão mantendo a sessão viva (o operador pode reexibir
@@ -2558,8 +2554,8 @@ function hideMessage() {
   renderControls();
   renderNowPlaying();
   renderSlideNav();
-  renderMsgFab();
-  refreshMsgPopup();
+  refreshDiversos();
+  refreshDiversos();
 }
 
 // Passa/volta entre mensagens salvas (reusa os botões de slide). Com a
@@ -2572,7 +2568,7 @@ function msgStep(delta) {
   if (!msgProjecting()) {
     msgSession.idx = t;
     renderSlideNav();
-    refreshMsgPopup();
+    refreshDiversos();
     return;
   }
   projectMessage(t);
@@ -2585,7 +2581,7 @@ async function addMessage() {
   if (!text || !text.trim()) return;
   messages.push({ id: uid(), text: text.trim() });
   await saveMessages();
-  refreshMsgPopup();
+  refreshDiversos();
 }
 
 async function deleteMessage(id) {
@@ -2594,7 +2590,7 @@ async function deleteMessage(id) {
   if (msgSession && msgSession.idx === i) clearManualText();
   messages.splice(i, 1);
   await saveMessages();
-  refreshMsgPopup();
+  refreshDiversos();
 }
 
 // ===== Microfone ao vivo (push-to-talk) =====
@@ -2642,13 +2638,19 @@ function micErrorText(err) {
   return 'Não foi possível abrir o microfone (' + err + ').';
 }
 
+// O microfone virou uma BARRA, e não mais um disco: ele fica fixo na base da
+// aba, fora do acordeão, porque push-to-talk é o único controle daqui que pode
+// ser preciso no meio de uma frase — ter que abrir uma seção antes de falar o
+// tornaria inútil. Como barra ele custa ~56px de altura em vez de 132 e ainda
+// oferece uma área de toque MAIOR (largura inteira), que é o que importa para
+// achá-lo sem olhar.
 function renderMic() {
   const wrap = document.createElement('div'); wrap.className = 'mic-wrap';
 
   const btn = document.createElement('button');
   btn.type = 'button'; btn.id = 'micBtn'; btn.className = 'mic-btn';
-  btn.innerHTML = '<svg viewBox="0 0 24 24" width="64" height="64" fill="none" stroke="currentColor"'
-    + ' stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+  btn.innerHTML = '<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor"'
+    + ' stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
     + '<rect x="9" y="2" width="6" height="11" rx="3"/><path d="M5 10a7 7 0 0 0 14 0"/>'
     + '<line x1="12" y1="17" x2="12" y2="21"/><line x1="8" y1="21" x2="16" y2="21"/></svg>';
   const label = document.createElement('span'); label.className = 'mic-btn-label';
@@ -2701,7 +2703,10 @@ let chrono = {
   startAt: 0,               // epoch ms da última partida
   baseMs: 0,                // acumulado das voltas anteriores (pausas)
   durationMs: 5 * 60000,    // alvo do timer
-  secs: true,               // relógio com segundos
+  // Relógio SEM segundos por padrão: no telão o que o operador e a igreja
+  // querem é a hora, e o dígito dos segundos mudando o tempo todo puxa o olho
+  // para um número que não informa nada. Quem precisar liga no chip.
+  secs: false,
   h12: false,               // relógio em 12 h
   label: '',                // sublinha dourada no telão (opcional)
 };
@@ -2714,20 +2719,27 @@ const CHRONO_MODES = [
 ];
 const CHRONO_PRESETS = [1, 3, 5, 10, 15, 30];
 
+const CHRONO_PREFS_V = 2;   // 2 = relógio passou a nascer sem segundos
+
 function applyChronoPrefs(p) {
   if (!p) return;
+  // Preferências gravadas ANTES da v2 carregam `secs: true` só porque era o
+  // padrão de então, não porque alguém escolheu — respeitá-las faria a mudança
+  // de padrão não chegar a ninguém que já tivesse aberto a aba uma vez.
+  const legado = p.v !== CHRONO_PREFS_V;
   // Só as PREFERÊNCIAS voltam do banco. Uma contagem em curso não sobrevive ao
   // fechamento do app de propósito: restaurar um cronômetro que "correu" com o
   // app fechado mostraria um número sem significado nenhum.
   if (CHRONO_MODES.some((m) => m.id === p.mode)) chrono.mode = p.mode;
   if (typeof p.durationMs === 'number' && p.durationMs > 0) chrono.durationMs = p.durationMs;
-  if (typeof p.secs === 'boolean') chrono.secs = p.secs;
+  if (typeof p.secs === 'boolean' && !legado) chrono.secs = p.secs;
   if (typeof p.h12 === 'boolean') chrono.h12 = p.h12;
   if (typeof p.label === 'string') chrono.label = p.label;
 }
 
 function saveChronoPrefs() {
   return AVDB.setState('chronoPrefs', {
+    v: CHRONO_PREFS_V,
     mode: chrono.mode, durationMs: chrono.durationMs,
     secs: chrono.secs, h12: chrono.h12, label: chrono.label,
   });
@@ -2766,7 +2778,7 @@ function projectChrono() {
   cmd({ type: 'text', mode: 'chrono', chrono: chronoDescriptor(), sub: chrono.label || '', view: 'visual' });
   renderControls();
   renderNowPlaying();
-  renderChrono();
+  refreshDiversos();
 }
 
 // Tira do telão SEM parar a contagem — espelha hideMessage/hideBibleVerse: um
@@ -2778,14 +2790,14 @@ function hideChrono() {
   cmd({ type: 'text-hide' });
   renderControls();
   renderNowPlaying();
-  renderChrono();
+  refreshDiversos();
 }
 
 function clearChronoSession() {
   if (!chronoSession) return;
   chronoSession = null;
   renderNowPlaying();
-  if (activeTab === 'mic') renderChrono();
+  refreshDiversos();
 }
 
 function chronoStart() {
@@ -2868,10 +2880,6 @@ function renderChrono() {
   const host = document.getElementById('chronoWrap');
   if (!host) return;
   host.innerHTML = '';
-
-  const title = document.createElement('div');
-  title.className = 'misc-title'; title.textContent = 'Tempo';
-  host.appendChild(title);
 
   const modes = document.createElement('div');
   modes.className = 'misc-modes';
@@ -3138,7 +3146,7 @@ function projectDraw() {
   cmd({ type: 'text', mode: 'draw', draw: drawDescriptor(), sub: draw.label || '', view: 'visual' });
   renderControls();
   renderNowPlaying();
-  renderDraw();
+  refreshDiversos();
 }
 
 function hideDraw() {
@@ -3147,14 +3155,14 @@ function hideDraw() {
   cmd({ type: 'text-hide' });
   renderControls();
   renderNowPlaying();
-  renderDraw();
+  refreshDiversos();
 }
 
 function clearDrawSession() {
   if (!drawSession) return;
   drawSession = null;
   renderNowPlaying();
-  if (activeTab === 'mic') renderDraw();
+  refreshDiversos();
 }
 
 function renderDrawReadout() {
@@ -3194,10 +3202,6 @@ function renderDraw() {
   const host = document.getElementById('drawWrap');
   if (!host) return;
   host.innerHTML = '';
-
-  const title = document.createElement('div');
-  title.className = 'misc-title'; title.textContent = 'Sorteio';
-  host.appendChild(title);
 
   const modes = document.createElement('div');
   modes.className = 'misc-modes';
@@ -3337,18 +3341,139 @@ function renderDraw() {
   startDrawPanelTimer();
 }
 
-// A aba Diversos reúne as ferramentas que não pertencem à biblioteca: o
-// microfone ao vivo, o cronômetro/relógio/timer e o sorteio.
+// ===== Mensagens na aba Diversos =====
+// Deixou de ser um botão flutuante sobre a preview e passou a ser uma seção
+// como as outras. O FAB fazia sentido quando Mensagens era a única ferramenta
+// avulsa; com três delas, ter uma em cima da preview e duas numa aba era a
+// mesma pergunta ("que aviso eu ponho na tela?") respondida em dois lugares
+// diferentes. E o espaço sobre a preview é justamente o que menos sobra.
+function renderMsg() {
+  const host = document.getElementById('msgWrap');
+  if (!host) return;
+  host.innerHTML = '';
+
+  const list = document.createElement('div');
+  list.className = 'msg-list';
+  if (!messages.length) {
+    const empty = document.createElement('div');
+    empty.className = 'empty'; empty.textContent = 'Nenhuma mensagem.';
+    list.appendChild(empty);
+  } else {
+    messages.forEach((m, i) => {
+      const active = msgSession && msgSession.projecting && msgSession.idx === i;
+      const row = document.createElement('div');
+      row.className = 'msg-item' + (active ? ' active' : '');
+      const txt = document.createElement('div');
+      txt.className = 'msg-text'; txt.textContent = m.text;
+      // Tocar PROJETA. Sem popup para fechar agora: a seção fica aberta e a
+      // linha ativa marcada, então dá para passar de um aviso a outro sem
+      // reabrir nada — que era o atrito do fluxo anterior.
+      txt.addEventListener('click', () => projectMessage(i));
+      const del = document.createElement('button');
+      del.type = 'button'; del.className = 'row-btn';
+      del.appendChild(msym(ICON.del));
+      del.addEventListener('click', (e) => { e.stopPropagation(); deleteMessage(m.id); });
+      row.append(txt, del);
+      list.appendChild(row);
+    });
+  }
+  host.appendChild(list);
+
+  const add = document.createElement('button');
+  add.type = 'button'; add.className = 'msg-add-btn';
+  add.textContent = '+ Nova mensagem';
+  add.addEventListener('click', addMessage);
+  host.appendChild(add);
+
+  if (msgProjecting()) {
+    const off = document.createElement('button');
+    off.type = 'button'; off.className = 'misc-project live';
+    off.textContent = 'Tirar do telão';
+    off.addEventListener('click', hideMessage);
+    host.appendChild(off);
+  }
+}
+
+// ===== A aba Diversos =====
+// Três ferramentas empilhadas não cabiam numa tela de celular, e a rolagem
+// vertical escondia justamente a que não estava em uso. Um ACORDEÃO resolve
+// pelo formato: **exatamente uma aberta por vez**, a aberta ocupa a altura que
+// sobra, e as outras duas custam só o cabeçalho. A tela deixa de rolar.
+//
+// O microfone fica FORA do acordeão, fixo na base: é o único controle daqui
+// com urgência real (ver renderMic).
+let miscOpen = 'msg';
+
+const MISC_SECTIONS = [
+  { id: 'msg', name: 'Mensagens', wrap: 'msgWrap', render: () => renderMsg(), live: () => msgProjecting() },
+  { id: 'chrono', name: 'Tempo', wrap: 'chronoWrap', render: () => renderChrono(), live: () => chronoProjecting() },
+  { id: 'draw', name: 'Sorteio', wrap: 'drawWrap', render: () => renderDraw(), live: () => drawProjecting() },
+];
+
+const MISC_CHEVRON = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"'
+  + ' stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+  + '<polyline points="6 9 12 15 18 9"/></svg>';
+
 function renderDiversos() {
+  // Os laços dos painéis fechados não existem: só a seção aberta é renderizada,
+  // e é o render dela que religa o seu timer.
+  stopChronoPanelTimer();
+  stopDrawPanelTimer();
+
+  const acc = document.createElement('div');
+  acc.className = 'misc-acc';
+
+  MISC_SECTIONS.forEach((s) => {
+    const open = miscOpen === s.id;
+    const sec = document.createElement('section');
+    sec.className = 'misc-sec' + (open ? ' open' : '');
+
+    const head = document.createElement('button');
+    head.type = 'button'; head.className = 'misc-head';
+    const name = document.createElement('span');
+    name.className = 'misc-head-name'; name.textContent = s.name;
+    head.appendChild(name);
+    // "No ar" no CABEÇALHO: com a seção fechada, é o único lugar que diz que
+    // aquela ferramenta está projetando. Sem isso, colapsar o sorteio faria
+    // parecer que ele saiu do telão.
+    if (s.live()) {
+      const dot = document.createElement('span');
+      dot.className = 'misc-head-live'; dot.textContent = 'no ar';
+      head.appendChild(dot);
+    }
+    const chev = document.createElement('span');
+    chev.className = 'misc-head-chev'; chev.innerHTML = MISC_CHEVRON;
+    head.appendChild(chev);
+    // Tocar no cabeçalho da seção JÁ aberta não a fecha: o contrato é "sempre
+    // uma visível", e um estado com todas fechadas seria uma tela vazia.
+    head.addEventListener('click', () => {
+      if (miscOpen === s.id) return;
+      miscOpen = s.id;
+      libraryEl.innerHTML = '';
+      renderDiversos();
+    });
+    sec.appendChild(head);
+
+    const body = document.createElement('div');
+    body.className = 'misc-body misc-body--' + s.id;
+    body.id = s.wrap;
+    sec.appendChild(body);
+    acc.appendChild(sec);
+  });
+
+  libraryEl.appendChild(acc);
+  const aberta = MISC_SECTIONS.find((s) => s.id === miscOpen);
+  if (aberta) aberta.render();
+
   renderMic();
-  const chronoHost = document.createElement('div');
-  chronoHost.id = 'chronoWrap'; chronoHost.className = 'misc-wrap';
-  libraryEl.appendChild(chronoHost);
-  renderChrono();
-  const drawHost = document.createElement('div');
-  drawHost.id = 'drawWrap'; drawHost.className = 'misc-wrap';
-  libraryEl.appendChild(drawHost);
-  renderDraw();
+}
+
+// Redesenha só a aba Diversos (usado quando o estado de uma ferramenta muda
+// por fora do painel — ex.: uma mensagem projetada por outro caminho).
+function refreshDiversos() {
+  if (activeTab !== 'mic') return;
+  libraryEl.innerHTML = '';
+  renderDiversos();
 }
 
 // ===== Mensagens: botão flutuante na preview + popup =====
@@ -3362,56 +3487,15 @@ function renderDiversos() {
 // popup só para desligar o que já está exibido.
 function msgProjecting() { return !!(msgSession && msgSession.projecting); }
 
-const MSG_ICON_SVG = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor"'
-  + ' stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
-  + '<path d="M4 5.5A1.5 1.5 0 0 1 5.5 4h13A1.5 1.5 0 0 1 20 5.5v9A1.5 1.5 0 0 1 18.5 16H9l-4 4z"/>'
-  + '<line x1="8" y1="9" x2="16" y2="9"/><line x1="8" y1="12.5" x2="13" y2="12.5"/></svg>';
-const MSG_CLOSE_SVG = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor"'
-  + ' stroke-width="2.2" stroke-linecap="round" aria-hidden="true">'
-  + '<line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>';
-
-function renderMsgFab() {
-  const live = msgProjecting();
-  pvMsgBtnEl.innerHTML = live ? MSG_CLOSE_SVG : MSG_ICON_SVG;
-  pvMsgBtnEl.classList.toggle('live', live);
-  pvMsgBtnEl.title = live ? 'Tirar a mensagem da tela' : 'Mensagem na tela';
-}
-
-function openMsgPopup() { renderMsgList(); msgPopupEl.classList.add('open'); }
-function closeMsgPopup() { msgPopupEl.classList.remove('open'); }
-function refreshMsgPopup() { if (msgPopupEl.classList.contains('open')) renderMsgList(); }
-
-function renderMsgList() {
-  msgOptsEl.innerHTML = '';
-  const addBtn = document.createElement('button'); addBtn.type = 'button'; addBtn.className = 'msg-add-btn';
-  addBtn.textContent = '+ Nova mensagem';
-  addBtn.addEventListener('click', addMessage);
-  msgOptsEl.appendChild(addBtn);
-  if (!messages.length) {
-    const empty = document.createElement('div'); empty.className = 'empty';
-    empty.textContent = 'Nenhuma mensagem.';
-    msgOptsEl.appendChild(empty);
-    return;
-  }
-  messages.forEach((m, i) => {
-    const active = msgSession && msgSession.projecting && msgSession.idx === i;
-    const row = document.createElement('div'); row.className = 'msg-item' + (active ? ' active' : '');
-    const txt = document.createElement('div'); txt.className = 'msg-text'; txt.textContent = m.text;
-    // Projetar fecha o popup: a mensagem já está no ar, e o que o operador
-    // quer ver agora é a preview (e o botão, que virou o X de desligar).
-    txt.addEventListener('click', () => { projectMessage(i); closeMsgPopup(); });
-    const del = document.createElement('button'); del.type = 'button'; del.className = 'row-btn';
-    del.appendChild(msym(ICON.del));
-    del.addEventListener('click', (e) => { e.stopPropagation(); deleteMessage(m.id); });
-    row.append(txt, del);
-    msgOptsEl.appendChild(row);
-  });
-}
-
 function renderLibrary() {
   thumbUrls.forEach((u) => URL.revokeObjectURL(u));
   thumbUrls = [];
   libraryEl.innerHTML = '';
+  // Diversos NÃO rola: quem administra a altura ali é o acordeão (a seção
+  // aberta ocupa o que sobra e rola por dentro, se precisar). Com a rolagem da
+  // lista ligada, a página inteira voltaria a rolar e o microfone sairia da
+  // base — que é justamente o que o acordeão veio resolver.
+  libraryEl.classList.toggle('lib-misc', activeTab === 'mic');
 
   if (activeTab === 'albums') {
     renderCollectionsList();
@@ -6821,11 +6905,6 @@ if (window.__NATIVE__) {
   });
 }
 
-// O botão flutuante de mensagem é dois botões num só (ver renderMsgFab):
-// com mensagem no ar, tira-a da tela; sem, abre a lista.
-pvMsgBtnEl.addEventListener('click', () => {
-  if (msgProjecting()) hideMessage(); else openMsgPopup();
-});
 
 
 plBtnEl.addEventListener('click', openPlPopup);
@@ -7092,7 +7171,6 @@ newFolderInPickerBtnEl.addEventListener('click', async () => {
 // no fundo (fora da folha) também. O par de listeners estava copiado seis
 // vezes; aqui é uma tabela, e um popup novo entra com uma linha.
 [
-  [msgPopupEl, msgPopupCloseEl, closeMsgPopup],
   [collPopupEl, collPopupCloseEl, closeCollectionOptions],
   [plPopupEl, plPopupCloseEl, closePlPopup],
   [hymnSearchPopupEl, hymnSearchCloseEl, closeHymnSearch],
@@ -7267,7 +7345,6 @@ document.addEventListener('visibilitychange', () => {
   // ANTES do load(): é ele que lê `current` e monta a tela a partir dela.
   await clearCurrentSelection();
   await load();
-  renderMsgFab(); // botão flutuante de mensagem começa no estado "abrir lista"
   // Wallpaper escolhido pelo operador (a preview espelha o telão).
   await applyPvWallpaper();
   // processa share pendente (Web Share Target via SW)

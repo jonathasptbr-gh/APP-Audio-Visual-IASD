@@ -728,6 +728,6 @@ Rodar local: `./gradlew assembleDebug` (exige Android SDK instalado).
   (`#appVersion` em `assets/web/controle/index.html`) **e `version` em
   `assets/web/version.json`** — é este último que faz a atualização chegar
   aos aparelhos por OTA. O `versionCode`/`versionName` do APK vêm do CI.
-  **Versão atual: v5.30** (base web) · **shell 1.21** (`SHELL_VERSION` 13 —
+  **Versão atual: v5.31** (base web) · **shell 1.21** (`SHELL_VERSION` 13 —
   a superfície da ponte não mudou desde a 1.20; o APK novo é a mesma casca com
   a base web mais recente embutida).
