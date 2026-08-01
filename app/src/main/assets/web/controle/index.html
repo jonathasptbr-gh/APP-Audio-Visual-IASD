@@ -27,15 +27,9 @@
     <!-- As duas ações no alto, lado a lado: teclas grandes de ícone + rótulo.
          Com a tela bloqueada esta faixa sai do fluxo e vai para o CENTRO da
          tela, só com o botão de conectar (ver .simple.locked .simple-actions).
-         A mensagem do bloqueio mora aqui dentro, e não na cortina, para ficar
-         presa ao botão que a resolve — pendurada acima dele, fora do fluxo,
-         para que quem fique no meio exato seja o botão. -->
+         Ali o botão diz tudo sozinho — ícone e uma frase —, então não há
+         mensagem separada: ver renderSimpleCast. -->
     <div class="simple-actions">
-      <div class="simple-gate-msg">
-        <div class="simple-gate-title">Nenhuma tela conectada</div>
-        <div class="simple-gate-sub">Conecte o telão para operar por aqui.</div>
-      </div>
-
       <button type="button" id="simpleCastBtn" class="simple-key simple-action">
         <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M3 19a2 2 0 0 1 2 2"/>
@@ -43,7 +37,7 @@
           <path d="M3 12a9 9 0 0 1 9 9"/>
           <path d="M8.5 5h10A2.5 2.5 0 0 1 21 7.5v9a2.5 2.5 0 0 1-2.5 2.5H16"/>
         </svg>
-        <span class="simple-key-label">Conectar a tela</span>
+        <span class="simple-key-label" id="simpleCastLabel">Conectar a tela</span>
         <span class="simple-key-sub" id="simpleCastStatus">Abrir a lista de telas</span>
       </button>
 
@@ -109,7 +103,7 @@
     <div class="list-header">
       <button id="backBtn" class="back-btn" hidden><span class="msym">&#xe5c4;</span></button>
       <span class="list-title" id="listTitle">Cronograma</span>
-      <span id="appVersion" class="app-version">Controle v5.40</span>
+      <span id="appVersion" class="app-version">Controle v5.41</span>
       <input id="libSearch" class="lib-search" type="search" placeholder="Buscar na pasta…" hidden>
       <!-- Setas circulares = "sincronizar" (o mesmo desenho dos cards de coleção
            e do botão de re-sync na linha da pasta). folder_open fica reservado
