@@ -86,7 +86,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.29';
+const WEB_VERSION = '5.30';
 
 function renderVersionLabel() {
   // __SHELL_NAME__ = versionName do APK (ver native.js). Vazio no navegador e
@@ -979,6 +979,8 @@ const pvLayerIn = createStage.fadeLayerIn;
 const pvLayerOut = createStage.fadeLayerOut;
 const chronoReading = createStage.chronoReading;
 const CHRONO_TICK_MS = createStage.CHRONO_TICK_MS;
+const drawReading = createStage.drawReading;
+const DRAW_FRAME_MS = createStage.DRAW_FRAME_MS;
 
 // ===== Letra sincronizada na preview — mesma visualização do Display =====
 // A preview já espelha o Display para imagem/vídeo (stage.js) e YouTube
@@ -1133,7 +1135,7 @@ let pvTextActive = false;
 function hidePvText(restore = true) {
   if (!pvTextActive && pvTextEl.hidden) return;
   pvTextActive = false;
-  stopPvChronoTimer();   // espelha hideText no Display
+  stopPvLiveTimer();   // espelha hideText no Display
   // Sai esmaecendo — e o texto NÃO é limpo aqui: apagá-lo agora deixaria o
   // cartão vazio visível durante todo o fade. O próximo showPvText sobrescreve.
   pvLayerOut(pvTextEl);
@@ -1162,43 +1164,65 @@ function restorePvSceneAfterText() {
   updatePvLyricSlide(authoritativeTime());
 }
 
-// Cronômetro na preview: mesmo desenho do Display (ver showText lá) — o valor
-// é derivado localmente do descritor, não recebido pronto. Os dois laços são
-// independentes de propósito: cada um lê o MESMO `startAt` do MESMO relógio do
-// aparelho, então convergem sem precisar sincronizar coisa nenhuma.
-let pvChronoDesc = null;
-let pvChronoTimer = null;
+// Texto VIVO na preview (cronômetro e sorteio): mesmo desenho do Display (ver
+// showText lá) — o valor é derivado localmente do descritor, não recebido
+// pronto. Os dois laços são independentes de propósito: cada um lê o MESMO
+// `startAt`/`rollUntil` do MESMO relógio do aparelho, e o ruído do sorteio sai
+// do MESMO PRNG semeado, então convergem quadro a quadro sem sincronizar nada.
+// Um laço só para os dois modos, como no Display: o cartão é um só.
+let pvLiveKind = '';
+let pvLiveDesc = null;
+let pvLiveTimer = null;
 
-function pvChronoTick() {
-  if (!pvChronoDesc) return;
-  const r = chronoReading(pvChronoDesc, Date.now());
+function pvLiveTick() {
+  const r = pvLiveKind === 'draw' ? drawReading(pvLiveDesc, Date.now())
+    : pvLiveKind === 'chrono' ? chronoReading(pvLiveDesc, Date.now()) : null;
+  if (!r) return;
   pvTextMainEl.textContent = r.text;
   pvTextMainEl.style.setProperty('--ch', r.text.length);  // ver .mode-chrono no CSS
-  pvTextContentEl.classList.toggle('chrono-over', r.over);
+  pvTextContentEl.classList.toggle('chrono-over', !!r.over);
+  pvTextContentEl.classList.toggle('draw-rolling', !!r.rolling);
+  if (pvLiveKind === 'draw' && !r.rolling) stopPvLiveTimer();
 }
 
-function startPvChrono(desc) {
-  pvChronoDesc = desc;
-  stopPvChronoTimer();
-  pvChronoTick();
-  if (desc.mode === 'clock' || desc.running) pvChronoTimer = setInterval(pvChronoTick, CHRONO_TICK_MS);
+function startPvLive(kind, desc) {
+  pvLiveKind = kind; pvLiveDesc = desc || {};
+  stopPvLiveTimer();
+  pvLiveTick();
+  if (kind === 'draw') {
+    if (pvLiveDesc.rollUntil && Date.now() < pvLiveDesc.rollUntil) {
+      pvLiveTimer = setInterval(pvLiveTick, DRAW_FRAME_MS);
+    }
+    return;
+  }
+  if (pvLiveDesc.mode === 'clock' || pvLiveDesc.running) {
+    pvLiveTimer = setInterval(pvLiveTick, CHRONO_TICK_MS);
+  }
 }
 
-function stopPvChronoTimer() {
-  if (pvChronoTimer) { clearInterval(pvChronoTimer); pvChronoTimer = null; }
+function stopPvLiveTimer() {
+  if (pvLiveTimer) { clearInterval(pvLiveTimer); pvLiveTimer = null; }
+}
+
+function clearPvLive() {
+  stopPvLiveTimer(); pvLiveKind = ''; pvLiveDesc = null;
+  pvTextContentEl.classList.remove('chrono-over', 'draw-rolling');
 }
 
 function showPvText(obj) {
   const wallpaper = obj.view === 'wallpaper';
   const isMsg = obj.mode === 'message';
   const isChrono = obj.mode === 'chrono';
+  const isDraw = obj.mode === 'draw';
   pvTextContentEl.classList.toggle('mode-message', isMsg);
   pvTextContentEl.classList.toggle('mode-chrono', isChrono);
+  pvTextContentEl.classList.toggle('mode-draw', isDraw);
   if (isChrono) {
-    startPvChrono(obj.chrono || {});
+    startPvLive('chrono', obj.chrono || {});
+  } else if (isDraw) {
+    startPvLive('draw', obj.draw || {});
   } else {
-    stopPvChronoTimer(); pvChronoDesc = null;
-    pvTextContentEl.classList.remove('chrono-over');
+    clearPvLive();
     pvTextMainEl.textContent = obj.main || '';
   }
   pvTextSubEl.textContent = obj.sub || '';
@@ -1335,6 +1359,7 @@ async function load() {
   const opfsFoldersV = (await AVDB.getState('opfs-folders')) || [];
   const messagesV = (await AVDB.getState('messages')) || [];
   const chronoPrefsV = (await AVDB.getState('chronoPrefs')) || null;
+  const drawPrefsV = (await AVDB.getState('drawPrefs')) || null;
   const storedFit = await AVDB.getState('fit');
   const lyricsBgV = (await AVDB.getState('lyricsBg')) === 'image' ? 'image' : 'black';
   const downloadOkV = !!(await AVDB.getState('downloadOk'));
@@ -1373,6 +1398,7 @@ async function load() {
   opfsFolders = opfsFoldersV;
   messages = messagesV;
   applyChronoPrefs(chronoPrefsV);
+  applyDrawPrefs(drawPrefsV);
   if (storedFit) mediaFit = storedFit;
   lyricsBg = lyricsBgV;
   downloadConsent = downloadOkV;
@@ -1476,6 +1502,15 @@ function renderRepeat() {
 }
 
 function renderNowPlaying() {
+  // Sorteio EM EXIBIÇÃO.
+  if (drawProjecting()) {
+    npNameInnerEl.textContent = 'Sorteio';
+    applyTitleMarquee();
+    playPauseEl.querySelector('.msym').textContent = playing ? ICON.pause : ICON.play;
+    renderSimple();
+    pushNowPlaying();
+    return;
+  }
   // Cronômetro/relógio/timer EM EXIBIÇÃO: o nome da ferramenta. Não há barra de
   // progresso (o tempo dele não é o de uma mídia), e o ▶ segue valendo para o
   // áudio de fundo, que continua tocando por baixo do cartão.
@@ -2177,7 +2212,7 @@ function hideBibleVerse() {
 function projectBibleVerse(idx) {
   const s = bibleSession;
   if (!s || idx < 0 || idx >= s.verses.length) return;
-  clearChronoSession();   // cartão único: um provedor por vez
+  clearChronoSession(); clearDrawSession();   // cartão único: um provedor por vez
   s.idx = idx;
   s.projecting = true;
   const v = s.verses[idx];
@@ -2492,7 +2527,9 @@ function clearMsgSession() {
   renderMsgFab(); refreshMsgPopup();
 }
 // Encerra QUALQUER texto manual em cena (Bíblia ou Mensagem) — só um por vez.
-function clearManualText() { clearBibleSession(); clearMsgSession(); clearChronoSession(); }
+function clearManualText() {
+  clearBibleSession(); clearMsgSession(); clearChronoSession(); clearDrawSession();
+}
 
 // Projeta a mensagem de índice `idx` (Display + preview). Encerra a Bíblia (só
 // um texto manual por vez).
@@ -2500,6 +2537,7 @@ function projectMessage(idx) {
   if (idx < 0 || idx >= messages.length) return;
   clearBibleSession();
   clearChronoSession();
+  clearDrawSession();
   msgSession = { idx, projecting: true };
   view = 'visual';
   persistCurrent();
@@ -2721,6 +2759,7 @@ function pushChrono() {
 function projectChrono() {
   clearBibleSession();
   clearMsgSession();
+  clearDrawSession();
   chronoSession = { projecting: true };
   view = 'visual';
   persistCurrent();
@@ -2819,7 +2858,7 @@ function stopChronoPanelTimer() {
 function chronoSegBtn(m) {
   const b = document.createElement('button');
   b.type = 'button';
-  b.className = 'chrono-seg' + (chrono.mode === m.id ? ' active' : '');
+  b.className = 'misc-seg' + (chrono.mode === m.id ? ' active' : '');
   b.textContent = m.name;
   b.addEventListener('click', () => chronoSetMode(m.id));
   return b;
@@ -2830,8 +2869,12 @@ function renderChrono() {
   if (!host) return;
   host.innerHTML = '';
 
+  const title = document.createElement('div');
+  title.className = 'misc-title'; title.textContent = 'Tempo';
+  host.appendChild(title);
+
   const modes = document.createElement('div');
-  modes.className = 'chrono-modes';
+  modes.className = 'misc-modes';
   CHRONO_MODES.forEach((m) => modes.appendChild(chronoSegBtn(m)));
   host.appendChild(modes);
 
@@ -2846,7 +2889,7 @@ function renderChrono() {
     CHRONO_PRESETS.forEach((min) => {
       const b = document.createElement('button');
       b.type = 'button';
-      b.className = 'chrono-chip' + (chrono.durationMs === min * 60000 ? ' active' : '');
+      b.className = 'misc-chip' + (chrono.durationMs === min * 60000 ? ' active' : '');
       b.textContent = min + ' min';
       b.addEventListener('click', () => chronoSetDuration(min * 60000));
       presets.appendChild(b);
@@ -2854,12 +2897,12 @@ function renderChrono() {
     host.appendChild(presets);
 
     const row = document.createElement('div');
-    row.className = 'chrono-custom';
+    row.className = 'misc-row';
     const lab = document.createElement('span');
-    lab.className = 'chrono-custom-label'; lab.textContent = 'Minutos';
+    lab.className = 'misc-row-label'; lab.textContent = 'Minutos';
     const inp = document.createElement('input');
     inp.type = 'number'; inp.min = '1'; inp.max = '600'; inp.inputMode = 'numeric';
-    inp.className = 'chrono-custom-input';
+    inp.className = 'misc-num';
     inp.value = String(Math.max(1, Math.round(chrono.durationMs / 60000)));
     // `change` (e não `input`): reprojetar a cada dígito faria o telão piscar
     // valores intermediários enquanto o operador ainda digita.
@@ -2875,11 +2918,11 @@ function renderChrono() {
   // ---- Relógio: formato ----
   if (chrono.mode === 'clock') {
     const opts = document.createElement('div');
-    opts.className = 'chrono-opts';
+    opts.className = 'misc-opts';
     const mk = (name, on, fn) => {
       const b = document.createElement('button');
       b.type = 'button';
-      b.className = 'chrono-chip' + (on ? ' active' : '');
+      b.className = 'misc-chip' + (on ? ' active' : '');
       b.textContent = name;
       b.addEventListener('click', fn);
       return b;
@@ -2914,11 +2957,11 @@ function renderChrono() {
 
   // ---- Sublinha do telão ----
   const labRow = document.createElement('div');
-  labRow.className = 'chrono-custom';
+  labRow.className = 'misc-row';
   const labLab = document.createElement('span');
-  labLab.className = 'chrono-custom-label'; labLab.textContent = 'Legenda';
+  labLab.className = 'misc-row-label'; labLab.textContent = 'Legenda';
   const labInp = document.createElement('input');
-  labInp.type = 'text'; labInp.className = 'chrono-label-input';
+  labInp.type = 'text'; labInp.className = 'misc-text';
   labInp.placeholder = 'opcional — ex: Início do culto';
   labInp.maxLength = 60;
   labInp.value = chrono.label;
@@ -2934,7 +2977,7 @@ function renderChrono() {
   const proj = document.createElement('button');
   proj.type = 'button';
   const live = chronoProjecting();
-  proj.className = 'chrono-project' + (live ? ' live' : '');
+  proj.className = 'misc-project' + (live ? ' live' : '');
   proj.textContent = live ? 'Tirar do telão' : 'Projetar no telão';
   proj.addEventListener('click', () => (live ? hideChrono() : projectChrono()));
   host.appendChild(proj);
@@ -2943,14 +2986,369 @@ function renderChrono() {
   startChronoPanelTimer();
 }
 
+// ===== Sorteio (aba Diversos) =====
+// Quarto provedor da Camada de Texto. Sorteia NÚMERO (faixa de/até) ou TEXTO
+// (uma lista de opções — nomes, prêmios, perguntas).
+//
+// **Quem sorteia é só o Controle.** Se cada tela rodasse o próprio
+// `Math.random`, o telão e a preview anunciariam ganhadores DIFERENTES — o
+// pior defeito possível aqui, e público. O resultado viaja pronto no descritor;
+// o que cada lado faz sozinho é apenas a animação até ele (ver drawReading em
+// stage.js).
+let drawSession = null;   // { projecting } | null
+let draw = {
+  kind: 'number',   // 'number' | 'text'
+  min: 1,
+  max: 100,
+  pool: [],         // opções de texto
+  noRepeat: true,
+  label: '',
+  value: null,      // último resultado
+  used: [],         // já sorteados (só conta com noRepeat)
+  seed: 0,
+  rollUntil: 0,
+};
+let drawPanelTimer = null;
+
+const DRAW_ROLL_MS = 1800;   // suspense sem cansar
+const DRAW_POOL_CAP = 40;    // amostra do ruído que viaja no comando
+const DRAW_SPAN_CAP = 100000;
+
+function drawProjecting() { return !!(drawSession && drawSession.projecting); }
+
+function applyDrawPrefs(p) {
+  if (!p) return;
+  if (p.kind === 'text' || p.kind === 'number') draw.kind = p.kind;
+  if (typeof p.min === 'number') draw.min = p.min;
+  if (typeof p.max === 'number') draw.max = p.max;
+  if (Array.isArray(p.pool)) draw.pool = p.pool.filter((x) => typeof x === 'string');
+  if (typeof p.noRepeat === 'boolean') draw.noRepeat = p.noRepeat;
+  if (typeof p.label === 'string') draw.label = p.label;
+  // Ao contrário do cronômetro, aqui o RESULTADO e os já sorteados VOLTAM. Um
+  // cronômetro restaurado mostraria um tempo que não correu; um sorteio não
+  // depende do relógio — e perder "quem já foi sorteado" porque o app fechou no
+  // meio faria a próxima rodada repetir alguém, que é o erro que `noRepeat`
+  // existe para impedir.
+  if (Array.isArray(p.used)) draw.used = p.used.map(String);
+  if (typeof p.value === 'string' || typeof p.value === 'number') draw.value = String(p.value);
+}
+
+function saveDrawPrefs() {
+  return AVDB.setState('drawPrefs', {
+    kind: draw.kind, min: draw.min, max: draw.max, pool: draw.pool,
+    noRepeat: draw.noRepeat, label: draw.label, used: draw.used, value: draw.value,
+  });
+}
+
+// Quantas opções ainda podem sair. Para número não materializa a faixa: um
+// "de 1 até 100000" viraria um array de 100 mil strings a cada render.
+function drawRemaining() {
+  if (draw.kind === 'text') {
+    if (!draw.noRepeat) return draw.pool.length;
+    const used = new Set(draw.used);
+    return draw.pool.filter((x) => !used.has(x)).length;
+  }
+  const span = Math.max(0, draw.max - draw.min + 1);
+  return draw.noRepeat ? Math.max(0, span - new Set(draw.used).size) : span;
+}
+
+function pickText() {
+  const used = new Set(draw.used);
+  const cand = draw.noRepeat ? draw.pool.filter((x) => !used.has(x)) : draw.pool;
+  if (!cand.length) return null;
+  return cand[Math.floor(Math.random() * cand.length)];
+}
+
+// Amostragem por REJEIÇÃO enquanto sobra folga, varredura quando aperta: numa
+// faixa grande, montar a lista do que falta a cada sorteio é caro à toa; no
+// fim, quando quase tudo já saiu, a rejeição é que ficaria cara.
+function pickNumber() {
+  const span = draw.max - draw.min + 1;
+  if (span <= 0) return null;
+  if (!draw.noRepeat) return draw.min + Math.floor(Math.random() * span);
+  const used = new Set(draw.used.map(Number));
+  if (used.size >= span) return null;
+  for (let i = 0; i < 200; i++) {
+    const n = draw.min + Math.floor(Math.random() * span);
+    if (!used.has(n)) return n;
+  }
+  const left = [];
+  for (let n = draw.min; n <= draw.max; n++) if (!used.has(n)) left.push(n);
+  return left.length ? left[Math.floor(Math.random() * left.length)] : null;
+}
+
+// A amostra do ruído do rolo. Não é o sorteio — é só o que pisca antes de
+// assentar —, então uma amostra basta e evita mandar uma lista de 500 nomes
+// pelo barramento a cada rodada.
+function drawNoisePool() {
+  if (draw.kind !== 'text') return null;
+  if (draw.pool.length <= DRAW_POOL_CAP) return draw.pool.slice();
+  const out = [];
+  for (let i = 0; i < DRAW_POOL_CAP; i++) out.push(draw.pool[Math.floor(Math.random() * draw.pool.length)]);
+  return out;
+}
+
+function drawDescriptor() {
+  return {
+    kind: draw.kind, value: draw.value, seed: draw.seed, rollUntil: draw.rollUntil,
+    min: draw.min, max: draw.max, pool: drawNoisePool(),
+  };
+}
+
+function pushDraw() {
+  if (!drawProjecting()) return;
+  cmd({ type: 'text', mode: 'draw', draw: drawDescriptor(), sub: draw.label || '', view: 'visual' });
+}
+
+function doDraw() {
+  const v = draw.kind === 'text' ? pickText() : pickNumber();
+  if (v == null) {
+    flash(draw.kind === 'text' && !draw.pool.length
+      ? 'Escreva as opções antes de sortear.'
+      : 'Todas as opções já saíram. Toque em "Reiniciar" para sortear de novo.');
+    return;
+  }
+  draw.value = String(v);
+  if (draw.noRepeat) draw.used.push(String(v));
+  // Semente nova a cada rodada: sem ela o ruído do rolo seria idêntico toda
+  // vez, e um sorteio que "roda igual" parece decidido de antemão.
+  draw.seed = (Math.random() * 0x7fffffff) | 0;
+  draw.rollUntil = Date.now() + DRAW_ROLL_MS;
+  saveDrawPrefs();
+  pushDraw();
+  renderDraw();
+}
+
+function drawReset() {
+  draw.used = [];
+  draw.value = null;
+  draw.rollUntil = 0;
+  saveDrawPrefs();
+  pushDraw();
+  renderDraw();
+}
+
+function projectDraw() {
+  clearBibleSession();
+  clearMsgSession();
+  clearChronoSession();
+  drawSession = { projecting: true };
+  view = 'visual';
+  persistCurrent();
+  cmd({ type: 'text', mode: 'draw', draw: drawDescriptor(), sub: draw.label || '', view: 'visual' });
+  renderControls();
+  renderNowPlaying();
+  renderDraw();
+}
+
+function hideDraw() {
+  if (!drawProjecting()) return;
+  drawSession.projecting = false;
+  cmd({ type: 'text-hide' });
+  renderControls();
+  renderNowPlaying();
+  renderDraw();
+}
+
+function clearDrawSession() {
+  if (!drawSession) return;
+  drawSession = null;
+  renderNowPlaying();
+  if (activeTab === 'mic') renderDraw();
+}
+
+function renderDrawReadout() {
+  const el = document.getElementById('drawRead');
+  if (!el) return;
+  const r = createStage.drawReading(
+    { kind: draw.kind, value: draw.value, seed: draw.seed, rollUntil: draw.rollUntil,
+      min: draw.min, max: draw.max, pool: draw.pool },
+    Date.now(),
+  );
+  el.textContent = r.text;
+  el.classList.toggle('rolling', r.rolling);
+  if (!r.rolling) stopDrawPanelTimer();
+}
+
+function startDrawPanelTimer() {
+  stopDrawPanelTimer();
+  if (draw.rollUntil && Date.now() < draw.rollUntil) {
+    drawPanelTimer = setInterval(renderDrawReadout, DRAW_FRAME_MS);
+  }
+}
+
+function stopDrawPanelTimer() {
+  if (drawPanelTimer) { clearInterval(drawPanelTimer); drawPanelTimer = null; }
+}
+
+function drawChip(name, on, fn) {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'misc-chip' + (on ? ' active' : '');
+  b.textContent = name;
+  b.addEventListener('click', fn);
+  return b;
+}
+
+function renderDraw() {
+  const host = document.getElementById('drawWrap');
+  if (!host) return;
+  host.innerHTML = '';
+
+  const title = document.createElement('div');
+  title.className = 'misc-title'; title.textContent = 'Sorteio';
+  host.appendChild(title);
+
+  const modes = document.createElement('div');
+  modes.className = 'misc-modes';
+  [{ id: 'number', name: 'Número' }, { id: 'texto', name: 'Texto' }].forEach((m) => {
+    const id = m.id === 'texto' ? 'text' : 'number';
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'misc-seg' + (draw.kind === id ? ' active' : '');
+    b.textContent = m.name;
+    b.addEventListener('click', () => {
+      if (draw.kind === id) return;
+      draw.kind = id;
+      // Trocar a natureza do sorteio invalida o histórico: "12" e "Maria" não
+      // pertencem ao mesmo conjunto, e manter os dois faria `noRepeat` filtrar
+      // por valores que nem podem sair.
+      draw.used = []; draw.value = null; draw.rollUntil = 0;
+      saveDrawPrefs(); pushDraw(); renderDraw();
+    });
+    modes.appendChild(b);
+  });
+  host.appendChild(modes);
+
+  const read = document.createElement('div');
+  read.className = 'draw-read'; read.id = 'drawRead';
+  host.appendChild(read);
+
+  // ---- Fonte das opções ----
+  if (draw.kind === 'number') {
+    const row = document.createElement('div');
+    row.className = 'draw-range';
+    const mk = (lab, val, fn) => {
+      const wrap = document.createElement('label');
+      wrap.className = 'draw-range-field';
+      const s = document.createElement('span'); s.className = 'misc-row-label'; s.textContent = lab;
+      const i = document.createElement('input');
+      i.type = 'number'; i.inputMode = 'numeric'; i.className = 'misc-num';
+      i.value = String(val);
+      i.addEventListener('change', () => fn(parseInt(i.value, 10)));
+      wrap.appendChild(s); wrap.appendChild(i);
+      return wrap;
+    };
+    row.appendChild(mk('De', draw.min, (v) => {
+      if (!isFinite(v)) return renderDraw();
+      draw.min = v; if (draw.max < draw.min) draw.max = draw.min;
+      if (draw.max - draw.min + 1 > DRAW_SPAN_CAP) draw.max = draw.min + DRAW_SPAN_CAP - 1;
+      saveDrawPrefs(); renderDraw();
+    }));
+    row.appendChild(mk('Até', draw.max, (v) => {
+      if (!isFinite(v)) return renderDraw();
+      draw.max = v; if (draw.max < draw.min) draw.max = draw.min;
+      if (draw.max - draw.min + 1 > DRAW_SPAN_CAP) draw.max = draw.min + DRAW_SPAN_CAP - 1;
+      saveDrawPrefs(); renderDraw();
+    }));
+    host.appendChild(row);
+  } else {
+    const ta = document.createElement('textarea');
+    ta.className = 'draw-pool'; ta.rows = 5;
+    ta.placeholder = 'Uma opção por linha\nEx.:\nMaria\nJoão\nAna';
+    ta.value = draw.pool.join('\n');
+    // `change` (e não `input`): reprojetar/repersistir a cada tecla escreveria
+    // no IDB dezenas de vezes enquanto o operador ainda digita a lista.
+    ta.addEventListener('change', () => {
+      draw.pool = ta.value.split('\n').map((s) => s.trim()).filter(Boolean);
+      saveDrawPrefs(); renderDraw();
+    });
+    host.appendChild(ta);
+  }
+
+  // ---- Regras e histórico ----
+  const opts = document.createElement('div');
+  opts.className = 'misc-opts';
+  opts.appendChild(drawChip('Não repetir', draw.noRepeat, () => {
+    draw.noRepeat = !draw.noRepeat; saveDrawPrefs(); renderDraw();
+  }));
+  const left = drawRemaining();
+  const info = document.createElement('span');
+  info.className = 'draw-info';
+  info.textContent = draw.noRepeat
+    ? left + ' de ' + (draw.kind === 'text' ? draw.pool.length : Math.max(0, draw.max - draw.min + 1)) + ' restantes'
+    : (draw.kind === 'text' ? draw.pool.length + ' opções' : Math.max(0, draw.max - draw.min + 1) + ' números');
+  opts.appendChild(info);
+  if (draw.used.length) {
+    const rst = document.createElement('button');
+    rst.type = 'button'; rst.className = 'misc-chip'; rst.textContent = 'Reiniciar';
+    rst.addEventListener('click', drawReset);
+    opts.appendChild(rst);
+  }
+  host.appendChild(opts);
+
+  // Os já sorteados, à vista: numa rifa a pergunta seguinte é sempre "quem já
+  // saiu?" — e o contador sozinho não responde.
+  if (draw.used.length) {
+    const hist = document.createElement('div');
+    hist.className = 'draw-hist';
+    draw.used.slice().reverse().forEach((u, i) => {
+      const c = document.createElement('span');
+      c.className = 'draw-hist-chip' + (i === 0 ? ' last' : '');
+      c.textContent = u;
+      hist.appendChild(c);
+    });
+    host.appendChild(hist);
+  }
+
+  // ---- Legenda ----
+  const labRow = document.createElement('div');
+  labRow.className = 'misc-row';
+  const labLab = document.createElement('span');
+  labLab.className = 'misc-row-label'; labLab.textContent = 'Legenda';
+  const labInp = document.createElement('input');
+  labInp.type = 'text'; labInp.className = 'misc-text';
+  labInp.placeholder = 'opcional — ex: Sorteio dos visitantes';
+  labInp.maxLength = 60;
+  labInp.value = draw.label;
+  labInp.addEventListener('change', () => {
+    draw.label = labInp.value.trim(); saveDrawPrefs(); pushDraw();
+  });
+  labRow.appendChild(labLab); labRow.appendChild(labInp);
+  host.appendChild(labRow);
+
+  // ---- Ações ----
+  const go = document.createElement('button');
+  go.type = 'button'; go.className = 'draw-go';
+  go.textContent = draw.used.length || draw.value ? 'Sortear de novo' : 'Sortear';
+  go.disabled = left <= 0;
+  go.addEventListener('click', doDraw);
+  host.appendChild(go);
+
+  const proj = document.createElement('button');
+  proj.type = 'button';
+  const live = drawProjecting();
+  proj.className = 'misc-project' + (live ? ' live' : '');
+  proj.textContent = live ? 'Tirar do telão' : 'Projetar no telão';
+  proj.addEventListener('click', () => (live ? hideDraw() : projectDraw()));
+  host.appendChild(proj);
+
+  renderDrawReadout();
+  startDrawPanelTimer();
+}
+
 // A aba Diversos reúne as ferramentas que não pertencem à biblioteca: o
-// microfone ao vivo e o cronômetro/relógio/timer.
+// microfone ao vivo, o cronômetro/relógio/timer e o sorteio.
 function renderDiversos() {
   renderMic();
-  const host = document.createElement('div');
-  host.id = 'chronoWrap'; host.className = 'chrono-wrap';
-  libraryEl.appendChild(host);
+  const chronoHost = document.createElement('div');
+  chronoHost.id = 'chronoWrap'; chronoHost.className = 'misc-wrap';
+  libraryEl.appendChild(chronoHost);
   renderChrono();
+  const drawHost = document.createElement('div');
+  drawHost.id = 'drawWrap'; drawHost.className = 'misc-wrap';
+  libraryEl.appendChild(drawHost);
+  renderDraw();
 }
 
 // ===== Mensagens: botão flutuante na preview + popup =====
@@ -3743,7 +4141,7 @@ async function send(id) {
   // manual em cena (Bíblia/Mensagem/cronômetro); qualquer VISUAL (vídeo/imagem/
   // YouTube) encerra. Um louvor de fundo sob a contagem regressiva de abertura
   // é justamente o uso normal.
-  if (!((bibleSession || msgSession || chronoSession) && currentItem && currentItem.kind === 'audio')) clearManualText();
+  if (!((bibleSession || msgSession || chronoSession || drawSession) && currentItem && currentItem.kind === 'audio')) clearManualText();
   await persistCurrent();
   ytEnded = false;
   displayStatusAt = 0; // até o Display confirmar o novo item, a preview dirige
@@ -3784,7 +4182,7 @@ function slideTarget() {
   // O cronômetro não tem slides. Sem esta guarda, os botões de estrofe cairiam
   // na letra do áudio de fundo — que está ESCONDIDO atrás do cartão: o operador
   // apertaria "próxima estrofe" e a música saltaria, sem nada mudar na tela.
-  if (chronoProjecting()) return null;
+  if (chronoProjecting() || drawProjecting()) return null;
   if (msgSession && msgSession.projecting) return 'message';
   if (bibleSession && bibleSession.projecting) return 'bible';
   const lyrics = currentItem && Array.isArray(currentItem.lyrics) ? currentItem.lyrics : null;
@@ -6474,7 +6872,7 @@ function switchTab(tab) {
   // O laço do painel morre com a aba (o cronômetro NÃO — ele segue correndo no
   // estado, e a projeção tem laço próprio). Sem isto sobraria um timer de 5 Hz
   // reescrevendo um nó que o `innerHTML = ''` da lista já descartou.
-  if (activeTab === 'mic') stopChronoPanelTimer();
+  if (activeTab === 'mic') { stopChronoPanelTimer(); stopDrawPanelTimer(); }
   activeTab = tab;
   if (selectionMode) exitSelection();
   load();
@@ -6729,7 +7127,12 @@ function resendSceneToDisplay() {
   // O cronômetro volta pelo DESCRITOR, não por um valor: o telão recalcula o
   // número a partir do mesmo `startAt`, então ele reaparece no segundo certo —
   // não no ponto em que a conexão caiu.
-  if (chronoProjecting()) {
+  if (drawProjecting()) {
+    // O telão que reconecta no MEIO do rolo entra no mesmo quadro dos demais: o
+    // quadro é função de `rollUntil` e do relógio, não de quantos ticks já
+    // passaram por ali (ver drawReading).
+    AVDB.sendCommand({ type: 'text', mode: 'draw', draw: drawDescriptor(), sub: draw.label || '', view });
+  } else if (chronoProjecting()) {
     AVDB.sendCommand({ type: 'text', mode: 'chrono', chrono: chronoDescriptor(), sub: chrono.label || '', view });
   } else if (bibleSession && bibleSession.projecting) {
     const v = bibleSession.verses[bibleSession.idx];
