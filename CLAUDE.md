@@ -561,15 +561,13 @@ obedece. A ordem vai do mais efêmero ao mais permanente, que é a ordem em que
 as coisas foram abertas:
 
 1. diálogo modal (cancela, como o botão Cancelar)
-2. dentro de uma coleção na busca → volta ao acervo (a busca tem dois níveis
-   desde a v5.43; o ✕ e o toque no fundo continuam fechando de uma vez)
-3. bottom-sheet aberto (o de cima, se houver mais de um)
-4. preview em tela cheia — que, sem telão conectado, **é** a projeção
-5. coluna do mixer aberta no fader
-6. seleção múltipla
-7. sub-tela com voltar próprio (pasta, Favoritos, telas da Bíblia) → `navigateBack()`
-8. aba diferente do Cronograma → volta para ele
-9. nada aberto → `moveTaskToBack`
+2. bottom-sheet aberto (o de cima, se houver mais de um)
+3. preview em tela cheia — que, sem telão conectado, **é** a projeção
+4. coluna do mixer aberta no fader
+5. seleção múltipla
+6. sub-tela com voltar próprio (pasta, Favoritos, telas da Bíblia) → `navigateBack()`
+7. aba diferente do Cronograma → volta para ele
+8. nada aberto → `moveTaskToBack`
 
 A tabela de popups é **a mesma** que registra o ✕ e o toque no fundo
 (`POPUPS`): um popup novo entra numa linha e já é fechável pelos três caminhos.
@@ -768,7 +766,7 @@ Rodar local: `./gradlew assembleDebug` (exige Android SDK instalado).
   (`#appVersion` em `assets/web/controle/index.html`) **e `version` em
   `assets/web/version.json`** — é este último que faz a atualização chegar
   aos aparelhos por OTA. O `versionCode`/`versionName` do APK vêm do CI.
-  **Versão atual: v5.44** (base web) · **shell 1.22** (`SHELL_VERSION` 14 —
+  **Versão atual: v5.45** (base web) · **shell 1.22** (`SHELL_VERSION` 14 —
   o shell passou a consultar `window.__avBack` no botão voltar; ver
   "Divergências"). O bundle segue com `minShell: 2`: num shell antigo ele
   funciona igual, só sem a escada do voltar — que é nativa e **só chega

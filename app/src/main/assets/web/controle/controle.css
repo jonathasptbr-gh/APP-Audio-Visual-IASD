@@ -131,7 +131,7 @@ input, textarea { user-select: text !important; -webkit-user-select: text !impor
 :is(
   .ctl-btn, .t-btn, .slide-nav-btn, .pv-fab,
   .tab, .tab-add, .import-btn, .add-dir-btn, .back-btn, .sel-btn,
-  .row-btn, .row-handle, .popup-close, .popup-back, .new-folder-btn, .folder-pick-btn,
+  .row-btn, .row-handle, .popup-close, .coll-open-cfg, .new-folder-btn, .folder-pick-btn,
   .coll-pill, .coll-bar, .coll-bar-btn, .coll-group-btn, .hymnal-card-btn,
   .bible-cell, .bible-ref-part, .bible-vsec, .bible-ver-row,
   .hymn-row, .msg-add-btn, .msg-item,
@@ -874,6 +874,39 @@ main {
 .coll-bar-btn { width: 34px; height: 34px; flex-shrink: 0; }
 .hymnal-card-btn.cfg-btn { background: var(--surface); color: var(--muted); }
 
+/* ----- Coleção aberta no próprio card (acordeão do acervo, v5.45) ----- */
+/* A seta anuncia o que o toque faz. Gira ao abrir — é o sinal de que a lista
+   saiu dali, e não de outro lugar da tela. */
+.coll-bar-chev {
+  flex-shrink: 0; font-size: var(--icon-sm); color: var(--muted);
+  transition: transform .2s ease;
+}
+.hymnal-card.expanded .coll-bar-chev { transform: rotate(180deg); color: var(--accent); }
+.hymnal-card.expanded { border-color: var(--accent); }
+/* A engrenagem desceu da barra para cá: manutenção (sincronizar, excluir, peso)
+   é o que se procura DEPOIS de já estar olhando o álbum. Larga e rotulada,
+   porque aqui há espaço — na barra ela era um ícone mudo disputando o toque
+   com a própria linha. */
+.coll-open-actions { padding: .5rem 0 .1rem; }
+.coll-open-cfg {
+  width: 100%; display: flex; align-items: center; justify-content: center; gap: .45rem;
+  border: 1px solid var(--line); border-radius: var(--radius-btn);
+  background: var(--surface); color: var(--text);
+  font-family: inherit; font-size: .8rem; font-weight: 600;
+  padding: .5rem .7rem; cursor: pointer;
+}
+.coll-open-cfg svg { display: block; color: var(--muted); }
+.coll-open-cfg.busy { border-color: var(--accent); color: var(--accent); }
+.coll-open-cfg.busy svg { color: var(--accent); }
+/* As músicas, dentro do card. Sem teto de altura: quem abriu um álbum quer
+   percorrê-lo inteiro, e uma segunda barra de rolagem dentro da lista que já
+   rola é o pior jeito de folhear. */
+.coll-songs {
+  list-style: none; margin: .4rem -.7rem 0; padding: .4rem .7rem 0;
+  border-top: 1px solid var(--line);
+  display: flex; flex-direction: column; gap: .35rem;
+}
+
 /* Conteúdo do bottom-sheet de mensagens. */
 .msg-list .empty { padding: 1rem 0; }
 
@@ -1406,6 +1439,17 @@ main {
   padding-bottom: env(safe-area-inset-bottom);
 }
 .popup-backdrop.open .popup-sheet { transform: translateY(0); }
+/* Folha de TELA CHEIA (o acervo). É a tela em que o operador passa mais tempo
+   antes do culto — folhear álbuns, abrir letras, decidir o que baixar — e uma
+   folha de 80vh deixava uma faixa morta no topo enquanto a lista rolava
+   apertada embaixo. Sem cantos arredondados: eles anunciam "há algo atrás", e
+   aqui não há. */
+.popup-sheet--full {
+  max-height: 100%; height: 100%;
+  border-radius: 0;
+  padding-top: env(safe-area-inset-top);
+}
+.popup-backdrop--full { align-items: stretch; }
 
 .popup-header {
   display: flex; align-items: center; gap: .5rem;
@@ -1425,17 +1469,10 @@ main {
   display: flex; align-items: center; justify-content: center; cursor: pointer;
 }
 .popup-close .msym { font-size: var(--icon-sm); }
-/* Voltar dentro do popup (busca: coleção → acervo). Accent, e não `--muted`
-   como o ✕: um leva adiante no caminho, o outro desiste dele — e no cabeçalho
-   os dois ficam a centímetros um do outro. */
-.popup-back {
-  width: 34px; height: 34px; border: none; border-radius: var(--radius-btn);
-  background: var(--surface-2); color: var(--accent);
-  display: flex; align-items: center; justify-content: center; cursor: pointer;
-  flex-shrink: 0;
-}
-.popup-back[hidden] { display: none; }
-.popup-back .msym { font-size: var(--icon-sm); }
+/* "Baixar todo o acervo" no cabeçalho: contador + botão, os MESMOS elementos
+   (`.coll-group-count` / `.coll-group-btn`) que a barra tinha na lista — só
+   que fixos no alto. */
+.popup-total { display: flex; align-items: center; gap: .4rem; flex-shrink: 0; }
 
 .popup-list {
   flex: 1; overflow-y: auto;
