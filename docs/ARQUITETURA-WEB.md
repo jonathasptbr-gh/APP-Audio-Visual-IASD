@@ -2133,6 +2133,49 @@ Do lado web importam duas coisas:
 a função simplesmente nunca é chamada lá. A base continua rodando nos dois
 contextos sem guarda nenhuma.
 
+### Busca dentro da LETRA (v5.35)
+
+"Qual é o hino que fala em *firme nas promessas*?" é a pergunta que o operador
+faz de verdade, e até a v5.34 a busca só respondia por título e número. Agora o
+mesmo campo (`#hymnSearchInput`) também varre o texto das letras.
+
+**A letra já está no aparelho.** `buildLyricSlides` a grava no registro do
+arquivo (store `files`) quando a música é baixada — então o índice sai de **uma
+leitura do IDB**, sem nenhuma requisição, e funciona offline, que é o estado
+normal no meio de um culto.
+
+- **O alcance é o que está BAIXADO**, e isso é uma limitação da fonte, não uma
+  escolha de escopo: música nunca baixada não tem letra no aparelho. O índice do
+  acervo (`pt_hymnal`, `pt_musics`) traz nome, número e duração — não o texto.
+  Cobrir o catálogo inteiro exigiria puxar um `music_{id}` por música, centenas
+  de requisições, e seria outra funcionalidade com outro custo.
+- **Título ANTES de letra, sempre.** Quem digita "Firme nas Promessas" quer o
+  hino de mesmo nome no topo, não os quinze que citam a expressão numa estrofe.
+  São dois grupos concatenados (`porNome` + `porLetra`), e quem casa por título
+  **nem chega a consultar** a letra.
+- **A linha que casou aparece no resultado** (`.hymn-lyric-hit`, em itálico
+  dourado com barra à esquerda, para se ler como citação e não como mais um
+  subtítulo). Sem ela o item apareceria sem nenhuma relação visível com o que
+  foi digitado, e o operador teria que abrir um por um para descobrir se é o
+  hino certo.
+- **Mínimo de 3 caracteres** (`LYRIC_MIN_Q`) para a busca entrar na letra: com
+  menos, "de"/"ao" casariam em quase todo hino e afogariam os resultados por
+  título, que são a maioria dos casos.
+- **A estrofe é quebrada em linhas** na indexação (o `<br>` da API já virou
+  `\n` em `normalizeLyricText`), para o trecho exibido ser uma linha e não o
+  bloco inteiro.
+- **O índice é construído sob demanda e redesenha ao ficar pronto**:
+  `renderSearchResults` é síncrona (roda a cada tecla) e não pode esperar o IDB.
+  É invalidado (`invalidateLyricIndex`) no ponto exato em que uma letra nova é
+  gravada — invalidar em vez de reconstruir evita pagar a leitura no meio de uma
+  sincronização em massa.
+- **Custo medido**: com 700 letras indexadas, **9,3 ms por tecla** incluindo o
+  render dos resultados. A varredura é `String.includes` sobre um texto
+  normalizado uma única vez por música.
+- **Acento não atrapalha**: índice e consulta passam pelo mesmo
+  `normalizeForSearch` (NFD + remoção de diacríticos), então "criacao" acha
+  "criação".
+
 ### Diversos: o seletor de ferramenta
 
 A aba reúne quatro ferramentas, e três delas empilhadas **não cabiam** numa tela
