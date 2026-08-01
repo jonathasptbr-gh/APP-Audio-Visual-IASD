@@ -79,10 +79,10 @@ git push origin main
   `renderVersionLabel()`), o fallback estático do `<span id="appVersion">` em
   `controle/index.html` e `version` em `version.json` (é este último que
   dispara a atualização por OTA nos aparelhos). Versionamento incremental
-  simples (5.20, 5.21, 5.22…). **Versão atual: v5.22.**
+  simples (5.21, 5.22, 5.23…). **Versão atual: v5.23.**
   No app nativo o rótulo mostra os **dois índices** — `Web v5.17 · Shell v1.18`
   —, porque base web e shell atualizam por caminhos independentes (OTA ×
-  instalar APK); no navegador sai só `Controle v5.22`.
+  instalar APK); no navegador sai só `Controle v5.23`.
 
 ---
 
@@ -625,6 +625,53 @@ chegou depois já decidiu o estado final da cortina. Ações exclusivas
 ---
 
 ## Controle
+
+### Modos de uso: simplificado × sonoplasta completo
+
+O app atende duas pessoas diferentes. Uma abre o celular para **conectar a
+tela e tocar um louvor**; a outra opera o culto inteiro — Cronograma, álbuns,
+Bíblia, Camada de Texto, playlist, letra sincronizada, microfone. A tela que
+serve bem à segunda é excessiva para a primeira, e esconder recursos atrás de
+uma configuração só empurraria a escolha para um lugar onde ninguém procura.
+
+**A pergunta é explícita na abertura** (`#modePicker`, visível já no HTML —
+não espera JS nem IndexedDB) e **não é lembrada entre sessões**: quem abre o
+app hoje pode não ser quem abre no próximo culto, e a resposta custa um toque.
+Trocar depois não exige reabrir: no simplificado há o botão "Modo completo" no
+cabeçalho, e no completo o segmento **Modo do app** no popup de Exibição
+(`#appModeSeg`).
+
+**O simplificado NÃO é uma segunda implementação.** A tela completa continua
+no DOM, só oculta (`body.mode-simple`), e os controles do modo simples
+**acionam os botões reais por `.click()`** — o mesmo padrão que a notificação
+nativa já usa. Um botão `disabled` continua sendo um no-op natural, e nenhuma
+regra de borda (texto sem áudio de fundo, YouTube que precisa recarregar, mudo
+bloqueado pelo navegador) passa a existir em dois lugares. Na mesma linha,
+`renderSimple()` **copia o glifo e as classes** dos botões do mixer em vez de
+recalcular play/pause e mudo: se a regra mudar lá, muda aqui junto.
+
+O que a tela simplificada tem, e por quê:
+
+| Elemento | O que faz |
+|---|---|
+| **Conectar a tela** (`#simpleCastBtn`) | `AVNative.openCast()` — o seletor de espelhamento do Android. O subtítulo mostra a tela conectada ao vivo (`AVNative.displays()`), porque "conectar" é a primeira dúvida de quem abre o app. No navegador vira o atalho para a tela do Display |
+| **Buscar música** (`#simpleSearchBtn`) | o MESMO popup de busca do acervo (`openHymnSearch`), com hinários e álbuns. Um toque no resultado já substitui a playlist e toca |
+| **Play/pause e mudo** | `.click()` em `#playpause` / `#muteToggle` |
+| **Barra de volume** (`#simpleVolSlider`) | a **lateral inteira** da tela: é o controle mais usado deste modo e não divide espaço com nada. Mesmo componente do fader do mixer (`.fader` + `.fader-value`) |
+
+Os **dois faders coexistem** e mostram sempre o mesmo número: `renderControls()`
+escreve os dois por `syncFader()`, e `volSeekingEl` (o elemento sob o dedo, não
+um booleano) diz qual deles não pode ter o valor reescrito no meio de um
+arrasto. O volume dos dois passa por `applyVolume()` — a mesma função do gesto
+da preview em tela cheia e dos botões físicos.
+
+Na busca, o simplificado esconde os botões de **+ Cronograma** e **+ Playlist**
+(`body.mode-simple .hymn-add`): eles pertencem ao fluxo de montar a ordem do
+culto e levariam a telas que este modo não mostra. O de tocar cresce e ocupa o
+lugar deles.
+
+A espiada do volume pelos botões físicos (`peekVolume`) **não roda no
+simplificado**: a barra já é a lateral inteira da tela, não há o que espiar.
 
 ### Layout geral
 
@@ -2798,6 +2845,7 @@ medidas repetidas à mão), que foram consolidadas nestes padrões.
 | `--wallpaper` 🔁 | `radial-gradient(circle at 50% 35%, #14331f 0%, #0a1a10 55%, #050b07 100%)` | cortina do wallpaper (Display + preview) |
 | `--lyrics-frame-bg` 🔁 | `rgba(0,0,0,.4)` | fundo da moldura da letra (modo imagem) |
 | `--lyrics-frame-border` 🔁 | `rgba(255,255,255,.85)` | borda da moldura da letra (modo imagem) |
+| `--fader-cap` | `26px` | espessura do cap do fader — **dois** faders a usam (mixer e barra do modo simplificado), e a posição do número sai dela |
 | `--press` | `scale(.96)` | **feedback de toque padrão**: todo `:active` usa `transform: var(--press)` |
 
 🔁 = token de marca, duplicado em `display.css` — manter em sync.
