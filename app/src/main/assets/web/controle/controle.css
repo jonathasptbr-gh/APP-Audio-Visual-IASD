@@ -107,7 +107,7 @@ input, textarea { user-select: text !important; -webkit-user-select: text !impor
   .coll-pill, .coll-bar, .coll-bar-btn, .coll-group-btn, .hymnal-card-btn,
   .bible-cell, .bible-ref-part, .bible-vsec, .bible-ver-row,
   .hymn-row, .msg-add-btn, .msg-item,
-  .misc-seg, .misc-chip, .chrono-btn, .misc-project, .draw-go,
+  .misc-tab, .misc-seg, .misc-chip, .chrono-btn, .misc-project, .draw-go,
   .fit-opt, .dialog-btn, .lib-item .row
 ):active { transform: var(--press); }
 
@@ -627,8 +627,14 @@ main {
 /* As abas ficam MESCLADAS ao fundo normal do app (sem card/seção isolada) — o
    botão de importar fica à ESQUERDA (1º filho no HTML) e o de busca à direita;
    as abas (flex:1) no meio. */
+/* A faixa era transparente, "mesclada ao fundo do app" — e com isso um botão
+   inativo era indistinguível do vazio ao redor: a única pista de que ali havia
+   alvos de toque era o ícone. Agora a faixa tem TRILHO próprio e cada aba tem
+   fundo: o alvo fica visível antes do toque, não só depois. */
 .tabs {
   display: flex; gap: .3rem; align-items: center; flex-shrink: 0;
+  background: var(--bar); border: 1px solid var(--line);
+  border-radius: var(--radius-btn); padding: .25rem;
 }
 
 /* Botão de playlist: mora na linha de transporte (.transport), à direita dos
@@ -650,12 +656,16 @@ main {
 .pl-badge:empty { display: none; }
 
 .tab {
-  flex: 1; height: 42px; border: none; border-bottom: 2px solid transparent;
-  background: transparent; color: var(--muted); cursor: pointer;
+  flex: 1; height: 38px; border: none; border-radius: 6px;
+  background: var(--surface); color: var(--muted); cursor: pointer;
   display: flex; align-items: center; justify-content: center;
+  appearance: none; -webkit-appearance: none;
 }
 .tab .msym { font-size: var(--icon-md); }
-.tab.active { color: var(--text); border-bottom-color: var(--accent); }
+/* Ativa PREENCHIDA em accent, não mais uma linha de 2px embaixo: sobre um
+   trilho com fundo, o sublinhado fino era o elemento de menor contraste da
+   tela justamente no que precisa ser mais óbvio — onde eu estou. */
+.tab.active { background: var(--accent); color: #fff; }
 
 /* Fim da lista do Cronograma: "Importar arquivos" e "Pastas" lado a lado — as
    duas respondem à mesma pergunta ("de onde vem a mídia?") e ficam onde o
@@ -686,10 +696,16 @@ main {
 /* Buscar no acervo (único .tab-add que restou — o de importar desceu para o
    fim do Cronograma). border:none + appearance:none matam a borda 3D bicolor
    (bevel nativo) que um <button> herda do sistema, fora do padrão do app. */
+/* CONTORNADO, não preenchido. A aba ativa passou a ser um bloco sólido em
+   accent, e este botão fica encostado nela: dois azuis cheios lado a lado
+   diriam a mesma coisa ("é aqui") para duas coisas diferentes — um é ONDE EU
+   ESTOU, o outro é UMA AÇÃO. O contorno separa as duas naturezas mantendo o
+   destaque. A margem tira o botão de dentro da fileira de abas. */
 .tab-add {
-  flex: none; width: 44px; height: 42px; border: none;
+  flex: none; width: 42px; height: 38px; margin-left: .3rem;
   appearance: none; -webkit-appearance: none;
-  border-radius: var(--radius-btn); background: var(--accent); color: #fff;
+  border-radius: var(--radius-btn);
+  background: var(--accent-soft); border: 1px solid var(--accent); color: var(--accent);
   display: flex; align-items: center; justify-content: center; cursor: pointer;
 }
 .tab-add .msym { font-size: var(--icon-md); }
@@ -1027,7 +1043,10 @@ main {
    `flex-shrink:0` (e não mais `flex:1`): a aba Diversos passou a ter uma
    segunda ferramenta abaixo — com o microfone crescendo, ele engolia a altura
    toda e empurrava o cronômetro para fora da área visível. */
-/* Fica FORA do acordeão e depois dele: é o rodapé da aba. */
+/* Rodapé da aba: as duas ações que MANDAM ALGO PARA A TELA, lado a lado. */
+.misc-foot { display: flex; gap: .5rem; align-items: stretch; }
+.misc-foot .mic-btn { flex: 1; min-width: 0; }
+.misc-foot .misc-project { flex: 1; min-width: 0; }
 .mic-wrap {
   flex-shrink: 0;
   display: flex; flex-direction: column; align-items: stretch;
@@ -1071,46 +1090,47 @@ main {
    `.chrono-*`, com uma ferramenta só; ao ganhar a segunda, um nome que anuncia
    apenas uma delas passava a mentir sobre quem o usa. O que é de fato exclusivo
    segue nomeado por dono: `.chrono-read/-actions/-btn` e `.draw-*`.
-   Três ferramentas empilhadas não cabiam numa tela de celular, e a rolagem
-   vertical escondia justamente a que não estava em uso. O ACORDEÃO resolve pelo
-   formato: EXATAMENTE UMA aberta por vez, a aberta ocupa a altura que sobra, e
-   as outras duas custam só o cabeçalho. A tela deixa de rolar. */
+   Três ferramentas não cabem juntas numa tela de celular. Um SELETOR no topo
+   troca entre elas em UMA linha: o painel ativo começa sempre no mesmo lugar
+   (memória muscular de quem opera sem olhar) e a tela não rola. A v5.31 tentou
+   um acordeão e ele cobrava três cabeçalhos permanentes de altura para entregar
+   a mesma coisa — além de deslocar o painel conforme a posição da ferramenta
+   na pilha. */
 .lib-list.lib-misc { overflow: hidden; gap: 0; padding-bottom: 0; }
-.misc-acc { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.misc-sec { display: flex; flex-direction: column; min-height: 0; border-bottom: 1px solid var(--line); }
-/* Só a aberta cresce; as fechadas ficam do tamanho do próprio cabeçalho. */
-.misc-sec.open { flex: 1; min-height: 0; }
-.misc-head {
-  flex-shrink: 0; display: flex; align-items: center; gap: .5rem;
-  padding: .7rem .1rem; background: none; border: 0; cursor: pointer;
-  appearance: none; -webkit-appearance: none; text-align: left;
+/* Trilho do seletor: fundo próprio e segmento ativo PREENCHIDO, para não se
+   confundir com os segmentados de DENTRO das ferramentas (Relógio/Cronômetro/
+   Timer, Número/Texto), que usam contorno. São dois níveis de escolha, e
+   parecidos demais eles leriam como um só. */
+.misc-switch {
+  flex-shrink: 0; display: flex; gap: .25rem;
+  background: var(--surface); border-radius: var(--radius-btn);
+  padding: .25rem; margin-bottom: .55rem;
 }
-.misc-head-name {
-  flex: 1; min-width: 0;
-  font-size: .78rem; font-weight: 800; letter-spacing: .09em;
-  text-transform: uppercase; color: var(--muted);
+.misc-tab {
+  flex: 1; min-width: 0; padding: .55rem .3rem;
+  display: flex; align-items: center; justify-content: center; gap: .38rem;
+  border: 0; border-radius: 6px; background: none; color: var(--muted);
+  font-size: .84rem; font-weight: 800; cursor: pointer;
+  appearance: none; -webkit-appearance: none;
 }
-.misc-sec.open .misc-head-name { color: var(--text); }
-/* "no ar" no cabeçalho: com a seção fechada, é o único lugar que diz que
-   aquela ferramenta está projetando. Sem isso, colapsar o sorteio faria
-   parecer que ele saiu do telão. */
-.misc-head-live {
-  flex-shrink: 0; padding: .12rem .45rem;
-  border-radius: var(--radius-pill);
-  background: var(--danger-soft); color: var(--danger-text);
-  font-size: .66rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase;
+.misc-tab.active { background: var(--accent); color: #fff; }
+/* Ponto = está PROJETANDO. Trocar de ferramenta não tira do telão a que estava
+   no ar; sem o ponto, descobrir qual é exigiria visitar cada uma. O anel claro
+   existe só no segmento ativo, onde vermelho sobre azul perderia contraste. */
+.misc-tab-live {
+  flex-shrink: 0; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--danger);
 }
-.misc-head-chev { display: flex; color: var(--muted); transition: transform .18s ease; }
-.misc-sec.open .misc-head-chev { transform: rotate(180deg); color: var(--text); }
-.misc-body { display: none; }
-.misc-sec.open .misc-body {
-  display: flex; flex-direction: column; align-items: stretch; gap: .6rem;
+.misc-tab.active .misc-tab-live { box-shadow: 0 0 0 1.5px rgba(255, 255, 255, .75); }
+/* O painel da ferramenta ativa ocupa toda a altura restante. */
+.misc-panel {
   flex: 1; min-height: 0; overflow-y: auto;
-  padding: .1rem .1rem .7rem;
+  display: flex; flex-direction: column; align-items: stretch; gap: .6rem;
+  padding-bottom: .4rem;
 }
-/* Mensagens: quem rola é a LISTA, não o corpo — senão "+ Nova mensagem" e
+/* Mensagens: quem rola é a LISTA, não o painel — senão "+ Nova mensagem" e
    "Tirar do telão" sairiam de vista assim que a lista crescesse. */
-.misc-sec.open .misc-body--msg { overflow: hidden; }
+.misc-panel--msg { overflow: hidden; }
 .msg-list { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: .35rem; }
 /* Segmentado de ferramenta — fora da regra "ícone = ação" por natureza (não
    alterna duas ações opostas; o segmento marcado é que diz o modo). */
@@ -1159,16 +1179,20 @@ main {
   appearance: none; -webkit-appearance: none;
 }
 .chrono-btn.primary { background: var(--accent-soft); border-color: var(--accent); }
-/* Projetar é a ação final do painel — e a única com efeito no telão, por isso
-   destacada. No ar, vira vermelha: a cor mostra o ESTADO, o rótulo a AÇÃO. */
+/* Projetar: a ação com efeito no TELÃO, por isso destacada. No ar vira
+   vermelha — a cor mostra o ESTADO, o rótulo a AÇÃO. */
 .misc-project {
-  padding: .7rem .4rem;
+  height: 56px; padding: .4rem;
   border: 1px solid var(--accent); border-radius: var(--radius-btn);
   background: var(--accent-soft); color: var(--text);
   font-size: .95rem; font-weight: 800; cursor: pointer;
   appearance: none; -webkit-appearance: none;
 }
 .misc-project.live { background: var(--danger-soft); border-color: var(--danger); color: var(--danger-text); }
+/* Sem mensagem selecionada não há o que projetar daqui — a escolha é na lista.
+   Desabilitado e não escondido: o botão é um ponto fixo da tela, e sumir faria
+   o microfone pular de largura a cada troca de ferramenta. */
+.misc-project:disabled { opacity: .4; border-color: var(--line); background: var(--surface); color: var(--muted); cursor: default; }
 
 /* ---------- Sorteio (aba Diversos) ---------- */
 /* O resultado. Sem `tabular-nums` (ao contrário do cronômetro): aqui o valor
