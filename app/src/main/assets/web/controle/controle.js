@@ -86,7 +86,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.31';
+const WEB_VERSION = '5.32';
 
 function renderVersionLabel() {
   // __SHELL_NAME__ = versionName do APK (ver native.js). Vazio no navegador e
@@ -2645,8 +2645,6 @@ function micErrorText(err) {
 // oferece uma área de toque MAIOR (largura inteira), que é o que importa para
 // achá-lo sem olhar.
 function renderMic() {
-  const wrap = document.createElement('div'); wrap.className = 'mic-wrap';
-
   const btn = document.createElement('button');
   btn.type = 'button'; btn.id = 'micBtn'; btn.className = 'mic-btn';
   btn.innerHTML = '<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor"'
@@ -2677,7 +2675,57 @@ function renderMic() {
   const release = () => { if (micPressed || micOn) sendMic(false); };
   btn.addEventListener('pointerup', release);
   btn.addEventListener('pointercancel', release);
-  wrap.appendChild(btn);
+
+  return btn;
+}
+
+// ===== Rodapé da aba Diversos: microfone + projetar =====
+// "Projetar no telão" saiu do fim de cada painel e veio para cá, ao lado do
+// microfone. São as duas ações que MANDAM ALGO PARA A TELA — as únicas com
+// efeito fora do celular —, e tê-las sempre no mesmo lugar vale mais do que a
+// proximidade com os controles que as configuram: o operador aprende UM ponto
+// da tela em vez de um por ferramenta. De quebra, o botão para de descer
+// conforme o painel cresce (no sorteio de texto ele ficava abaixo da lista).
+function miscProjectState() {
+  if (miscTool === 'draw') {
+    const live = drawProjecting();
+    return { live, disabled: false, hint: '', act: () => (live ? hideDraw() : projectDraw()) };
+  }
+  if (miscTool === 'chrono') {
+    const live = chronoProjecting();
+    return { live, disabled: false, hint: '', act: () => (live ? hideChrono() : projectChrono()) };
+  }
+  // Mensagens: projetar exige saber QUAL, e isso se escolhe tocando na lista.
+  // O botão cobre o resto — tirar do ar, e reexibir a que ficou selecionada
+  // depois de um "Tirar do telão" (é a ação natural seguinte, e sem ela o
+  // operador teria que caçar a linha certa de novo).
+  const live = msgProjecting();
+  const podeVoltar = !!msgSession;
+  return {
+    live,
+    disabled: !live && !podeVoltar,
+    hint: !live && !podeVoltar ? 'Toque numa mensagem da lista para projetar' : '',
+    act: () => { if (live) hideMessage(); else if (msgSession) projectMessage(msgSession.idx); },
+  };
+}
+
+function renderFoot() {
+  const wrap = document.createElement('div'); wrap.className = 'mic-wrap';
+
+  const row = document.createElement('div'); row.className = 'misc-foot';
+  row.appendChild(renderMic());
+
+  const st = miscProjectState();
+  const proj = document.createElement('button');
+  proj.type = 'button';
+  proj.id = 'miscProjectBtn';
+  proj.className = 'misc-project' + (st.live ? ' live' : '');
+  proj.textContent = st.live ? 'Tirar do telão' : 'Projetar no telão';
+  proj.disabled = st.disabled;
+  if (st.hint) proj.title = st.hint;
+  proj.addEventListener('click', st.act);
+  row.appendChild(proj);
+  wrap.appendChild(row);
 
   const note = document.createElement('div'); note.id = 'micNote'; note.className = 'mic-note'; note.hidden = true;
   wrap.appendChild(note);
@@ -2980,15 +3028,6 @@ function renderChrono() {
   });
   labRow.appendChild(labLab); labRow.appendChild(labInp);
   host.appendChild(labRow);
-
-  // ---- Projeção ----
-  const proj = document.createElement('button');
-  proj.type = 'button';
-  const live = chronoProjecting();
-  proj.className = 'misc-project' + (live ? ' live' : '');
-  proj.textContent = live ? 'Tirar do telão' : 'Projetar no telão';
-  proj.addEventListener('click', () => (live ? hideChrono() : projectChrono()));
-  host.appendChild(proj);
 
   renderChronoReadout();
   startChronoPanelTimer();
@@ -3329,14 +3368,6 @@ function renderDraw() {
   go.addEventListener('click', doDraw);
   host.appendChild(go);
 
-  const proj = document.createElement('button');
-  proj.type = 'button';
-  const live = drawProjecting();
-  proj.className = 'misc-project' + (live ? ' live' : '');
-  proj.textContent = live ? 'Tirar do telão' : 'Projetar no telão';
-  proj.addEventListener('click', () => (live ? hideDraw() : projectDraw()));
-  host.appendChild(proj);
-
   renderDrawReadout();
   startDrawPanelTimer();
 }
@@ -3385,87 +3416,69 @@ function renderMsg() {
   add.addEventListener('click', addMessage);
   host.appendChild(add);
 
-  if (msgProjecting()) {
-    const off = document.createElement('button');
-    off.type = 'button'; off.className = 'misc-project live';
-    off.textContent = 'Tirar do telão';
-    off.addEventListener('click', hideMessage);
-    host.appendChild(off);
-  }
 }
 
 // ===== A aba Diversos =====
-// Três ferramentas empilhadas não cabiam numa tela de celular, e a rolagem
-// vertical escondia justamente a que não estava em uso. Um ACORDEÃO resolve
-// pelo formato: **exatamente uma aberta por vez**, a aberta ocupa a altura que
-// sobra, e as outras duas custam só o cabeçalho. A tela deixa de rolar.
+// Três ferramentas empilhadas não cabiam numa tela de celular. A primeira
+// tentativa (v5.31) foi um acordeão, e ele custava caro pelo que entregava:
+// três cabeçalhos permanentes comendo altura, e a ferramenta em uso empurrada
+// para baixo conforme a posição dela na pilha. Um SELETOR no topo faz o mesmo
+// trabalho em UMA linha — as outras ferramentas continuam a um toque, e o
+// painel ativo começa sempre no mesmo lugar, o que importa para a memória
+// muscular de quem opera sem olhar.
 //
-// O microfone fica FORA do acordeão, fixo na base: é o único controle daqui
-// com urgência real (ver renderMic).
-let miscOpen = 'msg';
+// O microfone fica FORA do seletor, fixo na base: é o único controle daqui com
+// urgência real (ver renderMic).
+let miscTool = 'msg';
 
-const MISC_SECTIONS = [
+const MISC_TOOLS = [
   { id: 'msg', name: 'Mensagens', wrap: 'msgWrap', render: () => renderMsg(), live: () => msgProjecting() },
   { id: 'chrono', name: 'Tempo', wrap: 'chronoWrap', render: () => renderChrono(), live: () => chronoProjecting() },
   { id: 'draw', name: 'Sorteio', wrap: 'drawWrap', render: () => renderDraw(), live: () => drawProjecting() },
 ];
 
-const MISC_CHEVRON = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"'
-  + ' stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
-  + '<polyline points="6 9 12 15 18 9"/></svg>';
-
 function renderDiversos() {
-  // Os laços dos painéis fechados não existem: só a seção aberta é renderizada,
-  // e é o render dela que religa o seu timer.
+  // Só a ferramenta ATIVA é montada, e é o render dela que religa o seu timer.
+  // As outras não existem no DOM — nenhum laço batendo em nó invisível.
   stopChronoPanelTimer();
   stopDrawPanelTimer();
 
-  const acc = document.createElement('div');
-  acc.className = 'misc-acc';
-
-  MISC_SECTIONS.forEach((s) => {
-    const open = miscOpen === s.id;
-    const sec = document.createElement('section');
-    sec.className = 'misc-sec' + (open ? ' open' : '');
-
-    const head = document.createElement('button');
-    head.type = 'button'; head.className = 'misc-head';
-    const name = document.createElement('span');
-    name.className = 'misc-head-name'; name.textContent = s.name;
-    head.appendChild(name);
-    // "No ar" no CABEÇALHO: com a seção fechada, é o único lugar que diz que
-    // aquela ferramenta está projetando. Sem isso, colapsar o sorteio faria
-    // parecer que ele saiu do telão.
-    if (s.live()) {
+  const sw = document.createElement('div');
+  sw.className = 'misc-switch';
+  MISC_TOOLS.forEach((t) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'misc-tab' + (miscTool === t.id ? ' active' : '');
+    b.dataset.tool = t.id;
+    const label = document.createElement('span');
+    label.textContent = t.name;
+    b.appendChild(label);
+    // Ponto vermelho = esta ferramenta está PROJETANDO. Fora dela, nada na aba
+    // diria isso: trocar de ferramenta não tira do telão a que estava no ar, e
+    // sem o ponto o operador teria que voltar em cada uma para descobrir qual é.
+    if (t.live()) {
       const dot = document.createElement('span');
-      dot.className = 'misc-head-live'; dot.textContent = 'no ar';
-      head.appendChild(dot);
+      dot.className = 'misc-tab-live';
+      b.appendChild(dot);
     }
-    const chev = document.createElement('span');
-    chev.className = 'misc-head-chev'; chev.innerHTML = MISC_CHEVRON;
-    head.appendChild(chev);
-    // Tocar no cabeçalho da seção JÁ aberta não a fecha: o contrato é "sempre
-    // uma visível", e um estado com todas fechadas seria uma tela vazia.
-    head.addEventListener('click', () => {
-      if (miscOpen === s.id) return;
-      miscOpen = s.id;
+    b.addEventListener('click', () => {
+      if (miscTool === t.id) return;
+      miscTool = t.id;
       libraryEl.innerHTML = '';
       renderDiversos();
     });
-    sec.appendChild(head);
-
-    const body = document.createElement('div');
-    body.className = 'misc-body misc-body--' + s.id;
-    body.id = s.wrap;
-    sec.appendChild(body);
-    acc.appendChild(sec);
+    sw.appendChild(b);
   });
+  libraryEl.appendChild(sw);
 
-  libraryEl.appendChild(acc);
-  const aberta = MISC_SECTIONS.find((s) => s.id === miscOpen);
-  if (aberta) aberta.render();
+  const tool = MISC_TOOLS.find((t) => t.id === miscTool) || MISC_TOOLS[0];
+  const panel = document.createElement('div');
+  panel.className = 'misc-panel misc-panel--' + tool.id;
+  panel.id = tool.wrap;
+  libraryEl.appendChild(panel);
+  tool.render();
 
-  renderMic();
+  renderFoot();
 }
 
 // Redesenha só a aba Diversos (usado quando o estado de uma ferramenta muda

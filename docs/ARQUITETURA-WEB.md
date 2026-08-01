@@ -1160,8 +1160,16 @@ janela à parte — útil para desenvolver a base web fora do app, e nada mais.
 
 ### Abas e biblioteca
 
-As abas ficam na **base da seção de listas** (ícones), **mescladas ao fundo
-normal do app** (`.tabs` sem fundo/card próprio). São **quatro**:
+As abas ficam na **base da seção de listas** (ícones), num **trilho com fundo
+próprio** (`--bar` + borda `--line`). Até a v5.31 a faixa era transparente
+("mesclada ao fundo do app") e um botão inativo era indistinguível do vazio ao
+redor: a única pista de que ali havia alvos de toque era o ícone. Hoje cada aba
+tem fundo (`--surface`) e a **ativa é preenchida em accent** — o sublinhado de
+2 px de antes era o elemento de menor contraste da tela justamente no que
+precisa ser mais óbvio, "onde eu estou". O **botão de busca** (`.tab-add`)
+passou a ser **contornado** em vez de preenchido: encostado numa aba ativa
+sólida, dois azuis cheios diriam a mesma coisa para naturezas diferentes — um é
+onde eu estou, o outro é uma ação. São **quatro**:
 **Cronograma** · **Álbuns** · **Bíblia** · **Diversos** (as `.tab`, `flex:1`) ·
 **buscar no acervo** (`#hymnSearchBtn`, `.tab-add`, à direita):
 
@@ -1172,8 +1180,8 @@ normal do app** (`.tabs` sem fundo/card próprio). São **quatro**:
   de mídia; ver a seção **"Bíblia"** abaixo.
 - **Diversos** (`activeTab` segue sendo `'mic'`, por herança) — as **ferramentas
   que não são acervo**: **Mensagens**, **Tempo** (relógio/cronômetro/timer) e
-  **Sorteio**, num acordeão, mais o **microfone** fixo na base. Ver "Diversos"
-  abaixo.
+  **Sorteio**, escolhidas num seletor no topo, mais o rodapé com **microfone** e
+  **"Projetar no telão"**. Ver "Diversos" abaixo.
 
 > A aba nasceu como **Microfone**, com uma ferramenta só. Ao ganhar a segunda,
 > virou **Diversos** e o ícone deixou de ser o microfone: com mais de uma coisa
@@ -2103,35 +2111,53 @@ Texto é **desacoplada do ciclo de vida da mídia do stage** — `showText`/
   último é o item SELECIONADO e continua apontando para a música terminada — era
   exatamente ele que fazia a preview achar que ainda havia algo em cena.
 
-### Diversos: o acordeão
+### Diversos: o seletor de ferramenta
 
 A aba reúne quatro ferramentas, e três delas empilhadas **não cabiam** numa tela
 de celular: a página ganhava rolagem vertical, e o que a rolagem escondia era
-justamente a ferramenta que não estava em uso. Um **acordeão** resolve pelo
-formato, não por ajuste fino de altura:
+justamente a ferramenta que não estava em uso.
 
-- **Exatamente uma seção aberta por vez** (`miscOpen`). A aberta recebe
-  `flex: 1` e ocupa a altura que sobra; as outras custam só o cabeçalho. Tocar
-  no cabeçalho da seção já aberta **não a fecha** — o contrato é "sempre uma
-  visível", e um estado com todas fechadas seria uma tela vazia.
-- **Só a seção aberta é renderizada**, e é o render dela que religa o seu
-  timer de painel. As fechadas não têm corpo no DOM, então não há laço batendo
-  em nó invisível.
-- **`#library` deixa de rolar nesta aba** (`.lib-misc`): quem administra a
-  altura é o acordeão, e a seção aberta rola por dentro se precisar. Com a
-  rolagem da lista ligada, a página inteira voltaria a rolar e o microfone
-  sairia da base.
-- **O cabeçalho mostra "no ar"** quando aquela ferramenta está projetando. Com
-  a seção fechada é o único sinal disso — sem ele, colapsar o sorteio faria
-  parecer que ele saiu do telão.
-- **O microfone fica FORA do acordeão, fixo na base**, e virou uma **barra** no
-  lugar do disco de 132 px. É o único controle daqui com urgência real:
-  push-to-talk pode ser preciso no meio de uma frase, e ter que abrir uma seção
-  antes de falar o tornaria inútil. Como barra custa ~56 px de altura em vez de
-  132 e ainda oferece área de toque **maior** (largura inteira), que é o que
-  importa para achá-la sem olhar.
-- Verificado nas três seções: **zero rolagem**, horizontal ou vertical, com o
-  microfone sempre visível.
+A v5.31 tentou um **acordeão** e ele foi trocado na v5.32: cobrava três
+cabeçalhos permanentes de altura para entregar o mesmo resultado, e ainda
+deslocava o painel para baixo conforme a posição da ferramenta na pilha — o
+Sorteio começava três linhas mais abaixo que as Mensagens. Hoje é um **seletor
+no topo** (`.misc-switch`), uma linha só:
+
+- **Uma ferramenta ativa por vez** (`miscTool`), e **só ela é montada** no DOM —
+  é o render dela que religa o seu timer de painel. As outras não existem, então
+  não há laço batendo em nó invisível.
+- **O painel ativo começa sempre no mesmo lugar**, o que importa para a memória
+  muscular de quem opera sem olhar.
+- **O trilho do seletor é PREENCHIDO no segmento ativo**, ao contrário dos
+  segmentados de dentro das ferramentas (Relógio/Cronômetro/Timer,
+  Número/Texto), que são contornados. São dois níveis de escolha empilhados na
+  mesma tela; parecidos demais, leriam como um só.
+- **Ponto vermelho no segmento = aquela ferramenta está projetando.** Trocar de
+  ferramenta **não** tira do telão a que estava no ar, e sem o ponto descobrir
+  qual é exigiria visitar cada uma. No segmento ativo o ponto ganha um anel
+  claro, onde vermelho sobre azul perderia contraste.
+- **`#library` não rola nesta aba** (`.lib-misc`): quem administra a altura é o
+  seletor + painel, e o painel ativo rola por dentro se precisar. Com a rolagem
+  da lista ligada, a página inteira voltaria a rolar e o rodapé sairia da base.
+- Verificado nas três ferramentas: **zero rolagem**, horizontal ou vertical.
+
+**O rodapé são as duas ações que MANDAM ALGO PARA A TELA**, lado a lado
+(`renderFoot`): o **microfone** e **"Projetar no telão"**. São as únicas com
+efeito fora do celular, e tê-las sempre no mesmo ponto vale mais do que a
+proximidade com os controles que as configuram — o operador aprende UM lugar em
+vez de um por ferramenta. De quebra, o botão de projetar parou de descer
+conforme o painel cresce (no sorteio de texto ele ficava abaixo da lista).
+
+- O microfone é uma **barra**, não mais um disco de 132 px: é o único controle
+  daqui com urgência real (push-to-talk pode ser preciso no meio de uma frase),
+  e como barra custa ~56 px de altura oferecendo área de toque **maior**.
+- **"Projetar" age sobre a ferramenta ATIVA** (`miscProjectState`). Em Mensagens
+  ele não pode projetar sozinho — falta saber QUAL, e isso se escolhe tocando na
+  lista —, então fica **inerte com um `title` que explica**; some não, porque o
+  botão é um ponto fixo da tela e sumir faria o microfone pular de largura a
+  cada troca. Com uma mensagem já selecionada ele **reexibe** a que ficou: é a
+  ação natural depois de um "Tirar do telão", e sem ela o operador teria que
+  caçar a linha certa de novo.
 
 > **Vazamento horizontal (v5.31).** A faixa "de/até" do sorteio empurrava a aba
 > além da largura da tela. Causa: o padrão de um item flex é `min-width: auto`,
