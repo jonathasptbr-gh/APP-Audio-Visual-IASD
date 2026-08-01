@@ -86,7 +86,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.35';
+const WEB_VERSION = '5.36';
 
 function renderVersionLabel() {
   // __SHELL_NAME__ = versionName do APK (ver native.js). Vazio no navegador e
@@ -5193,6 +5193,7 @@ async function loadCollections() {
   const states = await Promise.all(cols.map((c) => AVDB.getState('coll:' + c.id)));
   collState = {};
   cols.forEach((c, i) => { collState[c.id] = states[i] || { indexSyncedAt: 0, songs: [] }; });
+  await loadLyricStore();
 }
 
 // Descobre os álbuns disponíveis no banco (pt_categories) e persiste a
@@ -5268,18 +5269,31 @@ async function fetchCollectionIndex(coll) {
   // pro OPFS, mas os ids eram descartados no `setState` seguinte e a música
   // aparecia como não baixada (e era rebaixada). Reaproveitar o objeto também
   // preserva de graça qualquer campo extra (ex.: `_norm` da busca).
+  let colheu = false;   // o índice trouxe letra de graça? (ver abaixo)
   const songs = list.map((row) => {
     const s = byId.get(row.id_music)
       || { id_music: row.id_music, fileIdFull: null, fileIdPlayback: null };
     s.track = row.track;
     s.name = row.name;
     s.duration = row.duration;
+    // A API PODE mandar a letra já no índice (o app-ja busca por esse campo —
+    // ver docs/FONTE-DE-DADOS-LOUVORJA.md §5.3). Quando manda, é de graça:
+    // aproveitamos e a música nem entra na fila de download de letras.
+    if (row.lyric) {
+      const linhas = typeof row.lyric === 'string'
+        ? normalizeLyricText(row.lyric).split('\n').map((x) => x.trim()).filter(Boolean)
+        : lyricLinesFromMeta(row);
+      if (linhas && linhas.length) { lyricStoreFor(coll.id)[row.id_music] = linhas; colheu = true; }
+    }
     s.has_instrumental_music = !!row.has_instrumental_music;
     s._norm = normalizeForSearch(row.name);
     return s;
   });
   collState[coll.id] = { indexSyncedAt: Date.now(), songs, isHymnal };
   await AVDB.setState('coll:' + coll.id, collState[coll.id]);
+  // Só grava se houve colheita: um `setState` do acervo de letras a cada
+  // atualização de índice reescreveria megabytes por nada.
+  if (colheu) { await saveLyricStore(coll.id); invalidateLyricIndex(); }
   refreshCollectionsIfVisible();
   // Popup de busca aberto durante a atualização: re-renderiza pra refletir a
   // lista nova na hora (sem esperar o operador reabrir o popup).
@@ -5335,6 +5349,11 @@ async function autoRefreshCollections() {
       return !st || !st.songs.length || (now - (st.indexSyncedAt || 0)) > ALBUM_INDEX_TTL;
     });
     await runLimited(stale, NET_CONCURRENCY, (c) => fetchCollectionIndex(c).catch(() => {}));
+    // Fase 3: as LETRAS dos hinários, como informação padrão do acervo — o
+    // índice sozinho não responde "qual hino fala em…". Fire-and-forget: é
+    // longa (uma requisição por música) e nada na tela espera por ela; o
+    // progresso vai para a notificação, como qualquer trabalho de massa.
+    syncLyrics().catch(() => {});
   } finally { collectionsRefreshing = false; }
 }
 
@@ -5675,6 +5694,60 @@ function normalizeForSearch(s) {
   return String(s || '').normalize('NFD').replace(DIACRITICS_RE, '').toLowerCase();
 }
 
+// ===== Acervo de LETRAS (texto puro, para busca) =====
+// A letra deixou de depender do áudio: ela é baixada junto com o índice, como
+// informação padrão do acervo. Antes, só quem tinha a música no aparelho podia
+// buscá-la — e o operador que procura "aquele hino que fala em…" quase nunca
+// tem os 600 baixados.
+//
+// É um acervo SEPARADO do `files`, e de propósito:
+//   - `files[].lyrics` são SLIDES (tempo, imagem, capa) e só existem com áudio
+//     baixado. É o que a projeção sincronizada consome.
+//   - `lyricStore` é só TEXTO, por música, e existe para toda música do índice.
+//     É o que a busca consome.
+// Fundi-los faria a busca carregar tempos e caminhos de imagem à toa, e faria
+// o download do índice arrastar o peso dos slides.
+//
+// Guardado em `state` por coleção (`lyrics:<collId>`), gravado em LOTES: são
+// centenas de músicas, e reescrever o blob inteiro a cada uma tornaria o
+// download quadrático.
+let lyricStore = {};          // { [collId]: { [id_music]: string[] | 0 } }
+let lyricSyncRunning = false;
+
+// `0` (e não ausência) marca "já perguntamos e esta música não tem letra" —
+// sem isso, toda abertura do app tentaria de novo as mesmas centenas.
+const LYRIC_NONE = 0;
+const LYRIC_BATCH = 25;       // músicas por gravação
+
+function lyricStoreFor(id) { return lyricStore[id] || (lyricStore[id] = {}); }
+
+async function loadLyricStore() {
+  const cols = allCollections();
+  const saved = await Promise.all(cols.map((c) => AVDB.getState('lyrics:' + c.id)));
+  lyricStore = {};
+  cols.forEach((c, i) => { lyricStore[c.id] = (saved[i] && typeof saved[i] === 'object') ? saved[i] : {}; });
+}
+
+function saveLyricStore(collId) {
+  return AVDB.setState('lyrics:' + collId, lyricStoreFor(collId));
+}
+
+// Extrai as linhas de texto de um registro `music_{id}`. Ao contrário de
+// `buildLyricSlides`, NÃO filtra por `show_slide`: uma linha que não vira slide
+// continua sendo letra da música, e para BUSCAR isso só ajuda.
+function lyricLinesFromMeta(meta) {
+  const out = [];
+  for (const l of Object.values((meta && meta.lyric) || {})) {
+    if (!l) continue;
+    for (const campo of [l.lyric, l.aux_lyric]) {
+      const t = normalizeLyricText(campo);
+      if (!t) continue;
+      for (const ln of t.split('\n')) { const x = ln.trim(); if (x) out.push(x); }
+    }
+  }
+  return out.length ? out : null;
+}
+
 // ===== Busca DENTRO da letra =====
 // "Qual é o hino que fala em 'firme nas promessas'?" é a pergunta que o
 // operador faz de verdade, e até aqui a busca só respondia por título e número.
@@ -5684,13 +5757,12 @@ function normalizeForSearch(s) {
 // leitura do IDB, sem nenhuma requisição — e funciona offline, que é o estado
 // normal no meio de um culto.
 //
-// **O alcance é o que está BAIXADO.** Música nunca baixada não tem letra no
-// aparelho: o índice do acervo (`pt_hymnal`, `pt_musics`) traz nome, número e
-// duração, não o texto. Buscar no catálogo inteiro exigiria puxar um
-// `music_{id}` por música — centenas de requisições — e isso seria outra
-// funcionalidade, com outro custo. A linha encontrada aparece no resultado
+// **Duas fontes, uma chave.** O índice é montado por `collId:id_music` e puxa
+// de onde houver: do `lyricStore` (baixado com o índice — cobre os hinários
+// inteiros) ou dos slides do arquivo baixado (`files[].lyrics` — cobre álbuns e
+// qualquer música já no aparelho). A linha encontrada aparece no resultado
 // justamente para o operador ver POR QUE aquele item casou.
-let lyricIndex = null;        // Map<fileId, { norm, lines }> | null = não construído
+let lyricIndex = null;        // Map<'collId:idMusic', { norm, lines }> | null
 let lyricIndexPending = null;
 
 // Mínimo de caracteres para a busca entrar na letra. Com menos que isso o
@@ -5698,25 +5770,44 @@ let lyricIndexPending = null;
 // título, que é o que o operador procura na maior parte das vezes.
 const LYRIC_MIN_Q = 3;
 
+// Linhas a partir dos SLIDES de um arquivo baixado. Uma estrofe pode ter
+// várias linhas (o `<br>` da API vira `\n` em normalizeLyricText); quebrar aqui
+// faz o trecho exibido ser UMA linha, e não o bloco inteiro.
+function linesFromSlides(slides) {
+  const lines = [];
+  for (const slide of slides || []) {
+    if (!slide || !slide.text) continue;
+    for (const ln of String(slide.text).split('\n')) {
+      const t = ln.trim();
+      if (t) lines.push(t);
+    }
+  }
+  return lines;
+}
+
 async function buildLyricIndex() {
   const map = new Map();
-  let files;
-  try { files = await AVDB.filesAll(); } catch (_) { return map; }
-  for (const f of files) {
-    if (!f || !Array.isArray(f.lyrics) || !f.lyrics.length) continue;
-    const lines = [];
-    for (const slide of f.lyrics) {
-      if (!slide || !slide.text) continue;
-      // Uma estrofe pode ter várias linhas (o `<br>` da API vira `\n` em
-      // normalizeLyricText). Quebrar aqui faz o trecho exibido ser UMA linha,
-      // e não o bloco inteiro.
-      for (const ln of String(slide.text).split('\n')) {
-        const t = ln.trim();
-        if (t) lines.push(t);
-      }
+  let porArquivo = new Map();
+  try {
+    const files = await AVDB.filesAll();
+    for (const f of files) {
+      if (f && Array.isArray(f.lyrics) && f.lyrics.length) porArquivo.set(f.id, f.lyrics);
     }
-    if (!lines.length) continue;
-    map.set(f.id, { norm: normalizeForSearch(lines.join('\n')), lines });
+  } catch (_) { /* sem os arquivos ainda dá para indexar o lyricStore */ }
+
+  for (const coll of allCollections()) {
+    const store = lyricStore[coll.id] || null;
+    for (const s of collSongs(coll.id)) {
+      // O acervo de letras vem PRIMEIRO: é texto puro e completo. Os slides
+      // são o complemento para o que ele não cobre (álbuns, músicas avulsas).
+      let lines = store && Array.isArray(store[s.id_music]) ? store[s.id_music] : null;
+      if (!lines) {
+        const slides = porArquivo.get(s.fileIdFull) || porArquivo.get(s.fileIdPlayback);
+        if (slides) lines = linesFromSlides(slides);
+      }
+      if (!lines || !lines.length) continue;
+      map.set(coll.id + ':' + s.id_music, { norm: normalizeForSearch(lines.join('\n')), lines });
+    }
   }
   return map;
 }
@@ -5738,21 +5829,83 @@ function ensureLyricIndex() {
 // leitura no meio de uma sincronização em massa.
 function invalidateLyricIndex() { lyricIndex = null; }
 
-// Devolve a LINHA da letra que casa com a busca, ou null. Procura nas duas
-// variantes: o Playback costuma carregar a mesma letra do Cantado, e qual das
-// duas foi baixada varia por música.
-function lyricMatch(s, q) {
+// Devolve a LINHA da letra que casa com a busca, ou null.
+function lyricMatch(coll, s, q) {
   if (!lyricIndex || q.length < LYRIC_MIN_Q) return null;
-  for (const fid of [s.fileIdFull, s.fileIdPlayback]) {
-    if (!fid) continue;
-    const e = lyricIndex.get(fid);
-    if (!e || !e.norm.includes(q)) continue;
-    for (const ln of e.lines) {
-      if (normalizeForSearch(ln).includes(q)) return ln;
-    }
-    return e.lines[0];   // casou no todo mas não numa linha (busca cruzou a quebra)
+  const e = lyricIndex.get(coll.id + ':' + s.id_music);
+  if (!e || !e.norm.includes(q)) return null;
+  for (const ln of e.lines) {
+    if (normalizeForSearch(ln).includes(q)) return ln;
   }
-  return null;
+  return e.lines[0];   // casou no todo mas não numa linha (busca cruzou a quebra)
+}
+
+// ===== Download das letras (roda no arranque, como o índice) =====
+// **Só os hinários, automaticamente.** São o acervo padrão, têm tamanho
+// conhecido (~1.100 no total) e são o que se busca por trecho no meio de um
+// culto. O catálogo de álbuns não tem teto — puxar a letra de todos eles sem
+// pedir seria gastar a internet do operador por conta própria. Álbuns seguem
+// pelo caminho de sempre: a letra chega quando a música é baixada.
+//
+// **Adia só em rede móvel CONHECIDA** — e a assimetria com `syncCollection` é
+// deliberada. Lá o que desce são centenas de MB de áudio, e perguntar é o certo.
+// Aqui é JSON de texto: alguns KB por música, poucos MB no hinário inteiro —
+// menos que UMA música que o app baixa com um toque, sem perguntar nada.
+//
+// Por isso a condição é `type === 'cellular'`, e não `isConfirmedWifi()`:
+// `navigator.connection.type` não existe em boa parte dos aparelhos e devolve
+// `'unknown'`, então exigir Wi-Fi CONFIRMADO faria o recurso simplesmente nunca
+// rodar na maioria deles — um no-op silencioso, que é o pior resultado
+// possível. Na dúvida, baixa; a certeza de estar no plano de dados é que adia.
+// E não pergunta nada no arranque: um diálogo ao abrir o app chegaria
+// justamente quando o operador quer é ligar o telão.
+function songsMissingLyric(coll) {
+  const store = lyricStoreFor(coll.id);
+  return collSongs(coll.id).filter((s) => store[s.id_music] === undefined);
+}
+
+async function syncLyrics() {
+  if (lyricSyncRunning) return;
+  if (networkType() === 'cellular') return;
+
+  const cols = FIXED_COLLECTIONS.filter((c) => collSongs(c.id).length);
+  const pendentes = [];
+  for (const coll of cols) {
+    for (const s of songsMissingLyric(coll)) pendentes.push({ coll, s });
+  }
+  if (!pendentes.length) return;
+
+  lyricSyncRunning = true;
+  const notifId = bgTaskStart('Letras das músicas', pendentes.length);
+  let done = 0;
+  let desdeGravacao = 0;
+  const sujas = new Set();
+  try {
+    await withBgWork(() => runLimited(pendentes, NET_CONCURRENCY, async ({ coll, s }) => {
+      bgItemStart(notifId, s.name);
+      try {
+        const meta = await Louvorja.fetchList('music_' + s.id_music);
+        lyricStoreFor(coll.id)[s.id_music] = lyricLinesFromMeta(meta) || LYRIC_NONE;
+        sujas.add(coll.id);
+      } catch (_) {
+        // Falha de rede não vira LYRIC_NONE: sem a marca, a próxima abertura
+        // tenta de novo. Marcar aqui gravaria "não tem letra" por causa de um
+        // wi-fi que oscilou, e o hino ficaria fora da busca para sempre.
+      } finally { bgItemEnd(notifId, s.name); }
+      done++;
+      bgTaskStep(notifId, done);
+      if (++desdeGravacao >= LYRIC_BATCH) {
+        desdeGravacao = 0;
+        await Promise.all([...sujas].map(saveLyricStore));
+        sujas.clear();
+      }
+    }));
+  } finally {
+    bgTaskEnd(notifId);
+    await Promise.all([...sujas].map(saveLyricStore)).catch(() => {});
+    lyricSyncRunning = false;
+    invalidateLyricIndex();   // o acervo cresceu: a busca precisa reindexar
+  }
 }
 
 // Busca GLOBAL (botão de lupa): escopo null = varre todas as coleções.
@@ -5809,7 +5962,7 @@ function renderSearchResults(query) {
         porNome.push({ coll, song: s });
         continue;   // já casou pelo título: não procura na letra à toa
       }
-      const hit = lyricMatch(s, q);
+      const hit = lyricMatch(coll, s, q);
       if (hit) porLetra.push({ coll, song: s, hit });
     }
   }
