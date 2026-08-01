@@ -702,7 +702,7 @@ acompanhamento até a próxima música, como no popup.
 A espiada do volume pelos botões físicos (`peekVolume`) **não roda no
 simplificado**: as teclas de volume já estão na tela, com o número ao lado.
 
-#### Sem tela conectada, o modo inteiro fica bloqueado (v5.39)
+#### Sem tela conectada, o modo inteiro fica bloqueado (v5.39–v5.41)
 
 Neste modo **a projeção É o telão** — não existe preview aqui. Sem tela
 conectada, buscar uma música e dar play produzia som no celular e mais nada:
@@ -718,9 +718,14 @@ coisas, e só duas:
 - **Conectar a tela** (`#simpleCastBtn`), a única ação que resolve o bloqueio.
   Bloqueada a tela, a faixa `.simple-actions` deixa de ser faixa: vira um
   bloco absoluto no **centro exato da tela**, com a busca escondida e o botão
-  preenchido no accent (`--accent-fill`, ícone de 40px, sombra colorida). Ele
+  preenchido no accent (`--accent-fill`, ícone de 44px, sombra colorida). Ele
   não podia continuar sendo a mesma tecla escura das outras: a única ação
   possível da tela não disputa atenção com o teclado embaçado atrás dela.
+  **Ali ele é ícone e UMA frase** — "Toque para conectar uma tela" — e nada
+  mais: o subtítulo repetia o rótulo e a mensagem que havia acima dele dizia
+  pela terceira vez a mesma coisa, três textos para uma tela com uma ação só.
+  Com tela conectada o rótulo volta a nomear a ação ("Conectar a tela") e o
+  subtítulo volta a informar QUAL tela, que aí é notícia.
 - **Modo avançado** (`#simpleFullBtn`), no cabeçalho. **Sem TV o app não fica
   inútil** — a projeção passa a ser a preview em tela cheia —, e trancar essa
   saída transformaria a falta de telão numa parede. O que se bloqueia é o modo
@@ -2234,6 +2239,18 @@ slides. O índice de busca (`buildLyricIndex`) lê os **dois**, chaveado por
   marca** — senão um wi-fi que oscilou tiraria o hino da busca para sempre.
 - **Gravação em LOTES** (`LYRIC_BATCH`, 25): são centenas de músicas, e
   reescrever o blob inteiro a cada uma tornaria o download quadrático.
+- **A lista de sujas é tirada ANTES de gravar, não depois** (v5.41). Os 6
+  workers correm juntos: durante o `await` da gravação os outros continuam
+  marcando coleções, e o `clear()` que rodava *depois* apagava essas marcas.
+  A letra ficava só na memória — e se aquela coleção já tivesse terminado,
+  nunca mais era marcada e a gravação final a ignorava. Medido na API
+  simulada: **48 de 48 músicas buscadas, 45 de 50 pares no disco**, com um
+  álbum inteiro pela metade, em ~1 de cada 6 aberturas. Com hinário só o
+  defeito quase não aparecia (uma coleção, sempre com item seguinte para
+  remarcá-la); varrer o acervo inteiro (v5.38) — muitas coleções pequenas
+  acabando no meio dos flushes — foi o que o trouxe à tona.
+  `test-letras-corrida` reproduz com 150 hinos + 20 álbuns de 5: falha em 3
+  asserções com o `clear()` no lugar errado, passa com ele no certo.
 - **Indexa TODA linha**, inclusive `aux_lyric` e estrofes sem `show_slide` — ao
   contrário de `buildLyricSlides`, que filtra o que vira slide. Uma estrofe que
   não é projetada continua sendo letra da música, e para buscar isso só ajuda.

@@ -1785,22 +1785,14 @@ body.mode-simple .bottombar { display: none; }
   background: var(--accent-fill); border-color: var(--accent-fill); color: #fff;
   box-shadow: 0 12px 34px rgba(31, 111, 235, .38);
 }
-.simple.locked #simpleCastBtn svg { color: #fff; width: 40px; height: 40px; }
+.simple.locked #simpleCastBtn svg { color: #fff; width: 44px; height: 44px; }
 .simple.locked #simpleCastBtn .simple-key-label { font-size: 1.08rem; font-weight: 800; }
-/* Branco puro também no subtítulo: sobre o azul preenchido, um cinza de
-   apoio cairia abaixo do mínimo de leitura (ver test-contraste). */
-.simple.locked #simpleCastBtn .simple-key-sub { color: #fff; font-size: .8rem; }
-
-.simple-gate-msg { display: none; text-align: center; }
-/* A mensagem é legenda do botão, não par dele: sai do fluxo e se pendura
-   acima. Assim quem fica no MEIO exato da tela é o botão — centralizar o
-   grupo o empurraria para baixo do centro pela altura do texto. */
-.simple.locked .simple-gate-msg {
-  display: block; position: absolute; left: 0; right: 0; bottom: calc(100% + 1rem);
-  padding: 0 1.1rem;
-}
-.simple-gate-title { font-size: 1.05rem; font-weight: 800; color: var(--text); }
-.simple-gate-sub { margin-top: .35rem; font-size: .85rem; color: var(--muted); line-height: 1.45; }
+/* Ícone e UMA frase, e nada mais. O subtítulo ("Toque para escolher a tela")
+   repetia o rótulo, e a mensagem que havia acima do botão até a v5.40 dizia
+   pela terceira vez a mesma coisa: três textos para uma tela que tem UMA
+   ação. Com tela conectada o subtítulo volta — ali ele informa QUAL tela, que
+   é notícia. */
+.simple.locked #simpleCastBtn .simple-key-sub { display: none; }
 
 /* Letra da música em cena — ocupa o espaço que sobra entre as ações e as
    teclas. Mesmas linhas da leitura auxiliar do modo avançado (.lv-row). */

@@ -24,6 +24,7 @@ const appModeSegEl = document.getElementById('appModeSeg');
 const simpleModeEl = document.getElementById('simpleMode');
 const simpleFullBtnEl = document.getElementById('simpleFullBtn');
 const simpleCastBtnEl = document.getElementById('simpleCastBtn');
+const simpleCastLabelEl = document.getElementById('simpleCastLabel');
 const simpleCastStatusEl = document.getElementById('simpleCastStatus');
 const simpleSearchBtnEl = document.getElementById('simpleSearchBtn');
 const simpleVeilEl = document.getElementById('simpleVeil');
@@ -87,7 +88,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.40';
+const WEB_VERSION = '5.41';
 
 function renderVersionLabel() {
   // __SHELL_NAME__ = versionName do APK (ver native.js). Vazio no navegador e
@@ -5936,8 +5937,16 @@ async function syncLyrics() {
       bgTaskStep(notifId, done);
       if (++desdeGravacao >= LYRIC_BATCH) {
         desdeGravacao = 0;
-        await Promise.all([...sujas].map(saveLyricStore));
+        // Tirar a lista e limpar o conjunto ANTES de gravar. Os 6 workers
+        // correm juntos: durante o `await` os outros continuam marcando
+        // coleções sujas, e um `clear()` DEPOIS apagava essas marcas — a
+        // letra ficava só na memória e, se aquela coleção já tivesse
+        // acabado, nunca mais era marcada e a gravação final a ignorava.
+        // Sintoma medido: 48 de 48 buscadas, 45 de 50 pares no disco, e um
+        // álbum inteiro pela metade em ~1 de 6 aberturas.
+        const lote = [...sujas];
         sujas.clear();
+        await Promise.all(lote.map(saveLyricStore));
       }
     }));
   } finally {
@@ -7163,6 +7172,11 @@ function renderSimpleCast() {
   if (appMode !== 'simple') return;
   const tv = simpleDisplay();
   simpleCastBtnEl.classList.toggle('connected', !!tv);
+  // Sem tela, o botão é a tela inteira (ver o bloqueio abaixo) e precisa dizer
+  // tudo sozinho: uma frase, no rótulo. Com tela conectada ele volta a ser um
+  // cartão entre outros — o rótulo nomeia a ação e o subtítulo informa o
+  // estado, que é a divisão de sempre.
+  simpleCastLabelEl.textContent = tv ? 'Conectar a tela' : 'Toque para conectar uma tela';
   if (!window.__NATIVE__) {
     simpleCastStatusEl.textContent = tv ? 'Tela do Display aberta' : 'Abrir a tela do Display';
   } else {
