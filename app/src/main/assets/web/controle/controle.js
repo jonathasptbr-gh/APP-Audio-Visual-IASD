@@ -86,7 +86,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.34';
+const WEB_VERSION = '5.35';
 
 function renderVersionLabel() {
   // __SHELL_NAME__ = versionName do APK (ver native.js). Vazio no navegador e
@@ -5510,11 +5510,12 @@ async function ensureSongVariant(coll, s, fileKey, urlPath, variantLabel, meta, 
     existingRec.hymnName = s.name;
     existingRec.hymnTrack = s.track;
     await AVDB.fileAdd(existingRec);
+    invalidateLyricIndex();   // letra nova no aparelho: a busca precisa vê-la
     return;
   }
   if (!urlPath) return;
   const id = await downloadCollectionFile(coll, s, urlPath, variantLabel, thumb, lyrics);
-  if (id) s[fileKey] = id;
+  if (id) { s[fileKey] = id; invalidateLyricIndex(); }
 }
 
 async function downloadCollectionFile(coll, s, urlPath, variantLabel, thumb, lyrics) {
@@ -5674,11 +5675,91 @@ function normalizeForSearch(s) {
   return String(s || '').normalize('NFD').replace(DIACRITICS_RE, '').toLowerCase();
 }
 
+// ===== Busca DENTRO da letra =====
+// "Qual é o hino que fala em 'firme nas promessas'?" é a pergunta que o
+// operador faz de verdade, e até aqui a busca só respondia por título e número.
+//
+// A letra JÁ está no aparelho: `buildLyricSlides` a grava no registro do
+// arquivo (store `files`) quando a música é baixada. Então o índice sai de UMA
+// leitura do IDB, sem nenhuma requisição — e funciona offline, que é o estado
+// normal no meio de um culto.
+//
+// **O alcance é o que está BAIXADO.** Música nunca baixada não tem letra no
+// aparelho: o índice do acervo (`pt_hymnal`, `pt_musics`) traz nome, número e
+// duração, não o texto. Buscar no catálogo inteiro exigiria puxar um
+// `music_{id}` por música — centenas de requisições — e isso seria outra
+// funcionalidade, com outro custo. A linha encontrada aparece no resultado
+// justamente para o operador ver POR QUE aquele item casou.
+let lyricIndex = null;        // Map<fileId, { norm, lines }> | null = não construído
+let lyricIndexPending = null;
+
+// Mínimo de caracteres para a busca entrar na letra. Com menos que isso o
+// trecho casaria em quase todo hino ("de", "ao") e afogaria os resultados por
+// título, que é o que o operador procura na maior parte das vezes.
+const LYRIC_MIN_Q = 3;
+
+async function buildLyricIndex() {
+  const map = new Map();
+  let files;
+  try { files = await AVDB.filesAll(); } catch (_) { return map; }
+  for (const f of files) {
+    if (!f || !Array.isArray(f.lyrics) || !f.lyrics.length) continue;
+    const lines = [];
+    for (const slide of f.lyrics) {
+      if (!slide || !slide.text) continue;
+      // Uma estrofe pode ter várias linhas (o `<br>` da API vira `\n` em
+      // normalizeLyricText). Quebrar aqui faz o trecho exibido ser UMA linha,
+      // e não o bloco inteiro.
+      for (const ln of String(slide.text).split('\n')) {
+        const t = ln.trim();
+        if (t) lines.push(t);
+      }
+    }
+    if (!lines.length) continue;
+    map.set(f.id, { norm: normalizeForSearch(lines.join('\n')), lines });
+  }
+  return map;
+}
+
+// Constrói sob demanda e redesenha quando ficar pronto — `renderSearchResults`
+// é síncrona (roda a cada tecla) e não pode esperar o IDB.
+function ensureLyricIndex() {
+  if (lyricIndex || lyricIndexPending) return;
+  lyricIndexPending = buildLyricIndex().then((m) => {
+    lyricIndex = m;
+    lyricIndexPending = null;
+    // Só redesenha se o popup ainda estiver aberto e houver o que refinar.
+    if (hymnSearchPopupEl.classList.contains('open')) renderSearchResults(hymnSearchInputEl.value);
+  }).catch(() => { lyricIndexPending = null; });
+}
+
+// A letra de uma música só entra no índice quando é baixada; um download novo
+// torna o índice obsoleto. Invalidar (em vez de reconstruir) evita pagar a
+// leitura no meio de uma sincronização em massa.
+function invalidateLyricIndex() { lyricIndex = null; }
+
+// Devolve a LINHA da letra que casa com a busca, ou null. Procura nas duas
+// variantes: o Playback costuma carregar a mesma letra do Cantado, e qual das
+// duas foi baixada varia por música.
+function lyricMatch(s, q) {
+  if (!lyricIndex || q.length < LYRIC_MIN_Q) return null;
+  for (const fid of [s.fileIdFull, s.fileIdPlayback]) {
+    if (!fid) continue;
+    const e = lyricIndex.get(fid);
+    if (!e || !e.norm.includes(q)) continue;
+    for (const ln of e.lines) {
+      if (normalizeForSearch(ln).includes(q)) return ln;
+    }
+    return e.lines[0];   // casou no todo mas não numa linha (busca cruzou a quebra)
+  }
+  return null;
+}
+
 // Busca GLOBAL (botão de lupa): escopo null = varre todas as coleções.
 function openHymnSearch() {
   searchScope = null;
   hymnSearchTitleEl.textContent = 'Buscar no acervo';
-  hymnSearchInputEl.placeholder = 'Buscar por nome ou número…';
+  hymnSearchInputEl.placeholder = 'Nome, número ou trecho da letra…';
   hymnSearchInputEl.value = '';
   renderSearchResults('');
   hymnSearchPopupEl.classList.add('open');
@@ -5708,7 +5789,12 @@ function closeHymnSearch() {
 function renderSearchResults(query) {
   const q = normalizeForSearch(query).trim();
   const cols = searchScope ? allCollections().filter((c) => c.id === searchScope) : allCollections();
-  const matches = []; // { coll, song }
+  // A letra só é varrida com busca de verdade (ver LYRIC_MIN_Q); a lista
+  // completa de uma coleção não precisa do índice.
+  if (q.length >= LYRIC_MIN_Q) ensureLyricIndex();
+
+  const porNome = [];    // { coll, song }
+  const porLetra = [];   // { coll, song, hit }
   let totalIndexed = 0;
   for (const coll of cols) {
     const songs = collSongs(coll.id);
@@ -5720,10 +5806,17 @@ function renderSearchResults(query) {
       // global varre os dois hinários (~1100) mais todos os álbuns indexados.
       const norm = s._norm || (s._norm = normalizeForSearch(s.name));
       if (q === '' || norm.includes(q) || String(s.track) === q) {
-        matches.push({ coll, song: s });
+        porNome.push({ coll, song: s });
+        continue;   // já casou pelo título: não procura na letra à toa
       }
+      const hit = lyricMatch(s, q);
+      if (hit) porLetra.push({ coll, song: s, hit });
     }
   }
+  // Título ANTES de letra, sempre. Quem digita "Firme nas Promessas" quer o
+  // hino de mesmo nome no topo — não os quinze que citam a expressão numa
+  // estrofe. Dentro de cada grupo a ordem do acervo é preservada.
+  const matches = porNome.concat(porLetra);
   hymnSearchCountEl.textContent = String(matches.length);
   hymnResultsEl.innerHTML = '';
   if (totalIndexed === 0) {
@@ -5742,7 +5835,7 @@ function renderSearchResults(query) {
   // A busca GLOBAL mantém o teto: ela varre milhares de músicas de todos os
   // álbuns, e renderizar tudo a cada tecla travaria o campo.
   const LIMIT = searchScope ? Infinity : 60;
-  matches.slice(0, LIMIT).forEach((m) => hymnResultsEl.appendChild(hymnResultRow(m.coll, m.song)));
+  matches.slice(0, LIMIT).forEach((m) => hymnResultsEl.appendChild(hymnResultRow(m.coll, m.song, m.hit)));
   if (matches.length > LIMIT) {
     const li = document.createElement('li'); li.className = 'empty';
     li.textContent = '+' + (matches.length - LIMIT) + ' resultado(s). Refine a busca.';
@@ -5757,7 +5850,7 @@ function renderSearchResults(query) {
 // Cada variante (Cantado/Playback) é um grupo [tocar][+ Cronograma][+
 // Playlist]; o botão de tocar usa ícone de voz (Cantado) ou nota musical
 // (Playback). Playback só aparece se a música tiver.
-function hymnResultRow(coll, s) {
+function hymnResultRow(coll, s, lyricHit) {
   const li = document.createElement('li');
   li.className = 'lib-item hymn-result';
 
@@ -5776,6 +5869,14 @@ function hymnResultRow(coll, s) {
     const sub = document.createElement('span'); sub.className = 'hymn-sub';
     sub.textContent = coll.name;
     info.appendChild(sub);
+  }
+  // Casou pela LETRA: mostra a linha. Sem ela, o resultado apareceria sem
+  // nenhuma relação visível com o que foi digitado — e o operador não teria
+  // como saber se é o hino certo sem abrir um por um.
+  if (lyricHit) {
+    const hit = document.createElement('span'); hit.className = 'hymn-lyric-hit';
+    hit.textContent = lyricHit.length > 100 ? lyricHit.slice(0, 100) + '…' : lyricHit;
+    info.appendChild(hit);
   }
 
   const time = document.createElement('span'); time.className = 'hymn-time';

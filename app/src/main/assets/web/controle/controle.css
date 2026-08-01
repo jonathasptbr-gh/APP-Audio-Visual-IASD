@@ -1534,6 +1534,15 @@ main {
    crescer significaria esticar na VERTICAL (o nome descolaria do subtítulo). */
 .hymn-name { flex: none; font-size: 1.02rem; font-weight: 500; }
 .hymn-sub { font-size: .78rem; color: var(--muted); }
+/* Trecho da letra que casou com a busca. Em itálico e com uma barra à esquerda
+   para se ler como CITAÇÃO, não como mais um subtítulo do item — e assim não
+   se confunde com o nome da coleção, que fica logo acima. Uma linha só: a
+   lista é varrida de relance no meio do culto. */
+.hymn-lyric-hit {
+  font-size: .8rem; font-style: italic; color: var(--gold-text);
+  border-left: 2px solid var(--gold); padding-left: .4rem; margin-top: .12rem;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;
+}
 /* Duração: coluna própria à direita (saiu do subtítulo) — alinha entre as
    linhas e deixa o subtítulo livre para a coleção de origem. */
 .hymn-time {
