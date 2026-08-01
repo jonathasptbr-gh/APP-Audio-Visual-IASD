@@ -1389,6 +1389,35 @@ de mídia offline, sem copiar nenhum código do app-ja (Vue/Vuex) — só o
 > `config`, servidor de arquivos). Consulte-o para pedir **qualquer** arquivo do
 > sistema sem precisar abrir o repositório do `app-ja`.
 
+#### O número é do HINÁRIO, não da faixa (v5.42)
+
+`collNumbersSongs(coll)` decide, e `songLabel(coll, s, pad)` é o único lugar
+que monta o rótulo — lista da coleção, busca, nome do arquivo baixado e slide
+de capa passam todos por ali (ou pelo `hymnTrack` que ele governa).
+
+Num hinário o número **é** o nome da música: pede-se "o 471", e a numeração é
+a mesma no hinário impresso de todo mundo. Num álbum, `track` é só a posição no
+disco — um dado de catálogo que ninguém usa para pedir nem para achar. "12. Ele
+Vem" não ajuda a reconhecer nada, e numa busca global punha uma coluna de
+números sem significado na frente de todo título de álbum.
+
+Três consequências, e a terceira é a que menos se vê:
+
+- **`hymnTrack` fica nulo fora de hinário.** É o número NO HINÁRIO, não a faixa
+  do disco. Com isso o slide de capa, o título do popup de letra e a preview
+  param de numerar sem precisar conhecer coleção nenhuma — nenhum deles tem
+  acesso a ela (o Display, em especial, só recebe o registro do arquivo).
+- **A busca por NÚMERO passa a valer só onde o número identifica.** Digitar "3"
+  trazia a faixa 3 de cada álbum indexado — dezenas de resultados que ninguém
+  pediu, empurrando o hino 3 para o fim da lista.
+- **Uma passagem única corrige o que já está baixado**
+  (`desnumerarAlbunsBaixados`, estado `migSemNumeroAlbuns`). Só parar de
+  escrever deixaria numerada para sempre a biblioteca que o operador já tem.
+  Ela remove o prefixo `N. ` do nome e zera o `hymnTrack` nos arquivos das
+  coleções que não numeram — não recalcula o nome a partir de `hymnName`
+  porque o mesmo registro cobre importados e variantes, e tirar o prefixo é a
+  operação exata.
+
 - **`Louvorja.fetchList(file)`** — `GET {url-base}/{file}?{YYYYMMDD}` com
   header `Api-Token`, mesmo formato do `Database.js` do app-ja (URL de
   produção + token embutidos no arquivo — já públicos no bundle do app-ja,
@@ -3271,8 +3300,7 @@ medidas repetidas à mão), que foram consolidadas nestes padrões.
 > ⚠️ **Não há CSS compartilhado entre os dois apps** (nenhuma folha comum). Os
 > tokens de marca abaixo estão **duplicados** nas duas folhas e precisam ser
 > mantidos **idênticos manualmente**. Ao mudar um deles, mudar nos dois
-> arquivos: `--gold`, `--danger`, `--wallpaper`, `--lyrics-frame-bg`,
-> `--lyrics-frame-border`.
+> arquivos: `--gold`, `--danger`, `--wallpaper`, `--lyrics-frame-bg`.
 
 ### Tokens
 
@@ -3300,8 +3328,7 @@ medidas repetidas à mão), que foram consolidadas nestes padrões.
 | `--radius-card` | `10px` | raio de **cartões/painéis** (preview, itens de lista, popups internos, folhas) |
 | `--radius-pill` | `999px` | badges, chips, pills |
 | `--wallpaper` 🔁 | `radial-gradient(circle at 50% 35%, #14331f 0%, #0a1a10 55%, #050b07 100%)` | cortina do wallpaper (Display + preview) |
-| `--lyrics-frame-bg` 🔁 | `rgba(0,0,0,.4)` | fundo da moldura da letra (modo imagem) |
-| `--lyrics-frame-border` 🔁 | `rgba(255,255,255,.85)` | borda da moldura da letra (modo imagem) |
+| `--lyrics-frame-bg` 🔁 | `rgba(0,0,0,.62)` | fundo da faixa da letra (modo imagem). **Sem borda** desde a v5.42: o contorno branco desenhava um retângulo que competia com a letra, e quem separa o texto da foto é a faixa. Densidade escolhida pelo PIOR caso — uma foto branca: `.40` deixava o fundo em ~#999 (2,4:1 com o texto branco, reprovado); `.62` põe em ~#616161, **6,2:1** |
 | `--fader-cap` | `26px` | espessura do cap do fader — **dois** faders a usam (mixer e barra do modo simplificado), e a posição do número sai dela |
 | `--press` | `scale(.96)` | **feedback de toque padrão**: todo `:active` usa `transform: var(--press)` |
 
@@ -3342,7 +3369,7 @@ medidas repetidas à mão), que foram consolidadas nestes padrões.
   busca precisa ser editável) — ver "Regras de desenvolvimento".
 - **Cantos:** botões/controles = `--radius-btn`; contêineres = `--radius-card`;
   pills/badges = `--radius-pill`. Casos especiais fora do sistema (intencionais):
-  `border-radius:0` da moldura da letra ("vídeo de louvor", cantos retos), `50%`
+  `border-radius:0` da faixa da letra ("vídeo de louvor", cantos retos), `50%`
   do thumb do fader, `18px 18px 0 0` das bottom-sheets, `4px` do `.url-badge`.
 - **Cores fora do sistema (intencionais):** `#fff` puro em texto de botão, `#000`
   em fundos de mídia/preview e o `box-shadow` dourado do `.start-pill`

@@ -88,7 +88,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.41';
+const WEB_VERSION = '5.42';
 
 function renderVersionLabel() {
   // __SHELL_NAME__ = versionName do APK (ver native.js). Vazio no navegador e
@@ -3737,6 +3737,57 @@ function isHymnalAlbum(coll) {
   return /hin[aá]rio/i.test(coll.name || '');
 }
 
+// O NÚMERO só existe em hinário. Ali ele é o nome da música — se pede "o 471",
+// e a numeração é a mesma no hinário impresso de todo mundo. Num álbum,
+// `track` é só a posição no disco: um dado de catálogo que ninguém usa para
+// pedir nem para achar. "12. Ele Vem" não ajuda a reconhecer nada, e numa
+// busca global punha uma coluna de números sem significado na frente de todo
+// título de álbum.
+function collNumbersSongs(coll) {
+  return !!coll && (coll.kind === 'hymnal' || isHymnalAlbum(coll));
+}
+
+// Rótulo da música. É o ÚNICO lugar que decide se o número entra — a lista da
+// coleção, a busca, o nome do arquivo baixado e o slide de capa passam todos
+// por aqui (ou pelo `hymnTrack` que ele governa).
+function songLabel(coll, s, pad) {
+  const n = collNumbersSongs(coll) && s.track
+    ? (pad ? String(s.track).padStart(3, '0') : String(s.track)) + '. ' : '';
+  return n + s.name;
+}
+
+// Faixa de álbum já baixada carrega o número GRAVADO no registro ("012. Nome
+// (Cantado)" e `hymnTrack`), de quando tudo era numerado. Só parar de escrever
+// deixaria a biblioteca existente numerada para sempre — e é justamente ela que
+// o operador já tem. Passagem única, marcada em estado: varre os arquivos das
+// coleções que não numeram e tira o prefixo. Não recalcula o nome a partir de
+// `hymnName` porque o registro também cobre importados e variantes; remover o
+// "N. " da frente é a operação exata, e nada mais.
+const MIG_SEM_NUMERO = 'migSemNumeroAlbuns';
+
+async function desnumerarAlbunsBaixados() {
+  if (await AVDB.getState(MIG_SEM_NUMERO)) return;
+  try {
+    const semNumero = new Set(
+      allCollections().filter((c) => !collNumbersSongs(c)).map((c) => c.id));
+    if (semNumero.size) {
+      const arquivos = await AVDB.filesAll();
+      for (const rec of arquivos) {
+        if (!semNumero.has(rec.folder)) continue;
+        const limpo = String(rec.name || '').replace(/^\d+\.\s*/, '');
+        if (limpo === rec.name && rec.hymnTrack == null) continue;
+        rec.name = limpo;
+        rec.hymnTrack = null;
+        await AVDB.fileAdd(rec);
+      }
+    }
+    await AVDB.setState(MIG_SEM_NUMERO, 1);
+  } catch (_) {
+    // Sem a marca, a próxima abertura tenta de novo — é uma limpeza cosmética
+    // e nada depende dela para o app funcionar.
+  }
+}
+
 // A aba Álbuns espelha a classificação do banco: **categoria → álbum**, na
 // ordem que o próprio banco define (`order`), com os hinários num grupo fixo
 // no topo. Antes era uma lista plana de todos os álbuns em ordem de descoberta
@@ -5554,8 +5605,13 @@ async function downloadCollectionFile(coll, s, urlPath, variantLabel, thumb, lyr
   await AVDB.fileAdd({
     id, folder: coll.id, opfsPath: path,
     srcName: s.id_music + '-' + variantLabel,
-    name: (s.track ? String(s.track).padStart(3, '0') + '. ' : '') + s.name + ' (' + variantLabel + ')',
-    hymnName: s.name, hymnTrack: s.track,
+    name: songLabel(coll, s, true) + ' (' + variantLabel + ')',
+    // `hymnTrack` é o número NO HINÁRIO, não a faixa do disco: fora de um
+    // hinário fica nulo, e com isso o slide de capa, o título do popup de
+    // letra e a preview param de numerar sem precisar saber de coleção
+    // nenhuma (nenhum deles tem acesso a ela — o Display, em especial, só
+    // recebe o registro do arquivo).
+    hymnName: s.name, hymnTrack: collNumbersSongs(coll) ? s.track : null,
     type: blob.type || 'audio/mpeg', kind: 'audio',
     size: blob.size, mtime: Date.now(), thumb, lyrics,
     blob: null, url: null, addedAt: Date.now(),
@@ -6000,6 +6056,7 @@ function renderSearchResults(query) {
   let totalIndexed = 0;
   for (const coll of cols) {
     const songs = collSongs(coll.id);
+    const numera = collNumbersSongs(coll);
     totalIndexed += songs.length;
     for (const s of songs) {
       // `_norm` é calculado UMA vez, ao montar o índice (fetchCollectionIndex /
@@ -6007,7 +6064,10 @@ function renderSearchResults(query) {
       // por música a cada tecla, sobre um nome que nunca muda — e a busca
       // global varre os dois hinários (~1100) mais todos os álbuns indexados.
       const norm = s._norm || (s._norm = normalizeForSearch(s.name));
-      if (q === '' || norm.includes(q) || String(s.track) === q) {
+      // Busca por NÚMERO só onde o número identifica a música: digitar "3"
+      // traria a faixa 3 de cada álbum indexado, dezenas de resultados que
+      // ninguém pediu, empurrando o hino 3 para o fim da lista.
+      if (q === '' || norm.includes(q) || (numera && String(s.track) === q)) {
         porNome.push({ coll, song: s });
         continue;   // já casou pelo título: não procura na letra à toa
       }
@@ -6062,7 +6122,7 @@ function hymnResultRow(coll, s, lyricHit) {
 
   const info = document.createElement('div'); info.className = 'hymn-info';
   const name = document.createElement('span'); name.className = 'row-name hymn-name';
-  name.textContent = (s.track ? s.track + '. ' : '') + s.name;
+  name.textContent = songLabel(coll, s);
   info.appendChild(name);
   // Subtítulo: a coleção de origem — só na busca global, porque no escopo de
   // uma coleção o próprio título do popup já diz de onde vem. A duração saiu
@@ -7815,6 +7875,7 @@ document.addEventListener('visibilitychange', () => {
 
 (async function init() {
   await loadCollections();
+  await desnumerarAlbunsBaixados();
   // ANTES do load(): é ele que lê `current` e monta a tela a partir dela.
   await clearCurrentSelection();
   await load();

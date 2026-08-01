@@ -18,9 +18,12 @@
   --gold: #fbc02d;
   /* wallpaper (cortina) */
   --wallpaper: radial-gradient(circle at 50% 35%, #14331f 0%, #0a1a10 55%, #050b07 100%);
-  /* moldura da letra sincronizada (modo imagem) */
-  --lyrics-frame-bg: rgba(0, 0, 0, .4);
-  --lyrics-frame-border: rgba(255, 255, 255, .85);
+  /* moldura da letra sincronizada (modo imagem). Sem linha de borda: a faixa
+     escura já separa o texto da foto, e o contorno branco competia com a
+     letra em vez de ajudá-la a ser lida. Em troca ela ficou mais densa —
+     .40 deixava um branco de foto em ~#999 (2,4:1 com o texto branco, longe
+     do mínimo); .62 põe o pior caso em ~#616161, que dá 6,2:1. */
+  --lyrics-frame-bg: rgba(0, 0, 0, .62);
   /* perigo — aqui só o timer estourado (ver .chrono-over) */
   --danger: #e53935;
 }
@@ -150,15 +153,17 @@ html, body {
    Proporções calibradas por medição em pixel de um vídeo de louvor de
    referência (moldura ~76-80% da largura da tela / ~27-36% da altura;
    fonte da letra com cap-height ~8,3% da altura da tela). */
-/* Moldura no padrão "vídeo de louvor" (cantos retos, borda fina e nítida,
-   sem sombra) — retângulo, não cartão arredondado. Borda + fundo
-   semitransparente só fazem sentido cobrindo uma imagem de fundo de
-   verdade (dão contraste/legibilidade contra ela); no modo preto puro
-   (padrão) seriam só uma zona escura flutuando sobre uma tela já preta,
-   sem função nenhuma — por isso ficam condicionados a `.imgbg` (ligado só
-   quando `lyricsBgMode==='image'`, ver `applyLyricsBgClass()`). Sem essa
-   classe, `background`/`border` ficam `transparent`, e é como se a letra
-   estivesse "solta" direto sobre o preto. */
+/* Moldura no padrão "vídeo de louvor" (cantos retos, sem sombra) —
+   retângulo, não cartão arredondado. Um fundo semitransparente só faz
+   sentido cobrindo uma imagem de fundo de verdade (é dela que vem o
+   contraste); no modo preto puro (padrão) seria uma zona escura flutuando
+   sobre uma tela já preta, sem função nenhuma — por isso fica condicionado
+   a `.imgbg` (ligado só quando `lyricsBgMode==='image'`, ver
+   `applyLyricsBgClass()`). Sem essa classe o fundo é `transparent`, e é
+   como se a letra estivesse "solta" direto sobre o preto.
+   **Sem linha de borda** (v5.42): o contorno branco desenhava um retângulo
+   que competia com a letra em vez de ajudá-la a ser lida — quem separa o
+   texto da foto é a faixa escura, não a moldura. */
 .lyrics-box {
   width: 76cqw;
   height: 32cqh;
@@ -166,7 +171,6 @@ html, body {
   padding: 2.5cqh 4cqw;
   border-radius: 0;
   background: transparent;
-  border: 1.5px solid transparent;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   gap: 1.5cqh;
   text-align: center; overflow: hidden;
@@ -174,7 +178,6 @@ html, body {
 }
 .lyrics-content.imgbg .lyrics-box {
   background: var(--lyrics-frame-bg);
-  border-color: var(--lyrics-frame-border);
 }
 /* Trecho da música sem letra a cantar (solo, introdução, instrumental): a
    moldura inteira esmaece e some, deixando a imagem de fundo limpa. Uma caixa

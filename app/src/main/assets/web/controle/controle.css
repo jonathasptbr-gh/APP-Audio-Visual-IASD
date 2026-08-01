@@ -92,8 +92,8 @@ input, textarea { user-select: text !important; -webkit-user-select: text !impor
   --wallpaper: radial-gradient(circle at 50% 35%, #14331f 0%, #0a1a10 55%, #050b07 100%);
 
   /* moldura da letra sincronizada (modo imagem) — manter em sync com display.css */
-  --lyrics-frame-bg: rgba(0, 0, 0, .4);
-  --lyrics-frame-border: rgba(255, 255, 255, .85);
+  /* ver display.css: sem borda, e mais densa para o contraste */
+  --lyrics-frame-bg: rgba(0, 0, 0, .62);
 
   /* Altura da faixa da preview na grade do .deck. É token porque a largura da
      preview é calculada a partir dela (altura × proporção do telão) — se as
@@ -378,11 +378,11 @@ body {
    letra caiba sem vazar da moldura. Proporções equivalentes às calibradas
    no Display (~60% da altura da caixinha para a moldura, fonte com
    cap-height proporcional), só reexpressas em `cq*` da preview. */
-/* Mesmo padrão "vídeo de louvor" do Display: cantos retos, borda fina e
-   nítida, sem sombra — ver .lyrics-box em display.css. Borda + fundo
-   semitransparente só com `.imgbg` (fundo em imagens dos slides) — no modo
-   preto puro seriam uma zona escura flutuando à toa sobre a tela já preta,
-   mesmo motivo do Display (ver applyPvLyricsBgClass em controle.js). */
+/* Mesmo padrão "vídeo de louvor" do Display: cantos retos, sem borda e sem
+   sombra — ver .lyrics-box em display.css. O fundo semitransparente só com
+   `.imgbg` (fundo em imagens dos slides) — no modo preto puro seria uma zona
+   escura flutuando à toa sobre a tela já preta, mesmo motivo do Display (ver
+   applyPvLyricsBgClass em controle.js). */
 .pv-lyrics-box {
   width: 76cqw;
   height: 32cqh;
@@ -390,14 +390,12 @@ body {
   padding: 2.5cqh 4cqw;
   border-radius: 0;
   background: transparent;
-  border: 1.5px solid transparent;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1.5cqh;
   text-align: center; overflow: hidden;
   transition: opacity .3s ease;
 }
 .pv-lyrics-content.imgbg .pv-lyrics-box {
   background: var(--lyrics-frame-bg);
-  border-color: var(--lyrics-frame-border);
 }
 /* Trecho da música sem letra a cantar (solo, introdução, instrumental): a
    moldura esmaece e some, deixando a imagem de fundo limpa — espelha
