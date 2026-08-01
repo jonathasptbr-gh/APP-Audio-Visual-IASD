@@ -2179,6 +2179,30 @@ slides. O índice de busca (`buildLyricIndex`) lê os **dois**, chaveado por
 - Roda como fase 3 do `refreshCollections`, fire-and-forget, com o progresso na
   notificação pelo mesmo `withBgWork` do resto do trabalho de massa.
 
+### Letra completa no resultado aberto (v5.37)
+
+Tocar num resultado da busca já abria o acordeão com Cantado/Playback; agora,
+**abaixo dos botões**, vem a **letra completa** da música. É o que fecha o
+ciclo da busca por trecho: achar o hino e conferir se é ele mesmo, sem tocar
+nada e sem sair da lista.
+
+- **Montada só ao ABRIR, e uma vez só.** Montá-la para todos os resultados
+  encheria a lista de centenas de nós de texto que ninguém pediu — e a lista é
+  reconstruída a cada tecla digitada.
+- **A linha que casou com a busca fica marcada** (fundo dourado) e recebe
+  `scrollIntoView`. O operador digitou aquele trecho justamente para achá-lo;
+  numa letra de 30 linhas, procurá-lo de novo com os olhos é trabalho que o app
+  pode poupar. A marca usa FUNDO, não só cor: precisa ser achada de relance,
+  com o bloco rolando.
+- **Rola por dentro**, com teto de `40vh`. Solta, uma letra de 40 linhas
+  empurraria os resultados seguintes para fora da tela — e o operador perderia
+  de vista justamente a lista que estava percorrendo.
+- **Sem letra, explica por quê**, e distingue os dois casos: nos hinários ela
+  vem no arranque, então a ausência é anômala ("Letra ainda não baixada"); num
+  álbum é o normal ("A letra chega quando a música for baixada").
+- A fonte é `songLyricLines`, que lê os mesmos dois acervos da busca (texto
+  primeiro, slides do arquivo baixado como complemento).
+
 ### Busca dentro da LETRA (v5.35)
 
 "Qual é o hino que fala em *firme nas promessas*?" é a pergunta que o operador

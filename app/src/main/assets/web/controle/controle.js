@@ -86,7 +86,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.36';
+const WEB_VERSION = '5.37';
 
 function renderVersionLabel() {
   // __SHELL_NAME__ = versionName do APK (ver native.js). Vazio no navegador e
@@ -5829,6 +5829,22 @@ function ensureLyricIndex() {
 // leitura no meio de uma sincronização em massa.
 function invalidateLyricIndex() { lyricIndex = null; }
 
+// Linhas da letra de UMA música, das duas fontes (acervo de texto primeiro,
+// slides do arquivo baixado como complemento). Assíncrona por causa do
+// `fileGet`; o acervo de texto, que cobre os hinários, resolve sem esperar IDB.
+async function songLyricLines(coll, s) {
+  const store = lyricStore[coll.id];
+  if (store && Array.isArray(store[s.id_music]) && store[s.id_music].length) return store[s.id_music];
+  for (const fid of [s.fileIdFull, s.fileIdPlayback]) {
+    if (!fid) continue;
+    const rec = await AVDB.fileGet(fid).catch(() => null);
+    if (!rec || !Array.isArray(rec.lyrics)) continue;
+    const linhas = linesFromSlides(rec.lyrics);
+    if (linhas.length) return linhas;
+  }
+  return null;
+}
+
 // Devolve a LINHA da letra que casa com a busca, ou null.
 function lyricMatch(coll, s, q) {
   if (!lyricIndex || q.length < LYRIC_MIN_Q) return null;
@@ -6041,6 +6057,46 @@ function hymnResultRow(coll, s, lyricHit) {
   actions.appendChild(hymnVariantEl(coll, s, 'full', 'Cantado'));
   if (s.has_instrumental_music) actions.appendChild(hymnVariantEl(coll, s, 'playback', 'Playback'));
 
+  // Letra completa, abaixo dos botões. Só é montada quando a linha ABRE (e uma
+  // vez só): montá-la para todos os resultados encheria a lista de centenas de
+  // nós de texto que ninguém pediu — e a lista é reconstruída a cada tecla.
+  const letra = document.createElement('div'); letra.className = 'hymn-lyrics';
+  let letraMontada = false;
+  async function montarLetra() {
+    if (letraMontada) return;
+    letraMontada = true;
+    const linhas = await songLyricLines(coll, s);
+    letra.innerHTML = '';
+    if (!linhas) {
+      const vazio = document.createElement('div');
+      vazio.className = 'hymn-lyrics-empty';
+      // Distingue "não temos" de "não existe": nos hinários a letra vem no
+      // arranque, então a ausência aqui é quase sempre um álbum ainda não
+      // baixado — e aí o próprio ato de tocar resolve.
+      vazio.textContent = coll.kind === 'hymnal'
+        ? 'Letra ainda não baixada.'
+        : 'A letra chega quando a música for baixada.';
+      letra.appendChild(vazio);
+      return;
+    }
+    const q = normalizeForSearch(hymnSearchInputEl.value).trim();
+    let alvo = null;
+    linhas.forEach((ln) => {
+      const d = document.createElement('div');
+      d.className = 'hymn-lyrics-line';
+      d.textContent = ln;
+      // A linha que casou com a busca fica marcada: o operador digitou um
+      // trecho justamente para achá-lo, e numa letra de 30 linhas procurá-lo
+      // de novo com os olhos é trabalho que o app pode poupar.
+      if (q.length >= LYRIC_MIN_Q && normalizeForSearch(ln).includes(q)) {
+        d.classList.add('hit');
+        if (!alvo) alvo = d;
+      }
+      letra.appendChild(d);
+    });
+    if (alvo) alvo.scrollIntoView({ block: 'center' });
+  }
+
   row.addEventListener('click', () => {
     // No simplificado não há escolha de variante: o toque na linha toca o
     // CANTADO. Abrir um acordeão com Cantado/Playback e dois "+" seria
@@ -6050,10 +6106,10 @@ function hymnResultRow(coll, s, lyricHit) {
     // Acordeão: abrir uma fecha a anterior — duas linhas abertas ao mesmo
     // tempo empurrariam a lista e tirariam do lugar o que o operador mira.
     hymnResultsEl.querySelectorAll('.hymn-result.expanded').forEach((el) => el.classList.remove('expanded'));
-    if (!open) li.classList.add('expanded');
+    if (!open) { li.classList.add('expanded'); montarLetra(); }
   });
 
-  li.append(row, actions);
+  li.append(row, actions, letra);
   return li;
 }
 

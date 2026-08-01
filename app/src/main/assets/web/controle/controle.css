@@ -1557,6 +1557,32 @@ main {
 .hymn-result.expanded { border-color: var(--accent); background: var(--panel-2); }
 .hymn-result.expanded .hymn-row { background: var(--panel-2); }
 .hymn-result.expanded .hymn-actions { display: flex; animation: hymn-actions-in .18s ease both; }
+/* Letra completa, abaixo dos botões da linha aberta. Rola por DENTRO, com teto
+   de altura: um hino tem 20-40 linhas e, solto, empurraria os resultados
+   seguintes para fora da tela — o operador perderia de vista a lista que ele
+   estava justamente percorrendo. */
+.hymn-lyrics { display: none; }
+.hymn-result.expanded .hymn-lyrics {
+  display: block; max-height: 40vh; overflow-y: auto;
+  margin: 0 .55rem .55rem; padding: .5rem .6rem;
+  border: 1px solid var(--line); border-radius: var(--radius-btn);
+  background: var(--bg);
+  animation: hymn-actions-in .18s ease both;
+}
+.hymn-lyrics-line {
+  font-size: .88rem; line-height: 1.5; color: var(--text);
+  white-space: pre-line;
+}
+/* Linha que casou com a busca: o operador digitou o trecho para achá-lo, e
+   numa letra de 30 linhas procurá-lo de novo com os olhos é trabalho que o app
+   pode poupar. Fundo (e não só cor) porque a marca precisa ser achada de
+   relance, com a lista rolando. */
+.hymn-lyrics-line.hit {
+  background: var(--gold-soft); color: var(--gold-text);
+  font-weight: 700; border-radius: 4px;
+  margin: .1rem -.25rem; padding: .1rem .25rem;
+}
+.hymn-lyrics-empty { font-size: .84rem; color: var(--muted); font-style: italic; }
 @keyframes hymn-actions-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
 .hymn-variant { flex: 1; display: flex; gap: .25rem; min-width: 0; }
 /* O botão de tocar reusa a receita de `.row-btn` (o irmão `.hymn-add` da mesma
