@@ -132,7 +132,7 @@ input, textarea { user-select: text !important; -webkit-user-select: text !impor
   .ctl-btn, .t-btn, .slide-nav-btn, .pv-fab,
   .tab, .tab-add, .import-btn, .add-dir-btn, .back-btn, .sel-btn,
   .row-btn, .row-handle, .popup-close, .coll-open-cfg, .new-folder-btn, .folder-pick-btn,
-  .coll-pill, .coll-bar, .coll-bar-btn, .coll-group-btn, .hymnal-card-btn,
+  .coll-pill, .coll-bar, .coll-bar-btn, .coll-bar-dl, .coll-group-btn, .hymnal-card-btn,
   .bible-cell, .bible-ref-part, .bible-vsec, .bible-ver-row,
   .hymn-row, .msg-add-btn, .msg-item,
   .misc-tab, .misc-seg, .misc-chip, .chrono-btn, .misc-project, .draw-go,
@@ -875,6 +875,17 @@ main {
 .hymnal-card-btn.cfg-btn { background: var(--surface); color: var(--muted); }
 
 /* ----- Coleção aberta no próprio card (acordeão do acervo, v5.45) ----- */
+/* Baixar/cancelar a coleção, na barra. Alvo próprio (34px) e `stopPropagation`
+   no clique: ele divide a linha com o toque que abre o acordeão. */
+.coll-bar-dl {
+  width: 34px; height: 34px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  border: 1px solid var(--line); border-radius: var(--radius-btn);
+  background: var(--surface); color: var(--accent); cursor: pointer;
+}
+.coll-bar-dl svg { display: block; }
+.coll-bar-dl.done { color: var(--success); }
+.coll-bar-dl.busy { color: var(--danger); border-color: var(--danger); }
 /* A seta anuncia o que o toque faz. Gira ao abrir — é o sinal de que a lista
    saiu dali, e não de outro lugar da tela. */
 .coll-bar-chev {
@@ -883,6 +894,20 @@ main {
 }
 .hymnal-card.expanded .coll-bar-chev { transform: rotate(180deg); color: var(--accent); }
 .hymnal-card.expanded { border-color: var(--accent); }
+/* A barra da coleção ABERTA gruda no topo enquanto se percorre as músicas dela.
+   Sem isto, um hinário de 600 faixas empurrava a própria barra — e a seta que
+   fecha — muito acima da tela: a única seta à vista passava a ser a de OUTRO
+   card, e tocá-la abria aquele em vez de fechar este. Do lado de quem opera,
+   "toquei na seta e não fechou". Grudada, a seta da coleção em que se está
+   fica sempre ao alcance, e o nome dela também — que é a outra metade da
+   pergunta "onde eu estou?". */
+.hymnal-card.expanded .coll-bar {
+  position: sticky; top: 0; z-index: 3;
+  background: var(--panel);
+  margin: -.55rem -.7rem 0; padding: .55rem .7rem;
+  border-radius: var(--radius-card) var(--radius-card) 0 0;
+  box-shadow: 0 6px 12px -8px rgba(0, 0, 0, .9);
+}
 /* A engrenagem desceu da barra para cá: manutenção (sincronizar, excluir, peso)
    é o que se procura DEPOIS de já estar olhando o álbum. Larga e rotulada,
    porque aqui há espaço — na barra ela era um ícone mudo disputando o toque
@@ -1421,6 +1446,8 @@ main {
 /* ---------- Popup de playlist (bottom sheet) ---------- */
 .popup-backdrop {
   position: fixed; inset: 0; z-index: 200;
+  /* (ver #collPopup abaixo: um popup ABERTO DE DENTRO de outro precisa de um
+     degrau próprio de empilhamento) */
   background: rgba(0, 0, 0, .6);
   display: flex; align-items: flex-end;
   opacity: 0; pointer-events: none;
@@ -1439,6 +1466,12 @@ main {
   padding-bottom: env(safe-area-inset-bottom);
 }
 .popup-backdrop.open .popup-sheet { transform: translateY(0); }
+/* As opções da coleção (engrenagem) são abertas DE DENTRO do acervo, que é
+   outro popup. Com o mesmo z-index das demais, quem vencia era a ordem do
+   documento — e o acervo, declarado depois, cobria as opções por inteiro: o
+   toque na engrenagem parecia não fazer nada. Um degrau acima resolve, e o
+   voltar acompanha (ver POPUPS, ordenada de baixo para cima). */
+#collPopup { z-index: 210; }
 /* Folha de TELA CHEIA (o acervo). É a tela em que o operador passa mais tempo
    antes do culto — folhear álbuns, abrir letras, decidir o que baixar — e uma
    folha de 80vh deixava uma faixa morta no topo enquanto a lista rolava

@@ -2343,6 +2343,15 @@ A busca ganha assim **dois níveis**, e isso muda três coisas:
     rotulada. Manutenção — sincronizar, excluir, peso — é o que se procura
     depois de já estar olhando o álbum, não antes; na barra ela era um ícone
     mudo disputando o toque com a própria linha, que agora abre a coleção.
+  - **A barra da coleção aberta GRUDA no topo** (`position: sticky`). Sem isso,
+    percorrer as 600 faixas de um hinário empurrava a própria barra — e a seta
+    que fecha — para fora da tela: a única seta à vista passava a ser a de
+    OUTRO card, e tocá-la abria aquele em vez de fechar este. Do lado de quem
+    opera, "toquei na seta e não fechou". Grudada, a seta da coleção em que se
+    está fica sempre ao alcance, e o nome dela também.
+  - **Baixar/cancelar voltou para a barra** (`.coll-bar-dl`). Com a engrenagem
+    dentro do aberto, baixar um hinário passava por expandir 600 linhas —
+    caro para a ação mais comum do acervo.
 - **O campo não rouba mais o foco na abertura.** Enquanto ela era uma lista de
   músicas, o teclado subir junto era o certo — não havia mais nada a fazer ali.
   Agora a abertura é um acervo para folhear, e o teclado cobriria metade dele
@@ -2365,6 +2374,20 @@ A busca ganha assim **dois níveis**, e isso muda três coisas:
   busca, resultados: o mesmo número dizendo coisas diferentes, ao lado de um
   título que já explica a tela. O contador que importa é o `N/M` de baixados,
   que está em cada card e agora também no cabeçalho.
+- **Os hinários NÃO baixam em lote** (v5.46). São as duas maiores coleções do
+  acervo (~1.100 músicas juntas): um botão só disparando as duas é um download
+  que ninguém dimensiona antes de tocar, e que não dá para parar pela metade
+  sem perder o outro. O cabeçalho "Hinários" mantém o contador (ele informa) e
+  perde o botão (`opts.semBotao`); cada hinário baixa pelo botão do próprio
+  card. As categorias de álbuns seguem com o download em lote — ali cada álbum
+  tem uma dezena de faixas.
+- **As opções da coleção abrem ACIMA do acervo** (v5.46). Os dois são
+  `.popup-backdrop` com o mesmo `z-index`, então quem vencia era a ordem do
+  documento — e o acervo, declarado depois, cobria as opções por inteiro: o
+  toque na engrenagem parecia não fazer nada. `#collPopup` ganhou um degrau
+  (`z-index: 210`) e foi para o FIM de `POPUPS`, que passou a ser ordenada de
+  baixo para cima: o voltar percorre a tabela de trás para a frente, então
+  fechar o acervo antes das opções as deixaria órfãs no ar.
 
 #### E a aba de Álbuns saiu (v5.44)
 

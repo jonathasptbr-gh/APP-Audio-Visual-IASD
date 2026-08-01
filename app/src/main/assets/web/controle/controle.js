@@ -88,7 +88,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.45';
+const WEB_VERSION = '5.46';
 
 function renderVersionLabel() {
   // __SHELL_NAME__ = versionName do APK (ver native.js). Vazio no navegador e
@@ -3857,7 +3857,7 @@ function renderCollectionsList(alvo, redesenhar, opts) {
       name.textContent = text;
       li.appendChild(name);
     }
-    if (colls && colls.length) {
+    if (colls && colls.length && !(opts && opts.semBotao)) {
       const key = 'grp:' + text;
       const g = gui(key);
       let downloaded = 0, total = 0;
@@ -3879,6 +3879,16 @@ function renderCollectionsList(alvo, redesenhar, opts) {
       btn.innerHTML = g.busy ? closeIconSvg() : downloadAllIconSvg();
       btn.addEventListener('click', (e) => { e.stopPropagation(); syncGroup(key, text, colls, opts); });
       li.appendChild(btn);
+    } else if (colls && colls.length) {
+      // Grupo SEM botão de lote (ver "Hinários"): o contador continua, porque
+      // ele informa; o que sai é a ação que juntaria coleções grandes demais
+      // num download só.
+      let downloaded = 0, total = 0;
+      for (const c of colls) { downloaded += countDownloaded(c.id); total += collSongs(c.id).length; }
+      const info = document.createElement('span');
+      info.className = 'coll-group-count' + (total > 0 && downloaded >= total ? ' done' : '');
+      info.textContent = total ? downloaded + '/' + total : '—';
+      li.appendChild(info);
     }
     alvo.appendChild(li);
   };
@@ -3898,7 +3908,12 @@ function renderCollectionsList(alvo, redesenhar, opts) {
   const showHymnals = albumFilter === null || albumFilter === 'hymnals';
   const fixed = showHymnals ? FIXED_COLLECTIONS.filter((c) => byId.has(c.id)) : [];
   if (fixed.length) {
-    header('Hinários', fixed, albumFilter === null);
+    // **Os hinários NÃO baixam em lote.** São as duas maiores coleções do
+    // acervo (~1.100 músicas juntas): um botão só disparando as duas é um
+    // download que ninguém consegue dimensionar antes de tocar, e que não dá
+    // para parar pela metade sem perder o outro. Cada um baixa pelo próprio
+    // card (o botão na barra). O contador do grupo fica — ele informa.
+    header('Hinários', fixed, albumFilter === null, { semBotao: true });
     fixed.forEach((coll) => { alvo.appendChild(renderCollectionCard(coll)); any = true; });
   }
 
@@ -4001,6 +4016,18 @@ function renderCollectionCard(coll, ctx) {
   // ali mesmo, e o que a barra precisa anunciar é isso. A engrenagem desceu
   // para dentro do aberto (ver abaixo) — manutenção é o que se procura depois
   // de já estar olhando o álbum, não antes.
+  // Baixar/cancelar direto na barra. Desde a v5.45 a engrenagem mora DENTRO
+  // do card aberto — o que, num hinário de 600 faixas, punha a ação de baixar
+  // atrás de expandir uma lista enorme. E é por este botão que cada hinário
+  // baixa separado do outro (ver o cabeçalho "Hinários").
+  const dl = document.createElement('button');
+  dl.className = 'coll-bar-dl' + (u.syncBusy ? ' busy' : (complete ? ' done' : ''));
+  dl.title = u.syncBusy ? 'Cancelar o download'
+    : (total > 0 ? 'Baixar esta coleção' : 'Sincronizar a lista');
+  dl.innerHTML = u.syncBusy ? closeIconSvg() : downloadAllIconSvg();
+  dl.addEventListener('click', (e) => { e.stopPropagation(); syncCollection(coll); });
+  bar.appendChild(dl);
+
   const chevron = document.createElement('span');
   chevron.className = 'coll-bar-chev msym';
   chevron.textContent = '';   // expand_more
@@ -7818,14 +7845,19 @@ newFolderInPickerBtnEl.addEventListener('click', async () => {
 // popup novo entra numa linha e já passa a ser fechável pelos três caminhos
 // (✕, toque no fundo, botão do aparelho). Duas listas divergiriam no primeiro
 // popup que alguém esquecesse de acrescentar na segunda.
+// **Ordenada de BAIXO para CIMA**: o voltar percorre de trás para a frente e
+// fecha o primeiro aberto, então o que fica por último é o que está por cima.
+// `collPopup` (opções da coleção) é aberto DE DENTRO do acervo e ganhou
+// z-index próprio — por isso vem depois dele aqui: fechar o acervo primeiro
+// deixaria as opções órfãs no ar.
 const POPUPS = [
-  [collPopupEl, collPopupCloseEl, closeCollectionOptions],
   [plPopupEl, plPopupCloseEl, closePlPopup],
   [hymnSearchPopupEl, hymnSearchCloseEl, closeHymnSearch],
   [bibleVerPopupEl, bibleVerCloseEl, closeBibleVerPopup],
   [fadePopupEl, fadePopupCloseEl, closeFadePopup],
   [lyricsPopupEl, lyricsPopupCloseEl, closeLyricsPopup],
   [folderPopupEl, folderPopupCloseEl, closeFolderPicker],
+  [collPopupEl, collPopupCloseEl, closeCollectionOptions],
 ];
 POPUPS.forEach(([backdrop, closeBtn, close]) => {
   closeBtn.addEventListener('click', close);
