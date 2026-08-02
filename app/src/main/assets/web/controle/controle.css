@@ -1570,16 +1570,27 @@ main {
   flex-shrink: 0; width: 7px; height: 7px; border-radius: 50%;
   background: var(--live-text);
 }
-/* O painel da ferramenta ativa ocupa toda a altura restante. */
+/* O painel da ferramenta ativa ocupa toda a altura restante.
+   `touch-action: pan-y` PRECISA estar aqui, e não bastava na `.lib-list`: o
+   valor de um ANCESTRAL não governa um toque que começa dentro de um scroller
+   descendente — a regra de `touch-action` para de subir no elemento que
+   IMPLEMENTA o gesto, e aqui quem rola é este painel (a `.lib-misc` é
+   `overflow: hidden`). Foi por isso que a v5.61 não destravou o carrossel na
+   aba Ferramentas: a declaração estava no lugar errado da árvore, e o WebView
+   seguia assumindo a rolagem no primeiro movimento e matando o gesto com um
+   `pointercancel`. É a MESMA regra que preserva o `pan-x` do histórico do
+   sorteio, só que lida do outro lado. */
 .misc-panel {
-  flex: 1; min-height: 0; overflow-y: auto;
+  flex: 1; min-height: 0; overflow-y: auto; touch-action: pan-y;
   display: flex; flex-direction: column; align-items: stretch; gap: .6rem;
   padding-bottom: .4rem;
 }
 /* Mensagens: quem rola é a LISTA, não o painel — senão "+ Nova mensagem" e
    "Tirar do telão" sairiam de vista assim que a lista crescesse. */
 .misc-panel--msg { overflow: hidden; }
-.msg-list { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: .35rem; }
+/* Idem: com o painel de Mensagens em `overflow: hidden`, o scroller é ESTA
+   lista — então é nela que o eixo precisa ser declarado. */
+.msg-list { flex: 1; min-height: 0; overflow-y: auto; touch-action: pan-y; display: flex; flex-direction: column; gap: .35rem; }
 /* Segmentado de ferramenta — fora da regra "ícone = ação" por natureza (não
    alterna duas ações opostas; o segmento marcado é que diz o modo). */
 .misc-modes { display: flex; gap: .35rem; }
