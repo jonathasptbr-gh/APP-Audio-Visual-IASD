@@ -96,18 +96,15 @@
     <!-- O "controle remoto": teclas grandes, nada de arrastar. -->
     <div class="simple-remote">
       <div class="simple-keys">
-        <!-- Os glifos estáticos são os do ESTADO INICIAL (nada tocando, sem
-             mudo), não o par oposto: até a v5.47 esta tecla nascia com
-             volume_up, que pela regra do projeto ("o ícone mostra a AÇÃO")
-             anuncia "tirar o mudo" — ou seja, dizia que o áudio ESTAVA mudo.
-             E a janela não é curta: `renderSimple()` copia o glifo de
-             #muteToggle, mas quem o corrige é `renderControls()`, alcançado só
-             depois de `load()` e de dezenas de leituras do IndexedDB — e o
-             modo simplificado é a primeira tela que o operador vê. O #playpause
-             já nascia certo (play = o que `setPlaying(false)` produz); aqui era
-             oversight, não convenção. -->
+        <!-- Os glifos estáticos são os do ESTADO INICIAL: nada tocando (▶) e
+             som LIGADO (alto-falante inteiro — pela convenção da v5.50 o
+             riscado significa cortado, e no boot nada está cortado). A janela
+             não é curta: `renderSimple()` copia o glifo de #muteToggle, mas
+             quem o corrige é `renderControls()`, alcançado só depois de
+             `load()` e de dezenas de leituras do IndexedDB — e o modo
+             simplificado é a primeira tela que o operador vê. -->
         <button type="button" id="simplePlay" class="simple-key simple-key--big" title="Play/Pause"><span class="msym" aria-hidden="true">&#xe037;</span></button>
-        <button type="button" id="simpleMute" class="simple-key simple-key--big" title="Mutar"><span class="msym" aria-hidden="true">&#xe04f;</span></button>
+        <button type="button" id="simpleMute" class="simple-key simple-key--big" title="Mutar"><span class="msym" aria-hidden="true">&#xe050;</span></button>
       </div>
       <!-- Volume por teclas (− / +) com o indicador no meio: num controle não
            se arrasta nada, e o número diz onde está sem precisar mirar. -->
@@ -219,6 +216,13 @@
       <button id="selCancel" class="sel-btn" title="Cancelar"><span class="msym" aria-hidden="true">&#xe14c;</span></button>
       <span id="selCount" class="sel-count">0</span>
       <span class="sel-spacer"></span>
+      <!-- Acrescentar à PLAYLIST sem substituir a fila. Era o deslize à
+           esquerda na linha (v5.49 e anteriores) — um atalho que a tela não
+           anunciava e que reservava o eixo horizontal da lista inteira, hoje do
+           carrossel de abas. Aqui a mesma função ganha um alvo visível e
+           passa a valer para VÁRIOS itens de uma vez, que é o que se faz ao
+           montar a fila de um culto. -->
+      <button id="selPlaylist" class="sel-btn" title="Acrescentar à playlist"><span class="msym" aria-hidden="true">&#xe03b;</span></button>
       <!-- Estrela (não pasta): o destino é a seção de Favoritos. -->
       <button id="selFolder" class="sel-btn" title="Adicionar aos favoritos"><span class="msym" aria-hidden="true">&#xe838;</span></button>
       <button id="selRename" class="sel-btn" title="Renomear"><span class="msym" aria-hidden="true">&#xe150;</span></button>
@@ -366,7 +370,14 @@
       <div class="mixer" id="mixer">
         <div class="mixer-slot mixer-top">
           <div class="mixer-stack">
-            <button id="settingsBtn" class="ctl-btn settings-btn" title="Configurações">
+            <!-- SEM fundo de botão (`.settings-btn`, e por isso não é
+                 `.ctl-btn`): esta fatia é a mais baixa da coluna, e um bloco
+                 achatado ao lado de quatro botões de altura cheia se lê como um
+                 botão MAL FEITO. Sem a caixa, o ícone solto diz o que é — o
+                 acesso às preferências, fora do grupo que opera o culto. Mesmo
+                 tratamento do `#backBtn` do cabeçalho, que também é navegação e
+                 também é chapado. -->
+            <button id="settingsBtn" class="settings-btn" title="Configurações">
               <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <circle cx="12" cy="12" r="3.2"/>
                 <path d="M19.4 14.2a1.6 1.6 0 0 0 .32 1.77l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.6 1.6 0 0 0-1.77-.32 1.6 1.6 0 0 0-.97 1.47V20a2 2 0 1 1-4 0v-.11a1.6 1.6 0 0 0-1.05-1.46 1.6 1.6 0 0 0-1.77.32l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.6 1.6 0 0 0 .32-1.77 1.6 1.6 0 0 0-1.47-.97H4a2 2 0 1 1 0-4h.11a1.6 1.6 0 0 0 1.46-1.05 1.6 1.6 0 0 0-.32-1.77l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.6 1.6 0 0 0 1.77.32H9.9a1.6 1.6 0 0 0 .97-1.47V4a2 2 0 1 1 4 0v.11a1.6 1.6 0 0 0 .97 1.47 1.6 1.6 0 0 0 1.77-.32l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.6 1.6 0 0 0-.32 1.77v.08a1.6 1.6 0 0 0 1.47.97H20a2 2 0 1 1 0 4h-.11a1.6 1.6 0 0 0-1.47.97z"/>
@@ -376,15 +387,12 @@
         </div>
         <div class="mixer-slot mixer-mid">
           <div class="mixer-stack">
-            <!-- Glifo e title do ESTADO INICIAL (`view = 'visual'`), iguais ao
-                 que `renderControls()` escreve: imagem RISCADA, porque o toque
-                 vai COBRIR o telão. Nascer com `image` dizia o contrário — que
-                 a mídia já estava coberta. Mesmo caso do #simpleMute acima. -->
-            <button id="viewToggle" class="ctl-btn view-btn" title="Cobrir o telão"><span class="msym" aria-hidden="true">&#xf116;</span></button>
             <!-- Leitura auxiliar: a letra INTEIRA da música em cena ou o
                  capítulo INTEIRO da Bíblia em leitura, num popup com scroll.
-                 Ocupa o lugar do antigo botão de fundo da letra, que virou uma
-                 opção do popup de Exibição (é configuração, não operação). -->
+                 É o PRIMEIRO da fatia desde a v5.50 (trocou de lugar com a
+                 cortina): é o botão que se consulta o tempo todo enquanto o
+                 louvor corre, e a cortina é o que se usa em transições — o mais
+                 frequente fica mais perto do topo, onde o polegar já está. -->
             <button id="lyricsViewBtn" class="ctl-btn lyricsview-btn" title="Ver a letra / o texto completo">
               <!-- Ícone de "texto corrido" (SVG inline, fora do subset da
                    fonte): folha com linhas de texto de comprimentos desiguais —
@@ -396,11 +404,13 @@
                 <line x1="7.2" y1="16" x2="12.8" y2="16"/>
               </svg>
             </button>
-            <!-- Idem: `muted = false` no boot → o toque MUTA, então volume_off
-                 e o mesmo title que `renderControls()` escreve. É este botão
-                 que #simpleMute copia, e era daqui que a inversão se
-                 propagava para a tecla grande do modo simplificado. -->
-            <button id="muteToggle" class="ctl-btn mute-btn" title="Mutar"><span class="msym" aria-hidden="true">&#xe04f;</span></button>
+            <!-- Glifo e title do ESTADO INICIAL (`view = 'visual'`), iguais ao
+                 que `renderControls()` escreve: imagem INTEIRA, porque nada
+                 está coberto. O riscado é o corte (v5.50). -->
+            <button id="viewToggle" class="ctl-btn view-btn" title="Cobrir o telão"><span class="msym" aria-hidden="true">&#xe251;</span></button>
+            <!-- Idem: `muted = false` no boot → sai som, então o alto-falante
+                 inteiro. É este botão que #simpleMute copia. -->
+            <button id="muteToggle" class="ctl-btn mute-btn" title="Mutar"><span class="msym" aria-hidden="true">&#xe050;</span></button>
           </div>
         </div>
         <!-- estado aberto: fader ocupa o lugar de top+mid (mesma posição/altura) -->
@@ -536,7 +546,7 @@
              METADADO de diagnóstico e o lugar onde se procura diagnóstico é
              junto do estado do telão e do alvo de espelhamento, não numa faixa
              de navegação. Preenchido por `renderVersionLabel`. -->
-        <span id="appVersion" class="app-version">Controle v5.49</span>
+        <span id="appVersion" class="app-version">Controle v5.50</span>
       </div>
     </div>
   </div>

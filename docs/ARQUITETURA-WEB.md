@@ -94,7 +94,7 @@ git push origin main
   MENOR que o já publicado — caso em que `WebUpdater.compareVersions` ignora o
   bundle em silêncio. Para saber onde a base está, leia `version.json`.
 
-  No app nativo o rótulo mostra os **dois índices** — `Web v5.49 · Shell v1.22`
+  No app nativo o rótulo mostra os **dois índices** — `Web v5.50 · Shell v1.22`
   —, porque base web e shell atualizam por caminhos independentes (OTA ×
   instalar APK); no navegador sai só `Controle v<versão>`. **Ele mora no rodapé
   do popup de Configurações** desde a v5.49 (antes ficava no cabeçalho da lista,
@@ -988,13 +988,16 @@ appbar cuidava do notch/status bar).
 **Cabeçalho da lista (`.list-header`):** botão voltar (dentro de pasta), título
 da aba/pasta, campo de busca (dentro de pasta OPFS), botão de sincronizar pasta
 do dispositivo (só na raiz dos **Favoritos**) e, sempre no canto direito, a
-**volta para o modo simplificado** (`#fullSimpleBtn`, `margin-left: auto` — na
-aba Bíblia o título fica oculto e, sem o `auto`, o botão escorregaria para a
-esquerda; o par de troca de modo tem de estar sempre no mesmo canto). O
+**volta para o modo simplificado** (`#fullSimpleBtn`, `margin-left: auto` — o
+par de troca de modo tem de estar sempre no mesmo canto, e o `auto` garante
+isso mesmo numa tela em que o título não ocupe a linha). O
 **indicador de versão** morava aqui e foi para o rodapé de Configurações na
 v5.49: o cabeçalho é navegação, o texto completo (`Web vX · Shell vY`) comia
 quase metade da largura de um celular, e ele só aparecia numa das abas — o mesmo
-metadado existindo ou não conforme a tela.
+metadado existindo ou não conforme a tela. Com a faixa liberada, a **aba Bíblia
+voltou a ter título** (v5.50): ela era a única tela sem nome, e o título tinha
+saído justamente para caber a versão — "onde eu estou" passava a depender de
+reconhecer a grade de 66 ladrilhos.
 
 **Controles (`.bottombar`):** fixados na base da tela. O padding inferior usa
 `max(env(safe-area-inset-bottom), 12px)` para garantir margem segura contra
@@ -1045,8 +1048,8 @@ linha da grade:
 
 | Fatia | Linha da grade | Conteúdo |
 |---|---|---|
-| `.mixer-top` | 1 (mesma de `.nowplaying`) | **Configurações** (`#settingsBtn`, engrenagem — `openFadePopup`) |
-| `.mixer-mid` | 2 (mesma de `.preview-row`, `--deck-pv-h`) | **cortina do telão** (`#viewToggle`), **letra/texto completo** (`#lyricsViewBtn`, ícone de **folha com linhas** — SVG inline; abre a leitura auxiliar), **mudo** (`#muteToggle`) — empilhados, cada um com `flex:1` |
+| `.mixer-top` | 1 (mesma de `.nowplaying`) | **Configurações** (`#settingsBtn`, engrenagem — `openFadePopup`), **sem caixa de botão** |
+| `.mixer-mid` | 2 (mesma de `.preview-row`, `--deck-pv-h`) | **letra/texto completo** (`#lyricsViewBtn`, ícone de **folha com linhas** — SVG inline; abre a leitura auxiliar), **cortina do telão** (`#viewToggle`), **mudo** (`#muteToggle`) — empilhados, cada um com `flex:1` |
 | `.mixer-bottom` | 3 (mesma de `.transport`) | **volume** (`#volToggle`/`#volClose`, recolhível) |
 
 A coluna foi reorganizada na v5.49, quando a **mesa de som** deixou de ter botão
@@ -1056,6 +1059,19 @@ do que opera: a engrenagem no topo, sozinha, e abaixo dela o bloco de operação
 (cortina → letra → mudo → volume), que é o que o polegar procura sem olhar.
 Antes a mesa de som ficava no MEIO desse bloco, entre a leitura da letra e o
 mudo, sendo a única ali que se decide uma vez e não se toca mais.
+Dentro da fatia do meio a **leitura da letra vem primeiro** (v5.50, trocou de
+lugar com a cortina): é o botão que se consulta o tempo todo enquanto o louvor
+corre, e a cortina serve às transições — o mais frequente fica mais perto do
+topo, onde o polegar já está.
+
+**A engrenagem não tem caixa de botão** (`.settings-btn`, e por isso não é
+`.ctl-btn`): a fatia do topo acompanha a altura de `.nowplaying`, que é bem
+menor que a da preview, e um bloco achatado ao lado de quatro botões de altura
+cheia lê como um botão mal encaixado. Sem a caixa, o ícone solto deixa de
+competir com o grupo que opera o culto — que é justamente o que ele não é. É o
+mesmo tratamento do `#backBtn` do cabeçalho: navegação/acesso é chapado,
+operação é botão.
+
 Cada botão tem `flex:1` dentro da própria fatia — top (1 botão) e bottom (1 de
 cada vez) preenchem a fatia inteira; mid (3 botões) a divide em partes iguais.
 
@@ -1489,40 +1505,47 @@ janela à parte — útil para desenvolver a base web fora do app, e nada mais.
 
 ### Abas e biblioteca
 
-As abas ficam na **base da seção de listas** (ícones), **sem trilho** e
-**mescladas ao fundo do app** (v5.49). São **quatro alvos idênticos** em
-`flex: 1` — **Cronograma** · **Bíblia** · **Diversos** (as `.tab`) e o
-**acervo** (`#hymnSearchBtn`, `.tab-add`) —, todos com `--hit-nav` de altura,
-o mesmo raio e o mesmo fundo (`--surface`).
+As abas ficam na **base da seção de listas** (ícones) e são um **SEGMENTADO**,
+não uma fileira de botões: um trilho raso em `--surface` (a mesma receita do
+`.misc-switch`, o seletor de ferramentas da aba Diversos) com quatro alvos
+idênticos e **transparentes** dentro dele — **Cronograma** · **Bíblia** ·
+**Diversos** (as `.tab`) e o **acervo** (`#hymnSearchBtn`, `.tab-add`), todos
+`flex: 1`, `--hit-nav` de altura e o mesmo raio.
 
-Três decisões, e as três foram invertidas em relação ao que a v5.31 tinha:
+A faixa passou por três formas, e cada uma corrigiu a anterior:
 
-- **O trilho saiu.** Ele existia para resolver um problema real: com a faixa
-  transparente E as abas sem fundo, um botão inativo era indistinguível do vazio
-  ao redor. Só que a solução resolveu o problema duas vezes — hoje cada aba tem
-  o próprio fundo, que já anuncia o alvo, e o trilho por cima cobrava 1px de
-  borda mais `.25rem` de padding dos dois lados numa tela onde a lista disputa
-  cada pixel de altura, além de desenhar um cartão em volta de algo que é
-  navegação, não conteúdo. O degrau foi MEDIDO nos dois cenários: uma aba sobre
-  o trilho dava **1,46:1** e sobre o fundo do app dá **1,38:1** — os dois acima
-  do piso de 1,30:1 das superfícies grandes.
-- **O acervo tem o mesmo tamanho das abas.** Era 42×38 com margem própria, e a
-  diferença não dizia nada: ele é o quarto alvo da mesma fileira e se lia como
-  um apêndice colado nela.
-- **O preenchimento trocou de lado.** A aba ativa é **contornada** (borda
-  `--accent` + `--accent-soft`) e o acervo é **sólido** (`--accent-fill`). Na
-  faixa convivem um ESTADO ("estou no Cronograma") e uma AÇÃO ("abrir o
-  acervo"), e sólido é o que o app já usa para "toque aqui e algo acontece"
-  (`.misc-project`, `.dialog-btn.primary`, `#volToggle`). Marcar posição não é
-  agir: para isso basta o contorno em accent, o mesmo recurso de
-  `.lib-item.active` e `.hymnal-card.expanded`. Os segmentados de
-  CONFIGURAÇÃO (`.fit-opt`, `.misc-tab`, `.coll-pill`) seguem com a seleção
-  preenchida, e isso não é incoerência: lá não há ação competindo pela mesma
-  faixa — a escolha é a única coisa que aquele trilho comunica.
+- **v5.31 — trilho de cartão** (`--bar` + borda 1px). Existia para resolver um
+  problema real: com a faixa transparente E as abas sem fundo, um botão inativo
+  era indistinguível do vazio ao redor.
+- **v5.49 — sem moldura, cada aba com fundo próprio.** Matou o desperdício do
+  cartão (o degrau foi medido: uma aba sobre o fundo do app dá **1,38:1**, acima
+  do piso de 1,30:1), mas deixou quatro retângulos com fundo lado a lado — que
+  se leem como quatro BOTÕES, quatro ações, e não como "escolha uma destas
+  telas".
+- **v5.50 — segmentado.** O fundo passa a ser do TRILHO e o que se destaca é o
+  segmento escolhido. É a diferença entre uma barra de ferramentas e uma
+  navegação, e o app já tinha a forma certa a duas telas de distância. Custa
+  `.25rem` de padding (8px de altura) — o cartão da v5.31 cobrava isso mais 2px
+  de borda e ainda fechava uma moldura em volta.
+
+Duas regras de cor dentro do trilho:
+
+- **O segmento escolhido é tinta suave** (`--accent-soft` + texto em
+  `--accent`), **sem contorno**: dentro de um trilho o realce do fundo já é o
+  sinal, e a borda vinha da forma anterior, em que a aba flutuava sobre o fundo
+  do app e precisava de um limite próprio.
+- **O acervo é SÓLIDO** (`--accent-fill`). Na faixa convivem um ESTADO ("estou
+  no Cronograma") e uma AÇÃO ("abrir o acervo"), e sólido é o que o app já usa
+  para "toque aqui e algo acontece" (`.misc-project`, `.dialog-btn.primary`,
+  `#volToggle`). Num trilho de segmentos transparentes o bloco cheio é o único
+  que não se parece com "uma das telas" — que é exatamente o que ele não é.
 
 - **Cronograma** (`imports`) — itens importados; ficam até serem excluídos.
 - **Bíblia** (`bible`) — seleção e projeção de textos bíblicos. Não é uma lista
-  de mídia; ver a seção **"Bíblia"** abaixo.
+  de mídia; ver a seção **"Bíblia"** abaixo. O cabeçalho mostra "Bíblia" nas
+  três telas dela (livros, capítulo+versículo e leitura): as telas internas têm
+  nome próprio no corpo (`.bible-book-head`), mas a faixa de cima responde "em
+  que aba eu estou".
 - **Diversos** (`activeTab` segue sendo `'mic'`, por herança) — as **ferramentas
   que não são acervo**: **Mensagens**, **Tempo** (relógio/cronômetro/timer) e
   **Sorteio**, escolhidas num seletor no topo, mais o rodapé com **microfone** e
@@ -1583,11 +1606,19 @@ app não existia aqui: só o toque no ícone. `setupTabCarousel` escuta o
   indicação de onde ele está.
 - **Age no meio do gesto**, não ao soltar: a aba nova entra deslizando enquanto
   o dedo ainda se move, que é o que faz o gesto parecer arrastar a tela.
-- **Não vale começando numa `.row`.** A linha da biblioteca já tem gesto
-  horizontal próprio (deslizar para a esquerda adiciona à playlist), e dois
-  gestos idênticos nos mesmos pixels não podem ambos ganhar. Sobra tudo o mais:
-  o cabeçalho, a própria faixa de abas, os vazios da lista, a grade de livros da
-  Bíblia e os painéis de Diversos — que é justamente onde não há linha nenhuma.
+- **Vale SOBRE A LISTA, inclusive sobre as linhas** (v5.50). Na v5.49 o gesto
+  ignorava tudo o que começasse numa `.row`, porque a linha tinha deslize
+  próprio (adicionar à playlist) — e como o Cronograma inteiro é feito de
+  linhas, o carrossel não funcionava justamente na aba em que mais se tenta
+  usá-lo. O deslize da linha saiu; o eixo horizontal ficou livre.
+- **`touch-action: pan-y` em `.lib-list:not(.lib-misc)`**: a lista só rola na
+  vertical, e declarar isso entrega o eixo horizontal ao app. Sem a declaração o
+  navegador ainda considera o gesto seu (`manipulation`, herdado do `*`) e pode
+  engoli-lo com um `pointercancel` — a falha mais difícil de diagnosticar,
+  porque depende do aparelho. Fica de fora a lista de Diversos, que tem trilhos
+  rolando na HORIZONTAL dentro dela (o histórico do sorteio): `touch-action` de
+  um ancestral se INTERSECTA com o do alvo, então um `pan-y` ali tiraria o
+  `pan-x` de lá.
 - **Nem em sub-tela** (pasta aberta, capítulo/leitura da Bíblia), reconhecida
   pelo `#backBtn` visível: ali o eixo horizontal pertence à navegação de dentro.
   Também ficam de fora campos de texto e trilhos que rolam na horizontal (as
@@ -1632,13 +1663,21 @@ Itens sem blob local exibem badge `URL` ou `YT`.
 | Gesto | Ação |
 |---|---|
 | Toque simples | **Substitui a playlist por este item** e o exibe no Display |
-| Deslize à esquerda | **Adiciona** à playlist (sem substituir) |
 | Segurar e arrastar (⠿) | Reordena o item na lista |
 | Pressionar e segurar | Entra no modo de seleção múltipla |
 
-> O deslize horizontal da linha é o motivo de o **carrossel de abas** ignorar
-> gestos que começam numa `.row` (ver "Abas e biblioteca"): os dois são o mesmo
-> movimento nos mesmos pixels, e só um pode ganhar.
+**O deslize lateral da linha saiu na v5.50.** Ele adicionava o item à playlist
+(`dx <= -SWIPE`), e a única pista de que existia era um ícone a 22% de opacidade
+atrás da linha (`.swipe-bg`/`.swipe-hint`, removidos junto). Um atalho que quase
+ninguém descobre não justifica reservar para si o eixo horizontal da maior parte
+da tela — que é o que impedia o **carrossel de abas** de funcionar sobre a
+lista. A playlist continua a um toque, pelo `+` de cada resultado do acervo e
+pelo popup da playlist.
+
+Com ele saiu também o `setPointerCapture` da linha: o `pointermove` agora só
+CANCELA o gesto do item quando o dedo anda mais de 10px em qualquer direção —
+sem tocar no evento, que segue subindo para o carrossel e para a rolagem, que
+são de quem o dedo está falando naquele momento.
 
 **O arrasto mede a lista UMA vez** (`measureDrag`, no `pointerdown`; um listener
 de `scroll` remede se a lista rolar, e `endDrag` limpa tudo no fim). Antes, cada
@@ -1651,7 +1690,12 @@ basta. `showDropLine` e `dropIndex` leem o mesmo cache — a linha-guia e o
 destino real nunca discordam.
 
 **Modo de seleção múltipla:** barra substitui as abas, com contagem e botões de
-adicionar aos favoritos, renomear (1 item) e excluir. Os itens selecionados são
+**acrescentar à playlist**, adicionar aos favoritos, renomear (1 item) e
+excluir. O primeiro é da v5.50 e é onde foi parar a função do deslize à
+esquerda: para itens da biblioteca, o toque simples SUBSTITUI a fila, então sem
+ele montar uma sequência dependeria de um gesto que a tela não anunciava. No
+botão, a mesma ação ficou visível e passou a valer para vários itens de uma vez
+(`addSelectedToPlaylist`). Os itens selecionados são
 indicados **só pelo realce** (`.lib-item.selected` — borda `--accent` + fundo
 `--panel-2`), sem
 ícone de check; a miniatura fica sempre encostada à esquerda (não há coluna
@@ -4339,28 +4383,40 @@ Fora de `tokens.css`, no `:root` do Controle (não são cor):
   `--stage-text`, e até o halo do `.start-pill` virou `--accent-glow`. É a
   regra R3.
 
-### O ícone mostra a AÇÃO; a cor mostra o ESTADO
+### O RISCADO é o corte; a cor confirma; o rótulo nomeia a ação
 
-Regra única para todo botão de alternância, na tela **e** na notificação do
-app nativo: **o ícone é o que o toque vai fazer**, nunca o que está valendo
-agora. Quem sinaliza o estado é a **cor/borda** (`.view-blocked`, `.muted`,
-`.blocked`, `.active`, `.live`) — e só ela.
+Regra única para os dois cortes do app — o som e a imagem —, na tela **e** na
+notificação do app nativo: **o ícone riscado significa CORTADO**. Alto-falante
+riscado = mudo; imagem riscada = telão coberto. Na tela, quem reforça é a
+**cor/borda** (`.view-blocked`, `.muted`, `.blocked`), que pinta o botão
+inteiro; na notificação, onde não há cor de estado, quem nomeia a ação é o
+**rótulo** ("Cobrir telão" / "Mostrar mídia").
 
-As duas convenções conviviam misturadas: o ▶/⏸ e o botão de mensagem já eram
-ação, enquanto cortina e mudo eram estado. O mesmo gesto — olhar o ícone —
-significava coisas opostas conforme o botão, e o operador precisava lembrar
-qual era qual no meio de um culto.
+A v5.47 tinha adotado o **oposto** — "o ícone é o que o toque vai fazer" — e o
+problema que ela atacava era real: estado e ação conviviam misturados, o ▶/⏸
+sendo ação enquanto cortina e mudo eram estado, e o mesmo gesto (olhar o ícone)
+significava coisas opostas conforme o botão. Só que a saída escolhida gastava o
+**riscado** — o símbolo universal de "cortado", o mesmo que o Android usa na
+própria tecla de volume — para dizer justamente que NADA está cortado. Nada se
+perde invertendo: a cor já carrega o estado sozinha, e a informação que o ícone
+passa a dar é a que se lê sem aprender nada.
 
-| Estado | Ícone (a ação) | Cor |
+| Estado | Ícone | Cor |
 |---|---|---|
-| mídia no ar | imagem riscada — *cobrir* | neutra |
-| telão coberto | imagem — *mostrar* | vermelha (`.view-blocked`) |
-| som ligado | alto-falante mudo — *mutar* | neutra |
-| mudo | alto-falante — *tirar o mudo* | vermelha (`.muted`) |
-| áudio bloqueado | alto-falante — *liberar* | âmbar pulsante (`.blocked`) |
+| mídia no ar | imagem inteira | neutra |
+| telão coberto | **imagem riscada** | vermelha (`.view-blocked`) |
+| som ligado | alto-falante inteiro | neutra |
+| mudo | **alto-falante riscado** | vermelha (`.muted`) |
+| áudio bloqueado no Display | **alto-falante riscado** | âmbar pulsante (`.blocked`) |
 
-Num par binário nada se perde: se o ícone é a ação, o estado é o inverso dele
-e a cor confirma.
+Os dois últimos compartilham o ícone de propósito: nos dois **não sai som**, que
+é o que o riscado diz; o que os distingue — mudo do operador × bloqueio do
+navegador — é a cor, e a distinção só importa para saber o que o toque vai
+tentar (mutar × pedir liberação), que é o que o `title` diz.
+
+**O ▶/⏸ segue sendo AÇÃO**, e isso não é inconsistência: ali a convenção é de
+plataforma (todo player do mundo mostra ▶ quando está pausado), o botão não tem
+cor de estado, e o par não é "cortado/não cortado".
 
 **A exceção é o `repeat`** (`renderRepeat`), e ela é de forma, não de gosto: o
 botão CICLA por quatro modos (off → all → one → shuffle). Num ciclo o glifo só
