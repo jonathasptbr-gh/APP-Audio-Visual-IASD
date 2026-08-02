@@ -94,7 +94,7 @@ git push origin main
   MENOR que o já publicado — caso em que `WebUpdater.compareVersions` ignora o
   bundle em silêncio. Para saber onde a base está, leia `version.json`.
 
-  No app nativo o rótulo mostra os **dois índices** — `Web v5.61 · Shell v1.22`
+  No app nativo o rótulo mostra os **dois índices** — `Web v5.62 · Shell v1.22`
   —, porque base web e shell atualizam por caminhos independentes (OTA ×
   instalar APK); no navegador sai só `Controle v<versão>`. **Ele mora no rodapé
   do popup de Configurações** desde a v5.49 (antes ficava no cabeçalho da lista,
@@ -1696,33 +1696,38 @@ app não existia aqui: só o toque no ícone. `setupTabCarousel` escuta o
   próprio (adicionar à playlist) — e como o Cronograma inteiro é feito de
   linhas, o carrossel não funcionava justamente na aba em que mais se tenta
   usá-lo. O deslize da linha saiu; o eixo horizontal ficou livre.
-- **`touch-action: pan-y` em `.lib-list`** — em TODAS elas. A lista só rola na
-  vertical, e declarar isso entrega o eixo horizontal ao app; sem a declaração o
-  navegador continua achando que o gesto é dele (`manipulation`, herdado do `*`)
-  e o engole com um `pointercancel` ao primeiro movimento, muito antes dos 60px
-  que a troca exige.
-- **A aba Ferramentas ficou de fora dessa regra até a v5.60, e era ela que
-  travava no aparelho.** O motivo da exceção era o histórico do sorteio
-  (`.draw-hist`), que rola na horizontal: como `touch-action` intersecta o valor
-  do alvo com o dos ancestrais, um `pan-y` na lista pareceria tirar o `pan-x`
-  dele. **Não tira** — a caminhada para cima PARA no elemento que implementa o
-  gesto, e para uma rolagem horizontal esse elemento é o próprio `.draw-hist`.
-  Verificado com toque real: com `pan-y` na lista, o histórico continua rolando
-  de lado (`scrollLeft` 0 → 143) e a aba não muda.
-- **O gesto também é REIVINDICADO em JS** (v5.52), o que cobre o que a
-  declaração não alcança — o cabeçalho e a faixa de abas: um `touchmove` **não
-  passivo** chama `preventDefault()` assim que o movimento se revela horizontal
-  (`TAB_CLAIM_MIN`, 12px, com a mesma dominância de eixo). Enquanto existe um
-  listener não passivo o navegador ESPERA o handler decidir, então a rolagem
-  nunca chega a começar; um movimento vertical não é tocado.
-  **Ele não substitui a declaração**: no navegador de mesa o `preventDefault`
-  sozinho bastava (reproduzido nos dois sentidos, com o defeito voltando assim
-  que ele é removido), mas no WebView do aparelho a aba Ferramentas continuava
-  travada — o que funciona nos dois é declarar o eixo. Reivindicar é decisão de
-  EIXO e acontece cedo (12px); TROCAR de aba continua a cargo do `pointermove`,
-  aos 60px. O `touchmove` só age quando o `pointerdown` armou o gesto, então um
-  deslize que comece no histórico do sorteio (inelegível) segue sendo do
-  trilho.
+- **`touch-action: pan-y` NO SCROLLER, não num ancestral.** A regra de
+  `touch-action` para de subir na árvore no elemento que IMPLEMENTA o gesto —
+  ou seja, no contêiner que rola. Quem precisa da declaração, então, é cada
+  scroller: a `.lib-list` (Cronograma, Favoritos, Bíblia) e, na aba
+  **Ferramentas**, o `.misc-panel` e a `.msg-list`, porque ali a `.lib-list` é
+  `overflow: hidden` e quem rola é o painel de dentro. Sem a declaração o
+  navegador considera o gesto dele (`manipulation`, herdado do `*`) e o engole
+  com um `pointercancel` ao primeiro movimento, muito antes dos 60px que a
+  troca exige.
+  **Foi esse detalhe que fez a aba Ferramentas travar por três versões.** A
+  v5.52 tentou cobrir o buraco em JS; a v5.61 pôs a declaração na `.lib-list`
+  — mas ela nunca chegava a valer, porque o toque começava dentro do
+  `.misc-panel` e a caminhada parava ali. A mesma regra, lida do outro lado, é
+  o que preserva o `pan-x` do histórico do sorteio (`.draw-hist`): um `pan-y`
+  acima dele não o alcança. Verificado com toque real: o histórico rola de lado
+  (`scrollLeft` 0 → 142) e a aba não muda.
+- **O gesto de TOQUE tem ciclo próprio, independente dos `pointer*`** (v5.62).
+  O navegador CANCELA o fluxo de ponteiro (`pointercancel`) assim que decide
+  que o gesto é dele, e basta um scroller no caminho para ele decidir; enquanto
+  o carrossel dependia do `pointerdown` para armar, um cancelamento matava o
+  gesto antes de ele nascer — e o `touchmove` que deveria reivindicá-lo voltava
+  cedo, porque não havia gesto armado. Agora `touchstart` arma, `touchmove`
+  decide o eixo / reivindica / troca a aba e `touchend`/`touchcancel` encerram.
+  Os `pointer*` ficaram só para o MOUSE (filtrados por `pointerType`), que é
+  como se desenvolve no navegador de mesa.
+- **Dois limiares, duas decisões**: o EIXO é decidido aos 12px
+  (`TAB_CLAIM_MIN`) — cedo, antes de o navegador tomar a decisão dele — e a
+  TROCA aos 60px (`TAB_SWIPE_MIN`), que é intenção. Uma vez reivindicado, o
+  gesto continua nosso até o dedo levantar: soltar o controle no meio deixaria
+  a página rolar de lado no fim do movimento. O `touchmove` é **não passivo**,
+  que é o que faz o navegador esperar a decisão do handler antes de rolar; um
+  movimento vertical nunca é tocado.
 - **Nem em sub-tela** (pasta aberta, capítulo/leitura da Bíblia), reconhecida
   pelo `#backBtn` visível: ali o eixo horizontal pertence à navegação de dentro.
   Também ficam de fora campos de texto e trilhos que rolam na horizontal (as

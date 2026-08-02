@@ -112,7 +112,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.61';
+const WEB_VERSION = '5.62';
 
 // Escrita UMA vez, na carga: o indicador mora no rodapé de Configurações desde
 // a v5.49 e não depende mais de qual aba está aberta (no cabeçalho ele
@@ -8190,7 +8190,27 @@ const TAB_SWIPE_RATIO = 1.5;  // quanto o eixo X precisa dominar o Y
   // compartilhado de propósito: é UM gesto, não dois.
   const superficies = [mainEl, tabsEl];
   const ouvir = (ev, fn, opts) => superficies.forEach((el) => el.addEventListener(ev, fn, opts));
-  let x0 = 0, y0 = 0, pid = null, done = false, engolirClique = false;
+
+  // ===== O gesto de TOQUE não depende dos eventos de ponteiro =====
+  // Esta é a terceira tentativa de destravar o carrossel na aba Ferramentas, e
+  // as duas primeiras erraram pelo mesmo motivo: confiaram no fluxo de
+  // `pointer*`. O navegador CANCELA esse fluxo (`pointercancel`) assim que
+  // decide que o gesto é dele — e basta um scroller no caminho para ele
+  // decidir. Quando isso acontece o `pid` some, e o `touchmove` que deveria
+  // reivindicar o gesto volta cedo porque não havia gesto armado: o carrossel
+  // morre antes de nascer.
+  //
+  // Agora o toque tem o ciclo INTEIRO próprio — `touchstart` arma,
+  // `touchmove` decide o eixo, reivindica (`preventDefault`) e troca a aba,
+  // `touchend`/`touchcancel` encerram. Um `pointercancel` não tem mais o que
+  // matar. Os `pointer*` ficam só para o MOUSE (é assim que se desenvolve no
+  // navegador de mesa), filtrados por `pointerType` para os dois caminhos não
+  // tratarem o mesmo dedo duas vezes.
+  let x0 = 0, y0 = 0;
+  let ativo = false;         // gesto armado e ainda elegível
+  let reivindicado = false;  // eixo já decidido como horizontal
+  let done = false;          // aba já trocada neste gesto
+  let engolirClique = false;
 
   function elegivel(target) {
     if (selectionMode) return false;
@@ -8201,56 +8221,69 @@ const TAB_SWIPE_RATIO = 1.5;  // quanto o eixo X precisa dominar o Y
     return true;
   }
 
-  ouvir('pointerdown', (e) => {
+  function comecar(target, x, y) {
     // Todo toque legítimo começa aqui, então é aqui que a trava do clique é
     // desarmada — ver `engolirClique`.
     engolirClique = false;
-    if (!elegivel(e.target)) { pid = null; return; }
-    pid = e.pointerId; x0 = e.clientX; y0 = e.clientY; done = false;
-  });
-  // ===== Reivindicar o gesto ANTES de o navegador decidir =====
-  // O `touch-action: pan-y` da `.lib-list` diz ao navegador "o eixo horizontal
-  // é do app" — mas ele NÃO vale na aba Ferramentas: ali dentro há trilho que
-  // rola na horizontal (o histórico do sorteio), e `touch-action` de um
-  // ancestral se INTERSECTA com o do alvo, então um `pan-y` na lista tiraria o
-  // `pan-x` de lá. Sem a declaração o navegador continua achando que o gesto é
-  // dele: ao primeiro movimento ele assume a rolagem e manda `pointercancel`,
-  // muito antes dos 60px que o carrossel exige. Era exatamente isso que se via
-  // no aparelho — dava para ENTRAR em Ferramentas (o gesto começava numa aba
-  // com `pan-y`) e não dava para sair.
-  //
-  // Um `touchmove` NÃO passivo resolve para valer, e em toda tela: enquanto ele
-  // existe o navegador espera o handler decidir, e um `preventDefault()` no
-  // momento em que o movimento se revela HORIZONTAL tira a rolagem da jogada
-  // sem nunca atrapalhar um movimento vertical. O limiar aqui é curto de
-  // propósito (`TAB_CLAIM_MIN`) — reivindicar é uma decisão de EIXO, e ela
-  // precisa acontecer antes de o navegador tomar a dele; agir sobre a aba
-  // continua a cargo do `pointermove`, aos 60px.
+    ativo = elegivel(target);
+    reivindicado = false;
+    done = false;
+    x0 = x; y0 = y;
+  }
+
+  // Devolve `true` quando o gesto é NOSSO (o chamador do toque usa isso para
+  // decidir o `preventDefault`). Duas decisões, com limiares diferentes:
+  //   • EIXO, aos 12px (`TAB_CLAIM_MIN`) — precisa ser cedo, antes de o
+  //     navegador tomar a decisão dele;
+  //   • TROCAR de aba, aos 60px (`TAB_SWIPE_MIN`) — precisa de intenção.
+  // Uma vez reivindicado, o gesto continua nosso até o dedo levantar: soltar o
+  // controle no meio deixaria a página rolar de lado no fim do movimento.
+  function mover(x, y) {
+    if (!ativo) return reivindicado;
+    const dx = x - x0, dy = y - y0;
+    if (!reivindicado) {
+      if (Math.abs(dx) < TAB_CLAIM_MIN || Math.abs(dx) < Math.abs(dy) * TAB_SWIPE_RATIO) return false;
+      reivindicado = true;
+    }
+    if (!done && Math.abs(dx) >= TAB_SWIPE_MIN) {
+      // Age no meio do gesto (não ao soltar): a aba entra deslizando enquanto o
+      // dedo ainda se move, que é o que faz o gesto parecer arrastar a tela.
+      done = true;
+      // O clique é engolido SEMPRE que o gesto se completa, inclusive na ponta
+      // do carrossel (deslizar para além da última aba). Ali não há troca de
+      // aba, mas o dedo percorreu 60px sobre a tela e o `click` sairia mesmo
+      // assim: deslizar sobre "+ Nova mensagem" na última aba abria o diálogo
+      // de mensagem nova — um gesto de navegação virando uma ação de conteúdo,
+      // que é o pior defeito possível num controle de culto.
+      engolirClique = true;
+      const i = SWIPE_TABS.indexOf(activeTab) + (dx < 0 ? 1 : -1);
+      if (i >= 0 && i < SWIPE_TABS.length) switchTab(SWIPE_TABS[i]);
+    }
+    return true;
+  }
+
+  function terminar() { ativo = false; }
+
+  // ---- toque (o caminho do aparelho) ----
+  ouvir('touchstart', (e) => {
+    // Dois dedos não é deslize de aba (é zoom, ou o operador segurando a tela).
+    if (e.touches.length !== 1) { terminar(); return; }
+    comecar(e.target, e.touches[0].clientX, e.touches[0].clientY);
+  }, { passive: true });
   ouvir('touchmove', (e) => {
-    if (pid === null || done || !e.cancelable) return;
     const t = e.touches && e.touches[0];
     if (!t) return;
-    const dx = t.clientX - x0, dy = t.clientY - y0;
-    if (Math.abs(dx) > TAB_CLAIM_MIN && Math.abs(dx) > Math.abs(dy) * TAB_SWIPE_RATIO) e.preventDefault();
+    // NÃO passivo: enquanto este listener existe o navegador espera a decisão
+    // dele antes de rolar, e é essa espera que dá ao app a chance de dizer "o
+    // eixo horizontal é meu". Um movimento vertical nunca é tocado.
+    if (mover(t.clientX, t.clientY) && e.cancelable) e.preventDefault();
   }, { passive: false });
+  ['touchend', 'touchcancel'].forEach((ev) => ouvir(ev, terminar, { passive: true }));
 
-  ouvir('pointermove', (e) => {
-    if (pid === null || e.pointerId !== pid || done) return;
-    const dx = e.clientX - x0, dy = e.clientY - y0;
-    if (Math.abs(dx) < TAB_SWIPE_MIN || Math.abs(dx) < Math.abs(dy) * TAB_SWIPE_RATIO) return;
-    // Age no meio do gesto (não ao soltar): a aba entra deslizando enquanto o
-    // dedo ainda se move, que é o que faz o gesto parecer arrastar a tela.
-    done = true; pid = null;
-    // O clique é engolido SEMPRE que o gesto se completa, inclusive na ponta
-    // do carrossel (deslizar para além da última aba). Ali não há troca de
-    // aba, mas o dedo percorreu 60px sobre a tela e o `click` sairia mesmo
-    // assim: deslizar sobre "+ Nova mensagem" na última aba abria o diálogo de
-    // mensagem nova — um gesto de navegação virando uma ação de conteúdo, que
-    // é o pior defeito possível num controle de culto.
-    engolirClique = true;
-    const i = SWIPE_TABS.indexOf(activeTab) + (dx < 0 ? 1 : -1);
-    if (i >= 0 && i < SWIPE_TABS.length) switchTab(SWIPE_TABS[i]);
-  });
+  // ---- mouse (só para desenvolver no navegador de mesa) ----
+  ouvir('pointerdown', (e) => { if (e.pointerType === 'mouse') comecar(e.target, e.clientX, e.clientY); });
+  ouvir('pointermove', (e) => { if (e.pointerType === 'mouse') mover(e.clientX, e.clientY); });
+  ['pointerup', 'pointercancel'].forEach((ev) => ouvir(ev, (e) => { if (e.pointerType === 'mouse') terminar(); }));
 
   // Todo deslize termina num `click` sobre o que estava sob o dedo. Sem engolir
   // esse clique, deslizar sobre a grade de livros trocava de aba **e** abria um
@@ -8259,8 +8292,8 @@ const TAB_SWIPE_RATIO = 1.5;  // quanto o eixo X precisa dominar o Y
   // abria o diálogo de mensagem. Um listener de CAPTURA, que roda antes de
   // qualquer handler do alvo.
   //
-  // A trava é uma FLAG desarmada no `pointerdown` seguinte, e não um listener
-  // com prazo. O prazo (350 ms) parecia bastar — num aparelho o clique vem um
+  // A trava é uma FLAG desarmada no toque seguinte, e não um listener com
+  // prazo. O prazo (350 ms) parecia bastar — num aparelho o clique vem um
   // quadro depois do dedo levantar —, mas ele mede o tempo errado: numa página
   // em segundo plano (com a janela do Display aberta ao lado, no navegador) o
   // resto do gesto levava mais que isso e a trava expirava antes do clique
@@ -8272,7 +8305,6 @@ const TAB_SWIPE_RATIO = 1.5;  // quanto o eixo X precisa dominar o Y
     engolirClique = false;
     e.stopPropagation(); e.preventDefault();
   }, true);
-  ['pointerup', 'pointercancel'].forEach((ev) => ouvir(ev, () => { pid = null; }));
 })();
 
 selCancelEl.addEventListener('click', exitSelection);
