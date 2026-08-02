@@ -94,7 +94,7 @@ git push origin main
   MENOR que o já publicado — caso em que `WebUpdater.compareVersions` ignora o
   bundle em silêncio. Para saber onde a base está, leia `version.json`.
 
-  No app nativo o rótulo mostra os **dois índices** — `Web v5.57 · Shell v1.22`
+  No app nativo o rótulo mostra os **dois índices** — `Web v5.58 · Shell v1.22`
   —, porque base web e shell atualizam por caminhos independentes (OTA ×
   instalar APK); no navegador sai só `Controle v<versão>`. **Ele mora no rodapé
   do popup de Configurações** desde a v5.49 (antes ficava no cabeçalho da lista,
@@ -1538,9 +1538,10 @@ quatro alvos idênticos — **Cronograma** · **Bíblia** · **Ferramentas** (as
 `.tab`) e o **acervo** (`#hymnSearchBtn`, `.tab-add`) —, todos `flex: 1` e
 `--hit-nav` de altura, transparentes enquanto não estão escolhidos.
 
-**A ativa é um VAZADO na cor do corpo** (v5.55): ela é pintada com `--bg`, o
-mesmo fundo das listas que estão logo acima dela na tela, e tem raio só
-EMBAIXO. Encostada no topo da caixa, a célula deixa de parecer um botão aceso e
+**A ativa é um VAZADO na cor do corpo** (v5.55): pintado com `--bg`, o mesmo
+fundo das listas que estão logo acima dela na tela, e com raio só EMBAIXO.
+Desde a v5.58 esse preenchimento é um ELEMENTO à parte (`.tab-ind`), não o
+`background` do botão — ver "O vazado desliza", abaixo. Encostada no topo da caixa, a célula deixa de parecer um botão aceso e
 passa a ser a continuação do conteúdo descendo até a fileira — a aba e a tela
 que ela abre viram a mesma superfície, que é o que a palavra "aba" sempre
 significou antes de virarem botões. Quem confirma o estado é o **ícone em
@@ -1572,6 +1573,38 @@ ESTADO ("estou no Cronograma") e uma AÇÃO ("abrir o acervo"): sólido em accen
 o que o app já usa para "toque aqui e algo acontece" (`.misc-project`,
 `.dialog-btn.primary`, `#volToggle`). A fileira inteira é lugar; ele é o único
 que age — mesma forma, cor oposta, e a diferença se lê sem legenda.
+
+#### O vazado desliza (v5.58)
+
+O preenchimento da aba ativa é um `<span class="tab-ind">` absoluto dentro da
+`.tabs`, e não o fundo do botão. A razão é uma só: **um elemento pode se MOVER
+entre as abas; um fundo que troca de dono só pode piscar de lugar**. O
+movimento é o que liga a aba nova à antiga — sem ele a faixa apenas "acende
+noutro ponto", e num toque rápido não dá tempo de ver de onde para onde se foi.
+
+- **Posição e largura são MEDIDAS**, não uma fração fixa: `moveTabIndicator()`
+  lê `offsetLeft`/`offsetWidth` da célula ativa e escreve `--tab-x`/`--tab-w`
+  em px. Um "25% por aba" dependeria de as quatro células terem sempre o mesmo
+  tamanho — verdade hoje, e exatamente o tipo de suposição que quebra calada no
+  dia em que um alvo mudar de tamanho ou sumir.
+- **`moveTabIndicator(false)` POUSA em vez de viajar** (classe `no-anim` +
+  reflow forçado antes de escrever os valores, senão o navegador agrupa as duas
+  coisas na mesma passada e a transição roda assim mesmo). É o que se usa em
+  dois momentos: ao ENTRAR no modo avançado — a caixa de controles fica oculta
+  no simplificado, e medir um elemento escondido dá 0, então o vazado só pode
+  ser posicionado quando a faixa aparece — e num `resize`, porque girar a tela
+  não é trocar de aba: é a mesma aba num tamanho novo, e os pixels medidos
+  mudaram.
+- **Os botões precisam de `position: relative`.** O indicador é absoluto e, sem
+  isso, seria pintado ACIMA dos botões estáticos: o vazado cobriria o ícone da
+  aba ativa. Posicionados e depois dele no DOM, eles ficam por cima.
+- **A duração e a curva são as MESMAS da lista** (`--tab-move` no CSS,
+  `TAB_MOVE_MS`/`TAB_MOVE_EASE` no JS): o vazado deslizando e a lista entrando
+  pelo lado são dois efeitos de UM gesto, e dois tempos diferentes os separam em
+  dois eventos. Viver em dois lugares é inevitável (um é transição CSS, o outro
+  é Web Animations) — quem mexer num tem de mexer no outro.
+- A entrada da lista subiu de 22px para **44px** na mesma passada: 22px era
+  curto demais para se ler como "veio de lá" — o conteúdo parecia só piscar.
 
 **A caixa de controles perdeu o `border-top` E a sombra** por causa disso. As
 duas existiam para marcar onde a caixa começa, e as duas passaram a atrapalhar

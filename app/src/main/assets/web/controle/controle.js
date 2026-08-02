@@ -112,7 +112,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.57';
+const WEB_VERSION = '5.58';
 
 // Escrita UMA vez, na carga: o indicador mora no rodapé de Configurações desde
 // a v5.49 e não depende mais de qual aba está aberta (no cabeçalho ele
@@ -1762,6 +1762,39 @@ function renderTabs() {
   // faixa de abas sem nada marcado.
   const shown = activeTab === 'folders' ? 'imports' : activeTab;
   tabsEl.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === shown));
+  moveTabIndicator();
+}
+
+// Põe o vazado (`.tab-ind`) sobre a aba ativa. Ele é UM elemento para os três
+// alvos justamente para poder DESLIZAR entre eles — a transição está no CSS;
+// aqui só se escreve para onde ir.
+//
+// Medido, não calculado por fração: `offsetLeft`/`offsetWidth` da célula ativa
+// valem para qualquer arranjo da faixa, enquanto um "25% por aba" seria uma
+// suposição sobre a contagem de alvos que quebraria calada no dia em que um
+// deles mudasse de tamanho ou sumisse.
+//
+// `animar = false` para POUSAR em vez de viajar: na primeira medição e num
+// `resize`, uma transição faria o vazado atravessar a tela vindo da borda
+// esquerda (onde ele nasce, com largura 0).
+function moveTabIndicator(animar) {
+  const alvo = tabsEl.querySelector('.tab.active');
+  // Sem largura = faixa oculta (modo simplificado esconde a caixa de
+  // controles). Medir ali daria 0 e apagaria a posição boa que já está lá.
+  if (!alvo || !alvo.offsetWidth) return;
+  if (animar === false) {
+    tabsEl.classList.add('no-anim');
+    // Força o reflow ANTES de escrever a posição nova: sem isto o navegador
+    // agrupa a classe e o valor na mesma passada e a transição roda mesmo
+    // assim.
+    void tabsEl.offsetWidth;
+  }
+  tabsEl.style.setProperty('--tab-x', alvo.offsetLeft + 'px');
+  tabsEl.style.setProperty('--tab-w', alvo.offsetWidth + 'px');
+  if (animar === false) {
+    void tabsEl.offsetWidth;
+    tabsEl.classList.remove('no-anim');
+  }
 }
 
 // O cabeçalho da LISTA (a faixa de cima da tela avançada). Ficou com três
@@ -7612,9 +7645,13 @@ function bumpVolPeek() {
 volToggleEl.addEventListener('click', () => { cancelVolPeek(); openVolume(); });
 volCloseEl.addEventListener('click', () => { cancelVolPeek(); closeVolume(); });
 
-// Se a largura mudar (ex: rotação), remede o título rolante.
+// Se a largura mudar (ex: rotação), remede o título rolante — e o vazado da
+// faixa de abas, que é posicionado em PIXELS medidos: numa rotação as células
+// mudam de largura e ele ficaria sobre a aba errada. Sem animação, porque isto
+// não é uma troca de aba: é a mesma aba num tamanho novo.
 let titleResizeTimer = null;
 window.addEventListener('resize', () => {
+  moveTabIndicator(false);
   clearTimeout(titleResizeTimer);
   titleResizeTimer = setTimeout(applyTitleMarquee, 150);
 });
@@ -7697,6 +7734,10 @@ function setAppMode(mode) {
   // Sair do simplificado com a busca aberta deixaria o popup por cima da tela
   // completa sem nada que explicasse por quê.
   if (appMode === 'full') closeHymnSearch();
+  // A caixa de controles fica oculta no simplificado, e medir um elemento
+  // escondido dá 0 — o vazado da faixa só pode ser posicionado quando ela
+  // aparece. Sem animação: aqui ele POUSA, não viaja.
+  if (appMode === 'full') moveTabIndicator(false);
 }
 
 function renderAppModeSeg() {
@@ -7998,6 +8039,11 @@ plBtnEl.addEventListener('click', openPlPopup);
 // sair certa.
 const TAB_ORDER = ['imports', 'folders', 'bible', 'mic'];
 const prefersReducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+// Duração e curva da troca de aba. Vivem em DOIS lugares por necessidade — o
+// vazado da faixa é uma transição CSS (`--tab-move`) e a lista é Web Animations
+// —, mas são o mesmo movimento e precisam bater. Quem mexer num mexe no outro.
+const TAB_MOVE_MS = 260;
+const TAB_MOVE_EASE = 'cubic-bezier(.22,.61,.36,1)';
 
 // Anima a entrada da lista ao trocar de aba: leve deslize direcional + fade.
 // Usa a Web Animations API na PRÓPRIA `#library` — como o `load()` reconstrói o
@@ -8010,12 +8056,18 @@ function animateTabSwitch(dir) {
   // do `.popup-sheet`): animar a lista de baixo junto seria um segundo
   // movimento por trás do primeiro.
   if (activeTab === 'folders' || favPopupEl.classList.contains('open')) return;
+  // Distância e duração são as MESMAS do vazado da faixa (`--tab-move` no CSS,
+  // `TAB_MOVE_MS` aqui): a lista e o indicador são dois efeitos de UM gesto, e
+  // dois tempos diferentes os separam em dois eventos. Os 22px de antes eram
+  // curtos demais para se ler como "veio de lá" — o conteúdo parecia só piscar;
+  // com 44px o movimento tem direção, e continua curto o bastante para não
+  // atrasar quem está trocando de aba no meio de um culto.
   libraryEl.animate(
     [
-      { opacity: 0, transform: 'translateX(' + (dir * 22) + 'px)' },
+      { opacity: 0, transform: 'translateX(' + (dir * 44) + 'px)' },
       { opacity: 1, transform: 'translateX(0)' },
     ],
-    { duration: 220, easing: 'cubic-bezier(.22,.61,.36,1)' },
+    { duration: TAB_MOVE_MS, easing: TAB_MOVE_EASE },
   );
 }
 
