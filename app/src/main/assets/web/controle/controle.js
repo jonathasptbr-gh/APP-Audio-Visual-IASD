@@ -79,6 +79,8 @@ const plPopupCloseEl = document.getElementById('plPopupClose');
 
 const fileEl = document.getElementById('file');
 const mainEl = document.querySelector('main');
+const bottombarEl = document.querySelector('.bottombar');
+const deckEl = document.querySelector('.deck');
 const tabsEl = document.querySelector('.tabs');
 const libraryEl = document.getElementById('library');
 // Favoritos: a gaveta do topo (ver `openFavorites`). A lista dela é um segundo
@@ -110,7 +112,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.53';
+const WEB_VERSION = '5.54';
 
 // Escrita UMA vez, na carga: o indicador mora no rodapé de Configurações desde
 // a v5.49 e não depende mais de qual aba está aberta (no cabeçalho ele
@@ -5260,15 +5262,20 @@ function closeFavorites() {
   switchTab('imports');
 }
 
-// A barra de seleção múltipla vive no `main`, ATRÁS da gaveta — com ela aberta,
-// selecionar itens dentro de uma pasta deixaria a barra invisível. Então ela
-// MUDA de casa junto com a lista, pelo mesmo padrão que o `<input type="file">`
-// já usa (ver appendImportRow): um nó só, movido, em vez de dois que divergem.
-// No `main` o lugar dela é o fim (depois da faixa de abas), que é exatamente
-// onde `appendChild` a devolve.
+// A barra de seleção múltipla vive na caixa de controles, ATRÁS da gaveta — com
+// ela aberta, selecionar itens dentro de uma pasta deixaria a barra invisível.
+// Então ela MUDA de casa junto com a lista, pelo mesmo padrão que o
+// `<input type="file">` já usa (ver appendImportRow): um nó só, movido, em vez
+// de dois que divergem.
+// Em casa o lugar dela é ANTES do `.deck`, porque é ali que fica a faixa de
+// abas que ela substitui — daí o `insertBefore` em vez de um `appendChild`,
+// que a jogaria para depois do transporte.
 function hostSelbar() {
-  const alvo = favPopupEl.classList.contains('open') ? favSheetEl : mainEl;
-  if (selbarEl.parentElement !== alvo) alvo.appendChild(selbarEl);
+  if (favPopupEl.classList.contains('open')) {
+    if (selbarEl.parentElement !== favSheetEl) favSheetEl.appendChild(selbarEl);
+    return;
+  }
+  if (selbarEl.parentElement !== bottombarEl) bottombarEl.insertBefore(selbarEl, deckEl);
 }
 
 function navigateBack() {
@@ -8072,6 +8079,13 @@ const TAB_CLAIM_MIN = 12;     // px — para REIVINDICAR o gesto do navegador
 const TAB_SWIPE_RATIO = 1.5;  // quanto o eixo X precisa dominar o Y
 
 (function setupTabCarousel() {
+  // DUAS superfícies escutam: a área de conteúdo e a própria faixa de abas —
+  // que desde a v5.54 mora na caixa de controles, fora do `<main>`. Deslizar
+  // sobre a fileira de abas é o gesto mais óbvio de todos, e ele deixaria de
+  // existir se o carrossel continuasse ouvindo só o `<main>`. O estado é
+  // compartilhado de propósito: é UM gesto, não dois.
+  const superficies = [mainEl, tabsEl];
+  const ouvir = (ev, fn, opts) => superficies.forEach((el) => el.addEventListener(ev, fn, opts));
   let x0 = 0, y0 = 0, pid = null, done = false, engolirClique = false;
 
   function elegivel(target) {
@@ -8083,7 +8097,7 @@ const TAB_SWIPE_RATIO = 1.5;  // quanto o eixo X precisa dominar o Y
     return true;
   }
 
-  mainEl.addEventListener('pointerdown', (e) => {
+  ouvir('pointerdown', (e) => {
     // Todo toque legítimo começa aqui, então é aqui que a trava do clique é
     // desarmada — ver `engolirClique`.
     engolirClique = false;
@@ -8108,7 +8122,7 @@ const TAB_SWIPE_RATIO = 1.5;  // quanto o eixo X precisa dominar o Y
   // propósito (`TAB_CLAIM_MIN`) — reivindicar é uma decisão de EIXO, e ela
   // precisa acontecer antes de o navegador tomar a dele; agir sobre a aba
   // continua a cargo do `pointermove`, aos 60px.
-  mainEl.addEventListener('touchmove', (e) => {
+  ouvir('touchmove', (e) => {
     if (pid === null || done || !e.cancelable) return;
     const t = e.touches && e.touches[0];
     if (!t) return;
@@ -8116,7 +8130,7 @@ const TAB_SWIPE_RATIO = 1.5;  // quanto o eixo X precisa dominar o Y
     if (Math.abs(dx) > TAB_CLAIM_MIN && Math.abs(dx) > Math.abs(dy) * TAB_SWIPE_RATIO) e.preventDefault();
   }, { passive: false });
 
-  mainEl.addEventListener('pointermove', (e) => {
+  ouvir('pointermove', (e) => {
     if (pid === null || e.pointerId !== pid || done) return;
     const dx = e.clientX - x0, dy = e.clientY - y0;
     if (Math.abs(dx) < TAB_SWIPE_MIN || Math.abs(dx) < Math.abs(dy) * TAB_SWIPE_RATIO) return;
@@ -8149,12 +8163,12 @@ const TAB_SWIPE_RATIO = 1.5;  // quanto o eixo X precisa dominar o Y
   // chegar, que é exatamente o defeito que ela existe para impedir. A flag não
   // depende de tempo nenhum: só um toque novo a limpa, e um toque novo é
   // justamente quando ela deixa de valer.
-  mainEl.addEventListener('click', (e) => {
+  ouvir('click', (e) => {
     if (!engolirClique) return;
     engolirClique = false;
     e.stopPropagation(); e.preventDefault();
   }, true);
-  ['pointerup', 'pointercancel'].forEach((ev) => mainEl.addEventListener(ev, () => { pid = null; }));
+  ['pointerup', 'pointercancel'].forEach((ev) => ouvir(ev, () => { pid = null; }));
 })();
 
 selCancelEl.addEventListener('click', exitSelection);
