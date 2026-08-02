@@ -297,6 +297,25 @@
               </div>
             </div>
           </div>
+          <!-- Download em curso disparado por um toque em "tocar": a espera é
+               ESTADO DA PREVIEW, não um aviso na tela. É aqui que a mídia vai
+               aparecer, então é aqui que se diz que ela está a caminho — ver
+               `previewBusy` em controle.js. Fica FORA da tela cheia (regra
+               junto com a dos `.pv-fabs`): ali a preview É a projeção. -->
+          <div id="pvBusy" class="pv-busy" aria-live="polite">
+            <div class="pv-busy-card">
+              <span class="pv-busy-ring" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M12 4v9"/><polyline points="8 9.5 12 13.5 16 9.5"/>
+                  <path d="M5 16v2a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-2"/>
+                </svg>
+              </span>
+              <span class="pv-busy-text">
+                <span class="pv-busy-cap" id="pvBusyCap">Baixando</span>
+                <span class="pv-busy-label" id="pvBusyLabel"></span>
+              </span>
+            </div>
+          </div>
           <!-- Coluna de botões sobre a preview: semitransparentes, colados à
                DIREITA, de cima para baixo (configurações · cast · tela cheia).
                São TRÊS — não há botão de mensagem aqui: Mensagens é uma
@@ -557,7 +576,7 @@
              METADADO de diagnóstico e o lugar onde se procura diagnóstico é
              junto do estado do telão e do alvo de espelhamento, não numa faixa
              de navegação. Preenchido por `renderVersionLabel`. -->
-        <span id="appVersion" class="app-version">Controle v5.63</span>
+        <span id="appVersion" class="app-version">Controle v5.64</span>
       </div>
     </div>
   </div>

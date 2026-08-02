@@ -57,6 +57,9 @@ const displayStatusTextEl = document.getElementById('displayStatusText');
 const castTargetLineEl = document.getElementById('castTargetLine');
 
 const pvWallEl = document.getElementById('pvWall');
+const pvBusyEl = document.getElementById('pvBusy');
+const pvBusyCapEl = document.getElementById('pvBusyCap');
+const pvBusyLabelEl = document.getElementById('pvBusyLabel');
 const pvImgEl = document.getElementById('pvImg');
 const pvVideoEl = document.getElementById('pvVideo');
 const pvYoutubeEl = document.getElementById('pvYoutube');
@@ -112,7 +115,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.63';
+const WEB_VERSION = '5.64';
 
 // Escrita UMA vez, na carga: o indicador mora no rodapé de Configurações desde
 // a v5.49 e não depende mais de qual aba está aberta (no cabeçalho ele
@@ -2728,19 +2731,37 @@ function clearLyricSession() {
 }
 function lyricProjecting() { return !!(lyricSession && lyricSession.projecting); }
 
-// Abre a sessão a partir de uma música do acervo. A letra pode não estar no
-// aparelho (o backfill ainda não chegou nela): sem letra não há o que projetar,
-// e dizer isso é melhor que abrir um telão em branco.
+// Abre a sessão a partir de uma música do acervo. `songLyricStanzas` lê só o
+// que já está no aparelho; quando não há nada, o caminho é o MESMO das outras
+// duas opções da folha — baixar a música (que traz a letra junto) e tentar de
+// novo. Até a v5.63 isto era um beco sem saída: "Letra ainda não baixada." e
+// nada acontecia, num item que o operador acabara de escolher.
 async function projectSongLyricsOnly(coll, s) {
-  const estrofes = await songLyricStanzas(coll, s);
-  const stanzas = (estrofes || [])
-    .map((e) => (e.l || []).join('\n').trim())
-    .filter((t) => t);
-  if (!stanzas.length) { flash('Letra ainda não baixada.'); return; }
-  clearBibleSession(); clearMsgSession(); clearChronoSession(); clearDrawSession();
-  lyricSession = { title: songLabel(coll, s), stanzas, idx: 0, projecting: true };
+  // A RESPOSTA VEM PRIMEIRO — mesma regra de `playSongVariant`.
+  closeSongMenu();
   closeHymnSearch();
-  projectLyricStanza(0);
+  const bg = previewBusy('Baixando a letra', songLabel(coll, s));
+  try {
+    let stanzas = await lyricStanzaTexts(coll, s);
+    if (!stanzas.length) {
+      await ensureSongDownloaded(coll, s, { toast: !bg.visivel });
+      stanzas = await lyricStanzaTexts(coll, s);
+    }
+    dismissFlash();
+    if (!stanzas.length) { flash('Letra indisponível para esta música'); return; }
+    clearBibleSession(); clearMsgSession(); clearChronoSession(); clearDrawSession();
+    lyricSession = { title: songLabel(coll, s), stanzas, idx: 0, projecting: true };
+    projectLyricStanza(0);
+  } finally {
+    bg.soltar();
+  }
+}
+
+// As estrofes já achatadas em texto de slide (uma string por estrofe, linhas
+// separadas por `\n`), sem as vazias.
+async function lyricStanzaTexts(coll, s) {
+  const estrofes = await songLyricStanzas(coll, s);
+  return (estrofes || []).map((e) => (e.l || []).join('\n').trim()).filter((t) => t);
 }
 
 function projectLyricStanza(idx) {
@@ -7063,14 +7084,18 @@ async function songVariantsNeeded(coll, s) {
 // pediu pra usar, nunca o acervo inteiro de uma vez. Reaproveita
 // downloadCollectionSong — a música sai já com áudio, capa e letra, pronta pra
 // tocar 100% offline nas próximas vezes.
-async function ensureSongDownloaded(coll, s) {
+// `opts.toast === false` cala o aviso na tela principal — é o que o caminho de
+// TOCAR usa desde a v5.64, porque ali quem anuncia o download é o indicador na
+// miniatura da preview (ver `previewBusy`). Os caminhos de ADICIONAR seguem com
+// o toast: eles não mexem na preview, e sem ele o toque ficaria mudo.
+async function ensureSongDownloaded(coll, s, opts) {
   const { needsFull, needsPlayback } = await songVariantsNeeded(coll, s);
   if (!needsFull && !needsPlayback) return;
 
   const key = coll.id + ':' + s.id_music;
   if (songDownloadInFlight.has(key)) { await songDownloadInFlight.get(key); return; }
   const p = withBgWork(async () => {
-    flash('Baixando "' + s.name + '"…', true);
+    if (!opts || opts.toast !== false) flash('Baixando "' + s.name + '"…', true);
     await downloadCollectionSong(coll, s);
     await AVDB.setState('coll:' + coll.id, collState[coll.id]);
     refreshCollectionsIfVisible();
@@ -7079,8 +7104,8 @@ async function ensureSongDownloaded(coll, s) {
   try { await p; } finally { songDownloadInFlight.delete(key); }
 }
 
-async function resolveSongMediaId(coll, s, variant) {
-  await ensureSongDownloaded(coll, s);
+async function resolveSongMediaId(coll, s, variant, opts) {
+  await ensureSongDownloaded(coll, s, opts);
   const fileId = variant === 'full' ? s.fileIdFull : s.fileIdPlayback;
   if (!fileId) return null;
   const rec = await AVDB.fileGet(fileId);
@@ -7115,15 +7140,75 @@ async function ensureDownloadConsent() {
   return true;
 }
 
+// ===== "Baixando…" na preview =====
+// Tocar uma música que ainda não está no aparelho abre um download de dezenas
+// de segundos. Até a v5.63 o toque não mudava NADA na tela: o acervo continuava
+// aberto na mesma lista e o único sinal era um toast na tela principal, atrás
+// do popup. Do lado de quem opera, "toquei e não aconteceu nada" — e o reflexo
+// é tocar de novo.
+//
+// A correção tem duas metades, e a primeira é a que resolve o problema: a
+// resposta ao toque é IMEDIATA e igual à de uma música já baixada — o acervo
+// fecha na hora. A segunda diz o que está acontecendo, e diz **na miniatura da
+// preview**: é ali que a mídia vai aparecer, então é ali que se anuncia que ela
+// está a caminho. Um aviso na tela principal seria mais um cartaz avulso a
+// interpretar; na preview a espera vira estado do próprio destino.
+const PV_BUSY_DELAY_MS = 180;
+let pvBusyCount = 0;
+let pvBusyTimer = null;
+
+// Devolve `{ visivel, soltar }`. `visivel` é falso no simplificado, onde a
+// preview não está na tela — ali quem avisa continua sendo o toast, e é por
+// isso que o chamador precisa saber.
+function previewBusy(acao, nome) {
+  if (appMode === 'simple') return { visivel: false, soltar: () => {} };
+  pvBusyCount++;
+  pvBusyCapEl.textContent = acao;
+  pvBusyLabelEl.textContent = nome;
+  // Só acende depois de um respiro: uma música JÁ baixada resolve em poucos
+  // milissegundos, e um cartão que pisca é pior que nenhum — lê-se como falha.
+  if (!pvBusyTimer && !pvBusyEl.classList.contains('on')) {
+    pvBusyTimer = setTimeout(() => {
+      pvBusyTimer = null;
+      if (pvBusyCount > 0) pvBusyEl.classList.add('on');
+    }, PV_BUSY_DELAY_MS);
+  }
+  let solto = false;
+  return {
+    visivel: true,
+    // Contado, e não um booleano: o operador pode disparar dois downloads
+    // (tocar um hino e, enquanto ele baixa, projetar a letra de outro) — o
+    // primeiro a terminar não pode apagar o indicador do outro.
+    soltar() {
+      if (solto) return;
+      solto = true;
+      pvBusyCount = Math.max(0, pvBusyCount - 1);
+      if (pvBusyCount) return;
+      clearTimeout(pvBusyTimer); pvBusyTimer = null;
+      pvBusyEl.classList.remove('on');
+    },
+  };
+}
+
 async function playSongVariant(coll, s, variant) {
-  const id = await resolveSongMediaId(coll, s, variant);
-  if (!id) { flash('Não foi possível tocar (sem internet para baixar)'); return; }
-  const rec = await AVDB.getMedia(id);
-  if (!rec) { flash('Erro ao carregar mídia'); return; }
-  await replacePlaylistWith(rec);
+  // A RESPOSTA VEM PRIMEIRO. Fechar o acervo aqui, e não depois do download, é
+  // o que faz o toque parecer ter funcionado — que é exatamente o que ele fez.
+  closeSongMenu();
   closeHymnSearch();
-  dismissFlash();   // fecha o toast "Baixando…" sticky que ensureSongDownloaded pode ter deixado
-  send(id);
+  const bg = previewBusy('Baixando', songLabel(coll, s));
+  try {
+    // Dois avisos para o mesmo download é ruído: com o indicador na preview, o
+    // toast sai de cena.
+    const id = await resolveSongMediaId(coll, s, variant, { toast: !bg.visivel });
+    if (!id) { flash('Não foi possível tocar (sem internet para baixar)'); return; }
+    const rec = await AVDB.getMedia(id);
+    if (!rec) { flash('Erro ao carregar mídia'); return; }
+    await replacePlaylistWith(rec);
+    dismissFlash();   // fecha o toast "Baixando…" sticky que ensureSongDownloaded pode ter deixado
+    await send(id);
+  } finally {
+    bg.soltar();
+  }
 }
 
 async function addSongVariant(coll, s, variant) {
