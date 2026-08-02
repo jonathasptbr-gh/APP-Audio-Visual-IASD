@@ -160,7 +160,7 @@ input, textarea { user-select: text !important; -webkit-user-select: text !impor
   .row-btn, .row-handle, .popup-close, .coll-open-cfg, .new-folder-btn, .folder-pick-btn,
   .coll-pill, .coll-bar, .coll-bar-dl, .coll-group-btn,
   .bible-cell, .bible-ref-part, .bible-vsec, .bible-ver-row,
-  .hymn-row, .msg-add-btn, .msg-item,
+  .hymn-row, .hymn-play-thumb, .song-menu-btn, .msg-add-btn, .msg-item,
   .misc-tab, .misc-seg, .misc-chip, .chrono-btn, .misc-project, .draw-go,
   .fit-opt, .dialog-btn, .lib-item .row,
   .simple-key, .simple-action, .simple-key--big, .simple-key--vol, .mode-switch
@@ -183,7 +183,7 @@ input, textarea { user-select: text !important; -webkit-user-select: text !impor
 :is(
   .row-btn, .row-handle, .back-btn, .add-dir-btn, .sel-btn, .popup-close,
   .coll-bar-dl, .coll-group-btn, .coll-open-cfg, .new-folder-btn,
-  .import-btn, .folder-pick-btn, .hymn-play, .hymn-add, .mode-switch
+  .import-btn, .folder-pick-btn, .song-menu-icon, .mode-switch
 ) svg { display: block; width: var(--icon-sm); height: var(--icon-sm); }
 :is(.tab, .tab-add, .t-btn, .ctl-btn, .misc-tab, .settings-btn) svg {
   display: block; width: var(--icon-md); height: var(--icon-md);
@@ -1252,6 +1252,15 @@ main {
 .coll-open-cfg svg { color: var(--muted); }
 .coll-open-cfg.busy { border-color: var(--accent); color: var(--accent); }
 .coll-open-cfg.busy svg { color: var(--accent); }
+/* O invólucro do que a abertura revela (engrenagem + músicas). Existe só para a
+   animação de altura ter UM nó para recortar — sem ele o `overflow:hidden`
+   teria de ir no card, e o card tem a barra grudada no topo (`position:sticky`),
+   que um ancestral com overflow recortado prende.
+   As margens negativas repetem as da lista de músicas, que sangra até a borda do
+   card para o filete do topo atravessar a largura toda: o recorte acontece na
+   borda do PADDING, então esse par margem/padding põe a linha de corte
+   exatamente na borda do card, e não .7rem para dentro dela. */
+.coll-open { margin: 0 -.7rem; padding: 0 .7rem; }
 /* As músicas, dentro do card. Sem teto de altura: quem abriu um álbum quer
    percorrê-lo inteiro, e uma segunda barra de rolagem dentro da lista que já
    rola é o pior jeito de folhear. */
@@ -1860,7 +1869,12 @@ main {
    documento — e o acervo, declarado depois, cobria as opções por inteiro: o
    toque na engrenagem parecia não fazer nada. Um degrau acima resolve, e o
    voltar acompanha (ver POPUPS, ordenada de baixo para cima). */
-#collPopup { z-index: 210; }
+#collPopup, #songMenuPopup { z-index: 210; }
+/* E o seletor de atalhos abre de dentro da folha da música — mais um degrau,
+   pelo mesmo motivo. Ele é declarado ANTES dela no documento, então sem isto a
+   ordem do documento o deixaria por baixo e o toque em "Adicionar aos
+   favoritos" pareceria não fazer nada. */
+#folderPopup { z-index: 220; }
 /* Folha de TELA CHEIA (o acervo). É a tela em que o operador passa mais tempo
    antes do culto — folhear álbuns, abrir letras, decidir o que baixar — e uma
    folha de 80vh deixava uma faixa morta no topo enquanto a lista rolava
@@ -2035,12 +2049,24 @@ main {
    no tamanho nativo, pequeno). Campo mais alto/legível que o de busca da pasta. */
 .hymn-search-bar { display: flex; padding: .5rem .9rem .6rem; flex-shrink: 0; }
 #hymnSearchInput { width: 100%; padding: 11px 14px; font-size: .95rem; }
-/* Resultado: linha compacta [thumb] [nome / subtítulo] [duração]. As ações
-   ficam escondidas até um toque na linha (acordeão — ver hymnResultRow). Sem
-   elas permanentemente à vista, sobra espaço para uma fonte maior, que é o
-   ponto: a lista precisa ser legível de relance no meio do culto. */
+/* Resultado: linha compacta [▶] [nome / subtítulo] [+]. Dois botões, cada um
+   abrindo a folha com as três coisas que ele faz (ver hymnResultRow); o toque
+   na linha continua abrindo a letra. A lista precisa ser legível de relance no
+   meio do culto, e é por isso que a fonte é maior que a do resto. */
 .hymn-row { align-items: center; gap: .55rem; padding: .5rem .55rem; cursor: pointer; }
-.hymn-result .thumb { width: 46px; height: 46px; flex-shrink: 0; }
+/* O botão de tocar ocupa o lugar (e o tamanho) que era da miniatura — o maior
+   alvo livre da linha, antes gasto com um ícone decorativo repetido em todas as
+   faixas. Em accent-soft, que é como o app marca "isto é ação, não conteúdo". */
+.hymn-play-thumb {
+  width: 46px; height: 46px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  border: none; border-radius: var(--radius-btn);
+  background: var(--accent-soft); color: var(--accent); cursor: pointer;
+}
+.hymn-play-thumb .msym { font-size: var(--icon-lg); }
+/* O segundo botão herda `.row-btn` (o quadrado de ação das listas) — aqui fica
+   só a cor, que o distingue do tocar: adicionar é o gesto secundário. */
+.hymn-add-btn { flex-shrink: 0; color: var(--accent); }
 /* `flex:none` desfaz o `flex:1` de .row-name: aqui o pai é uma coluna, e
    crescer significaria esticar na VERTICAL (o nome descolaria do subtítulo). */
 .hymn-name { flex: none; font-size: 1.02rem; font-weight: 500; }
@@ -2054,31 +2080,25 @@ main {
   border-left: 2px solid var(--gold); padding-left: .4rem; margin-top: .12rem;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;
 }
-/* Duração: coluna própria à direita (saiu do subtítulo) — alinha entre as
-   linhas e deixa o subtítulo livre para a coleção de origem. */
-.hymn-time {
-  flex-shrink: 0; font-size: .84rem; color: var(--muted);
-  font-variant-numeric: tabular-nums;
-}
-.hymn-time:empty { display: none; }
-/* Linha de ações (só ícones): grupos por variante (Cantado/Playback) dividindo
-   a largura igualmente; dentro do grupo, tocar/+Cronograma/+Playlist crescem
-   (flex) pra preencher o espaço disponível. Revelada pelo toque. */
-.hymn-actions { display: none; gap: .35rem; padding: 0 .55rem .55rem; }
+/* (A duração saiu da linha na v5.63: ela ocupava a única sobra de largura para
+   dizer um número que não decide nada — ver hymnResultRow. O lugar é do botão
+   de adicionar. As regras `.hymn-actions`/`.hymn-variant`/`.hymn-time` que
+   descreviam os seis botões antigos saíram junto.) */
 .hymn-result.expanded { border-color: var(--accent); background: var(--panel-2); }
 .hymn-result.expanded .hymn-row { background: var(--panel-2); }
-.hymn-result.expanded .hymn-actions { display: flex; animation: hymn-actions-in .18s ease both; }
-/* Letra completa, abaixo dos botões da linha aberta. Rola por DENTRO, com teto
-   de altura: um hino tem 20-40 linhas e, solto, empurraria os resultados
-   seguintes para fora da tela — o operador perderia de vista a lista que ele
-   estava justamente percorrendo. */
+/* Letra completa, abaixo da linha aberta. Rola por DENTRO, com teto de altura:
+   um hino tem 20-40 linhas e, solto, empurraria os resultados seguintes para
+   fora da tela — o operador perderia de vista a lista que ele estava justamente
+   percorrendo.
+   A entrada NÃO é uma keyframe: a altura é medida e animada em JS
+   (expandAccordion), porque `auto` não é um valor animável em CSS e um teto
+   fixo cortaria a letra de um hino longo. */
 .hymn-lyrics { display: none; }
 .hymn-result.expanded .hymn-lyrics {
   display: block; max-height: 40vh; overflow-y: auto;
   margin: 0 .55rem .55rem; padding: .5rem .6rem;
   border: 1px solid var(--line); border-radius: var(--radius-btn);
   background: var(--bg);
-  animation: hymn-actions-in .18s ease both;
 }
 /* Uma ESTROFE por bloco. O espaço entre blocos é o que a divide — mais
    confiável que uma linha em branco, que some quando a estrofe já termina
@@ -2106,16 +2126,33 @@ main {
   margin: .1rem -.25rem; padding: .1rem .25rem;
 }
 .hymn-lyrics-empty { font-size: .84rem; color: var(--muted); font-style: italic; }
-@keyframes hymn-actions-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
-.hymn-variant { flex: 1; display: flex; gap: .25rem; min-width: 0; }
-/* O botão de tocar reusa a receita de `.row-btn` (o irmão `.hymn-add` da mesma
-   linha já a reusava via classe) — aqui fica só o que difere: crescer para
-   dividir a largura do grupo, em vez de ser um quadrado fixo. */
-.hymn-play, .hymn-actions .hymn-add {
-  flex: 1; min-width: 0; width: auto; height: 38px;
+
+/* ---------- A folha rápida de uma música (▶ e + da linha do acervo) ---------- */
+/* Linhas LARGAS e ROTULADAS, o oposto dos seis ícones mudos que substituíram:
+   o custo de errar aqui é uma música errada no telão no meio do culto, e o que
+   evita isso é o texto, não o desenho. */
+.song-menu-list { padding: .4rem .6rem .8rem; }
+.song-menu-btn {
+  width: 100%; display: flex; align-items: center; gap: .7rem; text-align: left;
+  border: 1px solid var(--line); border-radius: var(--radius-btn);
+  background: var(--surface); color: var(--text);
+  font-family: inherit; padding: .6rem .7rem; cursor: pointer;
 }
-/* Playback (instrumental) fica em tom accent para diferenciar do Cantado. */
-.hymn-variant[data-variant="playback"] .hymn-play { background: var(--accent-soft); color: var(--accent); }
+.song-menu-icon {
+  flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+  width: var(--icon-lg); color: var(--accent);
+}
+.song-menu-icon.msym { font-size: var(--icon-lg); }
+.song-menu-text { display: flex; flex-direction: column; min-width: 0; }
+.song-menu-label { font-size: .92rem; font-weight: 600; }
+/* A segunda linha diz o que a primeira não cabe dizer ("sem música e sem
+   passagem automática de slides"). Em `--muted` para não competir com o
+   rótulo, que é o que se lê de relance. */
+.song-menu-sub { font-size: .76rem; color: var(--muted); line-height: 1.35; }
+/* Cantada × Playback: um seletor no topo da folha de adicionar, em vez de
+   dobrar a lista de destinos (ver renderSongMenu). */
+.song-menu-seg-row { padding-bottom: .2rem; }
+.song-menu-seg { width: 100%; }
 
 /* ---------- popup de Exibição (preenchimento da mídia) ---------- */
 /* As transições (fade) são inerentes ao sistema — não há mais controles delas
@@ -2393,8 +2430,8 @@ body.mode-simple .bottombar { display: none; }
 .simple-vol-num { font-size: 1.6rem; font-weight: 800; color: var(--text); line-height: 1; }
 .simple-vol-cap { font-size: .62rem; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
 
-/* No simplificado a busca serve para TOCAR: um toque na linha já toca a versão
-   CANTADA (ver simplePlaySong). A faixa de ações — +Cronograma, +Playlist e a
-   escolha Cantado/Playback — pertence ao fluxo do sonoplasta e some inteira:
-   escolher variante é justamente a decisão que este modo poupa. */
-body.mode-simple .hymn-actions { display: none; }
+/* No simplificado a busca serve para TOCAR: um toque na linha (ou no ▶) já toca
+   a versão CANTADA (ver simplePlaySong). O botão de adicionar some: playlist,
+   Cronograma e favoritos pertencem ao fluxo do sonoplasta, e escolher variante
+   é justamente a decisão que este modo poupa. */
+body.mode-simple .hymn-add-btn { display: none; }

@@ -18,7 +18,7 @@ offline.
 5. [Modelo de dados (`shared/db.js`)](#modelo-de-dados-shareddbjs) — IDB, OPFS, BroadcastChannel
 6. [Motor de renderização (`shared/stage.js`)](#motor-de-renderização-sharedstagejs) — cortina, fades, concorrência
 7. [Controle](#controle) — layout, mixer, biblioteca, coleções (LouvorJA), letra sincronizada
-8. [Camada de Texto](#camada-de-texto-bíblia--mensagens--letra) — Bíblia, Mensagens, cronômetro, sorteio, letra
+8. [Camada de Texto](#camada-de-texto-bíblia--mensagens--letra) — Bíblia, Mensagens, letra avulsa, cronômetro, sorteio, letra sincronizada
 9. [Bíblia](#bíblia-aba-bible) — seleção, leitura e projeção
 10. [Display](#display) — wallpaper, YouTube, microfone, recuperação de áudio
 11. [Design System](#design-system--a-paleta-sala-escura-âmbar) — a paleta "Sala Escura", tokens, contraste
@@ -94,7 +94,7 @@ git push origin main
   MENOR que o já publicado — caso em que `WebUpdater.compareVersions` ignora o
   bundle em silêncio. Para saber onde a base está, leia `version.json`.
 
-  No app nativo o rótulo mostra os **dois índices** — `Web v5.62 · Shell v1.22`
+  No app nativo o rótulo mostra os **dois índices** — `Web v5.63 · Shell v1.22`
   —, porque base web e shell atualizam por caminhos independentes (OTA ×
   instalar APK); no navegador sai só `Controle v<versão>`. **Ele mora no rodapé
   do popup de Configurações** desde a v5.49 (antes ficava no cabeçalho da lista,
@@ -845,12 +845,13 @@ mirar um alvo fino ali é o pior formato possível.
 | **Volume** (`#simpleVolDown` / `#simpleVolUp`) | teclas **−** e **+** com o número no meio (`.simple-vol-read`), não um slider |
 | **Modo avançado** (`#simpleFullBtn`, `.mode-switch`) | `setAppMode('full')` — a tela completa de sempre. Era texto `--muted` sobre `--surface`: dentro do mínimo de contraste, mas lido como **legenda**, não como botão. Desde a v5.40 é texto pleno (`--text`) sobre `--surface-2` com borda de `--accent` — **7,03:1** na paleta atual — e desde a v5.49 leva a **seta** e divide a classe `.mode-switch` com o gêmeo do modo avançado (`#fullSimpleBtn`) |
 
-**Sem escolha de variante.** No simplificado o toque na linha da busca chama
-`simplePlaySong()`, que toca o **Cantado** e pronto: abrir o acordeão com
-Cantado/Playback e dois "+" seria devolver ao operador exatamente a decisão que
-este modo existe para poupar. A faixa de ações some inteira
-(`body.mode-simple .hymn-actions`), e no modo avançado a mesma linha continua
-abrindo o acordeão de sempre.
+**Sem escolha de variante.** No simplificado o toque na linha da busca — e o
+toque no ▶ dela — chamam `simplePlaySong()`, que toca o **Cantado** e pronto:
+abrir a folha com cantada/playback/só a letra seria devolver ao operador
+exatamente a decisão que este modo existe para poupar. O botão de adicionar some
+(`body.mode-simple .hymn-add-btn`), porque playlist, Cronograma e favoritos são
+do fluxo do sonoplasta; no modo avançado a mesma linha continua abrindo a letra
+em acordeão.
 
 **A pergunta do download aparece UMA vez.** Se a música ainda não está no
 aparelho, `ensureDownloadConsent()` pergunta antes de gastar internet e grava a
@@ -2250,6 +2251,19 @@ O card ganha uma **faixa lateral** com a `color` que o álbum tem no banco
 (`--coll-color`, escrita no `style` pelo JS) — identidade visual que vem de
 graça no catálogo, sem baixar nada.
 
+**O botão de baixar SAI da barra quando o álbum já está todo no aparelho**
+(v5.63 — a condição é `u.syncBusy || !complete`). Ele dizia "Baixar esta
+coleção" para uma coleção que não tem mais o que baixar: um alvo do tamanho de
+`--hit` oferecendo uma ação sem efeito, repetido em cada linha de uma lista de
+dezenas de álbuns. O que resta a fazer ali — re-sincronizar o índice, apagar o
+baixado, ver o peso — é manutenção, e já mora na engrenagem DENTRO do card
+aberto, que é onde se procura depois de abrir o álbum. Enquanto o download
+**roda** o botão continua, porque ali ele é o cancelar. (O contador
+`baixados/total` fica, em verde: é ele que diz "está completo".) O botão de
+grupo (`.coll-group-btn`, no cabeçalho de categoria e em "Todo o acervo") **não**
+segue a regra — ali não existe engrenagem, e sumir com ele tiraria a única rota
+de re-sincronizar o grupo.
+
 **Uma coleção aberta por vez** (abrir uma fecha as demais): duas listas de
 centenas de faixas empurrariam o acervo para fora da tela e tirariam do lugar
 exatamente o card que o operador estava mirando. Dentro do aberto vêm, nesta
@@ -2259,6 +2273,48 @@ operador está folheando um álbum, não filtrando o acervo, e cortar em 60
 esconderia o fim de qualquer hinário. As linhas são as mesmas `hymnResultRow`
 da busca, com `semColecao` ligado: repetir o nome do álbum nas dez faixas é
 ruído, o card em volta já diz de quem elas são.
+
+### Os acordeões abrem animados
+
+Um acordeão que troca `display` aparece **pronto**, e num toque a lista inteira
+abaixo dá um salto — o operador perde de vista onde estava. Animar a altura
+mostra de onde o conteúdo saiu, que é a única informação que o salto destrói.
+Vale para os dois acordeões do acervo: o **card do álbum** e a **letra** de cada
+linha de música.
+
+- **A altura é MEDIDA e animada em JS** (`expandAccordion`/`collapseAccordion`,
+  Web Animations API, `ACC_MS` = 220 ms). `auto` não é animável em CSS, e um
+  teto fixo cortaria a letra de um hino de 40 linhas ou deixaria um vão enorme
+  depois de um refrão de duas.
+- **`offsetHeight`, não `scrollHeight`.** A caixa da letra tem teto
+  (`max-height: 40vh`) e rola por dentro: o conteúdo de um hino longo passa
+  muito do que ela de fato ocupa, e animar até lá abriria um vão e depois
+  recuaria.
+- **O `overflow: hidden` é devolvido no fim** (`finish` **e** `cancel`). Sem
+  isso a lista de músicas ficaria presa à altura do instante em que a animação
+  foi montada — e a letra que uma linha abrisse depois seria cortada.
+- **O card ganhou um invólucro** (`.coll-open`, com a engrenagem e a lista
+  dentro) só para a animação ter UM nó a recortar. O `overflow` não podia ir no
+  card: a barra dele é `position: sticky`, e um ancestral com overflow recortado
+  a prende. As margens negativas do invólucro repetem as de `.coll-songs` (que
+  sangra até a borda do card para o filete do topo atravessar a largura toda) —
+  o recorte acontece na borda do **padding**, então esse par margem/padding põe
+  a linha de corte exatamente na borda do card.
+- **A abertura do álbum é sinalizada pelo render, não pelo clique**
+  (`ui(coll.id).animarAbertura`): o card só existe depois de `redesenharAcervo()`
+  reconstruir a lista inteira, e a bandeira é consumida ali. Só o toque que
+  ABRIU anima — um redesenho por outro motivo (o progresso de um download)
+  reencontra o card já aberto, e vê-lo "abrir" sozinho leria como se algo
+  tivesse acontecido.
+- **Fechar anima ANTES de redesenhar**: o redesenho apaga o nó, e um nó apagado
+  não tem como sair deslizando.
+- **A letra é montada antes de a linha abrir.** `montarLetra()` é assíncrona, e
+  uma caixa ainda vazia mediria zero. Quem rola até a linha que casou com a
+  busca passou a ser o chamador, depois de abrir — `scrollIntoView` numa caixa
+  `display:none` é no-op.
+- **`prefers-reduced-motion: reduce` desliga tudo** (`semMovimento()`): quem
+  pediu menos movimento no sistema pediu isso para o app inteiro. Sem animação o
+  acordeão abre e fecha como antes, instantâneo.
 
 > O card já foi um **acordeão de "check do sistema"**: expandia um painel de
 > status, e as músicas só eram alcançáveis por um botão "Ver músicas" ou pela
@@ -2444,30 +2500,72 @@ tecla digitada**. Os dois campos de busca (acervo e pasta) também passaram a te
 refaz a lista inteira com `innerHTML=''` e um object URL novo por miniatura, e
 numa pasta de centenas de arquivos isso acontecia a cada tecla, com a lista
 ainda quase inteira nas primeiras letras.
-**Linha compacta, ações reveladas pelo toque** (`hymnResultRow`): o resultado
-é `[thumb 46px] [nome / subtítulo] [duração]` — e nada mais. Tocar na linha
-abre as ações logo abaixo, em **acordeão** (abrir uma fecha a anterior: duas
-abertas ao mesmo tempo empurrariam a lista e tirariam do lugar o que o
-operador estava mirando). Com as ações fora do caminho sobra espaço para uma
-**fonte maior** (`.hymn-name` em `1.02rem`), que é o ponto — a lista precisa
-ser legível de relance no meio do culto. A **duração** virou coluna própria à
-direita (`.hymn-time`, saiu do subtítulo, alinhada entre as linhas), e o
-subtítulo (`.hymn-sub`) ficou só com a coleção de origem, na busca global.
+**Linha compacta, DOIS botões** (`hymnResultRow`, v5.63): o resultado é
+`[▶ 46px] [nome / subtítulo] [+]`. Tocar na **linha** abre a letra logo abaixo,
+em **acordeão** (abrir uma fecha a anterior: duas abertas ao mesmo tempo
+empurrariam a lista e tirariam do lugar o que o operador estava mirando). A
+lista precisa ser legível de relance no meio do culto, e é por isso que a fonte
+é maior que a do resto (`.hymn-name` em `1.02rem`); o subtítulo (`.hymn-sub`)
+tem só a coleção de origem, na busca global.
 
-`.hymn-actions` é **irmã** de `.hymn-row` dentro do `<li>` (não filha) — por
-isso um toque num botão de ação não borbulha para o handler da linha e não
-fecha o acordeão, sem precisar de `stopPropagation`. As ações são agrupadas
-por variante (`.hymn-variant`, cada grupo `flex:1`); dentro do grupo,
-tocar/+Cronograma/+Playlist **crescem** (`flex:1`) pra preencher a largura
-disponível. Os grupos são: **Cantado** e **Playback** (a 2ª só se
-`has_instrumental_music`), cada grupo com **três ações** — **tocar**
-(`playSongVariant`, ícone de **voz/microfone** pro Cantado, **nota musical** pro
-Playback — `voiceIconSvg`/`noteIconSvg`; substitui a playlist e exibe, igual ao
-toque simples da biblioteca), **➕ Cronograma** (`addSongVariant` →
-`AVDB.listAdd('imports', id)`) e **➕ Playlist** (`addSongToPlaylist` →
-`AVDB.listAdd('playlist', id)` + `renderPlaylist`). Todas baixam a música na
-hora se ainda não estiver offline (ver "Resolução do id de mídia por variante"
-abaixo).
+Até a v5.62 as ações eram **seis botões mudos** revelados pelo toque — dois
+grupos de três (Cantado e Playback), cada um com tocar, +Cronograma e
++Playlist. Seis ícones dividindo a largura de um celular não cabem com rótulo,
+então nenhum tinha: a diferença entre "+ playlist" e "+ cronograma" era um
+desenho de 19px, e a escolha errada no meio do culto só aparecia depois. Dois
+alvos grandes, sempre à vista, com as opções **escritas** na folha que cada um
+abre, trocam seis adivinhações por duas leituras.
+
+- **O ▶ ocupa o lugar da miniatura** (`.hymn-play-thumb`, 46px, `accent-soft`).
+  Ali havia um ícone decorativo — a mesma nota musical em todas as faixas do
+  álbum — no maior alvo livre da linha, gasto com o único elemento que não
+  informava nada.
+- **A DURAÇÃO SAIU** (`.hymn-time`, removida). Ela ocupava a única sobra de
+  largura da linha para dizer "3:47", que não decide nada: ninguém escolhe o
+  louvor pelo tempo dele, e quem precisa do número o tem na barra de progresso
+  assim que a música entra. Esse lugar é do botão de adicionar
+  (`.hymn-add-btn`), que decide.
+- Os dois botões dão `stopPropagation` — eles dividem a linha com o acordeão da
+  letra. (Antes as ações eram **irmãs** de `.hymn-row` dentro do `<li>`, e por
+  isso não borbulhavam; agora estão DENTRO da linha, que é o que as põe sempre
+  à vista.)
+- **O acordeão da letra fecha as irmãs no escopo da PRÓPRIA `<ul>`**, não em
+  `hymnResultsEl`: as linhas de dentro do card de um álbum vivem noutra lista, e
+  ali a regra simplesmente não valia — abrir a terceira faixa deixava as duas
+  anteriores abertas.
+
+**A folha rápida** (`openSongMenu(coll, s, modo)` → `#songMenuPopup`) é a mesma
+para os dois botões, com listas diferentes (`renderSongMenu`):
+
+| Botão | Opções |
+|---|---|
+| ▶ | **Tocar música cantada** · **Tocar playback** (só com `has_instrumental_music`) · **Apenas a letra** |
+| ➕ | (seletor **Cantada \| Playback**, só com playback) · **Adicionar à playlist** · **Adicionar ao Cronograma** · **Adicionar aos favoritos** |
+
+- A escolha Cantada/Playback do ➕ é um **seletor no topo** (`.fit-seg`) em vez
+  de dobrar a lista de destinos: com playback, seis linhas diriam três coisas.
+  Sem playback ele nem aparece — não há o que escolher.
+- A variante é lida **no clique**, antes de `closeSongMenu()` zerar
+  `songMenuFor` — uma ação que fosse consultá-lo depois encontraria `null`.
+- **Favoritos reusa o seletor de atalhos** da barra de seleção múltipla:
+  `openFolderPicker([id])` passa o id explícito, e sem argumento ele age sobre
+  `selected`, como sempre. Uma segunda lista de atalhos só para o acervo
+  divergiria da primeira no dia em que alguém criasse um atalho novo.
+- **Empilhamento:** `#songMenuPopup` em `z-index: 210` (abre de dentro do
+  acervo, como `#collPopup`) e `#folderPopup` em `220` (abre de dentro dela) —
+  o seletor é declarado ANTES no documento, então sem o degrau a ordem do
+  documento o deixaria por baixo. Na tabela `POPUPS` os dois entram nessa mesma
+  ordem, porque o voltar a percorre de trás para a frente.
+- No **simplificado** o ➕ some (`body.mode-simple .hymn-add-btn`) e o ▶ chama
+  `simplePlaySong` direto: escolher variante e destino é justamente a decisão
+  que este modo poupa.
+
+Tocar (`playSongVariant`), +Cronograma (`addSongVariant` →
+`AVDB.listAdd('imports', id)`), +Playlist (`addSongToPlaylist` →
+`AVDB.listAdd('playlist', id)` + `renderPlaylist`) e +Favoritos
+(`addSongToFavorites`) baixam a música na hora se ainda não estiver offline (ver
+"Resolução do id de mídia por variante" abaixo). **"Apenas a letra" não** — ela
+não toca arquivo nenhum (ver "Letra avulsa", na Camada de Texto).
 
 **Resolução do id de mídia por variante** (`resolveSongMediaId`) é
 **offline-first com download sob demanda**: se a variante já foi baixada
@@ -2786,7 +2884,7 @@ assim que o operador acrescentar itens a ela.
 
 ## Camada de Texto (Bíblia · Mensagens · Letra)
 
-O sistema serve **texto no telão** por cinco provedores que compartilham um
+O sistema serve **texto no telão** por seis provedores que compartilham um
 **modelo padronizado** de camada paralela (mesmo padrão do YouTube: um layer
 que a **cortina do wallpaper** — sempre por cima de tudo — cobre/revela "de
 graça", sem tocar em `stage.js`). São eles:
@@ -2795,6 +2893,7 @@ graça", sem tocar em `stage.js`). São eles:
 |---|---|---|---|
 | **Bíblia** | manual (operador avança versículo) | banco LouvorJA | `#text` / `#pvText` |
 | **Mensagens** | manual (operador avança mensagem) | `state.messages` (texto puro) | `#text` / `#pvText` |
+| **Letra avulsa** | manual (operador avança estrofe) | acervo de letras (`songLyricStanzas`) | `#text` / `#pvText` |
 | **Cronômetro/relógio/timer** | **derivado do relógio** (sem avanço) | o próprio tempo (`chronoReading`) | `#text` / `#pvText` |
 | **Sorteio** | **derivado** (rolo até assentar) | faixa numérica ou lista de opções (`drawReading`) | `#text` / `#pvText` |
 | **Letra sincronizada** | **temporizado** (segue o `currentTime` do áudio) | música do LouvorJA | `#lyrics` / `#pvLyrics` |
@@ -2807,6 +2906,38 @@ graça", sem tocar em `stage.js`). São eles:
 > reabrir nada — que era o atrito do bottom-sheet anterior. Com a mensagem fora
 > do ar mas a sessão viva, os botões de slide só MOVEM a seleção (mesma regra
 > da Bíblia).
+
+### Letra avulsa (projetar a letra SEM tocar a música)
+
+`lyricSession = { title, stanzas: [string], idx, projecting }`, aberta pela
+folha rápida de uma música do acervo ("**Apenas a letra**" — ver
+`hymnResultRow`). Serve o caso em que a congregação canta **ao vivo**
+(instrumentistas na frente, ou hino sem gravação no aparelho): o telão precisa
+da letra, e não pode ter um áudio tocando por cima nem trocar de estrofe sozinho
+no tempo de uma gravação.
+
+- **Não é uma terceira variante de `playSongVariant`.** Uma variante toca um
+  arquivo, e aqui não há arquivo nenhum: a letra vem de `songLyricStanzas`, que
+  lê o acervo de letras e funciona para músicas **nunca baixadas**. Sem letra
+  disponível, `projectSongLyricsOnly` avisa ("Letra ainda não baixada.") em vez
+  de projetar um telão em branco.
+- **Uma estrofe = um slide**, e o comando é `text` com `mode: 'message'` — o
+  telão já sabe desenhar um bloco de texto centrado, que é exatamente o que uma
+  estrofe é. Um modo novo no protocolo exigiria shell e bundle novos dos dois
+  lados sem mudar um pixel do resultado.
+- **A passagem é do operador**, pelos mesmos ⏮/⏭ que já passam mensagem e
+  versículo: `slideTarget()` devolve `'songlyrics'` (à frente de `'message'` e
+  `'bible'`), `stepSlide` cai em `lyricStep` e `applySlideLimits` desabilita nos
+  extremos. É a **ausência** de passagem automática que o operador está pedindo
+  ao escolher esta opção.
+- **É texto manual como os outros:** `clearManualText()` a encerra junto com as
+  demais, projetar Bíblia/Mensagem/cronômetro/sorteio a substitui, um `load` de
+  áudio a mantém e um `load` visual a encerra. `resendSceneToDisplay` a reenvia
+  na reconexão do telão, e `pushNowPlaying` conta ela como **cena** (o serviço de
+  mídia sobe, e o processo com a `Presentation` deixa de ser descartável).
+- O now-playing mostra `<nome da música> · <n>/<total>`: sem o número, duas
+  estrofes seguidas dariam o mesmo cabeçalho e o operador perderia a única
+  referência de onde está.
 
 **Bíblia e Mensagens são literalmente o MESMO cartão** (`#text` no Display,
 `#pvText` na preview) — mesmo comando `text`/`text-hide`, só o campo `mode`
@@ -3065,10 +3196,11 @@ cards, cabeçalhos de grupo e botões de sincronizar. Duas peças foram junto:
 
 ### Letra completa no resultado aberto (v5.37)
 
-Tocar num resultado da busca já abria o acordeão com Cantado/Playback; agora,
-**abaixo dos botões**, vem a **letra completa** da música. É o que fecha o
-ciclo da busca por trecho: achar o hino e conferir se é ele mesmo, sem tocar
-nada e sem sair da lista.
+Tocar num resultado da busca abre a **letra completa** da música em acordeão. É
+o que fecha o ciclo da busca por trecho: achar o hino e conferir se é ele mesmo,
+sem tocar nada e sem sair da lista. (Na v5.37 ela vinha abaixo de uma faixa de
+seis botões de ação; desde a v5.63 esses botões viraram dois, moraram na própria
+linha, e o acordeão guarda só a letra.)
 
 - **Montada só ao ABRIR, e uma vez só.** Montá-la para todos os resultados
   encheria a lista de centenas de nós de texto que ninguém pediu — e a lista é

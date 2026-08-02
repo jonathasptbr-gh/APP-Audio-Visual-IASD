@@ -112,7 +112,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.62';
+const WEB_VERSION = '5.63';
 
 // Escrita UMA vez, na carga: o indicador mora no rodapé de Configurações desde
 // a v5.49 e não depende mais de qual aba está aberta (no cabeçalho ele
@@ -151,6 +151,10 @@ const lyricsBgSegEl = document.getElementById('lyricsBgSeg');
 const wallFileEl = document.getElementById('wallFile');
 const wallPickEl = document.getElementById('wallPick');
 const wallResetEl = document.getElementById('wallReset');
+const songMenuPopupEl = document.getElementById('songMenuPopup');
+const songMenuTitleEl = document.getElementById('songMenuTitle');
+const songMenuListEl = document.getElementById('songMenuList');
+const songMenuCloseEl = document.getElementById('songMenuClose');
 const folderPopupEl = document.getElementById('folderPopup');
 const folderPickerListEl = document.getElementById('folderPickerList');
 const folderPopupCloseEl = document.getElementById('folderPopupClose');
@@ -364,6 +368,20 @@ const bibleCompleteVersions = new Set();
 // da lista + projecting) — passa/volta com os mesmos botões de slide.
 let messages = [];       // [{ id, text }]
 let msgSession = null;   // { idx, projecting } | null
+
+// ===== Letra avulsa (projetar a letra SEM tocar a música) =====
+// Uma quinta fonte da Camada de Texto, ao lado de Bíblia, Mensagem, cronômetro
+// e sorteio — e a única que nasce no acervo. Serve o caso em que a congregação
+// canta ao vivo (instrumentistas na frente, ou hino sem gravação no aparelho):
+// o telão precisa da letra, e não pode ter um áudio tocando por cima nem trocar
+// de estrofe sozinho no tempo da gravação.
+//
+// É por isso que ela NÃO é uma terceira variante de `playSongVariant`: uma
+// variante toca um arquivo, e aqui não há arquivo nenhum — a letra vem do
+// acervo de letras (`songLyricStanzas`), que existe mesmo para músicas nunca
+// baixadas. A passagem de estrofe é do operador, pelos mesmos ⏮/⏭ que já
+// passam mensagem e versículo (ver slideTarget).
+let lyricSession = null;  // { title, stanzas: [string], idx, projecting } | null
 // id_bible_book real do livro no índice `idx` de Bible.BOOKS: usa o id da lista
 // online (mesma ordem canônica) quando baixada; senão cai no índice+1.
 function bibleBookId(idx) {
@@ -1005,7 +1023,7 @@ function cmd(obj) {
 function previewTick() {
   // Texto manual em cena sem áudio de fundo: nada de mídia/tempo a sincronizar.
   // (Com áudio de fundo, o texto é overlay e a preview segue o áudio normalmente.)
-  if ((bibleSession || msgSession) && !preview.getCurrent()) return;
+  if ((bibleSession || msgSession || lyricSession) && !preview.getCurrent()) return;
   // Itens YouTube tocam só no Display (player real): a UI de transporte é
   // dirigida pelo display-status remoto, não pela preview local.
   if (currentItem && currentItem.kind === 'youtube') return;
@@ -1590,6 +1608,19 @@ function renderNowPlaying() {
     pushNowPlaying();
     return;
   }
+  // Letra avulsa EM EXIBIÇÃO: o nome da música + a estrofe. Sem o número, duas
+  // estrofes seguidas dão exatamente o mesmo cabeçalho e o operador perde a
+  // única referência de onde está na música.
+  if (lyricProjecting()) {
+    npNameInnerEl.textContent = lyricSession.title
+      + ' · ' + (lyricSession.idx + 1) + '/' + lyricSession.stanzas.length;
+    applyTitleMarquee();
+    playPauseEl.querySelector('.msym').textContent = ICON.play;
+    seekEl.disabled = true;
+    renderSimple();
+    pushNowPlaying();
+    return;
+  }
   // Mensagem EM EXIBIÇÃO: mostra "Mensagem" no now-playing.
   if (msgSession && msgSession.projecting) {
     npNameInnerEl.textContent = 'Mensagem ' + (msgSession.idx + 1);
@@ -1685,9 +1716,11 @@ function pushNowPlaying() {
   const active = !!currentId
     || !!(msgSession && msgSession.projecting)
     || !!(bibleSession && bibleSession.projecting)
+    || lyricProjecting()
     || chronoProjecting()
     || drawProjecting();
   const subtitle = who === 'bible' ? 'Bíblia'
+    : who === 'songlyrics' ? 'Letra (sem música)'
     : who === 'message' ? 'Mensagem'
     : who === 'lyrics' ? 'Letra sincronizada'
     : (plItems.length > 1 && currentId)
@@ -2686,9 +2719,58 @@ function clearMsgSession() {
   renderNowPlaying();
   refreshDiversos();
 }
-// Encerra QUALQUER texto manual em cena (Bíblia ou Mensagem) — só um por vez.
-function clearManualText() {
+// ===== Letra avulsa: projeção e navegação =====
+function clearLyricSession() {
+  if (!lyricSession) return;
+  lyricSession = null;
+  renderSlideNav();
+  renderNowPlaying();
+}
+function lyricProjecting() { return !!(lyricSession && lyricSession.projecting); }
+
+// Abre a sessão a partir de uma música do acervo. A letra pode não estar no
+// aparelho (o backfill ainda não chegou nela): sem letra não há o que projetar,
+// e dizer isso é melhor que abrir um telão em branco.
+async function projectSongLyricsOnly(coll, s) {
+  const estrofes = await songLyricStanzas(coll, s);
+  const stanzas = (estrofes || [])
+    .map((e) => (e.l || []).join('\n').trim())
+    .filter((t) => t);
+  if (!stanzas.length) { flash('Letra ainda não baixada.'); return; }
   clearBibleSession(); clearMsgSession(); clearChronoSession(); clearDrawSession();
+  lyricSession = { title: songLabel(coll, s), stanzas, idx: 0, projecting: true };
+  closeHymnSearch();
+  projectLyricStanza(0);
+}
+
+function projectLyricStanza(idx) {
+  if (!lyricSession) return;
+  lyricSession.idx = Math.min(Math.max(idx, 0), lyricSession.stanzas.length - 1);
+  lyricSession.projecting = true;
+  view = 'visual';
+  persistCurrent();
+  // `mode: 'message'` — o telão já sabe desenhar um bloco de texto centrado, que
+  // é exatamente o que uma estrofe é. Um modo novo no protocolo só para isto
+  // exigiria shell/bundle novos dos dois lados sem mudar um pixel do resultado.
+  cmd({ type: 'text', mode: 'message', main: lyricSession.stanzas[lyricSession.idx], sub: '', view: 'visual' });
+  renderControls();
+  renderNowPlaying();
+  renderSlideNav();
+}
+
+function lyricStep(delta) {
+  if (!lyricSession) return;
+  const t = Math.min(Math.max(lyricSession.idx + delta, 0), lyricSession.stanzas.length - 1);
+  if (t === lyricSession.idx) return;
+  if (!lyricProjecting()) { lyricSession.idx = t; renderSlideNav(); return; }
+  projectLyricStanza(t);
+}
+
+// Encerra QUALQUER texto manual em cena (Bíblia, Mensagem, letra avulsa,
+// cronômetro ou sorteio) — só um por vez.
+function clearManualText() {
+  clearBibleSession(); clearMsgSession(); clearLyricSession();
+  clearChronoSession(); clearDrawSession();
 }
 
 // Projeta a mensagem de índice `idx` (Display + preview). Encerra a Bíblia (só
@@ -4196,13 +4278,22 @@ function renderCollectionCard(coll, ctx) {
   // do card aberto — o que, num hinário de 600 faixas, punha a ação de baixar
   // atrás de expandir uma lista enorme. E é por este botão que cada hinário
   // baixa separado do outro (ver o cabeçalho "Hinários").
-  const dl = document.createElement('button');
-  dl.className = 'coll-bar-dl' + (u.syncBusy ? ' busy' : (complete ? ' done' : ''));
-  dl.title = u.syncBusy ? 'Cancelar o download'
-    : (total > 0 ? 'Baixar esta coleção' : 'Sincronizar a lista');
-  dl.innerHTML = u.syncBusy ? closeIconSvg() : downloadAllIconSvg();
-  dl.addEventListener('click', (e) => { e.stopPropagation(); syncCollection(coll); });
-  bar.appendChild(dl);
+  // COM O ÁLBUM INTEIRO BAIXADO O BOTÃO SAI DA BARRA. Ele dizia "Baixar esta
+  // coleção" para uma coleção que já está toda no aparelho — um alvo do tamanho
+  // de `--hit` oferecendo uma ação sem efeito, em cada linha de uma lista de
+  // dezenas de álbuns. O que resta a fazer ali (re-sincronizar o índice, apagar,
+  // ver o peso) é manutenção e já mora na engrenagem DENTRO do card aberto, que
+  // é onde se procura depois de abrir o álbum. Enquanto o download ROLA o botão
+  // continua, porque ali ele é o cancelar.
+  if (u.syncBusy || !complete) {
+    const dl = document.createElement('button');
+    dl.className = 'coll-bar-dl' + (u.syncBusy ? ' busy' : '');
+    dl.title = u.syncBusy ? 'Cancelar o download'
+      : (total > 0 ? 'Baixar esta coleção' : 'Sincronizar a lista');
+    dl.innerHTML = u.syncBusy ? closeIconSvg() : downloadAllIconSvg();
+    dl.addEventListener('click', (e) => { e.stopPropagation(); syncCollection(coll); });
+    bar.appendChild(dl);
+  }
 
   const chevron = document.createElement('span');
   chevron.className = 'coll-bar-chev msym';
@@ -4217,15 +4308,32 @@ function renderCollectionCard(coll, ctx) {
     // abertas ao mesmo tempo empurrariam o acervo para fora da tela e tirariam
     // do lugar exatamente o card que o operador mira.
     const abrindo = !u.expanded;
-    allCollections().forEach((c) => { ui(c.id).expanded = false; });
-    u.expanded = abrindo;
-    redesenharAcervo();
+    const aplicar = () => {
+      allCollections().forEach((c) => { ui(c.id).expanded = false; });
+      u.expanded = abrindo;
+      // O card só existe DEPOIS do redesenho (a lista inteira é reconstruída),
+      // então quem anima a abertura é o próprio render — este é o recado.
+      if (abrindo) u.animarAbertura = true;
+      redesenharAcervo();
+    };
+    // Fechando: anima ANTES de redesenhar. O redesenho apaga o nó, e um nó
+    // apagado não tem como sair deslizando.
+    const aberto = li.querySelector('.coll-open');
+    if (!abrindo && aberto) { collapseAccordion(aberto, aplicar); return; }
+    aplicar();
   });
   li.appendChild(bar);
 
   // ----- Aberto: engrenagem + as músicas da coleção -----
   if (u.expanded && total > 0) {
     li.classList.add('expanded');
+
+    // Um invólucro só para os dois blocos abertos: é ele que a animação de
+    // altura recorta. As margens negativas dele repetem as da lista de músicas
+    // (que sangra até a borda do card para o filete do topo atravessar a
+    // largura toda) — sem isso o `overflow:hidden` cortaria justamente esse
+    // filete durante a animação.
+    const aberto = document.createElement('div'); aberto.className = 'coll-open';
 
     const acoes = document.createElement('div'); acoes.className = 'coll-open-actions';
     const cfg = document.createElement('button');
@@ -4235,7 +4343,7 @@ function renderCollectionCard(coll, ctx) {
     cfg.appendChild(document.createTextNode(' Sincronizar e opções'));
     cfg.addEventListener('click', (e) => { e.stopPropagation(); openCollectionOptions(coll); });
     acoes.appendChild(cfg);
-    li.appendChild(acoes);
+    aberto.appendChild(acoes);
 
     // A lista sai INTEIRA, quantos itens tenha: aqui o operador está folheando
     // um álbum, não filtrando o acervo — cortar num teto esconderia o fim de
@@ -4243,9 +4351,73 @@ function renderCollectionCard(coll, ctx) {
     // coleção (que é o próprio card em volta).
     const lista = document.createElement('ul'); lista.className = 'coll-songs';
     collSongs(coll.id).forEach((s) => lista.appendChild(hymnResultRow(coll, s, null, true)));
-    li.appendChild(lista);
+    aberto.appendChild(lista);
+    li.appendChild(aberto);
+
+    // Só o toque que ABRIU anima. Um redesenho por outro motivo (o progresso do
+    // download, a volta de uma sincronização) reencontra o card já aberto — e
+    // vê-lo "abrir" de novo sozinho leria como se algo tivesse acontecido.
+    if (u.animarAbertura) {
+      u.animarAbertura = false;
+      // O `li` ainda não está no documento: medir agora daria zero.
+      requestAnimationFrame(() => expandAccordion(aberto));
+    }
   }
   return li;
+}
+
+// ===== Acordeões: a animação de altura =====
+// Um acordeão que troca `display` aparece PRONTO, e num toque a lista inteira
+// abaixo dá um salto — o operador perde de vista onde estava. Animar a altura
+// mostra de onde o conteúdo saiu, que é a única informação que o salto destrói.
+//
+// A altura é MEDIDA (`scrollHeight`) e animada até um `auto` final: um teto
+// fixo em CSS cortaria a letra de um hino de 40 linhas ou deixaria um vão
+// enorme depois de um refrão de duas.
+const ACC_MS = 220;
+const ACC_EASE = 'cubic-bezier(.22,.61,.36,1)';
+
+// `prefers-reduced-motion` é a única razão para NÃO animar: quem pediu menos
+// movimento no sistema pediu isso para o app inteiro.
+function semMovimento() {
+  return window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
+function expandAccordion(el) {
+  if (!el || !el.isConnected) return;
+  if (semMovimento()) return;
+  // `offsetHeight`, e não `scrollHeight`: a caixa da letra tem teto de altura e
+  // rola por dentro — o conteúdo de um hino de 40 linhas passa MUITO do que ela
+  // de fato ocupa, e animar até lá abriria um vão e depois recuaria.
+  const alvo = el.offsetHeight;
+  if (!alvo) return;
+  el.style.overflow = 'hidden';
+  const anim = el.animate(
+    [{ height: '0px', opacity: 0 }, { height: alvo + 'px', opacity: 1 }],
+    { duration: ACC_MS, easing: ACC_EASE },
+  );
+  // O `finally` do acordeão: sem devolver o `overflow`, a lista de músicas
+  // ficaria presa à altura do instante em que a animação foi montada — e a
+  // letra que uma linha abre depois seria cortada.
+  const soltar = () => { el.style.overflow = ''; };
+  anim.addEventListener('finish', soltar);
+  anim.addEventListener('cancel', soltar);
+}
+
+// Fecha animando e SÓ ENTÃO executa `depois` (que costuma apagar o nó).
+function collapseAccordion(el, depois) {
+  if (!el || !el.isConnected || semMovimento()) { depois(); return; }
+  const de = el.offsetHeight;
+  if (!de) { depois(); return; }
+  el.style.overflow = 'hidden';
+  const anim = el.animate(
+    [{ height: de + 'px', opacity: 1 }, { height: '0px', opacity: 0 }],
+    { duration: ACC_MS, easing: ACC_EASE },
+  );
+  let feito = false;
+  const fim = () => { if (feito) return; feito = true; el.style.overflow = ''; depois(); };
+  anim.addEventListener('finish', fim);
+  anim.addEventListener('cancel', fim);
 }
 
 // Quem redesenha o acervo depende de onde ele está na tela. `renderCollectionsList`
@@ -4582,7 +4754,7 @@ async function send(id) {
   // manual em cena (Bíblia/Mensagem/cronômetro); qualquer VISUAL (vídeo/imagem/
   // YouTube) encerra. Um louvor de fundo sob a contagem regressiva de abertura
   // é justamente o uso normal.
-  if (!((bibleSession || msgSession || chronoSession || drawSession) && currentItem && currentItem.kind === 'audio')) clearManualText();
+  if (!((bibleSession || msgSession || lyricSession || chronoSession || drawSession) && currentItem && currentItem.kind === 'audio')) clearManualText();
   await persistCurrent();
   ytEnded = false;
   displayStatusAt = 0; // até o Display confirmar o novo item, a preview dirige
@@ -4624,6 +4796,7 @@ function slideTarget() {
   // na letra do áudio de fundo — que está ESCONDIDO atrás do cartão: o operador
   // apertaria "próxima estrofe" e a música saltaria, sem nada mudar na tela.
   if (chronoProjecting() || drawProjecting()) return null;
+  if (lyricProjecting()) return 'songlyrics';
   if (msgSession && msgSession.projecting) return 'message';
   if (bibleSession && bibleSession.projecting) return 'bible';
   const lyrics = currentItem && Array.isArray(currentItem.lyrics) ? currentItem.lyrics : null;
@@ -4633,6 +4806,7 @@ function slideTarget() {
 
 function stepSlide(delta) {
   const who = slideTarget();
+  if (who === 'songlyrics') { lyricStep(delta); return; }
   if (who === 'message') { msgStep(delta); return; }
   if (who === 'bible') { bibleStep(delta); return; }
   if (who !== 'lyrics') return;
@@ -4664,6 +4838,12 @@ function renderSlideNav() {
 // transporte poder ser desenhado depois — os `return` intermediários não
 // deixavam.
 function applySlideLimits(who) {
+  // Letra avulsa: passa/volta entre as estrofes da música escolhida.
+  if (who === 'songlyrics') {
+    slidePrevBtnEl.disabled = lyricSession.idx <= 0;
+    slideNextBtnEl.disabled = lyricSession.idx >= lyricSession.stanzas.length - 1;
+    return;
+  }
   // Mensagens: passa/volta entre as mensagens salvas (nos extremos desabilita).
   if (who === 'message') {
     slidePrevBtnEl.disabled = msgSession.idx <= 0;
@@ -5355,12 +5535,18 @@ async function addToFolder(folderId, ids) {
   load();
 }
 
-function openFolderPicker() {
+// `ids` explícito = o alvo veio de fora da seleção múltipla (uma música do
+// acervo). Sem ele, o seletor age sobre `selected`, como sempre.
+let folderPickIds = null;
+
+function openFolderPicker(ids) {
+  folderPickIds = (ids && ids.length) ? ids : null;
   renderFolderPicker();
   folderPopupEl.classList.add('open');
 }
 
 function closeFolderPicker() {
+  folderPickIds = null;
   folderPopupEl.classList.remove('open');
 }
 
@@ -5370,7 +5556,7 @@ function renderFolderPicker() {
     folderPickerListEl.innerHTML = '<li class="empty">Nenhum atalho ainda.<br>Crie um abaixo.</li>';
     return;
   }
-  const selectedIds = [...selected];
+  const selectedIds = folderPickIds || [...selected];
   folders.forEach((folder) => {
     const li = document.createElement('li');
     const btn = document.createElement('button'); btn.className = 'folder-pick-btn';
@@ -6596,13 +6782,22 @@ function renderSearchResults(query) {
   }
 }
 
-// Linha compacta: [thumb] [nome / subtítulo] [duração]. As ações NÃO ficam
-// mais sempre à vista — o toque na linha as revela logo abaixo (acordeão: só
-// uma linha aberta por vez). Com a lista limpa sobra espaço para uma fonte
-// maior, que é o que a torna legível de relance no meio do culto.
-// Cada variante (Cantado/Playback) é um grupo [tocar][+ Cronograma][+
-// Playlist]; o botão de tocar usa ícone de voz (Cantado) ou nota musical
-// (Playback). Playback só aparece se a música tiver.
+// Linha compacta: [▶] [nome / subtítulo] [+]. DOIS botões, e cada um abre uma
+// folha rápida com as três escolhas que ele governa (ver openSongMenu): tocar
+// (cantado / playback / só a letra) e adicionar (playlist / Cronograma /
+// favoritos). O toque na LINHA continua sendo o acordeão da letra.
+//
+// Até a v5.62 as ações eram seis botões mudos que só apareciam com a linha
+// aberta — dois grupos de três (Cantado e Playback), cada um com tocar,
+// +Cronograma e +Playlist. Seis ícones dividindo a largura de um celular não
+// cabem com rótulo, então nenhum tinha: a diferença entre "+ playlist" e
+// "+ cronograma" era um desenho de 19px, e a escolha errada no meio do culto
+// só aparecia depois. Dois alvos grandes e sempre à vista, com as opções
+// ESCRITAS na folha, trocam seis adivinhações por duas leituras.
+//
+// O botão de tocar ocupa o lugar da miniatura. Ali havia um ícone decorativo
+// (a mesma nota musical em todas as faixas do álbum) num quadrado de 46px — o
+// maior alvo livre da linha, gasto com o único elemento que não informava nada.
 // `semColecao` = a linha já está DENTRO do card da coleção (acordeão do
 // acervo): repetir "Album 1" em cada uma das dez faixas é ruído.
 function hymnResultRow(coll, s, lyricHit, semColecao) {
@@ -6610,8 +6805,18 @@ function hymnResultRow(coll, s, lyricHit, semColecao) {
   li.className = 'lib-item hymn-result';
 
   const row = document.createElement('div'); row.className = 'row hymn-row';
-  const thumb = document.createElement('div'); thumb.className = 'thumb thumb--icon';
-  thumb.appendChild(msym(ICON[coll.iconKey] || ICON.music));
+  const play = document.createElement('button');
+  play.className = 'hymn-play-thumb';
+  play.title = 'Tocar "' + songLabel(coll, s) + '"';
+  play.appendChild(msym(ICON.play));
+  play.addEventListener('click', (e) => {
+    e.stopPropagation();   // divide a linha com o acordeão da letra
+    // No simplificado não há escolha: o toque toca o CANTADO. Abrir uma folha
+    // com três opções seria devolver ao operador exatamente a decisão que este
+    // modo poupa (é a mesma regra do toque na linha, abaixo).
+    if (appMode === 'simple') { simplePlaySong(coll, s); return; }
+    openSongMenu(coll, s, 'play');
+  });
 
   const info = document.createElement('div'); info.className = 'hymn-info';
   const name = document.createElement('span'); name.className = 'row-name hymn-name';
@@ -6633,20 +6838,25 @@ function hymnResultRow(coll, s, lyricHit, semColecao) {
     info.appendChild(hit);
   }
 
-  const time = document.createElement('span'); time.className = 'hymn-time';
-  time.textContent = s.duration || '';
+  // A DURAÇÃO SAIU DA LINHA. Ela ocupava a coluna da direita — a única sobra de
+  // largura numa linha de celular — para dizer "3:47", que não decide nada:
+  // ninguém escolhe o louvor pelo tempo dele, e quem precisa do número o tem na
+  // barra de progresso assim que a música entra. Esse lugar agora é do segundo
+  // botão, que decide.
+  const add = document.createElement('button');
+  add.className = 'hymn-add-btn row-btn';
+  add.title = 'Adicionar "' + songLabel(coll, s) + '" a uma lista';
+  add.appendChild(msym(ICON.plAdd));
+  add.addEventListener('click', (e) => { e.stopPropagation(); openSongMenu(coll, s, 'add'); });
 
-  row.append(thumb, info, time);
+  row.append(play, info, add);
 
-  const actions = document.createElement('div'); actions.className = 'hymn-actions';
-  actions.appendChild(hymnVariantEl(coll, s, 'full', 'Cantado'));
-  if (s.has_instrumental_music) actions.appendChild(hymnVariantEl(coll, s, 'playback', 'Playback'));
-
-  // Letra completa, abaixo dos botões. Só é montada quando a linha ABRE (e uma
+  // Letra completa, abaixo da linha. Só é montada quando a linha ABRE (e uma
   // vez só): montá-la para todos os resultados encheria a lista de centenas de
   // nós de texto que ninguém pediu — e a lista é reconstruída a cada tecla.
   const letra = document.createElement('div'); letra.className = 'hymn-lyrics';
   let letraMontada = false;
+  let letraAlvo = null;   // a linha que casou com a busca, para rolar até ela
   async function montarLetra() {
     if (letraMontada) return;
     letraMontada = true;
@@ -6693,38 +6903,144 @@ function hymnResultRow(coll, s, lyricHit, semColecao) {
       });
       letra.appendChild(bloco);
     });
-    if (alvo) alvo.scrollIntoView({ block: 'center' });
+    // Rolar até ela só faz sentido com a caixa JÁ visível — e agora a letra é
+    // montada antes de a linha abrir (a animação precisa medir a altura). Quem
+    // rola é o chamador, depois de abrir.
+    letraAlvo = alvo;
   }
 
-  row.addEventListener('click', () => {
-    // No simplificado não há escolha de variante: o toque na linha toca o
-    // CANTADO. Abrir um acordeão com Cantado/Playback e dois "+" seria
-    // devolver ao operador exatamente a decisão que este modo poupa.
+  row.addEventListener('click', async () => {
+    // No simplificado a linha TOCA (o cantado) — não abre letra nenhuma.
     if (appMode === 'simple') { simplePlaySong(coll, s); return; }
-    const open = li.classList.contains('expanded');
+    const aberta = li.classList.contains('expanded');
     // Acordeão: abrir uma fecha a anterior — duas linhas abertas ao mesmo
-    // tempo empurrariam a lista e tirariam do lugar o que o operador mira.
-    hymnResultsEl.querySelectorAll('.hymn-result.expanded').forEach((el) => el.classList.remove('expanded'));
-    if (!open) { li.classList.add('expanded'); montarLetra(); }
+    // tempo empurrariam a lista e tirariam do lugar o que o operador mira. O
+    // escopo é a LISTA desta linha, não `hymnResultsEl`: as linhas de dentro do
+    // card de um álbum vivem noutra `<ul>`, e ali a regra simplesmente não
+    // valia — abrir a terceira faixa deixava as duas anteriores abertas.
+    const lista = li.parentElement;
+    if (lista) {
+      lista.querySelectorAll(':scope > .hymn-result.expanded').forEach((el) => {
+        if (el !== li) el.classList.remove('expanded');
+      });
+    }
+    if (aberta) { collapseAccordion(letra, () => li.classList.remove('expanded')); return; }
+    // A letra é montada ANTES de abrir: a animação mede a altura do que vai
+    // ficar em cena, e uma caixa ainda vazia mediria zero.
+    await montarLetra();
+    li.classList.add('expanded');
+    expandAccordion(letra);
+    if (letraAlvo) letraAlvo.scrollIntoView({ block: 'center' });
   });
 
-  li.append(row, actions, letra);
+  li.append(row, letra);
   return li;
 }
 
-function hymnVariantEl(coll, s, variant, label) {
-  const wrap = document.createElement('div'); wrap.className = 'hymn-variant'; wrap.dataset.variant = variant;
-  const playBtn = document.createElement('button'); playBtn.className = 'hymn-play row-btn'; playBtn.title = 'Tocar ' + label;
-  playBtn.innerHTML = variant === 'playback' ? noteIconSvg() : voiceIconSvg();
-  playBtn.addEventListener('click', () => playSongVariant(coll, s, variant));
-  const addBtn = document.createElement('button'); addBtn.className = 'hymn-add row-btn'; addBtn.title = 'Adicionar ' + label + ' ao Cronograma';
-  addBtn.appendChild(msym(ICON.plAdd));
-  addBtn.addEventListener('click', () => addSongVariant(coll, s, variant));
-  const plBtn = document.createElement('button'); plBtn.className = 'hymn-add row-btn'; plBtn.title = 'Adicionar ' + label + ' à playlist';
-  plBtn.appendChild(msym(ICON.queue));
-  plBtn.addEventListener('click', () => addSongToPlaylist(coll, s, variant));
-  wrap.append(playBtn, addBtn, plBtn);
-  return wrap;
+// ===== A folha rápida de uma música do acervo =====
+// Dois botões na linha, duas folhas. Cada uma lista as três coisas que aquele
+// botão pode fazer, ESCRITAS — é o que os seis ícones mudos da versão anterior
+// não conseguiam dizer.
+let songMenuFor = null;   // { coll, s, variant } — `variant` é a escolha da folha de adicionar
+
+function openSongMenu(coll, s, modo) {
+  songMenuFor = { coll, s, variant: 'full' };
+  songMenuTitleEl.textContent = songLabel(coll, s);
+  renderSongMenu(modo);
+  songMenuPopupEl.classList.add('open');
+}
+
+function closeSongMenu() {
+  songMenuFor = null;
+  songMenuPopupEl.classList.remove('open');
+}
+
+// Uma linha da folha: ícone + rótulo + (às vezes) uma segunda linha explicando.
+function songMenuItem(icone, rotulo, sub, acao) {
+  const li = document.createElement('li');
+  const btn = document.createElement('button'); btn.className = 'song-menu-btn';
+  if (typeof icone === 'string') {
+    const cx = document.createElement('span'); cx.className = 'song-menu-icon';
+    cx.innerHTML = icone; btn.appendChild(cx);
+  } else {
+    icone.classList.add('song-menu-icon'); btn.appendChild(icone);
+  }
+  const txt = document.createElement('span'); txt.className = 'song-menu-text';
+  const t = document.createElement('span'); t.className = 'song-menu-label'; t.textContent = rotulo;
+  txt.appendChild(t);
+  if (sub) {
+    const d = document.createElement('span'); d.className = 'song-menu-sub'; d.textContent = sub;
+    txt.appendChild(d);
+  }
+  btn.appendChild(txt);
+  // A variante escolhida no seletor do topo é LIDA AQUI e passada para a ação:
+  // `closeSongMenu()` zera `songMenuFor`, e uma ação que fosse consultá-lo
+  // depois disso encontraria null.
+  btn.addEventListener('click', () => {
+    const variante = songMenuFor ? songMenuFor.variant : 'full';
+    closeSongMenu();
+    acao(variante);
+  });
+  li.appendChild(btn);
+  return li;
+}
+
+function renderSongMenu(modo) {
+  const { coll, s } = songMenuFor;
+  const temPlayback = !!s.has_instrumental_music;
+  songMenuListEl.innerHTML = '';
+
+  if (modo === 'play') {
+    songMenuListEl.appendChild(songMenuItem(voiceIconSvg(), 'Tocar música cantada', '',
+      () => playSongVariant(coll, s, 'full')));
+    if (temPlayback) {
+      songMenuListEl.appendChild(songMenuItem(noteIconSvg(), 'Tocar playback', 'Instrumental, sem a voz',
+        () => playSongVariant(coll, s, 'playback')));
+    }
+    // "Só a letra" NÃO é uma variante de áudio: nenhum arquivo é tocado (nem
+    // precisa estar baixado — a letra vem do acervo de letras). É por isso que
+    // ela mora aqui e não numa terceira variante de `playSongVariant`.
+    songMenuListEl.appendChild(songMenuItem(lyricsOnlyIconSvg(), 'Apenas a letra',
+      'Sem música e sem passagem automática de slides',
+      () => projectSongLyricsOnly(coll, s)));
+    return;
+  }
+
+  // Adicionar. A escolha Cantada/Playback vira um seletor no topo em vez de
+  // dobrar a lista de destinos: com playback, seis linhas diriam três coisas.
+  // Sem playback ele nem aparece — não há o que escolher.
+  if (temPlayback) {
+    const seg = document.createElement('li'); seg.className = 'song-menu-seg-row';
+    const wrap = document.createElement('div'); wrap.className = 'fit-seg song-menu-seg';
+    [['full', 'Cantada'], ['playback', 'Playback']].forEach(([v, rot]) => {
+      const b = document.createElement('button');
+      b.className = 'fit-opt' + (songMenuFor.variant === v ? ' active' : '');
+      b.textContent = rot;
+      b.addEventListener('click', () => { songMenuFor.variant = v; renderSongMenu('add'); });
+      wrap.appendChild(b);
+    });
+    seg.appendChild(wrap);
+    songMenuListEl.appendChild(seg);
+  }
+
+  songMenuListEl.appendChild(songMenuItem(msym(ICON.queue), 'Adicionar à playlist',
+    'Entra na fila do que está tocando agora',
+    (vr) => addSongToPlaylist(coll, s, vr)));
+  songMenuListEl.appendChild(songMenuItem(msym(ICON.plAdd), 'Adicionar ao Cronograma',
+    'A lista do culto',
+    (vr) => addSongVariant(coll, s, vr)));
+  songMenuListEl.appendChild(songMenuItem(msym(ICON.star), 'Adicionar aos favoritos',
+    'Escolha o atalho',
+    (vr) => addSongToFavorites(coll, s, vr)));
+}
+
+// SVG inline de "só a letra" (linhas de texto). O Material Symbols embarcado é
+// um SUBCONJUNTO: um glifo que não foi incluído sai como retângulo vazio.
+function lyricsOnlyIconSvg() {
+  return '<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">'
+    + '<line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="11" x2="16" y2="11"/>'
+    + '<line x1="4" y1="16" x2="20" y2="16"/><line x1="4" y1="21" x2="12" y2="21"/>'
+    + '</svg>';
 }
 
 // Verifica quais variantes de uma música ainda precisam ser baixadas: o
@@ -6817,6 +7133,17 @@ async function addSongVariant(coll, s, variant) {
   await AVDB.listAdd('imports', id);
   flash(had ? 'Já no Cronograma' : 'Adicionado ao Cronograma');
   if (activeTab === 'imports' && !currentFolder) load();
+}
+
+// Favoritos = atalhos, e um atalho é uma escolha: reusa o MESMO seletor da
+// barra de seleção múltipla (openFolderPicker), com o id da música no lugar da
+// seleção. Uma segunda lista de atalhos só para o acervo divergiria da
+// primeira no dia em que alguém criasse um atalho novo.
+async function addSongToFavorites(coll, s, variant) {
+  const id = await resolveSongMediaId(coll, s, variant);
+  if (!id) { flash('Não foi possível adicionar (sem internet para baixar)'); return; }
+  dismissFlash();
+  openFolderPicker([id]);
 }
 
 async function addSongToPlaylist(coll, s, variant) {
@@ -8535,6 +8862,10 @@ const POPUPS = [
   [bibleVerPopupEl, bibleVerCloseEl, closeBibleVerPopup],
   [fadePopupEl, fadePopupCloseEl, closeFadePopup],
   [lyricsPopupEl, lyricsPopupCloseEl, closeLyricsPopup],
+  // A folha da música abre DE DENTRO do acervo, e o seletor de atalhos abre de
+  // dentro dela: o voltar percorre esta tabela de trás para a frente, então a
+  // ordem aqui é a ordem em que as camadas se empilham.
+  [songMenuPopupEl, songMenuCloseEl, closeSongMenu],
   [folderPopupEl, folderPopupCloseEl, closeFolderPicker],
   [collPopupEl, collPopupCloseEl, closeCollectionOptions],
 ];
@@ -8654,6 +8985,8 @@ function resendSceneToDisplay() {
   } else if (msgProjecting()) {
     const m = messages[msgSession.idx];
     if (m) AVDB.sendCommand({ type: 'text', mode: 'message', main: m.text, sub: '', view });
+  } else if (lyricProjecting()) {
+    AVDB.sendCommand({ type: 'text', mode: 'message', main: lyricSession.stanzas[lyricSession.idx], sub: '', view });
   }
 }
 
