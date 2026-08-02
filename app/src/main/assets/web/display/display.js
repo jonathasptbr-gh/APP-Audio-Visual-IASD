@@ -1163,7 +1163,12 @@ AVDB.onCommand(async (cmd) => {
       // DESCOBRIA o telão sozinho, expondo a mídia que o operador tinha
       // coberto de propósito.
       if (yt) { ytSetView(v); return; }
-      await stage.handle({ type: 'view', view: v });
+      // `overlay: true` — o cartão de texto está por cima do stage, então aqui
+      // descobrir REVELA alguma coisa mesmo sem mídia nenhuma. Sem esse aviso o
+      // stage pularia a transição (ele só enxerga o que ele mesmo desenha, e
+      // sem mídia a cortina cobre nos dois valores de view — ver setViewFaded)
+      // e o versículo apareceria seco, sem o fade.
+      await stage.handle({ type: 'view', view: v, overlay: true });
       // O cartão de texto é INDEPENDENTE da mídia — um versículo no ar sem
       // nada carregado é o caso mais comum na pregação. Para o stage, porém,
       // "sem mídia" (ou mídia terminada) quer dizer cortina fechada

@@ -233,7 +233,7 @@ Além disso, `native.js` publica **quatro globais** lidas direto (sem Promise):
 o `versionName` do APK, que é o **índice de versão do shell exibido ao
 operador**. Ele não se confunde com `__SHELL_VERSION__`: base web e shell
 atualizam por caminhos independentes (OTA × instalar APK), então o rodapé de
-**Configurações** mostra os dois (`Web v5.68 · Shell v<versionName do APK>`,
+**Configurações** mostra os dois (`Web v5.69 · Shell v<versionName do APK>`,
 montado em `renderVersionLabel`; até a v5.48 ficava no cabeçalho do Cronograma —
 saiu de lá porque metadado de diagnóstico pertence à mesma tela do estado do
 telão, não a uma faixa de navegação). Num shell antigo (sem
@@ -995,11 +995,32 @@ resolve para o Play Services** (`com.google.android.gms`) — é esse filtro, e
 não só a ordem, que impede a cadeia de terminar no seletor de Cast enquanto
 ainda há espelhamento a tentar:
 
+**Só num aparelho SAMSUNG** (`isSamsung()`, v1.23):
+
 1. **as activities exportadas do Smart View** — `com.samsung.android.
    smartmirroring` e `com.samsung.android.app.smartmirroring`
 2. `com.samsung.wfd.LAUNCH_WFD_PICKER`
+
+**Em qualquer aparelho**, e o único alvo nos que não são Samsung:
+
 3. `android.settings.WIFI_DISPLAY_SETTINGS` (AOSP, ação legada — e a que **não**
    é reivindicada pelo Play Services, ao contrário de `CAST_SETTINGS`)
+
+A cadeia nasceu no aparelho em que o app é operado (um S24 Ultra) e foi escrita
+em volta dele — mas **"Smart View primeiro" é regra de UM fabricante, não do
+Android**. Noutra marca esses pacotes simplesmente não existem, então a cadeia
+já caía no alvo universal sozinha; o que a guarda acrescenta é **dizer isso** em
+vez de deixar por acaso, não varrer as activities de dois pacotes ausentes a
+cada toque no botão (e a cada abertura de Configurações, que chama
+`describeCastTarget`), e fechar o caso em que o acaso não bastava — um pacote de
+outro fabricante com o mesmo nome, ou uma ROM que carregue os apps da Samsung,
+entraria na frente do alvo AOSP sem que nada no código tivesse decidido isso.
+
+`isSamsung()` aceita `Build.MANUFACTURER` **ou** `Build.BRAND`: os dois dizem
+"samsung" num aparelho de fábrica, mas uma ROM alternativa (ou um emulador) mexe
+num e esquece o outro — e aqui errar para o lado do "não é Samsung" custaria o
+Smart View justamente no aparelho em que o app é usado. Comparação sem caixa,
+porque o valor não é normalizado por contrato.
 
 Para o Smart View o nome da activity **não é adivinhado**: `exportedActivities()`
 pergunta ao `PackageManager` quais o pacote expõe (`GET_ACTIVITIES`) e enfileira
@@ -1207,7 +1228,7 @@ aparelho nenhum.
 O `versionCode`/`versionName` do APK vêm do CI (ver "Build") e não se tocam à
 mão.
 
-**Versão atual: v5.68** (base web) · `SHELL_VERSION` **14**, e o bundle segue com
+**Versão atual: v5.69** (base web) · `SHELL_VERSION` **14**, e o bundle segue com
 `minShell: 2` — ele funciona igual num shell antigo, só sem os recursos que são
 nativos por construção (a escada do voltar, os botões de volume, a notificação de
 controles), que **só chegam instalando o APK novo**, não pelo OTA.

@@ -533,8 +533,10 @@ class MainActivity : ComponentActivity(), BridgeHost {
      * `Settings.Panel` só cobre internet, wifi, nfc e volume. O que dá para
      * fazer é procurar, entre alvos conhecidos, o primeiro que **existe neste
      * aparelho e não é o Google Cast** — daí a ordem abaixo e o filtro por
-     * pacote resolvido. As entradas da Samsung não são API documentada; se o
-     * aparelho não as tiver, `resolveActivity` devolve null e a cadeia segue.
+     * pacote resolvido. As entradas da Samsung não são API documentada; elas só
+     * são tentadas num aparelho Samsung (ver `castCandidates`/`isSamsung`), e
+     * mesmo lá, se não existirem, `resolveActivity` devolve null e a cadeia
+     * segue.
      *
      * `resolveActivity` só enxerga esses alvos por causa do bloco `<queries>`
      * no AndroidManifest (visibilidade de pacotes do Android 11+).
@@ -607,7 +609,10 @@ class MainActivity : ComponentActivity(), BridgeHost {
     }
 
     /**
-     * Alvos de espelhamento, do mais específico ao mais genérico.
+     * Alvos de espelhamento, do mais específico ao mais genérico — e o ramo
+     * específico é **por fabricante**: as entradas do Smart View só entram na
+     * fila num aparelho Samsung (ver `isSamsung`); em qualquer outro a fila
+     * começa direto no alvo AOSP.
      *
      * Para o Smart View da Samsung o nome da activity **não é adivinhado**: o
      * `PackageManager` é consultado sobre quais activities o pacote expõe
@@ -621,19 +626,48 @@ class MainActivity : ComponentActivity(), BridgeHost {
      */
     private fun castCandidates(): List<Intent> {
         val out = mutableListOf<Intent>()
-        for (pkg in SAMSUNG_MIRROR_PACKAGES) {
-            for (cls in exportedActivities(pkg)) {
-                out.add(Intent().setClassName(pkg, cls))
+        // O ramo do Smart View só entra na fila NUM APARELHO SAMSUNG. Ele
+        // nasceu do aparelho em que o app é operado (um S24 Ultra), e a cadeia
+        // toda foi escrita em volta dele — mas "Smart View primeiro" é uma
+        // regra de UM fabricante, não do Android. Noutra marca esses pacotes
+        // simplesmente não existem, então a cadeia já caía no caminho universal
+        // sozinha; o que a guarda acrescenta é dizer isso em vez de deixar por
+        // acaso, e não varrer as activities de dois pacotes ausentes a cada
+        // toque no botão (e a cada abertura de Configurações, que chama
+        // `describeCastTarget`).
+        //
+        // E há um caso em que o acaso não bastava: um pacote de OUTRO
+        // fabricante com o mesmo nome (ou uma ROM que carregue os apps da
+        // Samsung) entraria na frente do alvo AOSP sem que nada aqui tivesse
+        // decidido isso.
+        if (isSamsung()) {
+            for (pkg in SAMSUNG_MIRROR_PACKAGES) {
+                for (cls in exportedActivities(pkg)) {
+                    out.add(Intent().setClassName(pkg, cls))
+                }
             }
+            out.add(Intent("com.samsung.wfd.LAUNCH_WFD_PICKER"))
         }
-        out.add(Intent("com.samsung.wfd.LAUNCH_WFD_PICKER"))
-        // AOSP: a tela de "Wireless display / Transmitir tela". Ação legada,
-        // ainda declarada pelo app de Configurações em muitos aparelhos — e a
-        // que NÃO é reivindicada pelo Play Services (ao contrário de
+        // O caminho UNIVERSAL, e o único em qualquer aparelho que não seja
+        // Samsung. AOSP: a tela de "Wireless display / Transmitir tela". Ação
+        // legada, ainda declarada pelo app de Configurações em muitos aparelhos
+        // — e a que NÃO é reivindicada pelo Play Services (ao contrário de
         // CAST_SETTINGS, que na Samsung testada abre o Google Cast).
         out.add(Intent("android.settings.WIFI_DISPLAY_SETTINGS"))
         return out
     }
+
+    /**
+     * `MANUFACTURER` **ou** `BRAND`: os dois costumam dizer "samsung" num
+     * aparelho de fábrica, mas uma ROM alternativa (ou um emulador) mexe num e
+     * esquece o outro, e aqui errar para o lado do "não é Samsung" custaria o
+     * Smart View no aparelho em que o app é de fato operado. Comparação sem
+     * caixa porque o valor não é normalizado por contrato — chega "samsung" na
+     * maioria e "Samsung" em alguns.
+     */
+    private fun isSamsung(): Boolean =
+        Build.MANUFACTURER.equals(SAMSUNG_VENDOR, ignoreCase = true) ||
+            Build.BRAND.equals(SAMSUNG_VENDOR, ignoreCase = true)
 
     /** Activities EXPORTADAS de um pacote, ou vazio se ele não existir. */
     private fun exportedActivities(pkg: String): List<String> = try {
@@ -772,6 +806,8 @@ class MainActivity : ComponentActivity(), BridgeHost {
          * responde em poucos milissegundos.
          */
         private const val BACK_JS_TIMEOUT_MS = 350L
+        /** `Build.MANUFACTURER`/`Build.BRAND` de um aparelho Samsung. */
+        private const val SAMSUNG_VENDOR = "samsung"
         /** Pacotes do Smart View conhecidos (varia por versão do One UI). */
         private val SAMSUNG_MIRROR_PACKAGES = listOf(
             "com.samsung.android.smartmirroring",
