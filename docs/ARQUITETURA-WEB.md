@@ -94,7 +94,7 @@ git push origin main
   MENOR que o já publicado — caso em que `WebUpdater.compareVersions` ignora o
   bundle em silêncio. Para saber onde a base está, leia `version.json`.
 
-  No app nativo o rótulo mostra os **dois índices** — `Web v5.63 · Shell v1.22`
+  No app nativo o rótulo mostra os **dois índices** — `Web v5.64 · Shell v1.22`
   —, porque base web e shell atualizam por caminhos independentes (OTA ×
   instalar APK); no navegador sai só `Controle v<versão>`. **Ele mora no rodapé
   do popup de Configurações** desde a v5.49 (antes ficava no cabeçalho da lista,
@@ -2564,8 +2564,59 @@ Tocar (`playSongVariant`), +Cronograma (`addSongVariant` →
 `AVDB.listAdd('imports', id)`), +Playlist (`addSongToPlaylist` →
 `AVDB.listAdd('playlist', id)` + `renderPlaylist`) e +Favoritos
 (`addSongToFavorites`) baixam a música na hora se ainda não estiver offline (ver
-"Resolução do id de mídia por variante" abaixo). **"Apenas a letra" não** — ela
-não toca arquivo nenhum (ver "Letra avulsa", na Camada de Texto).
+"Resolução do id de mídia por variante" abaixo). **"Apenas a letra"** baixa
+também, mas só quando precisa: a letra costuma já estar no acervo de textos (ver
+"Letra avulsa", na Camada de Texto).
+
+### O download vira estado da PREVIEW (v5.64)
+
+Tocar uma música que ainda não está no aparelho abre um download de dezenas de
+segundos. Até a v5.63 o toque não mudava **nada** na tela: o acervo continuava
+aberto na mesma lista — ele só fechava depois que o arquivo chegava — e o único
+sinal era um toast na tela principal, **atrás** do popup. Do lado de quem opera,
+"toquei e não aconteceu nada", e o reflexo é tocar de novo.
+
+A correção tem duas metades, e a primeira é a que resolve o problema:
+
+1. **A resposta é imediata e igual à de uma música já baixada.** `closeSongMenu()`
+   e `closeHymnSearch()` passaram para o **começo** de `playSongVariant` (e de
+   `projectSongLyricsOnly`), antes do `await`. O toque fecha o acervo na hora;
+   se o download falhar, o erro chega por toast, que é o mesmo caminho de
+   qualquer outra falha.
+2. **A espera aparece na miniatura da preview**, não na tela principal
+   (`previewBusy` → `#pvBusy`). É ali que a mídia vai aparecer, então é ali que
+   se anuncia que ela está a caminho; um aviso na tela principal seria mais um
+   cartaz avulso a interpretar.
+
+Os detalhes que não são óbvios:
+
+- **É um CARTÃO no meio, não uma cortina.** A preview espelha o telão e precisa
+  continuar espelhando enquanto a próxima música baixa: o louvor de fundo segue
+  tocando ali, e cobri-lo por trinta segundos tiraria a única janela para o que
+  está no ar. O cartão é opaco por conta própria — com um véu translúcido a
+  marca do wallpaper atravessava o texto.
+- **Só acende depois de `PV_BUSY_DELAY_MS` (180 ms).** Uma música já baixada
+  resolve em poucos milissegundos, e um cartão que pisca é pior que nenhum: lê-se
+  como falha.
+- **O contador é um número, não um booleano** (`pvBusyCount`). O operador pode
+  disparar dois downloads (tocar um hino e, enquanto ele baixa, projetar a letra
+  de outro) — o primeiro a terminar não pode apagar o indicador do outro.
+- **A ação e o nome são campos separados** (`Baixando` em caixa alta miúda, o
+  nome embaixo). Numa caixa de ~250px `Baixando "Ó Adorai o Senhor"…` vira uma
+  linha que estoura; separados, a ação se lê de relance e o nome fica com a
+  largura toda, com clamp de duas linhas.
+- **O cartão desvia da coluna de `.pv-fabs`** (padding-right de 42px): tela cheia
+  e cast continuam alcançáveis durante o download.
+- **Fora da tela cheia** (mesma regra dos `.pv-fabs`): ali a preview **é** a
+  projeção, e o cartão iria para o telão.
+- **No simplificado o indicador não existe** — a preview não está na tela. Por
+  isso `previewBusy` devolve `{ visivel, soltar }`: o chamador usa `visivel` para
+  decidir se `ensureSongDownloaded` ainda deve mostrar o toast
+  (`opts.toast`). Dois avisos para o mesmo download é ruído; **nenhum** é o
+  defeito que isto conserta.
+- **Os caminhos de ADICIONAR seguem com o toast.** Eles não mexem na preview, e o
+  acervo continua aberto de propósito (adicionar três músicas seguidas é o uso
+  normal) — sem o toast o toque ficaria mudo.
 
 **Resolução do id de mídia por variante** (`resolveSongMediaId`) é
 **offline-first com download sob demanda**: se a variante já foi baixada
@@ -2918,9 +2969,13 @@ no tempo de uma gravação.
 
 - **Não é uma terceira variante de `playSongVariant`.** Uma variante toca um
   arquivo, e aqui não há arquivo nenhum: a letra vem de `songLyricStanzas`, que
-  lê o acervo de letras e funciona para músicas **nunca baixadas**. Sem letra
-  disponível, `projectSongLyricsOnly` avisa ("Letra ainda não baixada.") em vez
-  de projetar um telão em branco.
+  lê o acervo de letras e funciona para músicas **nunca baixadas**.
+- **Sem letra no aparelho, o caminho é o MESMO das outras duas opções da folha**
+  (v5.64): baixar a música — que traz a letra junto — e tentar de novo, com o
+  indicador na preview dizendo "Baixando a letra". Na v5.63 isto era um beco sem
+  saída: "Letra ainda não baixada." e nada acontecia, num item que o operador
+  acabara de escolher. Se ainda assim não vier letra, aí sim o aviso
+  ("Letra indisponível para esta música").
 - **Uma estrofe = um slide**, e o comando é `text` com `mode: 'message'` — o
   telão já sabe desenhar um bloco de texto centrado, que é exatamente o que uma
   estrofe é. Um modo novo no protocolo exigiria shell e bundle novos dos dois
