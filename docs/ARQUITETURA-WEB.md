@@ -94,7 +94,7 @@ git push origin main
   MENOR que o já publicado — caso em que `WebUpdater.compareVersions` ignora o
   bundle em silêncio. Para saber onde a base está, leia `version.json`.
 
-  No app nativo o rótulo mostra os **dois índices** — `Web v5.60 · Shell v1.22`
+  No app nativo o rótulo mostra os **dois índices** — `Web v5.61 · Shell v1.22`
   —, porque base web e shell atualizam por caminhos independentes (OTA ×
   instalar APK); no navegador sai só `Controle v<versão>`. **Ele mora no rodapé
   do popup de Configurações** desde a v5.49 (antes ficava no cabeçalho da lista,
@@ -1696,27 +1696,33 @@ app não existia aqui: só o toque no ícone. `setupTabCarousel` escuta o
   próprio (adicionar à playlist) — e como o Cronograma inteiro é feito de
   linhas, o carrossel não funcionava justamente na aba em que mais se tenta
   usá-lo. O deslize da linha saiu; o eixo horizontal ficou livre.
-- **`touch-action: pan-y` em `.lib-list:not(.lib-misc)`**: a lista só rola na
-  vertical, e declarar isso entrega o eixo horizontal ao app. Sem a declaração o
-  navegador ainda considera o gesto seu (`manipulation`, herdado do `*`) e o
-  engole com um `pointercancel` ao primeiro movimento — muito antes dos 60px que
-  o carrossel exige. Fica de fora a lista de **Ferramentas**, que tem trilho
-  rolando na HORIZONTAL dentro dela (o histórico do sorteio): `touch-action` de
-  um ancestral se INTERSECTA com o do alvo, então um `pan-y` ali tiraria o
-  `pan-x` de lá.
-- **E por isso o gesto também é REIVINDICADO em JS** (v5.52), o que cobre a
-  aba que a declaração não alcança: um `touchmove` **não passivo** no `<main>`
-  chama `preventDefault()` assim que o movimento se revela horizontal
+- **`touch-action: pan-y` em `.lib-list`** — em TODAS elas. A lista só rola na
+  vertical, e declarar isso entrega o eixo horizontal ao app; sem a declaração o
+  navegador continua achando que o gesto é dele (`manipulation`, herdado do `*`)
+  e o engole com um `pointercancel` ao primeiro movimento, muito antes dos 60px
+  que a troca exige.
+- **A aba Ferramentas ficou de fora dessa regra até a v5.60, e era ela que
+  travava no aparelho.** O motivo da exceção era o histórico do sorteio
+  (`.draw-hist`), que rola na horizontal: como `touch-action` intersecta o valor
+  do alvo com o dos ancestrais, um `pan-y` na lista pareceria tirar o `pan-x`
+  dele. **Não tira** — a caminhada para cima PARA no elemento que implementa o
+  gesto, e para uma rolagem horizontal esse elemento é o próprio `.draw-hist`.
+  Verificado com toque real: com `pan-y` na lista, o histórico continua rolando
+  de lado (`scrollLeft` 0 → 143) e a aba não muda.
+- **O gesto também é REIVINDICADO em JS** (v5.52), o que cobre o que a
+  declaração não alcança — o cabeçalho e a faixa de abas: um `touchmove` **não
+  passivo** chama `preventDefault()` assim que o movimento se revela horizontal
   (`TAB_CLAIM_MIN`, 12px, com a mesma dominância de eixo). Enquanto existe um
   listener não passivo o navegador ESPERA o handler decidir, então a rolagem
-  nunca chega a começar; um movimento vertical não é tocado. Sem isto dava para
-  ENTRAR em Ferramentas (o gesto começava numa aba com `pan-y`) e não dava para
-  sair — reproduzido com eventos de toque reais, e o defeito volta assim que o
-  `preventDefault` é removido. Reivindicar é decisão de EIXO e acontece cedo
-  (12px); TROCAR de aba continua a cargo do `pointermove`, aos 60px.
-  O `touchmove` só age quando o `pointerdown` armou o gesto, então um deslize
-  que comece no histórico do sorteio (inelegível) segue sendo do trilho —
-  conferido: ele rola e a aba não muda.
+  nunca chega a começar; um movimento vertical não é tocado.
+  **Ele não substitui a declaração**: no navegador de mesa o `preventDefault`
+  sozinho bastava (reproduzido nos dois sentidos, com o defeito voltando assim
+  que ele é removido), mas no WebView do aparelho a aba Ferramentas continuava
+  travada — o que funciona nos dois é declarar o eixo. Reivindicar é decisão de
+  EIXO e acontece cedo (12px); TROCAR de aba continua a cargo do `pointermove`,
+  aos 60px. O `touchmove` só age quando o `pointerdown` armou o gesto, então um
+  deslize que comece no histórico do sorteio (inelegível) segue sendo do
+  trilho.
 - **Nem em sub-tela** (pasta aberta, capítulo/leitura da Bíblia), reconhecida
   pelo `#backBtn` visível: ali o eixo horizontal pertence à navegação de dentro.
   Também ficam de fora campos de texto e trilhos que rolam na horizontal (as
