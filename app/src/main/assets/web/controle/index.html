@@ -557,7 +557,7 @@
              METADADO de diagnóstico e o lugar onde se procura diagnóstico é
              junto do estado do telão e do alvo de espelhamento, não numa faixa
              de navegação. Preenchido por `renderVersionLabel`. -->
-        <span id="appVersion" class="app-version">Controle v5.62</span>
+        <span id="appVersion" class="app-version">Controle v5.63</span>
       </div>
     </div>
   </div>
@@ -676,6 +676,19 @@
         <button id="bibleVerClose" class="popup-close" title="Fechar"><span class="msym" aria-hidden="true">&#xe14c;</span></button>
       </div>
       <ul id="bibleVerList" class="popup-list"></ul>
+    </div>
+  </div>
+
+  <!-- folha rápida de uma música do acervo: os dois botões da linha (▶ e +)
+       abrem esta mesma folha com listas diferentes (ver openSongMenu) -->
+  <div id="songMenuPopup" class="popup-backdrop">
+    <div class="popup-sheet">
+      <div class="popup-header">
+        <span class="msym popup-header-icon" aria-hidden="true">&#xe3a1;</span>
+        <span class="popup-title" id="songMenuTitle"></span>
+        <button id="songMenuClose" class="popup-close" title="Fechar"><span class="msym" aria-hidden="true">&#xe14c;</span></button>
+      </div>
+      <ul id="songMenuList" class="popup-list song-menu-list"></ul>
     </div>
   </div>
 
