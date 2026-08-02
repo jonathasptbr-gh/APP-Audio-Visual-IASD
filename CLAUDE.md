@@ -995,7 +995,7 @@ resolve para o Play Services** (`com.google.android.gms`) — é esse filtro, e
 não só a ordem, que impede a cadeia de terminar no seletor de Cast enquanto
 ainda há espelhamento a tentar:
 
-**Só num aparelho SAMSUNG** (`isSamsung()`, v1.23):
+**Só num aparelho SAMSUNG** (`isSamsung()`, v1.24):
 
 1. **as activities exportadas do Smart View** — `com.samsung.android.
    smartmirroring` e `com.samsung.android.app.smartmirroring`
