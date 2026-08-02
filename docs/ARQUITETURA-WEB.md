@@ -94,7 +94,7 @@ git push origin main
   MENOR que o já publicado — caso em que `WebUpdater.compareVersions` ignora o
   bundle em silêncio. Para saber onde a base está, leia `version.json`.
 
-  No app nativo o rótulo mostra os **dois índices** — `Web v5.56 · Shell v1.22`
+  No app nativo o rótulo mostra os **dois índices** — `Web v5.57 · Shell v1.22`
   —, porque base web e shell atualizam por caminhos independentes (OTA ×
   instalar APK); no navegador sai só `Controle v<versão>`. **Ele mora no rodapé
   do popup de Configurações** desde a v5.49 (antes ficava no cabeçalho da lista,
@@ -1022,9 +1022,9 @@ só: mesma cor de fundo, mesma borda de cima, mesma sombra, e o trilho do
 segmentado passa a ter exatamente a mesma superfície dos botões de transporte
 logo abaixo (`--surface` é branco com ALFA, então acompanha a base nova
 sozinho — o degrau vai de 1,38:1 sobre o fundo do app para 1,46:1 sobre a
-barra). Ela **não tem mais `border-top`** desde a v5.55, quando a fileira
-passou a encostar no topo: a linha cortava as abas justamente onde elas devem
-emendar com o conteúdo, e a sombra já marcava onde a caixa começa. O `padding-bottom` da barra usa
+barra). Ela **não tem mais `border-top` nem sombra** (v5.55 e v5.57): com a
+fileira encostada no topo, as duas caíam justamente sobre a emenda entre a aba
+ativa e o conteúdo, que é onde os dois precisam ser a mesma superfície. O `padding-bottom` da barra usa
 `max(env(safe-area-inset-bottom), 12px)` para garantir margem segura contra
 acionamentos acidentais pela navegação por gestos do Android/iOS.
 
@@ -1538,21 +1538,18 @@ quatro alvos idênticos — **Cronograma** · **Bíblia** · **Ferramentas** (as
 `.tab`) e o **acervo** (`#hymnSearchBtn`, `.tab-add`) —, todos `flex: 1` e
 `--hit-nav` de altura, transparentes enquanto não estão escolhidos.
 
-**Quem tem tinta são as abas NÃO escolhidas** (v5.56): elas são pintadas com
-`--bg` — o mesmo fundo das listas logo acima na tela —, encostadas no topo da
-caixa e com raio só EMBAIXO, como abas ainda guardadas atrás. **A escolhida não
-tem preenchimento nenhum**: ela é o rasgo por onde a caixa de controles sobe até
-o conteúdo. O destaque é o VAZIO — nada acende, é o entorno que recua, que é o
-que a palavra "aba" sempre significou antes de virarem botões.
+**A ativa é um VAZADO na cor do corpo** (v5.55): ela é pintada com `--bg`, o
+mesmo fundo das listas que estão logo acima dela na tela, e tem raio só
+EMBAIXO. Encostada no topo da caixa, a célula deixa de parecer um botão aceso e
+passa a ser a continuação do conteúdo descendo até a fileira — a aba e a tela
+que ela abre viram a mesma superfície, que é o que a palavra "aba" sempre
+significou antes de virarem botões. Quem confirma o estado é o **ícone em
+`--accent`**: o degrau `--bg` × `--bar` é 1,32:1, o piso das superfícies
+grandes, e num salão escuro isso sozinho é pouco.
 
-> A v5.55 fez o contrário (tinta na escolhida, vazio nas outras). Dá a mesma
-> silhueta, mas põe a mancha escura no lugar errado: a fileira inteira ficava
-> clara com um furo, quando o que se quer é o oposto — ela acompanha o corpo da
-> lista e ABRE onde você está.
-
-Quem confirma o estado é o **ícone em `--accent`**: o degrau `--bg` × `--bar` é
-1,32:1, o piso das superfícies grandes, e num salão escuro isso sozinho é
-pouco.
+> A v5.56 experimentou o inverso — tinta nas NÃO escolhidas, vazio na escolhida
+> — e a v5.57 voltou atrás. A silhueta é a mesma nos dois; o que muda é o que a
+> mancha escura significa, e ela precisa acompanhar a aba EM USO.
 
 A faixa passou por quatro formas antes desta, e o caminho é sempre o mesmo
 defeito — cada versão desenhava uma caixa em volta da navegação:
@@ -1563,7 +1560,6 @@ defeito — cada versão desenhava uma caixa em volta da navegação:
 | v5.49 | sem moldura, cada aba com fundo próprio sobre o fundo do app | quatro retângulos que se leem como quatro AÇÕES |
 | v5.50 | segmentado (trilho raso em `--surface`, abas transparentes) | um trilho dizendo "isto é um grupo" — coisa que quatro ícones na base da tela já dizem |
 | v5.54 | o mesmo segmentado, agora DENTRO da caixa de controles | idem, só que sobre `--bar` |
-| v5.55 | flat, com a ESCOLHIDA pintada de `--bg` | a mancha no lugar errado: fileira clara com um furo |
 
 > A v5.49 resolveu de fato o desperdício do cartão, e o degrau foi medido na
 > ocasião: uma aba sobre o fundo do app dá **1,38:1**, acima do piso de 1,30:1.
@@ -1577,10 +1573,14 @@ o que o app já usa para "toque aqui e algo acontece" (`.misc-project`,
 `.dialog-btn.primary`, `#volToggle`). A fileira inteira é lugar; ele é o único
 que age — mesma forma, cor oposta, e a diferença se lê sem legenda.
 
-**A caixa de controles perdeu o `border-top`** por causa disso: ela existia para
-marcar onde a caixa começa, e a sombra (`0 -2px 12px`) já fazia esse trabalho —
-mas com a fileira encostada no topo a linha passava a cortar as abas
-exatamente no ponto em que elas devem emendar com o conteúdo.
+**A caixa de controles perdeu o `border-top` E a sombra** por causa disso. As
+duas existiam para marcar onde a caixa começa, e as duas passaram a atrapalhar
+quando a fileira encostou no topo: a linha cortava o vazado da aba ativa, e a
+sombra (`0 -2px 12px`) escurecia justamente a emenda entre o vazado e o
+conteúdo — o ponto em que os dois têm de ser a MESMA superfície. Uma junta que
+se quer invisível não pode ter um degradê por cima. O que separa as duas caixas
+é o degrau de cor (fundo × barra, 1,32:1), e é ele que a aba ativa atravessa de
+propósito.
 
 As quatro células:
 
