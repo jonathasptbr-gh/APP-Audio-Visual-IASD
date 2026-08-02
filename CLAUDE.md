@@ -1,8 +1,8 @@
 # Claude Code — APP Áudio Visual IASD (Android nativo)
 
 App Android nativo do sistema de projeção de mídia para culto (IASD). É uma
-**casca fina em Kotlin** que hospeda a base web do projeto em dois WebViews e
-usa `android.app.Presentation` para mandar **só o Display** para a TV — sem
+**casca em Kotlin** que hospeda a base web do projeto em dois WebViews e usa
+`android.app.Presentation` para mandar **só o Display** para a TV — sem
 espelhar o celular.
 
 > **Este repositório é autossuficiente.** A base web (`app/src/main/assets/web/`)
@@ -20,10 +20,12 @@ espelhar o celular.
 4. [A ponte `window.AVNative`](#a-ponte-windowavnative)
 5. [Barramento de comandos e o plano B do BroadcastChannel](#barramento-de-comandos-e-o-plano-b-do-broadcastchannel)
 6. [Trabalho em segundo plano (downloads com o app minimizado)](#trabalho-em-segundo-plano-downloads-com-o-app-minimizado)
-7. [OTA da base web (atualização sem APK)](#ota-da-base-web-atualização-sem-apk)
-8. [Divergências entre o caminho web e o nativo](#divergências-entre-o-caminho-web-e-o-nativo)
-9. [Build e distribuição](#build-e-distribuição)
-10. [Regras de desenvolvimento](#regras-de-desenvolvimento)
+7. [Notificação de controles (sessão de mídia)](#notificação-de-controles-sessão-de-mídia)
+8. [OTA da base web (atualização sem APK)](#ota-da-base-web-atualização-sem-apk)
+9. [A paleta](#a-paleta)
+10. [Divergências entre o caminho web e o nativo](#divergências-entre-o-caminho-web-e-o-nativo)
+11. [Build e distribuição](#build-e-distribuição)
+12. [Regras de desenvolvimento](#regras-de-desenvolvimento)
 
 ---
 
@@ -48,7 +50,7 @@ Os dois WebViews rodam no mesmo processo e no mesmo origin
 (`https://appassets.androidplatform.net/`), então **compartilham IndexedDB,
 OPFS e BroadcastChannel exatamente como os dois PWAs compartilhavam no
 navegador**. É por isso que `shared/db.js`, `shared/stage.js` e todo o
-protocolo de comandos seguem inalterados.
+protocolo de comandos seguem praticamente inalterados.
 
 **Sem TV conectada o app continua útil:** nenhuma Presentation é criada e a
 projeção volta a ser a preview do Controle em tela cheia (o mesmo fallback do
@@ -60,17 +62,19 @@ PWA, incluindo os gestos invisíveis).
 
 ```
 app/src/main/
-├── AndroidManifest.xml          # intent-filter de share, portrait, keep-awake
+├── AndroidManifest.xml          # intent-filter de share, portrait, <queries>, regras de backup
 ├── assets/web/                  # ← a base web (cópia própria, versionada aqui)
 │   ├── version.json             #   identidade do bundle (version + minShell)
-│   ├── shared/native.js         #   ponte AVNative (NOVO — não existe no PWA)
+│   ├── shared/tokens.css        #   PALETA — fonte única, carregada pelos dois apps
+│   ├── shared/native.js         #   ponte AVNative + watchdog do OTA (NÃO existe no PWA)
 │   ├── shared/db.js             #   + relay nativo no canal de comandos
+│   ├── shared/stage.js          #   motor de mídia (compartilhado Controle/Display)
 │   ├── controle/                #   (sem sw.js / manifest / icons — ver abaixo)
 │   └── display/                 #   (idem)
 ├── java/br/org/iasd/av/
-│   ├── MainActivity.kt          # Activity + WebView do Controle + Presentation
+│   ├── MainActivity.kt          # Activity + WebView do Controle + Presentation + voltar/volume/cast
 │   ├── StagePresentation.kt     # Presentation + WebView do Display (o telão)
-│   ├── WebViewFactory.kt        # asset loader + settings comuns (invariantes)
+│   ├── WebViewFactory.kt        # asset loader + settings comuns (invariantes 1-4)
 │   ├── NativeBridge.kt          # @JavascriptInterface — a ponte
 │   ├── SafPathHandler.kt        # serve arquivos do dispositivo em /saf/<token>
 │   ├── ShareIntake.kt           # intent ACTION_SEND → formato do share web
@@ -80,101 +84,159 @@ app/src/main/
 │   ├── WebPathHandler.kt        # serve o bundle OTA, com fallback pro APK
 │   ├── MicChromeClient.kt       # onPermissionRequest: microfone no WebView do telão
 │   └── MessageBus.kt            # relay de comandos entre os dois WebViews
-└── res/                         # ícones do app + drawable/ic_image{,_off} (cortina), tema
+└── res/
+    ├── drawable/                # ic_image{,_off} — a cortina, na notificação
+    ├── values/colors.xml        # app_bg: ESPELHA o token --bg da base web (ver "A paleta")
+    ├── values/themes.xml        # tema sem action bar; tema preto da Presentation
+    └── xml/                     # backup_rules + data_extraction_rules (ver "Build")
 docs/
 ├── ARQUITETURA-WEB.md           # arquitetura completa da base web
 └── FONTE-DE-DADOS-LOUVORJA.md   # referência do banco LouvorJA (hinos/Bíblia)
 ```
 
-**~800 linhas de Kotlin, zero dependências de terceiros** — só AndroidX oficial
-(`core-ktx`, `activity-ktx`, `webkit`). Isso respeita a filosofia do projeto
-muito melhor que Capacitor/Cordova, que arrastariam npm e um build system
-inteiro e ainda assim exigiriam código nativo próprio para a Presentation.
+**Doze arquivos Kotlin, zero dependências de terceiros** — só AndroidX oficial
+(`core-ktx`, `activity-ktx`, `webkit`). Medido agora (`wc -l`): **3.330 linhas
+de Kotlin** contra **11.445 linhas de JavaScript** em `assets/web/` — a
+proporção é o argumento, não o número absoluto. Manter o nativo pequeno respeita
+a filosofia do projeto muito melhor que Capacitor/Cordova, que arrastariam npm e
+um build system inteiro e ainda assim exigiriam código nativo próprio para a
+Presentation.
+
+> Esses dois números envelhecem a cada commit. Meça antes de citá-los:
+> `wc -l app/src/main/java/br/org/iasd/av/*.kt`.
 
 ---
 
 ## Invariantes do shell (não quebrar)
 
-Estão codificadas em `WebViewFactory.kt` e são o que sustenta a base web:
+São o que sustenta a base web. Cada uma mora num lugar diferente, e é preciso
+saber qual para conferi-las:
+
+**Em `WebViewFactory.kt`** (o KDoc do arquivo lista estas quatro):
 
 1. **Servir por `https://appassets.androidplatform.net/`, JAMAIS por
    `file://`.** O contexto seguro é o que faz OPFS e IndexedDB funcionarem.
    Não é opcional.
 2. **Um único origin para os dois WebViews.** É o que preserva IDB/OPFS/
    BroadcastChannel compartilhados. Origens distintas destroem a arquitetura.
+   O origin é comparado por **componente do `Uri`** (`url.host == ORIGIN_HOST`),
+   nunca por prefixo de string: `appassets.androidplatform.net.evil.com` começa
+   com o origin, é um domínio que qualquer um registra, e um `startsWith`
+   autorizaria a navegação — dentro de um WebView que injeta `__AVBridge` em
+   toda página que carregar (`addJavascriptInterface` é por-WebView, não
+   por-origem). Este ponto não pode falhar ABERTO.
 3. **Um único processo/perfil de WebView.** Nada de processo isolado para o
    Display.
 4. `mediaPlaybackRequiresUserGesture = false`, `domStorageEnabled`,
-   `javaScriptEnabled`, aceleração de hardware ligada.
+   `javaScriptEnabled` — mais `allowFileAccess`/`allowContentAccess`
+   **desligados**: tudo entra pelo asset loader.
+
+**Regra de projeto, não de código:**
+
 5. **Não reimplementar em Kotlin nada que já exista em JS.** Transporte,
    playlist, letra sincronizada, Bíblia, Camada de Texto e fades permanecem no
-   web — são ~7.000 linhas de lógica madura.
-6. **`onShowFileChooser` no `WebChromeClient`.** Um WebView **ignora
-   `<input type="file">` por completo** sem esse override: o toque não faz
-   nada, sem erro nenhum no console. No navegador o seletor é da plataforma;
-   aqui é o app que precisa abri-lo. Dele dependem a importação para o
-   Cronograma e a escolha do wallpaper.
+   web. É de longe a maior parte do sistema (ver a contagem acima).
+
+**Em `MainActivity.ControleChromeClient`** — e é justamente por estarem aqui,
+e não na factory, que um segundo `WebChromeClient` criado sem elas as perde em
+silêncio:
+
+6. **`onShowFileChooser`.** Um WebView **ignora `<input type="file">` por
+   completo** sem esse override: o toque não faz nada, sem erro nenhum no
+   console. No navegador o seletor é da plataforma; aqui é o app que precisa
+   abri-lo. Dele dependem a importação para o Cronograma e a escolha do
+   wallpaper.
 7. **`onShowCustomView`/`onHideCustomView`.** Sem eles, `requestFullscreen()`
    falha silenciosamente — e a preview em tela cheia é a projeção quando não
-   há TV conectada.
+   há TV conectada. É aqui que mora a trava de paisagem nativa.
+
+**No `AndroidManifest.xml`:** `android:hardwareAccelerated="true"` e
+`android:largeHeap="true"` — os dois WebViews, um vídeo grande e o player do
+YouTube dividem o mesmo processo.
+
+> O WebView do telão usa outro `WebChromeClient` (`MicChromeClient`, para o
+> microfone) e **não recebe** o handler `/saf/` — ver "Microfone ao vivo" e "A
+> ponte".
 
 **Reconexão vem de graça:** quando o dongle cai e volta, o Android destrói e
 recria a Presentation, o WebView recarrega `/display/` e dispara
 `display-ready` — e o Controle reenvia a cena ao receber isso
 (`resendSceneToDisplay` em `controle.js`). Não invente um mecanismo paralelo.
 
-A **cena** é mais do que "mídia tocando": além do `load` da mídia (inclusive
-uma imagem estática, que não tem `playing`), o Controle reenvia o comando
-`text` do versículo ou da mensagem que estiverem projetados — nessa ordem, já
-que no Display um `load` visual encerra a Camada de Texto e um `load` de áudio
-a mantém. Até a v5.03 só mídia com `playing` era restaurada, e um versículo no
-ar durante a pregação sumia do telão para sempre depois de um blip do
-espelhamento, sem nenhum sinal no Controle.
+A **cena** é mais do que "mídia tocando":
+
+- Reenvia **toda mídia carregada**, não só a que está tocando. A condição
+  anterior (`playing || isImage`) deixava de fora justamente o caso mais comum
+  de uma queda de dongle: o louvor de fundo PAUSADO para a oração. Um vídeo
+  pausado mostra o quadro congelado no telão e um áudio pausado mantém a letra
+  em cena — nos dois casos há algo projetado, e nos dois casos ele sumia.
+- O `load` leva **posição e estado de reprodução** (ver a seção do barramento).
+- Reenvia também o `text` do sorteio, do cronômetro, do versículo ou da
+  mensagem que estiverem projetados — nessa ordem, já que no Display um `load`
+  visual encerra a Camada de Texto e um `load` de áudio a mantém. Cronômetro e
+  sorteio voltam pelo **descritor** (`startAt`), não por um valor: o telão
+  recalcula o número a partir do mesmo instante de origem e reaparece no segundo
+  certo, não no ponto em que a conexão caiu.
 
 **Morte do renderer também é recuperável:** `WebViewFactory.create` recebe um
 callback `onRendererGone` e o `WebViewClient` devolve `true` em
 `onRenderProcessGone`. Sem isso o padrão do framework é matar o processo — um
-OOM do renderer (dois WebViews, vídeo grande e player do YouTube no mesmo
-processo) derrubaria o Controle e a projeção juntos. Cada dono
+OOM do renderer derrubaria o Controle e a projeção juntos. Cada dono
 (`MainActivity`, `StagePresentation`) remonta o próprio WebView, e o telão
 recarregado dispara `display-ready`, caindo no mesmo caminho de reconexão
 acima.
+
+O que morre com o renderer **não se limita à página**: os `fetch` em voo morrem
+junto e o `finally` de `withBgWork()` nunca roda, então ninguém mais chamaria
+`keepAlive(false)`. `buildControleWebView` zera o estado de trabalho em segundo
+plano ao remontar — senão sobravam para sempre o foreground service, a
+notificação congelada no último progresso e um wake lock de 2 h, e a guarda de
+`setBackgroundWork` transformava o próximo download real em no-op.
 
 ---
 
 ## A ponte `window.AVNative`
 
 Definida em `shared/native.js` (lado web) sobre `__AVBridge` (lado Kotlin,
-`NativeBridge.kt`). **Só existe quando `window.__NATIVE__`** — no navegador o
-arquivo inteiro é um no-op.
+`NativeBridge.kt`). **Só existe quando `window.__AVBridge` existe** — no
+navegador a IIFE retorna logo na entrada e nada é definido, nem `__NATIVE__`.
 
 ```js
 window.AVNative = {
   pickFolder(),        // → { id, name, uri }   (SAF ACTION_OPEN_DOCUMENT_TREE)
-  listFolder(uri),     // → [{ name, size, mtime, type, url }]
-  onShare(cb),         // cb({ files:[{name,type,url}], url, title })
+  listFolder(uri),     // → [{ name, size, mtime, type, url }]   (só no Controle)
+  onShare(cb),         // cb({ files:[{name,type,size,url}], url, title })
   displays(),          // → [{ id, name, w, h, density }]
   onDisplayChange(cb),
+  openCast(),          // seletor de ESPELHAMENTO DE TELA do Android (≠ Google Cast)
+  castTarget(),        // → string: rótulo do alvo de espelhamento deste aparelho
+  captureVolumeKeys(bool), // botões físicos de volume vão para o app
+  systemVolume(step),  // devolve um passo ao volume do sistema (fader no limite)
+  requestMic(),        // → bool: permissão RECORD_AUDIO (push-to-talk)
   keepAlive(bool),     // download em curso — ver "Trabalho em segundo plano"
   bgProgress({label, done, total, etaMs, items, idleMs}), // progresso na notificação
   nowPlaying({active, title, subtitle, playing, slideMode, wallpaper, positionMs, durationMs}),
   onRemote(cb),        // cb('play'|'pause'|'playpause'|'prev'|'next'|'stop'|'view')
-  openCast(),          // seletor de ESPELHAMENTO DE TELA do Android (≠ Google Cast)
-  castTarget(),        // → rótulo do alvo de espelhamento deste aparelho
-  captureVolumeKeys(bool), // botões físicos de volume vão para o app
-  systemVolume(step),  // devolve um passo ao volume do sistema (fader no limite)
-  requestMic(),        // → bool: permissão RECORD_AUDIO (push-to-talk)
 }
 ```
 
-Além disso, `native.js` publica três globais lidas direto (sem Promise):
-`window.__NATIVE__`, `__AV_ROLE__` (`'controle'`/`'display'`), `__SHELL_VERSION__`
-(o inteiro do contrato, ver abaixo) e **`__SHELL_NAME__`** — o `versionName` do
-APK, que é o **índice de versão do shell exibido ao operador**. Ele não se
-confunde com `__SHELL_VERSION__`: base web e shell atualizam por caminhos
-independentes (OTA × instalar APK), então o cabeçalho do Cronograma mostra os
-dois (`Web v5.28 · Shell v1.21`). Num shell antigo (sem `appVersion()`) a
-string vem vazia e a UI cai em só a versão web — mesma degradação do navegador.
+São **catorze métodos**, e essa é a superfície inteira que o resto do lado web
+tem direito de usar: fora do `native.js`, tocar em `__AVBridge` direto é
+acoplamento indevido. O próprio `native.js` chama mais cinco coisas no
+`__AVBridge`, e nenhuma delas é API para o app — `shellVersion()`, `role()` e
+`appVersion()` viram as globais logo abaixo, `busPost()` é o relay do barramento
+e `otaConfirm()` é o watchdog do OTA.
+
+Além disso, `native.js` publica **quatro globais** lidas direto (sem Promise):
+`window.__NATIVE__`, `__AV_ROLE__` (`'controle'`/`'display'`),
+`__SHELL_VERSION__` (o inteiro do contrato, ver abaixo) e **`__SHELL_NAME__`** —
+o `versionName` do APK, que é o **índice de versão do shell exibido ao
+operador**. Ele não se confunde com `__SHELL_VERSION__`: base web e shell
+atualizam por caminhos independentes (OTA × instalar APK), então o cabeçalho do
+Cronograma mostra os dois (`Web v5.48 · Shell v<versionName do APK>`, montado em
+`renderVersionLabel`). Num shell antigo (sem
+`appVersion()`) a string vem vazia e a UI cai em só a versão web — mesma
+degradação do navegador.
 
 **Princípio: a ponte entrega URLs SERVÍVEIS, não bytes.** Arquivos do
 dispositivo e compartilhamentos chegam como
@@ -182,12 +244,44 @@ dispositivo e compartilhamentos chegam como
 + `Blob` exatamente como já faz com o OPFS — nenhuma função de importação
 precisou ser reescrita, e **um vídeo de 2 GB nunca passa por base64**.
 
-O token é um contador opaco (`SafRegistry`), não o URI codificado: o
-`PathHandler` recebe o caminho já decodificado, e um `content://` com barras
-viraria segmentos de rota e quebraria o roteamento.
+Sobre o token (`SafRegistry`, em `SafPathHandler.kt`):
+
+- Ele é **opaco**, e não o URI codificado, porque o `PathHandler` recebe o
+  caminho já decodificado: um `content://` com barras viraria segmentos de rota
+  e quebraria o roteamento.
+- É **aleatório** (128 bits em base64url, `SecureRandom`), e não um contador.
+  Um contador é adivinhável por construção, e as entradas **nunca expiram** —
+  não custa nada deixar `/saf/1..N` fora do alcance de quem enumerar.
+- O mesmo URI devolve **sempre o mesmo token**. Sem esse reaproveitamento, cada
+  `listFolder` de uma pasta de 500 arquivos acrescentava 500 entradas novas para
+  os MESMOS arquivos, a cada re-sincronização, num processo mantido vivo de
+  propósito durante todo o culto.
+
+**Superfície nativa é privilégio do Controle.** O WebView do telão recebe a
+ponte com `host = null` justamente para não ter poderes de Activity, e o loader
+dele é montado **sem** o handler `/saf/`. `listFolder` honra a mesma regra e
+devolve lista vazia sem host: era a exceção, porque lê o `ContentResolver`
+direto, e sem a guarda qualquer script rodando no documento do Display (que
+carrega a IFrame Player API de terceiro **por design**) lia o índice inteiro —
+nome, tamanho e token servível — de toda pasta que o operador já concedeu. Os
+dois consumidores de arquivo do dispositivo (`importShare` e `syncDeviceFolder`)
+rodam no Controle e copiam os bytes para o OPFS antes de qualquer coisa chegar
+ao telão; o Display nunca busca um `/saf/`.
+
+**As Promises têm época por carregamento.** O id de chamada é
+`EPOCH + ':' + seq`, com `EPOCH` aleatório a cada carga da página. O renderer
+pode morrer com uma chamada em voo: a página recarrega, o contador volta a zero,
+mas o `resolve` do Kotlin aponta para o WebView ATUAL — com ids "1", "2", "3" a
+resposta atrasada de um `listFolder` da página velha resolvia a promise homônima
+da página NOVA. As chamadas que dependem de **máquina** têm prazo de 60 s (rede
+de segurança contra promise pendente para sempre); `pickFolder` e `requestMic`
+esperam uma **pessoa** e ficam sem prazo, porque um timeout ali resolveria null
+com o operador ainda escolhendo a pasta.
 
 `NativeBridge.SHELL_VERSION` identifica a versão da casca — **subir sempre que
-a superfície da ponte mudar**.
+a superfície da ponte mudar**. Hoje vale **14**; a v5.48 não a mexeu, porque
+nenhum método foi acrescentado ou teve assinatura alterada (as mudanças do lote
+foram restrições de quem pode chamar o quê, que nunca exigem shell mais novo).
 
 ---
 
@@ -201,10 +295,49 @@ Em vez de detectar a falha (handshake com janela de corrida), o **relay nativo
 roda SEMPRE em paralelo**: cada comando sai pelos dois caminhos
 (`BroadcastChannel` + `MessageBus` nativo) e a cópia repetida é descartada em
 `shared/db.js` pelo campo `__mid`. O resto do sistema não sabe de nada —
-`sendCommand`/`onCommand` mantêm exatamente a mesma assinatura.
+`sendCommand`/`onCommand` mantêm exatamente a mesma assinatura. O custo é
+desprezível: os comandos são objetos JSON pequenos.
 
-O custo é desprezível: os comandos são objetos JSON pequenos e o mais
-frequente (`display-status`) já roda a 2 Hz.
+### O `load` carrega o ponto e o estado da mídia
+
+O comando `load` leva, além de `mediaId`/`view`/`muted`/`volume`, dois campos
+que existem **para a reconexão do telão**:
+
+| campo | significado |
+|---|---|
+| `time` | segundo em que a mídia deve entrar (0 = do começo) |
+| `playing` | `false` = a cena voltou PAUSADA; ausente/`true` = toca, como sempre |
+
+Até a v5.47 a reconexão mandava só o `load`, então a mídia recomeçava do ZERO e
+no estado "tocando": um hino aos 3:20 voltava do início na frente da
+congregação, e um louvor pausado para a oração voltava tocando. Pior, o
+`display-status` seguinte chegava com `currentTime` 0 e arrastava a preview do
+Controle junto — o operador perdia até a referência de onde estava.
+
+**Por que os campos viajam no próprio `load`, e não como um `seek`/`pause`
+enviado logo depois:** o `onCommand` do Display **não serializa**. O `load` é
+assíncrono (`getMedia` → `opfsGetFile` → `mediaReady`, mais o fade de saída), e
+um comando que chegasse em seguida agiria sobre o `<video>` **anterior**, antes
+de a fonte nova entrar — o seek seria aplicado à mídia errada e depois perdido.
+Levá-los no mesmo comando é o que garante que a decisão chegue junto com a
+mídia a que ela pertence.
+
+Do lado do Display os dois caminhos honram os campos:
+
+- `stage.js` → `load(id, v, m, vol, startAt, autoplay)`. A posição só "gruda"
+  depois que a duração é conhecida — escrever `currentTime` junto com o `src` é
+  perdido em silêncio —, então o `startAt` entra num `loadedmetadata` com
+  `{ once: true }`, protegido pelo `loadSeq` (outro load pode ter assumido
+  durante a espera). `autoplay === false` é a cena que voltou pausada;
+  `undefined` mantém o comportamento de sempre, e por isso nenhum outro chamador
+  precisou mudar.
+- `display.js` → `loadYoutube(rec, v, m, vol, startAt, autoplay)`, que passa o
+  `startAt` como `playerVars.start` (segundos inteiros — é o que a API aceita).
+
+O comando mais frequente do barramento é o `display-status`, emitido pelo telão
+a cada `timeupdate` do vídeo (além de `play`, `pause`, `loadedmetadata`,
+`ended` e `volumechange`). Ele é a fonte de sincronização enquanto existir — ver
+`snoopDisplayStatus`, na seção da sessão de mídia.
 
 ---
 
@@ -227,15 +360,47 @@ dois downloads simultâneos não podem fazer o primeiro a terminar desligar a
 proteção do outro. O `finally` de `withBgWork()` é o ponto crítico: uma falha
 de rede não pode deixar o serviço e o wake lock ligados.
 
-Pontos cobertos: `syncCollection` (massa), `ensureSongDownloaded` (avulso),
-`ensureBibleVersionDownloaded` (1189 capítulos) e `syncDeviceFolder` (pastas).
-O wake lock tem timeout de 2 h, para um download travado nunca consumir
-bateria indefinidamente. No navegador tudo isso é no-op.
+Pontos cobertos: `syncGroup` (o lote de coleções), `syncCollection` (massa),
+`ensureSongDownloaded` (avulso), `syncLyrics`, `ensureBibleVersionDownloaded`
+(1189 capítulos) e `syncDeviceFolder` (pastas — o único que chama
+`bgWorkBegin`/`bgWorkEnd` direto, em vez de passar por `withBgWork`; o `finally`
+dele já existia para outra coisa). O wake lock tem timeout de 2 h, para um
+download travado nunca consumir bateria indefinidamente. No navegador tudo isso
+é no-op.
 
-**A notificação mostra o progresso real.** Com o app minimizado ela é a ÚNICA
-janela para o download, e era um texto fixo ("Baixando mídias") — não dizia
-quanto falta nem se ainda anda. Quem sabe o progresso é o lado web, então é ele
-que reporta, por `AVNative.bgProgress({label, done, total, etaMs})`:
+### O ciclo de vida do serviço tem duas armadilhas, e as duas matam o app
+
+- **`startForeground` SEMPRE, antes de qualquer decisão de parar.** Um serviço
+  iniciado por `startForegroundService` que morre sem ter chamado
+  `startForeground` faz o sistema derrubar o app inteiro ("did not then call
+  Service.startForeground()") — e o processo é o dos dois WebViews e da
+  `Presentation` na TV. Publicar primeiro custa uma notificação de alguns
+  milissegundos; a alternativa custa o culto. Só depois disso o
+  `onStartCommand` verifica se o download já acabou enquanto o serviço subia
+  (um item já baixado liga e desliga a proteção em poucos ms) e se despede
+  sozinho com `stopSelf(startId)`.
+- **A notificação segue o serviço, e não o contrário.** `updateProgress` usa
+  `NotificationManager.notify`, que é independente do ciclo de vida de um
+  `Service`: sem a guarda de `running`, um cartão "Baixando mídias" com
+  `setOngoing(true)` ficava na gaveta para sempre, sem download nenhum por
+  trás. O `onDestroy` zera a flag antes de tudo e cancela o cartão
+  explicitamente.
+- **Cota de FGS do Android 15** (`onTimeout`): com `targetSdk` 35 um serviço
+  `dataSync` tem teto de 6 h acumuladas em 24 h, e o acumulado não é
+  hipotético — configurar um aparelho novo soma hinário completo, uma versão da
+  Bíblia e a cópia de pastas de vídeo. Atingido o teto, o sistema dá poucos
+  segundos para parar, ou derruba o processo por ANR. Parar é a única resposta
+  possível, mas o lado Kotlin precisa **esquecer** que estava protegendo
+  (`SyncService.onGone` → `backgroundWork = false`): senão o
+  `if (on == backgroundWork)` da Activity trata o próximo `keepAlive(true)` como
+  repetido e o download seguinte fica sem proteção nenhuma, calado.
+
+### A notificação mostra o progresso real
+
+Com o app minimizado ela é a ÚNICA janela para o download, e era um texto fixo
+("Baixando mídias") — não dizia quanto falta nem se ainda anda. Quem sabe o
+progresso é o lado web, então é ele que reporta, por
+`AVNative.bgProgress({label, done, total, etaMs, items, idleMs})`:
 `bgTaskStart`/`bgTaskStep` em `controle.js` alimentam
 `SyncService.updateProgress`, que refaz a notificação com barra, "N de M",
 percentual e o tempo restante.
@@ -254,14 +419,11 @@ percentual e o tempo restante.
   reais.
 - **Fila, e não rodízio entre os itens em voo.** O rodízio trazia o mesmo
   nome de volta várias vezes — repetitivo, e a lista não ia a lugar nenhum. A
-  fila consome cada nome UMA vez, em ordem. Medido (18 faixas, 6 em paralelo):
-  **18 de 18 nomes exibidos, 0 repetidos, em ordem, fila zerada**.
+  fila consome cada nome UMA vez, em ordem.
 - **O ritmo é MEDIDO, não chutado** (`bgSpinMs`): `decorrido / concluídos` é
-  o tempo médio por item — exatamente o X/6. Medido: mediana de **500 ms em
-  tela contra 521 ms de custo amortizado real**; com faixas de tamanho
-  irregular, 750 contra 750. Se a fila acumula (a rede acelerou), o escoamento
-  acelera junto, para a lista não ficar exibindo um passado cada vez mais
-  velho.
+  o tempo médio por item — exatamente o X/6. Se a fila acumula (a rede
+  acelerou), o escoamento acelera junto, para a lista não ficar exibindo um
+  passado cada vez mais velho.
 - **Sem o buffer a lista engasgava.** Os 6 workers andam em lockstep — entram
   e saem quase juntos —, então os eventos chegam em rajada (meia dúzia em
   poucos ms) seguida de segundos de silêncio. Sem fila, a rajada rendia UMA
@@ -271,8 +433,7 @@ percentual e o tempo restante.
   rede esconderia justamente o que precisa ser visto — e ali não há novidade
   nenhuma a mostrar, só passado. Passando `BG_STALL_MS` (90 s) sem nenhum
   evento real, a lista congela e o `idleMs` cresce na tela: os dois sinais
-  concordam. Verificado: 6 nomes distintos em operação normal, 1 só com a
-  tarefa travada.
+  concordam.
 - **`idleMs` separa "travado" de "esta faixa é grande"**, que na tela são a
   mesma coisa parada. Passado o limiar, a notificação **para de prometer
   tempo restante** e passa a dizer "sem resposta há X": uma ETA calculada
@@ -280,12 +441,19 @@ percentual e o tempo restante.
   notificação pode fazer. E `formatIdle` não usa degraus (ao contrário de
   `formatEta`) — aqui o número PRECISA subir a cada atualização, é vê-lo
   crescer que diz "isto não está andando".
-- **O freio da notificação é por PRIORIDADE, escolhida pelo chamador.** São
-  dois pisos: 250 ms para um item que ENTROU em download (a notícia do
-  momento) e 700 ms para rotina. A prioridade é explícita, e não deduzida de
-  "o nome mudou", porque no laço do worker o fim de uma música e o início da
-  seguinte acontecem a poucos ms um do outro: disputando o mesmo piso, o fim
-  chegava primeiro e derrubava o início, que é o fato mais fresco.
+- **O freio é UM só, e vale só para a rotina.** O Android limita a taxa de
+  updates de notificação e passa a descartar o excesso — sem freio a barra
+  PARECE travada. `BG_NOTIF_MIN_MS` (700 ms) segura a atualização de rotina
+  (`bgTaskStep`, em que só o contador andou); tudo o que precisa chegar na hora
+  passa `force`: o primeiro nome de uma tarefa, cada troca de nome na linha e o
+  estado final. Houve um segundo piso ("250 ms para o item que acabou de entrar
+  em download", escolhido pelo chamador num parâmetro `destaque`); ele saiu na
+  v5.48 porque **nenhum chamador o passava** — era código morto, e
+  mexer na constante não produzia efeito nenhum no aparelho. Quem de fato dá o
+  ritmo do item que entra é o compasso (`bgPacerTick`, `BG_TICK_MS` = 250 ms),
+  que envia com `force` sempre que o nome troca. Repor o piso curto seria pior
+  que o `force`: o primeiro nome nasce a poucos ms do envio de abertura da
+  tarefa e ficaria retido até o batimento de reenvio (`BG_REENVIO_MS`, 2 s).
 - **É um REGISTRO de tarefas, não um slot único.** O app tem downloads
   simultâneos — é por isso que `bgWorkCount` conta em vez de ser um booleano —,
   e entrar na aba Bíblia enquanto um lote de álbuns baixa dispara os dois ao
@@ -313,10 +481,6 @@ percentual e o tempo restante.
   "2h03" quando o erro real é de meia hora promete uma precisão que não
   existe — além de fazer o número mudar a cada atualização, o que se lê como
   instabilidade mesmo quando a estimativa está convergindo.
-- **Há um intervalo mínimo entre atualizações** (`BG_NOTIF_MIN_MS`, 700 ms). O
-  Android limita a taxa de updates de notificação e passa a descartá-los — sem
-  o freio, uma faixa curta atualizaria várias vezes por segundo e a barra
-  pareceria travada. O estado final é enviado com `force`, ignorando o freio.
 - **Num lote (`syncGroup`) a barra acompanha o LOTE**, não cada álbum: o total
   é a soma das músicas pendentes de todos eles, contada uma vez. Reiniciar a
   barra a cada álbum daria doze barras curtas em vez de uma que informa quanto
@@ -359,12 +523,23 @@ Dois ganhos, e o segundo é o menos óbvio:
   e Android Auto sabem o que querem e mandam intenção explícita; o botão da
   notificação é alternador. Tratar tudo como alternador faria um `onPlay`
   recebido com o áudio já tocando PAUSAR o louvor.
-- **O estado sai de `pushNowPlaying`**, que lê o título do próprio `#npName` já
-  renderizado, e a posição/duração da própria **barra de progresso** — em vez de
-  reconstruir as três origens (mídia/versículo/mensagem) ou recalcular o tempo
+- **O estado sai de `pushNowPlaying`**, que lê o título do próprio
+  `#npNameInner` já renderizado, e a posição/duração da própria **barra de
+  progresso** (`#seek`) — em vez de
+  reconstruir as origens (mídia/letra/versículo/mensagem) ou recalcular o tempo
   por fora. Duplicar essas árvores era garantir divergência; e a barra é a única
   fonte que cobre todos os tipos, inclusive YouTube (`preview.getDuration()` é do
-  `<video>` do stage e não sabe nada de um vídeo do YouTube).
+  `<video>` do stage e não sabe nada de um vídeo do YouTube). Barra desabilitada
+  (imagem, versículo, mensagem) zera os dois campos, para o sistema não desenhar
+  uma linha do tempo que não significa nada.
+- **CENA é tudo que está no telão, não só mídia.** `active` inclui `currentId`,
+  mensagem, versículo, **cronômetro e sorteio** projetando. Os dois últimos
+  ficavam de fora: o efeito não é a projeção cair no meio (uma vez que qualquer
+  mídia tocou, `currentId` nunca mais volta a null), é o caso da sessão
+  RECÉM-ABERTA — projetar a contagem regressiva de abertura sem ter selecionado
+  mídia nenhuma não levantava o serviço, e o processo, com a `Presentation`
+  junto, seguia descartável exatamente durante os dez minutos em que o operador
+  minimiza o app para esperar.
 - **A posição fica fora da chave de deduplicação**, porque a sessão extrapola o
   tempo sozinha (posição + decorrido × velocidade) — reenviar a cada segundo só
   para mexer o cursor seria desperdício. Mas um **seek é uma descontinuidade**
@@ -376,21 +551,34 @@ Dois ganhos, e o segundo é o menos óbvio:
   para o jitter do `display-status`). Um só lugar cobre todas as causas,
   inclusive as futuras. Durante um ARRASTE na barra não republica: ali o valor
   é a posição do dedo, não a da mídia.
-- O serviço vive enquanto houver **cena** (mídia carregada, letra, versículo ou
-  mensagem), não só enquanto toca: pausado, o operador ainda precisa do botão de
-  play. Sem cena, ele para e a notificação some.
-- **Ícones são os do sistema** (`android.R.drawable.ic_media_*`) — carregar um
-  conjunto próprio no `res/` só para cinco botões não se paga, e o `MediaStyle`
-  os tinge conforme o tema. **Exceção: a cortina**, que usa
+- O serviço vive enquanto houver **cena**, não só enquanto toca: pausado, o
+  operador ainda precisa do botão de play. Sem cena, ele para e a notificação
+  some.
+- **A cena pode acabar enquanto o serviço sobe.** `nowPlaying` e `stop` chegam
+  da thread do WebView: publicar uma cena dispara `startForegroundService`, e o
+  `active:false` que vem logo atrás chega ANTES de o serviço existir. Sem a
+  guarda, o serviço nascia depois disso e ficava de pé com "Nada em exibição" —
+  e nada mais chamaria `stop()`, porque o lado web deduplica por chave e não
+  reenvia o `active:false`. `stopSelf(startId)`, e não `stopSelf()`, para um
+  comando mais novo já enfileirado (uma cena nova) cancelar a parada, como manda
+  o contrato do `Service`. Pelo mesmo motivo, `stop()` só chama `stopService`
+  quando o serviço **já** está em primeiro plano: derrubá-lo com um
+  `startForegroundService` pendente é o caminho conhecido para o app ser morto.
+  Perder a notificação de controles seria um arranhão; perder a projeção, não.
+- **Ícones são os do sistema** (`android.R.drawable.*`: `ic_media_previous`,
+  `ic_media_play`/`ic_media_pause`, `ic_media_next` e, para Parar,
+  `ic_menu_close_clear_cancel`) — carregar um conjunto próprio no `res/` só para
+  cinco botões não se paga, e o `MediaStyle` os tinge conforme o tema.
+  **Exceção: a cortina**, que usa
   `ic_image`/`ic_image_off` (vetores próprios). O sistema não tem imagem
   riscada, e o que havia até a v1.18 (`ic_menu_view`) é um OLHO — sugere
   "esconder a vista", quando o que sai do telão é a MÍDIA. São os mesmos dois
   símbolos que o botão do app já usa nesse par de estados.
-- **O ícone da cortina segue a AÇÃO, não o estado** — e desde a v5.18 essa é a
-  regra de TODO botão de alternância do projeto, na notificação e na tela (ver
-  "O ícone mostra a AÇÃO; a cor mostra o ESTADO" em `docs/ARQUITETURA-WEB.md`).
-  Com a mídia no ar o ícone é a imagem riscada, porque é isso que o toque vai
-  fazer; o rótulo ("Cobrir telão"/"Mostrar mídia") já dizia o mesmo.
+- **O ícone da cortina segue a AÇÃO, não o estado** — e essa é a regra de TODO
+  botão de alternância do projeto, na notificação e na tela (ver "O ícone mostra
+  a AÇÃO; a cor mostra o ESTADO" em `docs/ARQUITETURA-WEB.md`). Com a mídia no
+  ar o ícone é a imagem riscada, porque é isso que o toque vai fazer; o rótulo
+  ("Cobrir telão"/"Mostrar mídia") já dizia o mesmo.
 - **A partir do Android 13 quem desenha os botões é o `PlaybackState`, não a
   notificação.** As `Notification.Action` viram decoração nessas versões: os
   controles saem das *actions* do estado (play/pause, ⏮/⏭) e os extras, de
@@ -408,11 +596,11 @@ Dois ganhos, e o segundo é o menos óbvio:
   projetando. Ligar a mesa de som fazia o defeito sumir porque áudio audível
   isenta a página do estrangulamento, o que foi justamente a pista.
   `NativeBridge.snoopDisplayStatus` lê de passagem o `display-status` que o
-  telão já emite a 2 Hz pelo `busPost` e corrige play/pause, posição e duração
+  telão já emite pelo `busPost` e corrige play/pause, posição e duração
   (`SessionService.updateFromDisplay`). A `Presentation` não é estrangulada —
   é uma fonte que continua viva quando a outra não está. Não é decisão de
-  transporte: copia dois campos que o web já calculou, e sem cena publicada
-  não inventa nada. Republica com a mesma economia do lado web (só em troca de
+  transporte: copia campos que o web já calculou, e sem cena publicada não
+  inventa nada. Republica com a mesma economia do lado web (só em troca de
   play/pause, de duração, ou salto de posição além de `POS_TOL_MS`).
   **Sem telão conectado o caso não se aplica**: ali a projeção É a preview em
   tela cheia, que exige o app na frente — minimizar já encerra a projeção.
@@ -430,16 +618,18 @@ base web passaria a exigir baixar e instalar à mão a cada ajuste de JS/CSS —
 o OTA devolve o comportamento antigo, com mais controle.
 
 **Como funciona:** o job `web-ota` (em todo push para `main`) empacota
-`assets/web/` num `web-assets.zip` (~170 KB) e publica, junto com um
-`version.json`, na release de tag fixa **`web-latest`** — URL estável, porque
-está compilada no shell. O app consulta esse `version.json` na abertura,
-baixa quando há versão nova e passa a servi-la.
+`assets/web/` num `web-assets.zip` e publica, junto com um `version.json`, na
+release de tag fixa **`web-latest`** — URL estável, porque está compilada no
+shell. O app consulta esse `version.json` na abertura, baixa quando há versão
+nova e passa a servi-la. (O tamanho do zip sai no log do próprio job, no
+`echo "Bundle: …"` — número no doc envelhece a cada push.)
 
 **A identidade do bundle é `assets/web/version.json`** (`version` +
 `minShell`), versionado no repositório: o bundle carrega a própria versão,
 seja ele o embutido ou o baixado. O workflow só acrescenta `sha256` e a URL.
-**Atualizar esse arquivo junto com `#appVersion`** — é o que dispara (ou não)
-uma atualização nos aparelhos.
+**Atualizar esse arquivo junto com os outros dois lugares de versão** — ver
+"Regras de desenvolvimento" — é o que dispara (ou não) uma atualização nos
+aparelhos.
 
 **O OTA não muda o acesso ao nativo.** A ponte é injetada no WebView pelo
 Kotlin (`addJavascriptInterface`), não vem nos arquivos web: um bundle
@@ -451,32 +641,159 @@ SAF, Presentation e o serviço de segundo plano seguem idênticos.
 
 1. **Nunca troca a base no meio de uma sessão.** O download é em segundo
    plano, mas o bundle novo só entra no **próximo lançamento** — o WebView do
-   telão jamais recarrega ao vivo. Isso inclui **não apagar do disco o bundle
-   que a sessão está servindo**: a faxina de bundles antigos preserva tanto o
-   alvo novo quanto o `sessionRoot` em uso, e recolhe o resto no
-   `beginSession()` seguinte, que é o único ponto em que nenhum WebView existe
-   ainda. Sem essa ressalva, ativar uma versão nova durante o culto apagava o
-   diretório vivo: todo recurso ainda não carregado, e qualquer recarga do
-   telão, caíam no fallback do APK — versão mais antiga, no meio da projeção.
+   telão jamais recarrega ao vivo. "Por lançamento" é literal: `beginSession()`
+   decide uma única vez por **PROCESSO** (`sessionStarted`), e não por
+   `onCreate`. A garantia tinha sido escrita supondo o contrário: uma recriação
+   da Activity no meio do culto rearmava o watchdog e rodava o `cleanup`, que
+   APAGA o diretório servido ao vivo pelos dois WebViews. Por isso a faxina de
+   bundles antigos preserva tanto o alvo novo quanto o `sessionRoot` em uso, e
+   recolhe o resto no `beginSession()` seguinte — o único ponto em que nenhum
+   WebView existe ainda. Sem essa ressalva, ativar uma versão nova durante o
+   culto fazia todo recurso ainda não carregado (e qualquer recarga do telão)
+   cair no fallback do APK: versão mais antiga, no meio da projeção.
 2. **Válvula `minShell`.** Se o bundle exigir uma ponte mais nova que
    `NativeBridge.SHELL_VERSION`, é recusado: o app continua no que já tinha,
    funcionando, até um APK novo chegar. **É por isso que `SHELL_VERSION`
    precisa subir toda vez que a superfície da ponte mudar** — sem isso a
    válvula não protege nada.
 3. **Watchdog de boot.** Servir um bundle arma um `pending`; o lado web o
-   desarma (`AVNative` → `otaConfirm`) no evento `load`, e **só se `AVDB`
-   existir** — um erro de sintaxe em `db.js` deixaria a página "carregada"
-   mas sem sistema. Um bundle que não confirme é descartado no lançamento
-   seguinte e o app volta ao embutido no APK. Sem isso, um bundle quebrado
-   inutilizaria o app até reinstalar.
+   desarma (`AVNative` → `otaConfirm`). Um bundle que não confirme é descartado
+   no lançamento seguinte e o app volta ao embutido no APK. Sem isso, um bundle
+   quebrado inutilizaria o app até reinstalar.
 
-Um APK novo com base web mais recente também descarta um OTA antigo
-(comparação numérica por componente, não lexical: `4.9` < `4.82`... por isso
-`compareVersions` compara `major.minor` como inteiros). A extração valida
-**zip slip** (entradas com `..` que escapariam do diretório) e o download
-confere o `sha256`; falta do `web/controle/index.html` reprova o bundle antes
-de ativá-lo. O fallback é **por arquivo**: o que faltar no bundle baixado é
-servido do APK.
+O `pending` guarda o **NOME do subdiretório**, não um booleano: com um booleano
+a confirmação de um bundle perdoava outro, porque qualquer escrita de `false`
+desarmava o que estivesse armado. E a chave é nova de propósito — ler um
+`Boolean` como `String` em `SharedPreferences` lança `ClassCastException`,
+dentro do `onCreate`, o que deixaria o app sem abrir depois de atualizar o APK.
+
+#### Por que "`AVDB` existe" não bastava como confirmação
+
+Até a v5.47 a única condição era `window.AVDB` no evento `load`, e o comentário
+raciocinava sobre "um erro de sintaxe em `db.js`" — o arquivo MENOS provável de
+quebrar. A ordem dos scripts do Controle é `native.js` → `db.js` → `stage.js` →
+`louvorja.js` → `bible.js` → `controle.js`: um erro de sintaxe (ou um `throw` de
+inicialização) em qualquer um dos QUATRO últimos aborta só AQUELE script, o
+`load` dispara do mesmo jeito, `AVDB` continua lá — e o bundle quebrado era
+carimbado como bom e servido PARA SEMPRE, o oposto exato do que o mecanismo
+existe para fazer. Como o OTA publica a cada push em `main` e o `controle.js` é
+de longe o que mais muda, esse era justamente o caso provável.
+
+O sinal agora é "o app está DE PÉ" (`otaAppIsUp`, em `shared/native.js`), e cada
+peça cobre um trecho da cadeia que a anterior não cobre:
+
+1. **papel `controle`.** O WebView do Display carrega bem menos código (não
+   carrega `controle.js` nem `louvorja.js`), então deixá-lo confirmar validaria
+   um bundle cujo Controle nunca chegou a rodar — e o Display é o caso NORMAL de
+   culto, ou seja, confirmaria quase sempre no lugar do outro. Sem TV ele nem
+   existe: quem confirma é sempre o Controle, que é quem precisa funcionar. A
+   regra é imposta **nos dois lados**: o laço nem começa no Display, e
+   `NativeBridge.otaConfirm` recusa a chamada quando `role != "controle"`.
+2. **`AVDB` (db.js) e `createStage` (stage.js)** — os dois módulos
+   compartilhados, cada um publicando seu global no fim do arquivo.
+3. **`__avBack` (controle.js, perto do fim do arquivo)** — só existe se o
+   `controle.js` foi parseado por inteiro e executado até quase o fim. É a mesma
+   função que `MainActivity.handleBack()` consulta: um contrato que já existe,
+   não um marcador inventado para o watchdog.
+4. **um `<li>` dentro de `#playlist`** — o HTML entrega esse `<ul>` VAZIO; quem
+   o preenche é `renderPlaylist()`, chamado dentro do `init()` assíncrono. É o
+   que prova que a inicialização terminou de verdade: `init()` começa por
+   `loadCollections()` (louvorja.js), então uma quebra em `louvorja.js` ou
+   `bible.js` derruba o `init()` antes daqui e o marcador nunca aparece.
+
+**Por polling, e não uma checagem única no `load`:** o `init()` do Controle é
+assíncrono (várias leituras de IndexedDB) e termina DEPOIS do `load`. Uma
+checagem única rejeitaria todo bundle bom — o OTA pararia de funcionar por
+inteiro, que é o defeito oposto e igualmente ruim. São 250 ms de intervalo e
+30 s de desistência, em silêncio (sem confirmação, o `WebUpdater` descarta o
+bundle no lançamento seguinte).
+
+**O erro possível aqui é o SEGURO.** A confirmação só chega quando o `init()`
+termina, isto é, algum tempo depois do `load` — fechar o app nesse intervalo faz
+um bundle bom ser descartado; custo: o app volta ao embutido e o OTA baixa de
+novo na abertura seguinte. O erro do outro lado — carimbar um bundle quebrado — não tem volta sem
+publicar uma versão nova. E não há risco de descompasso: `native.js` viaja
+DENTRO do bundle que ele valida, então a função e o `__avBack` que ela exige são
+sempre do mesmo commit.
+
+#### As outras defesas do caminho de download
+
+- **Uma verificação por vez** (`checking`, um `AtomicBoolean`). `checkAsync`
+  roda em todo `onCreate`, e o `android:configChanges` não cobre `fontScale`
+  nem `locale`: mudar o tamanho da fonte durante um download disparava um
+  segundo `check()` em paralelo, e os dois escreviam nos MESMOS caminhos
+  temporários — podia sair um diretório INCOMPLETO ativado como bundle bom. Os
+  caminhos temporários também levam um sufixo único por execução.
+- **Host travado** (`github.com`, `objects.githubusercontent.com`) e **`https`
+  obrigatório**. Não dá autenticidade (quem escreve o `version.json` escreve o
+  zip), mas impede que um único campo alterado aponte o download para um
+  servidor qualquer — e esse JS rodaria no origin privilegiado, com a ponte
+  inteira à disposição.
+- **`sha256` obrigatório.** Aceitar um `version.json` sem o campo era instalar
+  um bundle sem verificação nenhuma. O workflow sempre o emite.
+- **Zip slip** (entradas com `..` que escapariam do diretório) e um teto de
+  tamanho na extração.
+- **Reprovação antes de ativar:** falta do `web/controle/index.html` descarta o
+  staging.
+- Um APK novo com base web mais recente também descarta um OTA antigo. A
+  comparação é **numérica por componente**, não lexical (`4.9` < `4.82` como
+  string), por isso `compareVersions` compara cada componente como inteiro.
+- O fallback é **por arquivo**: o que faltar no bundle baixado é servido do APK.
+
+---
+
+## A paleta
+
+A paleta "Sala Escura" (âmbar) mora em **`assets/web/shared/tokens.css`**, fonte
+única carregada pelos dois `index.html` **antes** da folha do app. Até a v5.47 os
+tokens de marca eram mantidos à mão em DUAS folhas (`controle.css` e
+`display.css`), e o comentário das duas admitia que "a sincronização é manual" —
+sincronização manual entre dois arquivos é uma classe de bug, não um processo:
+basta um ajuste entrar só num lado para o telão e a preview do Controle, que
+existe justamente para ESPELHAR o telão, mostrarem coisas diferentes.
+
+O essencial para não quebrar nada aqui:
+
+- **Só cor entra em `tokens.css`.** Raio, escala de ícone, curva de toque e
+  medidas de layout ficam no `:root` de `controle.css`: são decisões da UI densa
+  do Controle, e o Display (que não tem UI) não teria o que fazer com elas.
+- **Três matizes, com papéis que não se misturam.** Âmbar é a marca IASD **e** o
+  accent (navegação, seleção, progresso) — `--gold` e `--accent` têm o mesmo
+  valor de propósito, e os dois nomes existem para distinguir na folha "isto é
+  marca" de "isto é navegação". Vermelho é atenção, em dois papéis separados:
+  **preenchido = está no ar agora** (`--live`), **contornado = ação destrutiva**
+  (`--danger-text`) — nunca preenchida, para não competir com o que está de fato
+  no telão. Verde (`--ok`) é **só** concluído/conectado; antes ele também dizia
+  "está no ar" em dois lugares enquanto outros quatro diziam o mesmo em
+  vermelho, duas cores opostas para a mesma mensagem na mesma tela.
+- **A superfície AFUNDA dentro de um cartão** (a regra no topo de
+  `controle.css`). `--surface`/`--surface-2` são branco com alfa, então
+  EMPILHAM: o mesmo token sobre `--panel` produz uma base bem mais clara do que
+  sobre `--bg`, e era essa a causa raiz do pior contraste do app. Não existe
+  alfa que resolva os dois casos, então dentro do cartão o sinal se INVERTE (o
+  overlay passa a ser preto) — que também é a convenção certa de UI escura: o
+  cartão já está elevado, logo o controle dentro dele é recesso, e ainda emite
+  menos luz num salão escuro. Como custom properties HERDAM, a regra só precisa
+  marcar os elementos que de fato pintam `--panel`.
+- **Nunca escrever branco literal.** Nenhum `#fff` sobrou como valor de cor em
+  `controle.css`/`display.css`: o branco pleno era a maior fonte isolada de luz
+  emitida do app, e o off-white da paleta (`--text`) é o que se usa. As únicas
+  exceções são **o palco**: `--stage-text: #fff`, porque num telão a
+  legibilidade vem de luminância máxima, não de um off-white calibrado para uma
+  tela a 30 cm do rosto.
+- **`res/values/colors.xml` espelha `--bg` à mão.** É o preto das barras de
+  status e navegação e o `windowBackground` (o que aparece ANTES de o WebView
+  carregar). Nada no build detecta a divergência, e o OTA pode trocar a base web
+  sem trocar o APK — se o token mudar, este valor muda junto.
+
+**Não há teste automatizado de contraste no repositório.** Os números nos
+comentários de `tokens.css` são medições feitas à mão, e os pares que ficam
+abaixo do piso estão declarados como tais no próprio comentário. Ao mexer num
+token, meça — nada no CI vai barrar uma regressão.
+
+O raciocínio completo (cada par medido, os pisos adotados, os ladrilhos da
+Bíblia e as células de capítulo/versículo) está na seção de paleta de
+`docs/ARQUITETURA-WEB.md`.
 
 ---
 
@@ -489,12 +806,12 @@ contextos.
 
 | Ponto | Navegador | App nativo |
 |---|---|---|
-| Service workers (`sw.js`) | cache-first + auto-reload | **removidos** — assets já são locais; recarregar o WebView do telão no meio de um culto é justamente o que não pode acontecer |
-| `#startBtn` "Ligar Sistema" | destrava autoplay de terceiros | **oculto** — `setMediaPlaybackRequiresUserGesture(false)`; uma TV não recebe toque |
-| Recuperação de áudio bloqueado | retentativas de 5 s | **desativada** — sem política de gesto, qualquer detecção seria falso positivo |
+| Service workers (`sw.js`) | — | **o arquivo não existe no bundle e o registro saiu dos DOIS apps** (v5.48): os assets já são locais, e recarregar o WebView do telão no meio de um culto é justamente o que não pode acontecer. Atualizar a base é papel do OTA |
+| `#startBtn` "Ligar Sistema" | destrava autoplay de terceiros | **oculto** — `mediaPlaybackRequiresUserGesture = false`; uma TV não recebe toque |
+| Recuperação de áudio bloqueado | segue tocando mudo + retentativas | **desativada já no `onBlocked`** — sem política de gesto, qualquer `NotAllowedError` só pode ser falso positivo, e mutar antes de descobrir isso deixava o telão sem som sem armar recuperação nenhuma |
 | Pastas do dispositivo | `showDirectoryPicker()` | **SAF** — a File System Access API **não existe no Android**; este recurso era letra morta no celular e passa a funcionar |
-| Compartilhamento | `share_target` + POST no SW | **`intent-filter` nativo** (`ShareIntake.kt`) |
-| Estado do telão (rodapé de Exibição) | atalho `window.open('../display/')`, útil só para desenvolver | **indicador ao vivo** — a Presentation é criada sozinha |
+| Compartilhamento | **não existe mais** — vinha do `share_target` do manifest com o POST interceptado pelo SW, e os dois saíram do bundle; sobra a leitura do estado `pending-share`, que hoje ninguém escreve | **`intent-filter` nativo** (`ShareIntake.kt`), que só aceita `content://` de outro app (ver abaixo) |
+| Estado do telão (rodapé de Exibição) | atalho `window.open('../display/')`, útil só para desenvolver | **indicador ao vivo** (desabilitado como botão) — a Presentation é criada sozinha |
 | Botão de cast da preview | oculto | `AVNative.openCast()` → seletor de **espelhamento de tela** (ver abaixo) |
 | "Conectar a tela" (modo simplificado) | abre a tela do Display (`window.open`) — e é ela que conta como "conectado" | mesmo `AVNative.openCast()`, com o nome da tela conectada no subtítulo |
 | Simplificado sem tela conectada | mesmo bloqueio, com a janela do Display no lugar da `Presentation` | **modo bloqueado**: cortina embaçada sobre tudo, só o botão de conectar — preenchido no accent, no centro da tela — e a saída para o avançado na frente |
@@ -504,7 +821,25 @@ contextos.
 | Botão voltar | — | **fecha o que estiver aberto** (popup, sub-tela, aba) e só então manda a tarefa para segundo plano (ver abaixo) |
 | Controles fora do app | — | **notificação + tela de bloqueio + botões de mídia** via `MediaSession` (ver seção acima) |
 | Download com o app minimizado | a aba continua baixando | **foreground service + wake lock** — sem isso o processo é congelado (ver seção acima) |
-| Atualização da base web | service worker (cache-first + reload) | **OTA** — bundle publicado em `web-latest`, aplicado no próximo lançamento (ver seção acima) |
+| Atualização da base web | recarregar a página | **OTA** — bundle publicado em `web-latest`, aplicado no próximo lançamento (ver seção acima) |
+
+### Compartilhamento: um ponto de entrada exportado valida o que recebe
+
+O `intent-filter` de `ACTION_SEND` é público e qualquer app instalado pode
+dispará-lo. `ShareIntake` só aceita `content://`: `openInputStream` também atende
+`file://` e `android.resource://`, e a leitura acontece com o uid DESTE app — um
+app malicioso com `targetSdk` antigo podia compartilhar
+`file:///data/data/br.org.iasd.av/shared_prefs/…` e o conteúdo virava item de
+mídia do Cronograma, projetável na TV. A autoridade do próprio app também cai
+fora. Não há canal de volta para quem compartilhou (o dano demonstrável é nulo),
+mas um ponto de entrada exportado que não valida o que recebe é dívida gratuita.
+
+O intent é **consumido** depois de lido (`consumeShareIntent`), e o parse só roda
+com `savedInstanceState == null`. A única saída do app é `moveTaskToBack`, então
+a Activity nunca é finalizada e `getIntent()` devolveria o mesmo `ACTION_SEND`
+para sempre: qualquer recriação (mudar o tamanho da fonte ou o idioma — nenhum
+dos dois está em `android:configChanges` — ou voltar pelo Recentes) importaria
+uma segunda cópia integral do arquivo, sem aviso e sem desfazer.
 
 ### Microfone ao vivo (push-to-talk)
 
@@ -522,23 +857,27 @@ Do lado nativo, duas peças:
 - **`MicChromeClient`** (usado pelo WebView da `StagePresentation`). Um WebView
   **nega `getUserMedia` em silêncio** se ninguém tratar `onPermissionRequest`:
   a promise é rejeitada e não há erro no console que explique. É o mesmo padrão
-  do `onShowFileChooser` (invariante 6). Ele concede **só**
-  `RESOURCE_AUDIO_CAPTURE` — qualquer outro recurso é negado, porque o sistema
-  de projeção não tem uso para eles — e **só se o app já tiver `RECORD_AUDIO`**;
-  conceder ao WebView uma permissão que o processo não tem apenas adiaria a
-  falha para um ponto sem sinal claro.
+  do `onShowFileChooser` (invariante 6). Três regras: concede **só**
+  `RESOURCE_AUDIO_CAPTURE` (o sistema de projeção não tem uso para câmera, MIDI
+  ou proteção de conteúdo); **só se o app já tiver `RECORD_AUDIO`** — conceder
+  ao WebView uma permissão que o processo não tem apenas adiaria a falha para um
+  ponto sem sinal claro; e **só da própria origem**. A terceira é defesa em
+  profundidade: este client é do WebView do TELÃO, que carrega conteúdo de
+  terceiro por design, e o `grant()` é silencioso — não há prompt nem sinal na
+  tela. Uma origem AUSENTE não é negada (nunca foi observada aqui, e recusar por
+  um campo vazio tiraria o push-to-talk sem ganho conhecido).
 - **`requestMicPermission`** (`AVNative.requestMic()`), pedido **sob demanda**,
   no primeiro toque no botão. Não na abertura do app: um pedido de gravar áudio
   sem contexto, no primeiro lançamento, é o tipo de coisa que se nega por
   reflexo — e aí o recurso fica quebrado sem motivo.
 
 O caminho de áudio no Display é `getUserMedia → MediaStreamSource → GainNode →
-destination`, com rampa de 0,12 s na entrada e na saída (cortar no meio de uma
-palavra estala na caixa de som). `echoCancellation` fica **ligado**: num culto
-um ganho realimentado é um estrago imediato e público, e vale mais que a
-fidelidade extra de desligar o processamento. Ainda assim, se a saída de áudio
-for o próprio celular e não a TV, o risco de microfonia continua — é do
-formato, não do código. A latência do WebView (~0,1–0,3 s) é inerente.
+destination`, com rampa na entrada e na saída (cortar no meio de uma palavra
+estala na caixa de som). `echoCancellation` fica **ligado**: num culto um ganho
+realimentado é um estrago imediato e público, e vale mais que a fidelidade extra
+de desligar o processamento. Ainda assim, se a saída de áudio for o próprio
+celular e não a TV, o risco de microfonia continua — é do formato, não do
+código. A latência do WebView é inerente.
 
 O microfone fecha sozinho ao soltar o botão, ao **trocar de aba** e quando o
 app vai para **segundo plano**: push-to-talk que sobrevive ao botão vira um
@@ -575,11 +914,19 @@ Duas listas divergiriam no primeiro que alguém esquecesse de acrescentar.
 
 **A resposta é assíncrona, e por isso há um prazo** (`BACK_JS_TIMEOUT_MS`,
 350 ms). `evaluateJavascript` responde por callback; se o renderer morreu, está
-travado, ou o bundle é anterior à v5.33 e não tem `__avBack`, esse callback pode
+travado, ou o bundle é antigo demais para ter `__avBack`, esse callback pode
 nunca chegar — e um botão voltar que não faz **nada** é pior que um que
-minimiza. O `postDelayed` garante a resposta padrão e um `AtomicBoolean` faz o
-primeiro dos dois caminhos vencer, para não minimizar depois de o web já ter
-fechado um popup.
+minimiza. O `postDelayed` garante a resposta padrão.
+
+O que o `AtomicBoolean` garante, exatamente: que `moveTaskToBack` roda no
+**máximo uma vez** por toque. Ele **não** garante que o app não minimize depois
+de o web já ter fechado um popup — `__avBack()` executa a ação de forma síncrona
+e só então retorna, então o que chega tarde é a RESPOSTA, não a ação. Com o
+renderer ocupado, o prazo pode vencer com o popup já fechado e o operador vê as
+duas coisas num toque só. Fechar isso de verdade exige um token de corrida
+devolvido pelo lado web (`__avBack(token)` → `__avResolve`), o que é mudança de
+contrato da ponte; enquanto não existe, o prazo é curto justamente para o caso
+comum nunca chegar perto dele.
 
 ### Botões físicos de volume
 
@@ -643,9 +990,9 @@ ainda há espelhamento a tentar:
 
 Para o Smart View o nome da activity **não é adivinhado**: `exportedActivities()`
 pergunta ao `PackageManager` quais o pacote expõe (`GET_ACTIVITIES`) e enfileira
-as exportadas. A primeira tentativa usava um nome chutado (`.CastDialog`) — um
-palpite errado simplesmente não resolve, a cadeia cai no fallback e o botão abre
-o Google Cast, que é o oposto do pedido. Perguntar ao sistema elimina o chute.
+as exportadas. A primeira tentativa usava um nome chutado — um palpite errado
+simplesmente não resolve, a cadeia cai no fallback e o botão abre o Google Cast,
+que é o oposto do pedido. Perguntar ao sistema elimina o chute.
 
 **Nada disso é API documentada.** Se um alvo não existir (ou não for
 exportado), `resolveActivity` devolve null / `startActivity` lança, e a cadeia
@@ -656,11 +1003,10 @@ E o fallback abre a tela de **Tela** antes da de **Cast**, justamente porque o
 Google Cast é o que não se quer aqui.
 
 Como isso é território de fabricante, `describeCastTarget()` devolve o rótulo
-do alvo escolhido **com o componente real** (ex.: `Smart View
-(com.samsung.android.smartmirroring/.CastDialog)`) e o **popup de Exibição
-mostra "Espelhar abre: …"**. O operador vê o que o aparelho ofereceu antes de
-tocar — e, quando o botão abre a tela errada, essa string é o que diz qual
-candidato pegou, sem depender de logcat.
+do alvo escolhido **com o componente real** e o **popup de Exibição mostra
+"Espelhar abre: …"**. O operador vê o que o aparelho ofereceu antes de tocar —
+e, quando o botão abre a tela errada, essa string é o que diz qual candidato
+pegou, sem depender de logcat.
 
 ### Andaimes do modelo de dois PWAs, removidos
 
@@ -675,8 +1021,11 @@ a TV), esse andaime não tem mais função e saiu do bundle:
   WebAPK, `scope`, `orientation`, `share_target`. Nada disso existe num
   WebView: ícone, nome e orientação vêm do APK, e o share chega por
   `intent-filter`.
-- **`controle/icons/` e `display/icons/`** (~96 KB) — só o manifest e os
+- **`controle/icons/` e `display/icons/`** — só o manifest e os
   `<link rel="icon">` os usavam. Os ícones do app estão em `res/`.
+- **`sw.js` e os dois blocos que o registravam** (v5.48). O último uso era o
+  auto-reload quando um SW novo assumisse; a base web atualiza por OTA, e um
+  reload do WebView do telão no meio de um culto é o que não pode acontecer.
 - **"Abrir Display"** — virou indicador de estado (acima).
 
 O que **fica**: a preview em tela cheia (a projeção quando não há TV
@@ -697,13 +1046,22 @@ SDK; nenhuma infraestrutura externa.
 | **Release** ⭐ | `git tag v1.0 && git push --tags` | **link direto para o .apk**; instala pelo Chrome do celular |
 | Release (sem push de tag) | Actions → *Build APK* → *Run workflow*, com `release_tag` | mesma coisa pelo disparo manual — a tag é criada pelo próprio workflow |
 
-**A tag nasce em `main`** (`target_commitish: main`): sem isso ela seguia o SHA
-que o runner tivesse em mãos e acabava apontando para o commit da branch de
-trabalho. O input **`retag`** (desligado por padrão) apaga a Release e a tag
-antes de recriá-las — é o único jeito de MOVER uma tag já publicada, já que o
-`action-gh-release` não move tag existente. Fica atrás de um input próprio de
-propósito: mover tag é destrutivo e não pode ser efeito colateral de uma
-publicação comum.
+**O `web-ota` roda com fila, sem cancelamento** (`concurrency: web-ota`,
+`cancel-in-progress: false`). Os dois assets da release `web-latest` (o zip e o
+`version.json` que carrega o `sha256` dele) são substituídos um a um, sem
+transação: duas execuções em paralelo — o merge da branch seguido de um push de
+correção é o caso normal — podem intercalar e deixar o zip de uma com o `sha256`
+da outra, e a partir daí todo aparelho baixa, confere o hash e o OTA fica INERTE
+até o próximo push em `main`, sem nenhum sinal. Cancelar no meio do upload
+produziria exatamente o mesmo estado, por isso a fila espera.
+
+**Antes de publicar, o job confere a sanidade do bundle:** `node --check` em
+todo `.js` de `assets/web` e uma validação de `version.json`. O canal OTA publica
+direto para a frota, e o watchdog de boot **não evita o primeiro estrago** —
+`beginSession()` arma o `pending` e SERVE o bundle; só o lançamento seguinte o
+descarta. Ou seja: um lançamento quebrado por aparelho, garantido, e se for o do
+culto o operador fica sem sistema até fechar e reabrir o app. Não substitui teste
+de comportamento; garante que o bundle carrega.
 
 **Assinatura.** As Releases saem **assinadas com keystore fixa**, guardada nos
 secrets do repositório (`KEYSTORE_B64` — o `.jks` em base64 —, `KEY_ALIAS` e
@@ -713,16 +1071,73 @@ sincronizadas, os hinos do LouvorJA e a Bíblia baixada vivem em IndexedDB/OPFS,
 que o Android apaga junto com o app numa desinstalação.
 
 - O `.jks` **nunca é versionado** (`.gitignore`); o build o materializa a
-  partir do secret e o descarta com o runner.
+  partir do secret e o descarta com o runner. A decodificação usa
+  `Base64.getMimeDecoder()`, e não o BASIC: o `base64` do GNU coreutils quebra a
+  linha a cada 76 caracteres por padrão, e quem for rotacionar a keystore cola
+  exatamente essa saída no secret — o decodificador BASIC lança diante de
+  qualquer `\n`, e `trim()` só limpa as pontas.
 - Sem os secrets (build local, PR de terceiro, clone), o `build.gradle.kts` cai
   na assinatura de **debug** e tudo continua compilando — só não serve para
-  atualizar por cima. Se uma Release for pedida nesse estado, o workflow
-  **falha de propósito** em vez de publicar um APK que o Android recusaria.
-- `versionCode` vem do número da execução do CI (sempre crescente) e
-  `versionName` da tag — o Android recusa instalar sobre um `versionCode` igual
-  ou maior, então isso não pode ser manual.
+  atualizar por cima.
+- **Publicar exige a chave, e agora isso é dito em vez de deduzido.** O passo de
+  Release passa `-PrequireSigning=true`, e o próprio Gradle reprova a ausência da
+  keystore: quem sabe se ela existe é ele. A guarda anterior era **código
+  morto** — deduzia da existência de `app-release.apk`, mas o AGP só acrescenta
+  o sufixo `-unsigned` quando a variante não tem signingConfig NENHUM, e o
+  fallback de debug atribui um. O arquivo existia sempre, a etapa era pulada, e
+  o que saía era uma Release assinada com a `debug.keystore` gerada pelo runner
+  **naquela execução** — chave diferente a cada run,
+  `INSTALL_FAILED_UPDATE_INCOMPATIBLE` no aparelho, e como única saída
+  desinstalar, apagando IndexedDB/OPFS.
+- **Cinto e suspensório:** depois do build, o CI pergunta ao `apksigner` QUEM
+  assinou o APK que vai ser publicado e falha se encontrar `CN=Android Debug`
+  (que é fixo na chave de debug do Android, então o teste é exato e não depende
+  de conhecer o CN da keystore de produção).
+- **`versionCode` vem da CONTAGEM DE COMMITS** (`git rev-list --count HEAD`),
+  mais um deslocamento de 100000 — daí o `fetch-depth: 0` no checkout, senão um
+  clone raso devolveria 1. Não vem mais do número da execução: `github.run_number`
+  conta por WORKFLOW, e renomear o `apk.yml` reinicia a contagem em 1, o que
+  derrubaria o `versionCode` e forçaria desinstalar. O deslocamento existe para o
+  primeiro APK desta regra ficar acima do último publicado pela regra antiga —
+  se um dia um `versionCode` já publicado chegar perto dele, **aumente** o
+  deslocamento, nunca o diminua. O `versionName` vem da tag.
+- **Num disparo manual com `release_tag` o checkout usa `main`.** A tag nasce lá
+  (`target_commitish: main`), e sem isso o APK podia ser compilado de uma branch
+  de trabalho enquanto a tag apontava para `main`: binário publicado ≠ commit da
+  tag. Vale a ressalva: `target_commitish` só é usado pela API do GitHub para
+  CRIAR a ref quando ela ainda não existe — no fluxo documentado
+  (`git tag && git push --tags`) a tag já existe e o campo não faz nada. Quem
+  garante a coerência no disparo manual é o `ref: main` do checkout.
+- O input **`retag`** (desligado por padrão) apaga a Release e a tag antes de
+  recriá-las — é o único jeito de MOVER uma tag já publicada, já que o
+  `action-gh-release` não move tag existente. Fica atrás de um input próprio de
+  propósito: mover tag é destrutivo e não pode ser efeito colateral de uma
+  publicação comum.
 - Perder a keystore é irreversível: sem ela, toda atualização futura volta a
   exigir desinstalação. Guarde com backup.
+
+**Backup com regras** (`res/xml/backup_rules.xml` e
+`res/xml/data_extraction_rules.xml`). `allowBackup="true"` sozinho leva tudo o
+que está no diretório de dados, e duas coisas não podem ir:
+
+- `files/web-ota/` e `shared_prefs/web-ota.xml` são o bundle OTA extraído e o
+  ponteiro para ele — **CÓDIGO** que roda no origin privilegiado, com acesso a
+  `__AVBridge`. Restaurar um backup adulterado plantaria JavaScript arbitrário
+  sem passar por nenhuma das três garantias: não há download, não há conferência
+  de `sha256`, e a válvula `minShell` só existe no caminho do download. Nada ali
+  precisa sobreviver à troca de aparelho — o APK traz a base web embutida e o
+  `check()` seguinte rebaixa o bundle de novo.
+- `app_webview/` é IndexedDB/OPFS, a biblioteca do app, que passa facilmente de
+  gigabytes.
+
+A diferença entre os dois destinos é deliberada: o backup em **nuvem** tem cota
+de 25 MB por app, então com `app_webview` dentro ele não protegia a biblioteca
+(não cabe) e ainda arriscava reprovar o backup inteiro; a **transferência direta**
+entre aparelhos não tem essa cota, e ali copiar a biblioteca é justamente o que o
+operador quer ao trocar de celular. Por isso `app_webview` só sai da nuvem. São
+**dois arquivos porque o Android mudou o formato** (o antigo vale da API 26 à 30,
+o novo da 31 em diante), não porque as decisões sejam diferentes — qualquer
+exclusão nova precisa entrar nos dois.
 
 Rodar local: `./gradlew assembleDebug` (exige Android SDK instalado).
 
@@ -745,9 +1160,6 @@ Rodar local: `./gradlew assembleDebug` (exige Android SDK instalado).
   git push origin main          # ← sem isto, nada chega aos aparelhos
   ```
 
-  As tags de Release apontam para `main` por construção
-  (`target_commitish: main` no `apk.yml`) — não confie no SHA que o runner
-  tiver em mãos.
 - **Nunca perder funcionalidades existentes ao refatorar.** A base web tem
   todo o sistema de culto (coleções LouvorJA, letra sincronizada, Bíblia,
   Camada de Texto, playlist, fades) — ver `docs/ARQUITETURA-WEB.md`.
@@ -759,15 +1171,30 @@ Rodar local: `./gradlew assembleDebug` (exige Android SDK instalado).
 - Toda operação IDB multi-passo que precise de atomicidade usa `storeTx()`.
 - Ao mudar a superfície da ponte, subir `NativeBridge.SHELL_VERSION` **e**
   atualizar a seção "A ponte" acima.
+- Cor nova entra em `assets/web/shared/tokens.css`, nunca literal na folha do
+  app — e nunca branco pleno fora do palco (ver "A paleta").
 - Ao atualizar o código, atualizar este `CLAUDE.md` se a mudança afetar
   arquitetura, protocolo de comandos ou a ponte. Mudanças dentro de
   `assets/web/` que afetem a arquitetura web vão em `docs/ARQUITETURA-WEB.md`.
-- **A cada atualização, incrementar a versão visual do Controle**
-  (`#appVersion` em `assets/web/controle/index.html`) **e `version` em
-  `assets/web/version.json`** — é este último que faz a atualização chegar
-  aos aparelhos por OTA. O `versionCode`/`versionName` do APK vêm do CI.
-  **Versão atual: v5.47** (base web) · **shell 1.22** (`SHELL_VERSION` 14 —
-  o shell passou a consultar `window.__avBack` no botão voltar; ver
-  "Divergências"). O bundle segue com `minShell: 2`: num shell antigo ele
-  funciona igual, só sem a escada do voltar — que é nativa e **só chega
-  instalando o APK novo**, não pelo OTA.
+
+### A versão mora em TRÊS lugares, e os três precisam andar juntos
+
+| Onde | O quê | Para quê |
+|---|---|---|
+| `assets/web/version.json` | `"version"` | **é o que faz a atualização chegar aos aparelhos**: o OTA compara este campo (`compareVersions`) e ignora, em silêncio, um bundle cuja versão não for maior que a instalada |
+| `assets/web/controle/controle.js` | `WEB_VERSION` | **é o que a UI de fato mostra**: `renderVersionLabel()` sobrescreve o span no primeiro render do Cronograma |
+| `assets/web/controle/index.html` | o texto do `<span id="appVersion">` | o que aparece antes do primeiro render — e a única versão visível num shell sem `appVersion()` |
+
+Esquecer o `WEB_VERSION` é o erro silencioso: o OTA distribui o bundle novo, mas
+o aparelho exibe a versão ANTIGA — e essa leitura é exatamente o que o indicador
+existe para dar, inclusive para quem estiver diagnosticando remotamente se o OTA
+chegou. Esquecer o `version.json` é o erro mudo do outro lado: nada chega a
+aparelho nenhum.
+
+O `versionCode`/`versionName` do APK vêm do CI (ver "Build") e não se tocam à
+mão.
+
+**Versão atual: v5.48** (base web) · `SHELL_VERSION` **14**, e o bundle segue com
+`minShell: 2` — ele funciona igual num shell antigo, só sem os recursos que são
+nativos por construção (a escada do voltar, os botões de volume, a notificação de
+controles), que **só chegam instalando o APK novo**, não pelo OTA.
