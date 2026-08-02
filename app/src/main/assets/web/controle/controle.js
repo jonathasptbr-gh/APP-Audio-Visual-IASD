@@ -149,7 +149,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.66';
+const WEB_VERSION = '5.67';
 
 // Escrita UMA vez, na carga: o indicador mora no rodapé de Configurações desde
 // a v5.49 e não depende mais de qual aba está aberta (no cabeçalho ele
@@ -8885,21 +8885,24 @@ hymnSearchInputEl.addEventListener('input', debounce(() => renderSearchResults(h
   const previewEl = document.getElementById('preview');
   const isFs = () => document.fullscreenElement === previewEl;
 
-  // ---- botões flutuantes (fora do fullscreen) ----
-  // Antes as três ações eram gestos invisíveis sobre a preview (toque = tela
-  // cheia, toque longo = popup de Exibição) — nada na tela dizia que existiam.
-  // Agora cada uma tem seu botão semitransparente num canto, e o toque na
-  // preview só MOSTRA/ESCONDE esses botões. Some sozinho depois de um tempo
-  // para não tampar a projeção em miniatura.
-  // Visíveis por padrão: são a única indicação de que essas ações existem, e a
-  // preview fica na base da tela o tempo todo — esconder por omissão devolvia
-  // o problema dos gestos invisíveis. O toque na preview os esconde (para ver
-  // a miniatura limpa) e outro toque os traz de volta; não somem sozinhos.
-  const fabsEl = document.getElementById('pvFabs');
-  function showFabs(on) { fabsEl.hidden = !on; }
-  // Os botões NÃO se escondem ao serem usados: são o estado padrão da preview.
+  // ---- controles nos cantos da preview (fora do fullscreen) ----
+  // Antes as ações eram gestos invisíveis sobre a preview (toque = tela cheia,
+  // toque longo = popup de Exibição) — nada na tela dizia que existiam. Cada
+  // uma virou um botão num canto, e por um tempo o toque na preview os
+  // MOSTRAVA/ESCONDIA.
+  //
+  // **Esse toque saiu na v5.67: eles são permanentes.** Esconder era uma
+  // resposta ao desenho errado — dois retângulos de vidro empilhados numa
+  // coluna, que de fato tampavam a miniatura. Com os ícones sem moldura e nos
+  // CANTOS (cast em cima, tela cheia embaixo) não há mais o que atrapalhar, e o
+  // que sobrava era um estado escondido: uma preview sem botão nenhum não
+  // anuncia que basta tocar nela para trazê-los — é o problema dos gestos
+  // invisíveis de volta, com um passo a mais. Errar o alvo por 2px também
+  // deixou de custar caro: antes o toque caía no reconhecedor de gestos e
+  // sumia com a coluna inteira.
+  //
   // São DOIS desde a v5.49 — a engrenagem virou o `#settingsBtn` fixo no topo
-  // do mixer, que não some com um toque na miniatura.
+  // do mixer.
   document.getElementById('pvFullBtn').addEventListener('click', enterFullscreen);
   // Cast: só existe com o shell nativo (é um intent do Android). No navegador
   // o botão nem aparece — regra geral do projeto: o web é o padrão, o nativo
@@ -8919,10 +8922,8 @@ hymnSearchInputEl.addEventListener('input', debounce(() => renderSearchResults(h
   }
   function exitFullscreen() { try { if (document.exitFullscreen) document.exitFullscreen(); } catch (_) {} }
   document.addEventListener('fullscreenchange', () => {
-    // Fora da tela cheia os botões são o padrão; dentro dela o CSS os esconde
-    // de qualquer forma (nada de UI sobre a projeção). Sincronizar o estado
-    // aqui evita sair da tela cheia com eles apagados sem motivo.
-    showFabs(!document.fullscreenElement);
+    // Nada a sincronizar nos botões: dentro da tela cheia quem os esconde é o
+    // CSS (nada de UI sobre a projeção), e fora dela eles são permanentes.
     if (!document.fullscreenElement) { try { screen.orientation && screen.orientation.unlock && screen.orientation.unlock(); } catch (_) {} }
   });
 
@@ -8972,16 +8973,10 @@ hymnSearchInputEl.addEventListener('input', debounce(() => renderSearchResults(h
       } else if (ady > adx && ady > SWIPE_MIN && third !== 'right') { // DESLIZE vertical (esq/centro)
         if (dy < 0) viewToggleEl.click(); else exitFullscreen();  // ↑ wallpaper · ↓ sair
       }
-      return;
     }
-    // Toque NO botão: quem responde é o handler dele. Este evento borbulha a
-    // partir do botão, e esconder os FABs aqui (antes do `click`, que só é
-    // despachado depois do pointerup) poderia engolir o clique.
-    if (e.target.closest && e.target.closest('.pv-fab')) return;
-    // Fora do fullscreen a preview não tem mais ação própria: o toque só
-    // revela (ou esconde) os botões flutuantes, e a ação é de quem tocar no
-    // botão. Um arrasto não conta como toque.
-    if (Math.hypot(e.clientX - sx, e.clientY - sy) < TAP_MOVE) showFabs(fabsEl.hidden);
+    // Fora do fullscreen a preview NÃO tem ação própria. Tinha: o toque
+    // escondia/mostrava os botões dos cantos, e isso saiu na v5.67 (eles são
+    // permanentes — ver acima). Quem age é quem tocar num botão.
   });
 
   previewEl.addEventListener('pointercancel', () => { volActive = false; });

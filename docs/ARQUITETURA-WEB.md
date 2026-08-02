@@ -94,7 +94,7 @@ git push origin main
   MENOR que o já publicado — caso em que `WebUpdater.compareVersions` ignora o
   bundle em silêncio. Para saber onde a base está, leia `version.json`.
 
-  No app nativo o rótulo mostra os **dois índices** — `Web v5.66 · Shell v1.22`
+  No app nativo o rótulo mostra os **dois índices** — `Web v5.67 · Shell v1.22`
   —, porque base web e shell atualizam por caminhos independentes (OTA ×
   instalar APK); no navegador sai só `Controle v<versão>`. **Ele mora no rodapé
   do popup de Configurações** desde a v5.49 (antes ficava no cabeçalho da lista,
@@ -1323,14 +1323,45 @@ deck é `--deck-pv-h`, 130px).
 São a única indicação de que essas ações existem, e a preview fica na base da
 tela o tempo todo; escondê-los por omissão devolvia o problema dos gestos
 invisíveis que eles substituíram (toque = tela cheia, toque longo = popup), que
-nada na tela anunciava. Um **toque na preview os esconde** (para ver a
-miniatura limpa) e outro os traz de volta; **não somem sozinhos** nem ao serem
-usados.
+nada na tela anunciava.
+
+#### Layout de player: os cantos, sem moldura, permanentes (v5.67)
+
+Eram dois retângulos de vidro (`--glass-bg` + borda + `backdrop-filter`)
+**empilhados numa coluna** à direita, ocupando a altura inteira da miniatura em
+partes iguais. Isso é desenho de barra de ferramentas, e ele compete com a
+imagem justamente onde ela é pequena. Hoje são **só ícones**, um em cada canto
+da direita: **cast em cima, tela cheia embaixo** — onde todo player os põe, e
+fora do caminho do que está projetado.
+
+- **A caixa continua sendo `--hit`** (o piso de alvo de toque do app). O que
+  sumiu foi a moldura, não o alvo.
+- **A tela cheia vai ao rodapé por `margin-top: auto`**, não por
+  `justify-content: space-between`: no navegador o cast nem existe (`[hidden]`),
+  e com um item só o `space-between` o jogaria de volta para o topo — o botão
+  trocaria de canto conforme o contexto.
+- **A legibilidade virou problema do ícone**, e a resposta é uma `drop-shadow`
+  tripla no `<svg>`: ela acompanha o TRAÇO (uma `box-shadow` sombrearia a caixa
+  vazia do botão). Duas sombras coladas e quase opacas empilham-se num contorno
+  escuro — é o que salva o ícone branco sobre um slide branco, onde não há
+  contraste nenhum —, e uma terceira, larga e difusa, o descola de uma textura
+  movimentada. Contorno por sombra, e não `paint-order: stroke`, porque estes
+  SVGs são desenhados a traço (`fill: none`) e não há preenchimento em volta do
+  qual pintar um contorno. Os tokens `--glass-bg`/`--glass-line` saíram da
+  paleta junto com a moldura: ninguém mais os usava.
+- **O toque na preview não os esconde mais.** Esconder era resposta ao desenho
+  errado — a coluna de vidro de fato tampava a miniatura. Sem ela não há o que
+  atrapalhar, e o que sobrava era um estado escondido: uma preview sem botão
+  nenhum não anuncia que basta tocar nela para trazê-los, que é o problema dos
+  gestos invisíveis de volta, com um passo a mais. Errar o alvo por 2px também
+  deixou de custar caro: antes o toque caía no reconhecedor de gestos e sumia
+  com a coluna inteira, obrigando a tocar de novo só para recuperá-la. Fora da
+  tela cheia a preview passou a **não ter ação própria**.
 
 Ficam **sempre ocultos em tela cheia** (`.preview:fullscreen .pv-fabs {
 display:none }`): sem TV conectada, a tela cheia É a projeção, e um botão
 sobreposto iria junto para o telão. `.pv-fabs` é `pointer-events:none` (só os
-botões recebem toque), senão a barra cobriria parte da preview e o toque nunca
+botões recebem toque), senão a coluna cobriria parte da preview e o toque nunca
 chegaria ao reconhecedor de gestos.
 
 A **tela cheia** (`requestFullscreen` no `#preview` + `screen.orientation.lock
@@ -2642,7 +2673,7 @@ Os detalhes que não são óbvios:
   nome embaixo). Numa caixa de ~250px `Baixando "Ó Adorai o Senhor"…` vira uma
   linha que estoura; separados, a ação se lê de relance e o nome fica com a
   largura toda, com clamp de duas linhas.
-- **O cartão desvia da coluna de `.pv-fabs`** (padding-right de 42px): tela cheia
+- **O cartão desvia dos `.pv-fab`** (padding-right de 38px): tela cheia
   e cast continuam alcançáveis durante o download.
 - **Fora da tela cheia** (mesma regra dos `.pv-fabs`): ali a preview **é** a
   projeção, e o cartão iria para o telão.
@@ -4724,7 +4755,6 @@ fundo real de cada contexto).
 | `--yt` / `--yt-soft` | `#ffa199` / `rgba(255,0,0,.18)` | marca de terceiro. A MATIZ é informação (identifica a origem da mídia) e por isso não pode virar accent; o tom foi clareado até passar AA como texto pequeno sobre o próprio fundo suave, inclusive com a linha selecionada (5,00:1 no pior caso) |
 | `--stage-bg` / `--stage-text` | `#000` / `#fff` | **o palco**, não a UI: o preto é preto de verdade (as barras do letterbox têm de sumir na moldura da TV) e o texto projetado é branco pleno — num telão a legibilidade vem de luminância máxima, não de um off-white calibrado para uma tela a 30 cm do rosto |
 | `--stage-text-soft` / `--stage-text-dim` | `rgba(255,255,255,.9)` / `.72` | marca sobre o wallpaper / linha auxiliar da letra |
-| `--glass-bg` / `--glass-line` | `rgba(0,0,0,.45)` / `rgba(255,255,255,.22)` | botão de vidro **sobre a mídia** (a coluna da preview). A mídia por baixo é arbitrária, então o contraste não pode vir do fundo do app: vem do próprio scrim do botão |
 | `--scrim` | `rgba(0,0,0,.6)` | cortina de modal (bottom-sheets e diálogo) |
 | `--veil` / `--veil-solid` | `rgba(19,18,17,.55)` / `.92` | cortina do bloqueio do modo simplificado. É o `--bg` com alfa, e os dois têm de andar **juntos**: senão o véu vira um retângulo mais escuro (ou mais claro) que o app inteiro, justamente na tela que abre por padrão sem TV conectada. A variante sólida cobre o caso sem `backdrop-filter` |
 | `--wallpaper` | `radial-gradient(circle at 50% 35%, #14331f 0%, #0a1a10 55%, #050b07 100%)` | cortina do wallpaper (Display + preview) |
@@ -4769,7 +4799,7 @@ Fora de `tokens.css`, no `:root` do Controle (não são cor):
   ícone de um saía menor que o do outro sem que nada na folha dissesse por quê.
   O atributo do elemento continua no HTML como valor de partida (vale antes de
   o CSS carregar), mas quem manda é a regra. **Duas exceções**, cada uma dita
-  no lugar onde mora: os botões de vidro da preview (`.pv-fab`, 17px — a altura
+  no lugar onde mora: os ícones nos cantos da preview (`.pv-fab`, 20px — a altura
   é fração da preview) e o modo simplificado (28px nas teclas, 44px no botão de
   conectar), onde o alvo é o polegar de quem está de pé. "Três degraus **e só
   eles**" era a frase antiga, e ela era desmentida por dezenas de valores no
@@ -4972,8 +5002,7 @@ texto por cima precisa ser escura. Daí três tokens, um por papel:
 - **R3 — branco literal não existe.** Sobre `--accent-fill` use `--on-accent`;
   sobre `--live` use `--on-live`; no resto, `--text`. Nenhuma das duas folhas
   contém `#fff` nem um `rgb(255,255,255)` opaco — as únicas ocorrências de
-  branco são os `rgba` nomeados em `tokens.css` (`--surface`, `--glass-line`,
-  `--stage-text*`).
+  branco são os `rgba` nomeados em `tokens.css` (`--surface`, `--stage-text*`).
 - **R4 — um estado, uma cor.** A tabela de colisões acima é normativa: no ar =
   vermelho preenchido; selecionado = âmbar; concluído = verde; aviso = laranja
   suave + ícone.

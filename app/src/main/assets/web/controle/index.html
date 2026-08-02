@@ -318,22 +318,22 @@
               </span>
             </div>
           </div>
-          <!-- Coluna de botões sobre a preview: semitransparentes, colados à
-               DIREITA, de cima para baixo (configurações · cast · tela cheia).
-               São TRÊS — não há botão de mensagem aqui: Mensagens é uma
-               ferramenta do seletor da aba Ferramentas, montada por renderFoot().
-               Visíveis por padrão; um toque na preview os
-               esconde e outro os traz de volta (ver setupPreviewGestures).
-               Ficam SEMPRE ocultos em tela cheia: é a tela cheia que vai ao
-               telão quando não há TV conectada, e um botão sobreposto seria
-               projetado junto. -->
-          <!-- DOIS botões desde a v5.49: cast e tela cheia. A engrenagem saiu
-               daqui porque Configurações ganhou um botão fixo no topo da coluna
-               do mixer — e duas portas para a mesma tela, uma delas escondível
-               por um toque na preview, é espaço gasto sem informação nova (o
-               mesmo argumento que aposentou a aba de Álbuns na v5.44). -->
+          <!-- Controles nos CANTOS da preview, em layout de player: cast no
+               canto superior direito, tela cheia no inferior direito. Só ícone,
+               sem moldura de botão — o contraste sobre uma mídia qualquer vem
+               de uma sombra no traço do SVG (ver `.pv-fab`).
+               São DOIS desde a v5.49: a engrenagem saiu daqui porque
+               Configurações ganhou um botão fixo no topo da coluna do mixer, e
+               duas portas para a mesma tela é espaço gasto sem informação nova
+               (o mesmo argumento que aposentou a aba de Álbuns na v5.44). Nunca
+               houve botão de mensagem aqui: Mensagens é uma ferramenta do
+               seletor da aba Ferramentas, montada por renderFoot().
+               PERMANENTES desde a v5.67 (o toque na preview não os esconde
+               mais — ver setupPreviewGestures), com uma exceção: ficam ocultos
+               em TELA CHEIA, que é o que vai ao telão quando não há TV
+               conectada — um botão sobreposto seria projetado junto. -->
           <div class="pv-fabs" id="pvFabs">
-<button id="pvCastBtn" class="pv-fab" title="Espelhar na TV" hidden>
+            <button id="pvCastBtn" class="pv-fab" title="Espelhar na TV" hidden>
               <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <path d="M3 19a2 2 0 0 1 2 2"/>
                 <path d="M3 15.5a5.5 5.5 0 0 1 5.5 5.5"/>
@@ -341,7 +341,7 @@
                 <path d="M8.5 5h10A2.5 2.5 0 0 1 21 7.5v9a2.5 2.5 0 0 1-2.5 2.5H16"/>
               </svg>
             </button>
-<button id="pvFullBtn" class="pv-fab" title="Tela cheia">
+            <button id="pvFullBtn" class="pv-fab" title="Tela cheia">
               <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <path d="M4 9V5.5A1.5 1.5 0 0 1 5.5 4H9"/>
                 <path d="M15 4h3.5A1.5 1.5 0 0 1 20 5.5V9"/>
@@ -580,7 +580,7 @@
              METADADO de diagnóstico e o lugar onde se procura diagnóstico é
              junto do estado do telão e do alvo de espelhamento, não numa faixa
              de navegação. Preenchido por `renderVersionLabel`. -->
-        <span id="appVersion" class="app-version">Controle v5.66</span>
+        <span id="appVersion" class="app-version">Controle v5.67</span>
       </div>
     </div>
   </div>
