@@ -88,7 +88,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.47';
+const WEB_VERSION = '5.48';
 
 function renderVersionLabel() {
   // __SHELL_NAME__ = versionName do APK (ver native.js). Vazio no navegador e
@@ -316,8 +316,11 @@ let bibleLoadSeq = 0;            // descarta downloads de capítulo obsoletos (t
 // bookName, chapter, verses, idx }. null = nenhum texto bíblico em cena.
 let bibleSession = null;
 // Download da versão INTEIRA (todos os capítulos) — progresso em memória:
-// { versionId, total, done, running }. null = nenhum download em andamento.
+// { versionId, total, done, running, seq }. null = nenhum download em andamento.
+// `seq` (contra `bibleDlSeq`) é o que identifica a varredura: comparar
+// `versionId` é REVERSÍVEL — A→B→A ressuscitava os workers da primeira.
 let bibleDl = null;
+let bibleDlSeq = 0;
 // Versões já totalmente baixadas (offline) — cache em memória de
 // state['bibleComplete:<v>'], pra a tela de livros mostrar "completa" sem async.
 const bibleCompleteVersions = new Set();
@@ -435,25 +438,41 @@ async function syncGroup(key, label, colls, opts) {
     let totalPend = 0;
     for (const coll of colls) totalPend += collSongs(coll.id).filter((x) => !x.fileIdFull).length;
     let batchDone = 0;
+    let semRede = 0;   // álbuns que nem chegaram a baixar (índice/rede falhou)
     const notifId = bgTaskStart(label, Math.max(1, totalPend));
-    try {
-      await withBgWork(async () => {
+    // `bgTaskEnd` DENTRO do `withBgWork`, não num `finally` externo: o
+    // `finally` de `withBgWork` roda ANTES do de fora, e é ele que solta o
+    // serviço e limpa o registro de tarefas — encerrar a tarefa depois disso
+    // chegava sempre tarde demais (ver bgWorkEnd). Encerrar a tarefa primeiro
+    // e só então soltar o serviço é a ordem que syncDeviceFolder já tinha.
+    await withBgWork(async () => {
+      try {
         for (let i = 0; i < colls.length; i++) {
           if (g.cancel) break;
           const coll = colls[i];
           setGroupStatus(key, 'Álbum ' + (i + 1) + '/' + colls.length + ' · ' + coll.name);
           bgTaskStep(notifId, batchDone, label + ' · ' + coll.name);
-          await syncCollection(coll, {
+          const r = await syncCollection(coll, {
             allowMobile: true,
             notifOwned: true,                     // a tarefa da notificação é do lote
             notifTaskId: notifId,                 // …e é nela que os nomes entram
+            fromGroup: true,                      // não é "o operador tocou de novo" (ver syncCollection)
             cancelled: () => g.cancel,            // o cancelamento atravessa o álbum
             onSong: () => bgTaskStep(notifId, ++batchDone),
           });
+          if (r && !r.ok) semRede++;
         }
-      });
-    } finally { bgTaskEnd(notifId); }
-    setGroupStatus(key, g.cancel ? 'Cancelado' : 'Coleção completa', 5000);
+      } finally { bgTaskEnd(notifId); }
+    });
+    // Sem rede, `fetchCollectionIndex` lança em cada álbum e o laço inteiro
+    // termina em segundos sem baixar nada. Anunciar "Coleção completa" em
+    // verde ali mandava o operador embora convencido de que o acervo estava
+    // no aparelho — o status por álbum existe, mas fica dentro de um card
+    // colapsado e se autolimpa. O cabeçalho, que é o que ele está olhando,
+    // agora conta as falhas.
+    setGroupStatus(key, g.cancel ? 'Cancelado'
+      : semRede ? semRede + ' álbum(ns) sem rede — tente de novo'
+      : 'Coleção completa', 5000);
   } catch (_) {
     setGroupStatus(key, 'Erro ao baixar a coleção', 6000);
   } finally {
@@ -1602,9 +1621,21 @@ let lastPosMs = 0, lastPosAt = 0, lastPosPlaying = false;
 function pushNowPlaying() {
   if (!window.__NATIVE__) return;
   const who = slideTarget();
+  // CENA é tudo que está no telão, não só mídia. Cronômetro e sorteio ficavam
+  // de fora: `renderNowPlaying` já os trata como cena (escreve "Cronômetro" no
+  // título e chama esta função), mas aqui `active` dava false e o Kotlin
+  // derrubava a sessão de mídia. O efeito não é a projeção cair no meio — uma
+  // vez que qualquer mídia foi tocada, `currentId` nunca mais volta a null e a
+  // cena segue ativa —, é o caso da sessão RECÉM-ABERTA: projetar a contagem
+  // regressiva de abertura sem ter selecionado mídia nenhuma não LEVANTA o
+  // serviço em primeiro plano, e o processo (com a `Presentation` junto)
+  // continua descartável sob pressão de memória exatamente durante os dez
+  // minutos em que o operador minimiza o app para esperar.
   const active = !!currentId
     || !!(msgSession && msgSession.projecting)
-    || !!(bibleSession && bibleSession.projecting);
+    || !!(bibleSession && bibleSession.projecting)
+    || chronoProjecting()
+    || drawProjecting();
   const subtitle = who === 'bible' ? 'Bíblia'
     : who === 'message' ? 'Mensagem'
     : who === 'lyrics' ? 'Letra sincronizada'
@@ -1911,17 +1942,29 @@ async function ensureBibleVersionDownloaded(versionId) {
   }
 
   let done = total - missing.length, failed = 0;
-  // Reatribuir bibleDl para a nova versão faz workers de um download anterior
-  // (de outra versão) pararem sozinhos (checam versionId).
-  bibleDl = { versionId, total, done, running: true };
+  // Sequência monotônica: cada invocação ganha a sua, e uma varredura superada
+  // nunca mais volta a valer (ver o guard do worker abaixo). Trocar `bibleDl`
+  // por si só não bastava — a igualdade de versão é reversível.
+  const runSeq = ++bibleDlSeq;
+  bibleDl = { versionId, total, done, running: true, seq: runSeq };
   refreshBibleDl();
 
   // 1189 capítulos: é o download mais longo do app e o que mais sofria com o
   // congelamento do processo ao minimizar.
   const notifId = bgTaskStart('Bíblia · ' + (bibleVersionName(versionId) || 'versão'), missing.length);
-  try {
-  await withBgWork(() => runLimited(missing, NET_CONCURRENCY, async (it) => {
-    if (!bibleDl || !bibleDl.running || bibleDl.versionId !== versionId) return; // superado/cancelado
+  // `bgTaskEnd` dentro do `withBgWork` — mesma ordem de syncGroup/syncCollection:
+  // o `finally` de withBgWork roda primeiro e já limpa o registro de tarefas.
+  await withBgWork(async () => {
+   try {
+    await runLimited(missing, NET_CONCURRENCY, async (it) => {
+    // Guard por SEQUÊNCIA, não por igualdade de versão: o teste antigo
+    // (`bibleDl.versionId !== versionId`) era reversível — trocar de versão e
+    // VOLTAR fazia os workers da varredura antiga, ainda em voo, passarem no
+    // teste de novo e retomarem em paralelo com a nova. Pior, a antiga
+    // terminava primeiro e, como os capítulos que ela pulou saíam pelo
+    // `return` sem contar falha, gravava `bibleComplete` sobre uma varredura
+    // incompleta — flag persistida, versão nunca mais completada.
+    if (!bibleDl || !bibleDl.running || bibleDl.seq !== runSeq) { failed++; return; }
     const key = prefix + it.bId + '_' + it.chapter;
     const nome = (it.bookName || '') + ' ' + it.chapter;
     bgItemStart(notifId, nome);
@@ -1935,11 +1978,12 @@ async function ensureBibleVersionDownloaded(versionId) {
     finally { bgItemEnd(notifId, nome); }
     done++;
     bgTaskStep(notifId, done - (total - missing.length));
-    if (bibleDl && bibleDl.versionId === versionId) { bibleDl.done = done; refreshBibleDl(); }
-  }));
-  } finally { bgTaskEnd(notifId); }
+    if (bibleDl && bibleDl.seq === runSeq) { bibleDl.done = done; refreshBibleDl(); }
+    });
+   } finally { bgTaskEnd(notifId); }
+  });
 
-  if (bibleDl && bibleDl.versionId === versionId) {
+  if (bibleDl && bibleDl.seq === runSeq) {
     bibleDl.running = false;
     if (failed === 0) { await AVDB.setState('bibleComplete:' + versionId, true); bibleCompleteVersions.add(versionId); }
     refreshBibleDl();
@@ -2275,7 +2319,18 @@ async function changeBibleVersion(id) {
   s.versionId = id;
   s.verses = verses;
   s.idx = Math.min(s.idx, verses.length - 1);
+  // INVALIDA qualquer `loadBibleChapter` em voo: sem isto, um capítulo lento
+  // pedido antes desta troca voltava DEPOIS, passava na guarda de sequência
+  // (que não havia mudado) e sobrescrevia `bibleChapterData` com os versículos
+  // do capítulo/versão antigos sob o rótulo dos novos — e `startBibleReading`
+  // monta a sessão a partir daí, projetando o versículo errado com a
+  // referência certa. É o mesmo papel do `loadSeq` do stage.
+  ++bibleLoadSeq;
   bibleChapterData = { verses };
+  // …e zera o estado da grade: uma falha antiga ("Não foi possível baixar
+  // este capítulo") continuava na metade de baixo da tela mesmo com o
+  // capítulo novo já carregado e no ar.
+  bibleChapterError = ''; bibleChapterLoading = false;
   if (s.projecting) projectBibleVerse(s.idx);
   else bibleRenderReading();
 }
@@ -2555,7 +2610,8 @@ function hideMessage() {
   renderControls();
   renderNowPlaying();
   renderSlideNav();
-  refreshDiversos();
+  // Uma chamada só: a segunda (lapso — nenhum outro hide* do arquivo repete)
+  // remontava a aba inteira, microfone incluído, duas vezes no mesmo pulso.
   refreshDiversos();
 }
 
@@ -2588,7 +2644,25 @@ async function addMessage() {
 async function deleteMessage(id) {
   const i = messages.findIndex((m) => m.id === id);
   if (i < 0) return;
-  if (msgSession && msgSession.idx === i) clearManualText();
+  if (msgSession) {
+    if (msgSession.idx === i) {
+      // TIRAR DO AR antes de anular a sessão. `clearManualText()` sozinho
+      // zerava `msgSession` sem mandar `text-hide`: o aviso apagado continuava
+      // projetado no telão e na preview, e — como a sessão morria junto — o
+      // botão "Tirar do telão" ficava DESABILITADO e a linha sumia da lista.
+      // O operador não tinha mais nenhum caminho na aba para tirar o texto do
+      // ar; só ⏹ Parar ou projetar outra coisa por cima.
+      hideMessage();
+      clearMsgSession();
+    } else if (msgSession.idx > i) {
+      // REINDEXAR: apagar uma mensagem ACIMA da projetada deixava `idx`
+      // apontando para a vizinha errada (ou para fora do array). Sintomas:
+      // "Mensagem 3" numa lista de duas, nenhuma linha marcada como ativa, e
+      // "Projetar no telão" caindo no guard `idx >= messages.length` de
+      // `projectMessage` — um botão que não faz nada e não explica por quê.
+      msgSession.idx--;
+    }
+  }
   messages.splice(i, 1);
   await saveMessages();
   refreshDiversos();
@@ -5543,6 +5617,14 @@ function estimatePendingBytes(coll, pendingCount) {
 
 // `opts.allowMobile`: a pergunta de rede já foi feita para o LOTE (ver
 // syncGroup) — não repetir por álbum.
+// `opts.fromGroup`: a chamada é PROGRAMÁTICA (o laço do lote), não um toque do
+// operador — ver o guard de cancelamento abaixo.
+//
+// Devolve `{ ok, baixados, falhou }`. Antes devolvia `undefined` em todos os
+// caminhos, e por isso uma queda de rede era invisível para o chamador: o lote
+// varria 40 álbuns em segundos sem baixar nada e ainda anunciava "Coleção
+// completa" (ver syncGroup). `ok:false` = não deu para baixar (rede,
+// armazenamento, erro); cancelar ou já estar completo é `ok:true`.
 async function syncCollection(coll, opts) {
   const allowMobile = !!(opts && opts.allowMobile);
   const u = ui(coll.id);
@@ -5550,12 +5632,20 @@ async function syncCollection(coll, opts) {
   // `return` mudo: um álbum de centenas de faixas, uma vez começado, não tinha
   // como ser interrompido a não ser fechando o app.
   if (u.syncBusy) {
+    // …mas só quando quem tocou foi o OPERADOR. Vindo do lote, o álbum já
+    // está baixando por conta própria: reinterpretar isso como "segundo
+    // toque" ABORTAVA o download em curso — o operador pedia dois downloads e
+    // o efeito líquido era parar um. Aqui o lote apenas pula o álbum.
+    if (opts && opts.fromGroup) return { ok: true, baixados: 0, falhou: 0 };
     u.cancel = true;
     setCollStatus(coll.id, 'Cancelando…');
     renderCollectionsNow();
-    return;
+    return { ok: true, baixados: 0, falhou: 0 };
   }
-  if (!AVDB.opfsSupported()) { setCollStatus(coll.id, 'Armazenamento OPFS indisponível', 5000); return; }
+  if (!AVDB.opfsSupported()) {
+    setCollStatus(coll.id, 'Armazenamento OPFS indisponível', 5000);
+    return { ok: false, baixados: 0, falhou: 0 };
+  }
   u.syncBusy = true; u.cancel = false;
   setCollStatus(coll.id, 'Atualizando lista…');
   renderCollectionsNow(); // resposta ao toque é imediata; só o PROGRESSO é coalescido
@@ -5567,17 +5657,20 @@ async function syncCollection(coll, opts) {
     if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
 
     try { await fetchCollectionIndex(coll); }
-    catch (_) { setCollStatus(coll.id, 'Sem internet — falha ao atualizar', 5000); return; }
+    catch (_) {
+      setCollStatus(coll.id, 'Sem internet — falha ao atualizar', 5000);
+      return { ok: false, baixados: 0, falhou: 0 };
+    }
     const songs = collSongs(coll.id);
 
     const pending = [];
     for (const s of songs) {
-      if (cancelled()) { setCollStatus(coll.id, 'Cancelado', 4000); return; }
+      if (cancelled()) { setCollStatus(coll.id, 'Cancelado', 4000); return { ok: true, baixados: 0, falhou: 0 }; }
       const { needsFull, needsPlayback } = await songVariantsNeeded(coll, s);
       if (needsFull || needsPlayback) pending.push(s);
     }
-    if (pending.length === 0) { setCollStatus(coll.id, 'Já completo offline', 4000); return; }
-    if (cancelled()) { setCollStatus(coll.id, 'Cancelado', 4000); return; }
+    if (pending.length === 0) { setCollStatus(coll.id, 'Já completo offline', 4000); return { ok: true, baixados: 0, falhou: 0 }; }
+    if (cancelled()) { setCollStatus(coll.id, 'Cancelado', 4000); return { ok: true, baixados: 0, falhou: 0 }; }
 
     // Fora do Wi-Fi a sincronização em massa NÃO é bloqueada — ela pergunta.
     // Baixar um hinário inteiro pode ser bastante coisa, e só o operador sabe
@@ -5598,11 +5691,11 @@ async function syncCollection(coll, opts) {
       });
       if (!proceed) {
         setCollStatus(coll.id, 'Lista atualizada', 5000);
-        return;
+        return { ok: true, baixados: 0, falhou: 0 };
       }
     }
 
-    let done = 0;
+    let done = 0, falhou = 0;
     const CONCURRENCY = NET_CONCURRENCY;
     let next = 0;
     // Dentro de um lote (syncGroup) o rótulo da notificação já traz o contexto
@@ -5622,9 +5715,16 @@ async function syncCollection(coll, opts) {
         if (cancelled()) return;
         const s = pending[next++];
         bgItemStart(itemTaskId, s.name);
-        try { await downloadCollectionSong(coll, s); }
+        // `done` conta TENTATIVAS (é ele que move a barra), `falhou` conta as
+        // que voltaram sem áudio. Sem essa separação, uma queda de rede fazia
+        // o rodapé anunciar "Atualizado (60 baixado(s))" com zero bytes no
+        // disco: downloadCollectionSong engole a falha e o worker contava a
+        // música como baixada.
+        let okSong = true;
+        try { okSong = (await downloadCollectionSong(coll, s)) !== false; }
         finally { bgItemEnd(itemTaskId, s.name); }
         done++;
+        if (!okSong) falhou++;
         setCollStatus(coll.id, cancelled()
           ? 'Cancelando — concluindo o que já começou…'
           : 'Baixando ' + done + '/' + pending.length + '…');
@@ -5635,12 +5735,24 @@ async function syncCollection(coll, opts) {
     }
     // Sincronização em massa: dezenas ou centenas de áudios — o operador
     // dispara e sai do app. Sem a proteção, parava ao minimizar.
-    try {
-      await withBgWork(() => Promise.all(Array.from({ length: CONCURRENCY }, worker)));
-    } finally { bgTaskEnd(notifId); }
-    setCollStatus(coll.id, (cancelled() ? 'Cancelado (' : 'Atualizado (') + done + ' baixado(s))', 4000);
+    //
+    // `bgTaskEnd` DENTRO do `withBgWork` (ver a mesma nota em syncGroup): o
+    // `finally` de withBgWork roda antes de um `finally` externo e já limpa o
+    // registro de tarefas, então encerrar a tarefa depois dele não tinha mais
+    // efeito nenhum.
+    await withBgWork(async () => {
+      try {
+        await Promise.all(Array.from({ length: CONCURRENCY }, worker));
+      } finally { bgTaskEnd(notifId); }
+    });
+    setCollStatus(coll.id, (cancelled() ? 'Cancelado (' : 'Atualizado (') + (done - falhou) + ' baixado(s))'
+      + (falhou ? ' · ' + falhou + ' sem rede' : ''), 4000);
+    // Tudo o que se tentou falhou: para o lote isso é o mesmo que não ter
+    // baixado nada, e o cabeçalho do grupo precisa saber.
+    return { ok: !(falhou > 0 && falhou >= done), baixados: done - falhou, falhou };
   } catch (_) {
     setCollStatus(coll.id, 'Erro na sincronização', 5000);
+    return { ok: false, baixados: 0, falhou: 0 };
   } finally {
     u.syncBusy = false; u.cancel = false;
     refreshCollectionsIfVisible();
@@ -5651,10 +5763,14 @@ async function syncCollection(coll, opts) {
 // grava áudio Cantado + Playback (se houver) + capa/letra sincronizada no
 // OPFS/catálogo. `s` é mutado in-place (fileIdFull/fileIdPlayback), refletido
 // no collState[coll.id] compartilhado.
+//
+// Devolve `false` quando nem os metadados vieram (sem rede) — quem chama
+// precisa poder distinguir "baixou" de "desistiu em silêncio", senão o status
+// final conta como baixada uma música que não saiu do lugar.
 async function downloadCollectionSong(coll, s) {
   let meta;
   try { meta = await Louvorja.fetchList('music_' + s.id_music); }
-  catch (_) { return; } // sem rede agora; a próxima sincronização tenta de novo
+  catch (_) { return false; } // sem rede agora; a próxima sincronização tenta de novo
 
   // Cache de imagens por URL, compartilhado entre as duas variantes (Cantado
   // e Playback quase sempre usam as mesmas imagens da letra) — evita baixar a
@@ -6150,7 +6266,11 @@ async function syncLyrics() {
   let desdeGravacao = 0;
   const sujas = new Set();
   try {
-    await withBgWork(() => runLimited(pendentes, NET_CONCURRENCY, async (item) => {
+    // `bgTaskEnd` DENTRO do withBgWork (mesma nota de syncGroup): o `finally`
+    // dele roda antes do de fora e já limpa o registro de tarefas.
+    await withBgWork(async () => {
+     try {
+      await runLimited(pendentes, NET_CONCURRENCY, async (item) => {
       bgItemStart(notifId, item.nome);
       try {
         const meta = await Louvorja.fetchList('music_' + item.id);
@@ -6179,9 +6299,10 @@ async function syncLyrics() {
         sujas.clear();
         await Promise.all(lote.map(saveLyricStore));
       }
-    }));
+      });
+     } finally { bgTaskEnd(notifId); }
+    });
   } finally {
-    bgTaskEnd(notifId);
     await Promise.all([...sujas].map(saveLyricStore)).catch(() => {});
     lyricSyncRunning = false;
     invalidateLyricIndex();   // o acervo cresceu: a busca precisa reindexar
@@ -6809,7 +6930,21 @@ function bgWorkBegin() {
 
 function bgWorkEnd() {
   if (!window.__NATIVE__) return;
-  if (bgWorkCount > 0 && --bgWorkCount === 0) { bgTasks.clear(); AVNative.keepAlive(false); }
+  if (bgWorkCount > 0 && --bgWorkCount === 0) {
+    // O `clear()` é a rede de segurança para uma tarefa que ficou órfã, mas
+    // ele SOZINHO deixava o compasso ligado para sempre: com o `bgTasks` já
+    // vazio, o `bgTaskEnd` que vinha depois achava o Map vazio, o `delete`
+    // devolvia false e nem o `bgPacerSync()` nem o envio final rodavam — o
+    // `setInterval` de 250 ms vazava pelo resto da sessão, batendo na ponte a
+    // cada 2 s com uma tarefa vazia (notificação "Baixando mídias" presa) e,
+    // pior, fazendo o próximo `bgTaskStart` reusar um pacer órfão.
+    // Sincronizar aqui torna `bgWorkEnd` idempotente: a ordem entre ele e o
+    // `bgTaskEnd` deixa de importar.
+    bgTasks.clear();
+    bgPacerSync();
+    bgTaskSend(true);
+    AVNative.keepAlive(false);
+  }
 }
 
 // Envolve um trecho pesado. O `finally` é o ponto crítico: uma falha de rede
@@ -7013,21 +7148,22 @@ function bgTaskEta(t) {
 }
 
 // O Android limita a taxa de atualização de notificação e passa a DESCARTAR o
-// excesso — sem freio, a barra parece travada. Mas o freio não pode ser só
-// tempo: com ele em 700 ms fixos, a troca do NOME na linha principal (que é o
-// que dá a impressão de progresso) simplesmente nunca chegava quando os itens
-// eram rápidos. Então há dois pisos, escolhidos pelo CHAMADOR (`destaque`): um
-// curto para o item que entrou em download — a notícia do momento — e um longo
-// para atualização de rotina, em que só o número andou. `force` ignora ambos
-// (estado final e batimento).
+// excesso — sem freio, a barra parece travada. O piso vale só para a
+// atualização de ROTINA (`bgTaskStep`, em que só o contador andou); tudo o que
+// precisa chegar na hora passa `force`.
 //
-// A prioridade é explícita, e não deduzida de "o nome mudou": eventos que
-// chegam a poucos ms um do outro competem pelo mesmo piso, e quem decide qual
-// deles merece a tela é quem sabe o que aconteceu — ver `bgItemEnd`.
+// HOUVE um segundo piso (250 ms) "escolhido pelo chamador" por um parâmetro
+// `destaque`. Ele foi REMOVIDO porque nenhum dos cinco chamadores o passava —
+// era código morto, e mexer na constante não produzia efeito nenhum no
+// aparelho. Quem de fato dá o ritmo do item que entra em download é o compasso
+// (`bgPacerTick`, BG_TICK_MS = 250 ms), que envia com `force` sempre que o
+// nome na linha troca; o resultado na tela é o mesmo, e agora só há um
+// mecanismo para entender. Repor o piso curto aqui seria PIOR que o `force`:
+// o primeiro nome de uma tarefa nasce a poucos ms do envio de abertura e
+// ficaria retido até o batimento de 2 s.
 const BG_NOTIF_MIN_MS = 700;        // rotina: só o contador andou
-const BG_NOTIF_ITEM_MIN_MS = 250;   // entrou um item novo em download
 let bgLastSentAt = 0;
-function bgTaskSend(force, destaque) {
+function bgTaskSend(force) {
   const now = Date.now();
 
   // Com mais de uma tarefa em curso, a notificação mostra a DOMINANTE — a de
@@ -7048,8 +7184,7 @@ function bgTaskSend(force, destaque) {
   // UM nome por vez (ver bgItemStart): `items` continua sendo lista só porque
   // é o formato da ponte — quem escolhe qual mostrar é o rodízio, não o Kotlin.
   const item = alvo.spot || null;
-  const piso = destaque ? BG_NOTIF_ITEM_MIN_MS : BG_NOTIF_MIN_MS;
-  if (!force && now - bgLastSentAt < piso) return;
+  if (!force && now - bgLastSentAt < BG_NOTIF_MIN_MS) return;
   bgLastSentAt = now;
   try {
     AVNative.bgProgress({
@@ -7928,9 +8063,23 @@ seekEl.addEventListener('pointerup', () => { seeking = false; });
 // encerra a Camada de Texto e um `load` de áudio a mantém — mandar o texto por
 // último faz as duas combinações caírem no estado certo.
 function resendSceneToDisplay() {
-  const isImage = !!currentItem && currentItem.kind === 'image';
-  if (currentId && (playing || isImage)) {
-    AVDB.sendCommand({ type: 'load', mediaId: currentId, view, muted, volume });
+  // Reenvia SEMPRE que houver mídia carregada — não só a que está tocando.
+  // A condição anterior (`playing || isImage`) deixava de fora justamente o
+  // caso mais comum de uma queda de dongle: o louvor de fundo PAUSADO para a
+  // oração. Um vídeo pausado mostra o quadro congelado no telão e um áudio
+  // pausado mantém a letra sincronizada em cena — nos dois casos há algo
+  // projetado, e nos dois casos ele sumia para sempre.
+  if (currentId) {
+    // E leva a POSIÇÃO. Sem ela o telão recarregava a mídia do ZERO: um hino
+    // aos 3:20 recomeçava do início na frente da congregação. Pior, o
+    // `display-status` seguinte chegava com `currentTime` 0 e arrastava a
+    // preview do Controle de volta junto — o operador perdia até a referência
+    // de onde estava.
+    // O tempo sai da própria barra de progresso (mesma fonte que
+    // `pushNowPlaying` usa): é a única que cobre todos os tipos, inclusive
+    // YouTube, onde `preview.getTime()` não sabe de nada.
+    const t = !seekEl.disabled ? (parseFloat(seekEl.value) || 0) : 0;
+    AVDB.sendCommand({ type: 'load', mediaId: currentId, view, muted, volume, time: t, playing });
   }
   // O cronômetro volta pelo DESCRITOR, não por um valor: o telão recalcula o
   // número a partir do mesmo `startAt`, então ele reaparece no segundo certo —
@@ -8029,29 +8178,14 @@ AVDB.onCommand((msg) => {
   }
 });
 
-// Auto-atualização: ao abrir e ao retomar do segundo plano, checa se há uma
-// versão nova publicada; quando o novo service worker assume o controle,
-// recarrega para exibir a versão nova. Recarregar o Controle não afeta a
-// projeção (o Display é um app à parte, que segue tocando).
-let swReg = null;
-// No app nativo NÃO há service worker: os assets vêm do APK (offline por
-// natureza) e o compartilhamento chega por intent, não pelo POST em
-// `share-target` que o SW interceptava.
-if (!window.__NATIVE__ && 'serviceWorker' in navigator) {
-  // Só recarrega numa ATUALIZAÇÃO (já havia um controller); a primeira
-  // instalação reivindica a página sem precisar recarregar.
-  const hadController = !!navigator.serviceWorker.controller;
-  let refreshing = false;
-  navigator.serviceWorker.addEventListener('controllerchange', () => {
-    if (refreshing || !hadController) return;
-    refreshing = true;
-    location.reload();
-  });
-  navigator.serviceWorker.register('sw.js').then((reg) => {
-    swReg = reg;
-    if (document.visibilityState === 'visible') reg.update().catch(() => {});
-  }).catch(() => {});
-}
+// O service worker SAIU (v5.48). Este bloco registrava `sw.js` e recarregava a
+// página quando um SW novo assumisse — mas `sw.js` não existe no bundle desde
+// que os andaimes de PWA foram removidos: o `register` devolvia 404 em toda
+// abertura no navegador, `swReg` ficava eternamente null e o ramo de "checar
+// atualização ao retomar" nunca executava. Era código morto que ainda por cima
+// sujava o console justamente no ambiente onde a base é desenvolvida.
+// No app nativo ele já era desligado de propósito (os assets vêm do APK e a
+// atualização é o OTA do `WebUpdater`), então nada se perde nos dois contextos.
 
 // Um ÚNICO handler ao retomar do 2º plano (antes eram dois listeners
 // separados): busca a versão nova do service worker E atualiza os índices
@@ -8066,7 +8200,6 @@ document.addEventListener('visibilitychange', () => {
     if (micPressed || micOn) sendMic(false);
     return;
   }
-  if (swReg) swReg.update().catch(() => {});
   autoRefreshCollections();
 });
 

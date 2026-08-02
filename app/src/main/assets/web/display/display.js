@@ -776,7 +776,11 @@ function ytFadeOutPlayer() {
   });
 }
 
-async function loadYoutube(rec, v, m, vol) {
+// `startAt`/`autoplay` chegam no comando de load da RECONEXÃO do telão (ver
+// resendSceneToDisplay no Controle). Sem eles o vídeo do YouTube recomeçava do
+// zero — e tocando — depois de um blip do dongle, exatamente como acontecia com
+// a mídia local.
+async function loadYoutube(rec, v, m, vol, startAt, autoplay) {
   // O YouTube não usa a recuperação de áudio do stage (ver tryRestoreAudio) —
   // se ela ficou presa em "bloqueado" por causa de um vídeo local anterior,
   // isso não pode vazar para o indicador do mixer durante o YouTube.
@@ -814,6 +818,7 @@ async function loadYoutube(rec, v, m, vol) {
     volume: typeof vol === 'number' ? vol : 1,
     player: null,
     ready: false, shown: false, endedSent: false, stopping: false,
+    autoplay: autoplay !== false,
     showTimer: null, fadeTimer: null, endTimer: null, rampTimer: null,
     startTimer: null, timeLoop: null, muteApplyTimer: null,
   };
@@ -837,7 +842,10 @@ async function loadYoutube(rec, v, m, vol) {
   const player = new YT.Player(host, {
     videoId: rec.youtubeId,
     playerVars: {
-      autoplay: 1,
+      // `start` é o único jeito de o embed ABRIR já na posição: um seekTo
+      // depois do onReady aparece como salto no telão. Só aceita inteiro.
+      start: (typeof startAt === 'number' && startAt > 0) ? Math.floor(startAt) : 0,
+      autoplay: autoplay === false ? 0 : 1,
       playsinline: 1,
       controls: 0,
       disablekb: 1,
@@ -885,6 +893,16 @@ function onPlayerReady(e) {
   });
   ytSafeCall(() => { if (yt.muted) p.mute(); else p.unMute(); });
   ytSafeCall(() => p.setVolume(Math.round(yt.volume * 100)));
+  // Cena que voltou PAUSADA (reconexão): o quadro precisa aparecer, mas o vídeo
+  // não pode sair andando sozinho na frente da congregação. `ytWatchStart`
+  // também não corre — ele existe para empurrar um play que não pegou, e aqui
+  // não há play a empurrar.
+  if (yt.autoplay === false) {
+    ytSafeCall(() => p.pauseVideo());
+    ytShow();
+    ytStartTimeLoop();
+    return;
+  }
   ytSafeCall(() => p.playVideo());
   ytStartTimeLoop();
   ytWatchStart(0);
@@ -1061,7 +1079,7 @@ AVDB.onCommand(async (cmd) => {
     hideLyrics(true);
     const rec = await AVDB.getMedia(cmd.mediaId);
     if (rec && rec.kind === 'youtube') {
-      loadYoutube(rec, cmd.view, cmd.muted, cmd.volume);
+      loadYoutube(rec, cmd.view, cmd.muted, cmd.volume, cmd.time, cmd.playing);
       return;
     }
     // YouTube → mídia comum: o player esmaece por cima enquanto a nova mídia
