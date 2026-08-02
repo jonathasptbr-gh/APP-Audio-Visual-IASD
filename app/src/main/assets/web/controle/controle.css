@@ -44,10 +44,31 @@ input, textarea { user-select: text !important; -webkit-user-select: text !impor
      cápsulas; sem raio nenhum, cortes secos no meio do texto. */
   --radius-xs: 4px;
 
+  /* ---------- Alvos de toque ----------
+     Dois degraus, e agora eles são TOKENS: o piso de 34px estava escrito
+     literal em sete lugares (`.row-btn`, `.row-handle`, `.popup-close`,
+     `.back-btn`, `.add-dir-btn`, `.coll-bar-dl`, `.coll-group-btn`) e ainda
+     assim dois controles ficavam fora da escala por descuido — `.sel-btn` com
+     36px e o botão do acervo com 42×38. Sete literais é o que faz uma escala
+     de duas medidas render quatro tamanhos na mesma tela.
+     `--hit` é o piso de qualquer botão só-de-ícone; `--hit-nav` é a faixa de
+     navegação (abas e acervo), maior de propósito — ali o alvo é percorrido
+     de relance, não mirado numa lista densa. */
+  --hit: 34px;
+  --hit-nav: 38px;
+
   /* Altura da faixa da preview na grade do .deck. É token porque a largura da
      preview é calculada a partir dela (altura × proporção do telão) — se as
-     duas divergirem, a preview deixa de caber na linha. */
-  --deck-pv-h: 130px;
+     duas divergirem, a preview deixa de caber na linha.
+     Subiu de 130px para 150px na v5.49, quando os dois botões de estrofe
+     saíram da linha: a preview é dimensionada pela ALTURA e ficava com 231px
+     de largura numa coluna de ~291px, ou seja, a saída dos botões teria
+     virado espaço morto dos dois lados dela. Em 150px o 16:9 dá 267px e a
+     linha volta a ser ocupada — e a janela do operador para a projeção, que é
+     o que a preview é, cresce junto. Num telão mais largo que 16:9 a conta
+     estoura a coluna e o `max-width: 100%` encolhe a preview de volta, como
+     já acontecia antes. */
+  --deck-pv-h: 150px;
 
   /* Espessura do cap do fader. É token porque há DOIS faders com a mesma
      aparência — o do mixer e a barra lateral do modo simplificado — e a
@@ -59,13 +80,16 @@ input, textarea { user-select: text !important; -webkit-user-select: text !impor
 
   /* Escala de ícones — três degraus. Antes havia oito tamanhos (19, 20, 21,
      22, 23, 24, 26, 27 px), cinco deles usados uma única vez.
-     A escala governa os GLIFOS de fonte (`.msym`, via `font-size`), que é onde
-     ela é aplicável: os SVGs inline trazem `width`/`height` no próprio HTML e
-     nunca estiveram sob ela — e o modo simplificado tem escala própria
-     (teclas de 34px, o ícone de 44px do botão de conectar), porque ali o alvo
-     é o polegar de quem está de pé, não o dedo mirando numa lista densa.
-     "Três degraus, e só eles" era a frase antiga, e ela é desmentida por
-     dezenas de valores no HTML. */
+     A escala governa os GLIFOS de fonte (`.msym`, via `font-size`) E, desde a
+     v5.49, os SVGs inline (ver "A escala vale para SVG também", logo abaixo do
+     bloco de feedback de toque). Até aqui os SVGs traziam `width`/`height` no
+     próprio HTML/JS e nunca estiveram sob ela — eram 14, 16, 17, 19, 20, 22,
+     26, 28, 30 e 44 px espalhados por dois arquivos, e a própria folha admitia
+     que "três degraus e só eles" era desmentido por dezenas de valores. Duas
+     exceções seguem fora da escala, e as duas têm motivo dito no lugar em que
+     moram: os botões de vidro da preview (`.pv-fab`, 17px — a altura é fração
+     da preview) e o modo simplificado (teclas de 28px, 44px no botão de
+     conectar), onde o alvo é o polegar de quem está de pé. */
   --icon-sm: 20px;   /* botões de linha, cabeçalho, popups */
   --icon-md: 22px;   /* abas e transporte (alvos maiores) */
   --icon-lg: 24px;   /* miniatura-ícone e dicas de deslize */
@@ -123,7 +147,7 @@ input, textarea { user-select: text !important; -webkit-user-select: text !impor
    feedback próprio (vira vermelho pulsante no pointerdown, e um `transform`
    junto brigaria com a animação) e o indicador do telão é `disabled` no app. */
 :is(
-  .ctl-btn, .t-btn, .slide-nav-btn, .pv-fab,
+  .ctl-btn, .t-btn, .pv-fab,
   .tab, .tab-add, .import-btn, .add-dir-btn, .back-btn, .sel-btn,
   .row-btn, .row-handle, .popup-close, .coll-open-cfg, .new-folder-btn, .folder-pick-btn,
   .coll-pill, .coll-bar, .coll-bar-dl, .coll-group-btn,
@@ -131,8 +155,33 @@ input, textarea { user-select: text !important; -webkit-user-select: text !impor
   .hymn-row, .msg-add-btn, .msg-item,
   .misc-tab, .misc-seg, .misc-chip, .chrono-btn, .misc-project, .draw-go,
   .fit-opt, .dialog-btn, .lib-item .row,
-  .simple-key, .simple-action, .simple-key--big, .simple-key--vol, .simple-switch
+  .simple-key, .simple-action, .simple-key--big, .simple-key--vol, .mode-switch
 ):active { transform: var(--press); }
+
+/* ---------- A escala de ícone vale para SVG também ----------
+   Metade dos ícones do app é `.msym` (glifo da fonte, sob `--icon-*`) e a outra
+   metade é SVG inline — os que não existem no subset da fonte. Só a primeira
+   metade estava sob a escala: a segunda trazia `width`/`height` escritos no
+   HTML e no JS, e eram DEZ tamanhos diferentes. O efeito não é teórico: o
+   `#addDirBtn` (19px) e o `#backBtn` (20px, glifo) são vizinhos no mesmo
+   cabeçalho, com a mesma caixa de 34px, e o ícone de um saía menor que o do
+   outro sem que nada na folha dissesse por quê.
+   O atributo do elemento continua no HTML como valor de partida (ele vale antes
+   de o CSS carregar), mas quem MANDA é esta regra — declarar o tamanho no lugar
+   em que o botão é descrito é o que faz a escala ser verificável.
+   `display: block` vinha repetido em oito regras; entra aqui de uma vez (sem
+   ele o SVG é inline e ganha a folga de linha de base, que descentraliza o
+   ícone dentro de um botão flex por 2-3px). */
+:is(
+  .row-btn, .row-handle, .back-btn, .add-dir-btn, .sel-btn, .popup-close,
+  .coll-bar-dl, .coll-group-btn, .coll-open-cfg, .new-folder-btn,
+  .import-btn, .folder-pick-btn, .hymn-play, .hymn-add, .mode-switch
+) svg { display: block; width: var(--icon-sm); height: var(--icon-sm); }
+:is(.tab, .tab-add, .t-btn, .ctl-btn, .misc-tab) svg {
+  display: block; width: var(--icon-md); height: var(--icon-md);
+}
+/* Barras largas de ação (microfone, projetar): o ícone acompanha o alvo. */
+:is(.mic-btn, .misc-project) svg { display: block; width: var(--icon-lg); height: var(--icon-lg); }
 
 html, body { height: 100%; overflow: hidden; }
 /* svh = small viewport height: desconta barras do browser no modo não-PWA.
@@ -177,7 +226,7 @@ body {
 /* ---------- Deck: controles + mixer ---------- */
 /* Grade real (CSS Grid), não flex aproximado: 2 colunas (conteúdo / mixer,
    56px) x 3 linhas (nowplaying / preview / transport, a mesma faixa de
-   130px do preview). O `.mixer` usa grid-template-rows:subgrid pra herdar
+   `--deck-pv-h` do preview). O `.mixer` usa grid-template-rows:subgrid pra herdar
    exatamente essas 3 faixas — garante que o topo/base de cada botão lateral
    caia na mesma altura do início/fim da linha correspondente à esquerda,
    sem depender de flex-basis calculado à parte (fonte do desalinhamento
@@ -202,18 +251,20 @@ body {
 .preview-row { grid-column: 1; grid-row: 2; min-width: 0; }
 .transport   { grid-column: 1; grid-row: 3; min-width: 0; }
 
-/* Linha da preview + navegação manual de estrofe (letra sincronizada): os
-   botões flanqueiam a preview (mantida em 16:9) e crescem para ocupar o
-   espaço horizontal que sobra na linha. A altura vem da grade (.deck,
-   `grid-template-rows: auto 130px auto`), não mais de um `height` próprio. */
-.preview-row { display: flex; align-items: stretch; gap: .4rem; }
-/* Botão de navegação de estrofe/versículo: a receita visual é a mesma do
-   transporte e vive junto com `.t-btn` (ver "Transporte"). Aqui só o que é
-   próprio desta linha. */
-/* Piso de alvo de toque: numa TV muito larga a preview cresce e sobra pouco
-   para os botões — abaixo disso eles deixariam de ser acionáveis. */
-.slide-nav-btn { min-width: 40px; }
-.slide-nav-btn:disabled { opacity: .3; }
+/* Linha da preview. Só a preview desde a v5.49: os dois botões de estrofe que
+   a flanqueavam viraram o toque curto em ⏮/⏭ (ver `.t-btn.slide-mode` e
+   "Um par de botões, dois eixos" em controle.js). A altura vem da grade
+   (.deck, `grid-template-rows: auto var(--deck-pv-h) auto`); `center` mantém a miniatura
+   no meio da faixa agora que não há mais nada dividindo a linha com ela. */
+.preview-row { display: flex; align-items: stretch; justify-content: center; gap: .4rem; }
+/* Âncoras de estrofe: continuam no DOM (ocultas) porque é nelas que o estado
+   "dá para passar estrofe?" mora — `renderSlideNav` habilita/desabilita, e
+   quem aciona (toque curto no transporte, gesto da tela cheia, notificação
+   nativa) chama `.click()`. Um botão `disabled` é um no-op natural, e assim a
+   regra não passa a existir em quatro lugares. O `[hidden]` da linha 16 já as
+   tira do fluxo; a regra abaixo existe para que ninguém as veja aparecer ao
+   remover o atributo por engano num teste. */
+.slide-anchor { display: none !important; }
 
 /* Preview */
 /* A proporção é a do TELÃO REAL, não um 16:9 fixo (`--pv-ar`, escrito pelo JS a
@@ -234,7 +285,7 @@ body {
      Com `height: auto` + `aspect-ratio`, quem manda passa a ser a LARGURA: o
      flex encolhe a preview até caber e a altura acompanha, preservando a
      proporção (que é o ponto de ela existir). `align-self: center` mantém a
-     miniatura centrada na faixa quando ela fica mais baixa que 130px. */
+     miniatura centrada na faixa quando ela fica mais baixa que a faixa. */
   width: calc(var(--deck-pv-h) * var(--pv-ar, 1.7778));
   max-width: 100%;
   height: auto;
@@ -265,7 +316,7 @@ body {
 /* Uma COLUNA colada à direita: configurações · cast · tela cheia, de cima para
    baixo. Deitados na base sobravam vazios dos dois lados; em pé eles usam a
    altura inteira da preview, que é a dimensão apertada aqui (a linha do deck
-   tem 130px). Cada botão é `flex:1`, então a coluna se reparte sozinha —
+   tem `--deck-pv-h`). Cada botão é `flex:1`, então a coluna se reparte sozinha —
    inclusive quando o de cast não existe (navegador), onde os DOIS restantes
    simplesmente ficam mais altos.
    Substituíram os gestos invisíveis que existiam antes (toque = tela cheia,
@@ -290,12 +341,12 @@ body {
 .pv-fabs[hidden] { display: flex !important; opacity: 0; visibility: hidden; }
 .pv-fab {
   pointer-events: auto;
-  /* 34px é o piso de alvo de toque do app (o mesmo do `.row-btn` e do
+  /* `--hit` é o piso de alvo de toque do app (o mesmo do `.row-btn` e do
      `.popup-close`). Em 30px estes eram os menores alvos acionáveis da tela —
      e errar por 2px não é um no-op: o toque cai no reconhecedor de gestos da
      preview, que ESCONDE a coluna inteira, obrigando a tocar de novo só para
      trazê-la de volta. O ícone de 17px continua folgado. */
-  flex: 1; min-height: 0; width: 34px; padding: 0;
+  flex: 1; min-height: 0; width: var(--hit); padding: 0;
   border: 1px solid var(--glass-line); border-radius: var(--radius-btn);
   background: var(--glass-bg); color: var(--stage-text);
   backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px);
@@ -458,24 +509,38 @@ body {
 
 /* Botões de transporte */
 .transport { display: flex; gap: .35rem; }
-/* Botão-bloco que divide a largura da linha: o transporte e a navegação de
-   estrofe usam a MESMA receita (9 das 11 declarações eram idênticas). */
-.t-btn, .slide-nav-btn {
-  flex: 1; border: none; border-radius: var(--radius-btn);
+/* Botão-bloco que divide a largura da linha. A borda de 1px transparente é a
+   mesma reserva de espaço do `.tab`: `.slide-mode` a pinta sem que o botão
+   mude de tamanho ao entrar/sair do estado. */
+.t-btn {
+  flex: 1; padding: .45rem 0;
+  border: 1px solid transparent; border-radius: var(--radius-btn);
   background: var(--surface); color: var(--text); cursor: pointer;
   display: flex; align-items: center; justify-content: center;
 }
-.t-btn { padding: .45rem 0; }
-.t-btn .msym, .slide-nav-btn .msym { font-size: var(--icon-md); }
+.t-btn .msym { font-size: var(--icon-md); }
 .t-btn:disabled { opacity: .35; }
 #repeat.active { color: var(--accent); }
+/* ⏮/⏭ MUDAM DE EIXO conforme a cena: com letra, versículo ou mensagem no ar o
+   toque curto passa ESTROFE; sem isso, passa de MÍDIA (e o toque longo sempre
+   passa de mídia — ver controle.js). É a mesma regra que a notificação nativa
+   já aplicava com `slideMode`, e lá ela é dita no rótulo do botão; aqui o
+   rótulo não cabe, então quem diz é a cor — contorno em accent, o mesmo
+   recurso que marca a aba ativa, porque a pergunta é a mesma: em que modo eu
+   estou. Sem sinal nenhum, o operador só descobriria o eixo depois de tocar. */
+.t-btn.slide-mode { border-color: var(--accent); color: var(--accent); }
+/* Fim do eixo de estrofe (última estrofe, última mensagem): o toque curto não
+   tem para onde ir, mas o LONGO ainda troca de mídia — então esmaece em vez de
+   desabilitar. É a leitura que o botão de estrofe cinza dava antes de sair da
+   tela, sem tirar do ar a outra metade do botão. */
+.t-btn.slide-mode.axis-end { opacity: .55; }
 
 /* ---------- Mixer ---------- */
 /* Sem "card" de fundo: os botões ficam livres (cada um com o próprio fundo
    via .ctl-btn), só alinhados pela grade. .mixer é um item do grid do .deck
    que ocupa as 3 linhas (grid-row:1/4) e usa grid-template-rows:subgrid para
-   HERDAR exatamente essas mesmas 3 faixas de altura (nowplaying / 130px do
-   preview / transport) — top/mid/bottom caem pixel a pixel nas mesmas
+   HERDAR exatamente essas mesmas 3 faixas de altura (nowplaying /
+   `--deck-pv-h` do preview / transport) — top/mid/bottom caem pixel a pixel nas mesmas
    alturas de .nowplaying/.preview-row/.transport, em vez de flex-basis
    aproximado (fonte do desalinhamento antigo). Padding só horizontal (0 no
    eixo vertical): padding vertical deslocaria as linhas herdadas do subgrid
@@ -511,7 +576,6 @@ body {
    (3 botões) e bottom (volume/ocultar, só um visível por vez) ficam com a
    altura cheia da linha correspondente, sem sobrar nem faltar espaço. */
 .mixer-slot .ctl-btn { flex: 1; min-height: 0; }
-.mixer .ctl-btn svg { display: block; }
 /* Volume recolhível: por padrão a lateral mostra os 4 botões (visual/fundo da
    letra/mesa de som/mudo, em top+mid) + o botão de volume na base (bottom);
    abrir troca top+mid pelo fader vertical (que ocupa exatamente o mesmo
@@ -523,7 +587,8 @@ body {
    para cima ao aparecer, e a preview (16:9, altura da faixa 2) mudava de
    tamanho junto. Sem piso, quem dita as faixas é sempre o conteúdo da coluna
    1 (nowplaying/preview/transport), abrindo ou fechando o volume — o fader
-   simplesmente ocupa o espaço que já existe (a faixa 2 sozinha já tem 130px). */
+   simplesmente ocupa o espaço que já existe (a faixa 2 sozinha já tem
+   `--deck-pv-h`). */
 .fader-wrap { display: none; grid-row: 1 / 3; min-height: 0; position: relative; }
 .mixer .vol-close { display: none; }
 .mixer.vol-open .mixer-top,
@@ -613,7 +678,9 @@ body {
 .mixer .ctl-btn { width: 100%; padding: .4rem 0; }
 /* Estados dos controles agrupados por ESTADO, não por componente — a mesma
    receita estava escrita quatro vezes. `.view-blocked` = visual bloqueado,
-   `.muted` = mudo, `.danger` = ação destrutiva; `.active` = mesa de som ligada.
+   `.muted` = mudo, `.danger` = ação destrutiva. (Havia um quarto, `.active` da
+   mesa de som; ele saiu com o botão, que virou o segmento `#standaloneSeg` de
+   Configurações.)
    (O botão do fundo da letra saiu do mixer: virou o segmento "Imagens dos
    slides" no popup de Exibição, e o lugar dele é a leitura da letra completa —
    um botão que ABRE algo, sem estado próprio a pintar.) */
@@ -623,9 +690,6 @@ body {
    borda de estado vermelho usam sempre o par claro. */
 .view-btn.view-blocked, .mute-btn.muted, .coll-opts .new-folder-btn.danger {
   border-color: var(--danger-text); background: var(--danger-soft); color: var(--danger-text);
-}
-.standalone-btn.active {
-  border-color: var(--accent); background: var(--accent-soft); color: var(--accent);
 }
 /* Sem áudio no Display (bloqueio do navegador): AVISO pulsante; o clique pede
    a liberação do som (comando audio-retry). Em `--warn`, e não mais em
@@ -651,35 +715,65 @@ main {
 /* ---------- Título da lista ativa ---------- */
 .list-header { flex-shrink: 0; display: flex; align-items: center; gap: .3rem; }
 .list-title { flex: 1; font-size: .72rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
-/* Os dois botões de ícone do cabeçalho têm a MESMA caixa de toque (34px, o
+/* Os dois botões de ícone do cabeçalho têm a MESMA caixa de toque (`--hit`, o
    mesmo dos botões de linha e de fechar popup). O voltar tinha só ~20×20 px —
    o menor alvo do app inteiro, e é a única saída da aba Pastas e da navegação
    da Bíblia; errar o toque ali caía no #addDirBtn ao lado, que abre o SAF. */
 .add-dir-btn, .back-btn {
-  flex-shrink: 0; width: 34px; height: 34px; padding: 0;
+  flex-shrink: 0; width: var(--hit); height: var(--hit); padding: 0;
   border: none; border-radius: var(--radius-btn);
   display: flex; align-items: center; justify-content: center; cursor: pointer;
 }
 .add-dir-btn { background: var(--accent-soft); color: var(--accent); }
+/* ---------- Troca de modo (o par de botões do canto superior direito) --------
+   O MESMO componente nos dois modos — `#simpleFullBtn` no cabeçalho do
+   simplificado e `#fullSimpleBtn` no da lista —, no mesmo canto, com a seta
+   apontando para onde o toque leva. Duas receitas visuais para a ida e a volta
+   fariam a volta parecer outra coisa; é o mesmo botão, ao contrário.
+   Era texto `--muted` sobre `--surface` (5,4:1 — dentro do mínimo, mas lido
+   como LEGENDA: quem não sabia que existiam dois modos não a via como botão).
+   Texto pleno sobre a superfície mais clara com contorno em accent mantém o
+   discreto (não é a ação principal de ninguém) e o anuncia como controle.
+   A seta é o que faltava: sem ela o rótulo nomeava um destino sem dizer que
+   sair dali é ir para OUTRA tela. */
+.mode-switch {
+  /* `margin-left: auto` e não a posição no DOM: na aba Bíblia o título fica
+     oculto (a grade fala por si) e, sem ele empurrando, o botão escorregava
+     para a esquerda do cabeçalho — o par de troca de modo tem de estar SEMPRE
+     no mesmo canto, ou deixa de ser um par. */
+  flex-shrink: 0; margin-left: auto;
+  display: inline-flex; align-items: center; gap: .3rem;
+  border: 1px solid var(--accent); border-radius: var(--radius-btn);
+  background: var(--surface-2); color: var(--text);
+  font-size: .8rem; font-weight: 600; font-family: inherit;
+  padding: .42rem .6rem; cursor: pointer;
+  appearance: none; -webkit-appearance: none;
+}
+.mode-switch svg { color: var(--accent); }
 /* O voltar continua "chapado" (sem fundo) — só o alvo cresceu. */
 .back-btn { background: none; color: var(--accent); }
 .add-dir-btn .msym, .back-btn .msym { font-size: var(--icon-sm); }
-.add-dir-btn svg { display: block; }
 
 /* ---------- Abas (ícones) ---------- */
 /* A faixa tem TRÊS abas em `flex:1` (Cronograma é o 1º filho) e, à direita, o
-   botão de busca do acervo (`.tab-add`, fora do trilho pela margem). O botão
+   botão de busca do acervo (`.tab-add`), hoje do MESMO tamanho delas. O botão
    de importar NÃO mora mais aqui: desceu para o fim da lista do Cronograma,
    junto de "Pastas" (ver `.import-row`). Quem contar filhos por posição
    (`:first-child`, `order`) precisa saber disso. */
-/* A faixa era transparente, "mesclada ao fundo do app" — e com isso um botão
-   inativo era indistinguível do vazio ao redor: a única pista de que ali havia
-   alvos de toque era o ícone. Agora a faixa tem TRILHO próprio e cada aba tem
-   fundo: o alvo fica visível antes do toque, não só depois. */
+/* SEM TRILHO (v5.49). A faixa teve fundo próprio (`--bar` + borda) desde a
+   v5.31, para resolver um problema real: com ela transparente E as abas sem
+   fundo, um botão inativo era indistinguível do vazio ao redor. Só que a
+   solução resolveu duas vezes o mesmo problema — hoje CADA aba tem o próprio
+   fundo (`--surface`), que já anuncia o alvo, e o trilho por cima cobrava
+   1px de borda + .25rem de padding dos dois lados numa tela onde a lista
+   disputa cada pixel de altura, além de desenhar um cartão em volta de algo
+   que é navegação, não conteúdo.
+   O que sustenta a decisão é o degrau, e ele foi MEDIDO nos dois cenários:
+   uma aba sobre o trilho dava 1,46:1 e sobre o fundo do app dá 1,38:1 — os
+   dois acima do piso de 1,30:1 das superfícies grandes. O alvo continua
+   visível antes do toque; o que sumiu foi a moldura em volta dele. */
 .tabs {
   display: flex; gap: .3rem; align-items: center; flex-shrink: 0;
-  background: var(--bar); border: 1px solid var(--line);
-  border-radius: var(--radius-btn); padding: .25rem;
 }
 
 /* Botão de playlist: mora na linha de transporte (.transport), à direita dos
@@ -702,17 +796,34 @@ main {
 }
 .pl-badge:empty { display: none; }
 
-.tab {
-  flex: 1; height: 38px; border: none; border-radius: var(--radius-btn);
+/* Aba e botão do acervo dividem a MESMA caixa: `flex:1`, `--hit-nav` de altura,
+   mesmo raio. Eram duas receitas (a aba em `flex:1`, o acervo fixo em 42×38 com
+   margem própria), e a diferença não dizia nada — o acervo é o quarto alvo da
+   mesma fileira e se lia como um apêndice colado nela. */
+.tab, .tab-add {
+  flex: 1; min-width: 0; height: var(--hit-nav);
+  border: 1px solid transparent; border-radius: var(--radius-btn);
   background: var(--surface); color: var(--muted); cursor: pointer;
   display: flex; align-items: center; justify-content: center;
   appearance: none; -webkit-appearance: none;
 }
 .tab .msym { font-size: var(--icon-md); }
-/* Ativa PREENCHIDA em accent, não mais uma linha de 2px embaixo: sobre um
-   trilho com fundo, o sublinhado fino era o elemento de menor contraste da
-   tela justamente no que precisa ser mais óbvio — onde eu estou. */
-.tab.active { background: var(--accent-fill); color: var(--on-accent); }
+/* ---------- Preenchido = AÇÃO; contornado = ONDE EU ESTOU ----------
+   A aba ativa foi um bloco sólido em accent (v5.31) e o acervo, contornado. Os
+   dois papéis estão INVERTIDOS desde a v5.49, e a régua é a mesma que separava
+   os dois antes: nesta faixa convivem um ESTADO ("estou no Cronograma") e uma
+   AÇÃO ("abrir o acervo"), e sólido é o que se lê como "toque aqui e o app
+   faz algo" — é assim que o app já pinta `.misc-project`, `.dialog-btn.primary`
+   e o `#volToggle`. Marcar posição não é agir: para isso basta o contorno em
+   accent, que é o mesmo recurso que `.lib-item.active` e `.hymnal-card.expanded`
+   usam para dizer "é este".
+   Os segmentados de CONFIGURAÇÃO (`.fit-opt`, `.misc-tab`, `.coll-pill`) seguem
+   com a seleção preenchida, e isso não é incoerência: lá não há ação nenhuma
+   competindo pela mesma faixa — a escolha É a única coisa que aquele trilho
+   comunica. */
+.tab.active {
+  background: var(--accent-soft); border-color: var(--accent); color: var(--accent);
+}
 
 /* Fim da lista do Cronograma: "Importar arquivos" e "Pastas" lado a lado — as
    duas respondem à mesma pergunta ("de onde vem a mídia?") e ficam onde o
@@ -737,34 +848,27 @@ main {
 .import-btn {
   flex: 1; min-width: 0; padding: .75rem .5rem;
   background: transparent; border: 1px dashed var(--accent);
-  border-radius: var(--radius-card); color: var(--accent); font-size: .9rem;
+  border-radius: var(--radius-btn); color: var(--accent); font-size: .9rem;
   display: flex; align-items: center; justify-content: center; gap: .45rem;
   cursor: pointer;
 }
-.import-btn svg { display: block; flex-shrink: 0; }
+.import-btn svg { flex-shrink: 0; }
 .import-btn span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* Buscar no acervo (único .tab-add que restou — o de importar desceu para o
-   fim do Cronograma). border:none + appearance:none matam a borda 3D bicolor
-   (bevel nativo) que um <button> herda do sistema, fora do padrão do app. */
-/* CONTORNADO, não preenchido. A aba ativa passou a ser um bloco sólido em
-   accent, e este botão fica encostado nela: dois azuis cheios lado a lado
-   diriam a mesma coisa ("é aqui") para duas coisas diferentes — um é ONDE EU
-   ESTOU, o outro é UMA AÇÃO. O contorno separa as duas naturezas mantendo o
-   destaque. A margem tira o botão de dentro da fileira de abas. */
+   fim do Cronograma). A caixa vem da regra compartilhada com `.tab`, acima;
+   aqui fica só o que o distingue: ele é a AÇÃO da faixa, então é o SÓLIDO.
+   `border-color` explícito para o preenchimento não ficar 1px menor que o das
+   abas (a borda transparente da caixa comum ocupa lugar). */
 .tab-add {
-  flex: none; width: 42px; height: 38px; margin-left: .3rem;
-  appearance: none; -webkit-appearance: none;
-  border-radius: var(--radius-btn);
-  background: var(--accent-soft); border: 1px solid var(--accent); color: var(--accent);
-  display: flex; align-items: center; justify-content: center; cursor: pointer;
+  background: var(--accent-fill); border-color: var(--accent-fill); color: var(--on-accent);
 }
 
 /* barra de seleção */
 .selbar { flex-shrink: 0; display: flex; align-items: center; gap: .6rem; background: var(--accent-soft); border: 1px solid var(--accent); border-radius: var(--radius-card); padding: .35rem .6rem; }
 .sel-count { font-weight: 700; }
 .sel-spacer { flex: 1; }
-.sel-btn { width: 36px; height: 36px; border: none; border-radius: var(--radius-btn); background: var(--surface-2); color: var(--text); display: flex; align-items: center; justify-content: center; cursor: pointer; }
+.sel-btn { width: var(--hit); height: var(--hit); border: none; border-radius: var(--radius-btn); background: var(--surface-2); color: var(--text); display: flex; align-items: center; justify-content: center; cursor: pointer; }
 .sel-btn:disabled { opacity: .35; }
 .sel-btn.danger { color: var(--danger-text); }
 .sel-btn .msym { font-size: var(--icon-sm); }
@@ -802,9 +906,8 @@ main {
    suave) em vez de dois literais soltos, que era o que havia aqui. */
 .yt-badge { background: var(--yt-soft); color: var(--yt); }
 
-.row-btn, .row-handle { width: 34px; height: 34px; flex-shrink: 0; border: none; border-radius: var(--radius-btn); background: var(--surface); color: var(--text); display: flex; align-items: center; justify-content: center; cursor: pointer; }
+.row-btn, .row-handle { width: var(--hit); height: var(--hit); flex-shrink: 0; border: none; border-radius: var(--radius-btn); background: var(--surface); color: var(--text); display: flex; align-items: center; justify-content: center; cursor: pointer; }
 .row-btn .msym, .row-handle .msym { font-size: var(--icon-sm); }
-.row-btn svg { display: block; }
 .row-handle { background: transparent; color: var(--muted); touch-action: none; cursor: grab; }
 
 /* pastas sincronizadas (OPFS) */
@@ -878,15 +981,14 @@ main {
 .coll-group-count.done { color: var(--ok); }
 .coll-group-count.busy { color: var(--accent); }
 .coll-group-btn {
-  /* 34px = o mesmo alvo do `.coll-bar-dl` do card: alinhados na coluna, os
+  /* `--hit`, o mesmo alvo do `.coll-bar-dl` do card: alinhados na coluna, os
      dois precisam ter também o mesmo tamanho, senão os centros discordam. */
-  flex-shrink: 0; width: 34px; height: 34px; padding: 0;
+  flex-shrink: 0; width: var(--hit); height: var(--hit); padding: 0;
   border: none; appearance: none; -webkit-appearance: none;
   border-radius: var(--radius-btn);
   background: var(--accent-soft); color: var(--accent);
   display: flex; align-items: center; justify-content: center; cursor: pointer;
 }
-.coll-group-btn svg { display: block; }
 /* Em andamento o botão vira "cancelar" — muda de papel, então muda de cor.
    AVISO, e não perigo: o vermelho fica reservado para o que destrói (excluir a
    coleção) e para o que está NO AR; interromper uma transferência não é nem um
@@ -920,15 +1022,14 @@ main {
    botão antigo não casavam com elemento nenhum e saíram.) */
 
 /* ----- Coleção aberta no próprio card (acordeão do acervo, v5.45) ----- */
-/* Baixar/cancelar a coleção, na barra. Alvo próprio (34px) e `stopPropagation`
+/* Baixar/cancelar a coleção, na barra. Alvo próprio (`--hit`) e `stopPropagation`
    no clique: ele divide a linha com o toque que abre o acordeão. */
 .coll-bar-dl {
-  width: 34px; height: 34px; flex-shrink: 0;
+  width: var(--hit); height: var(--hit); flex-shrink: 0;
   display: flex; align-items: center; justify-content: center;
   border: 1px solid var(--line); border-radius: var(--radius-btn);
   background: var(--surface); color: var(--accent); cursor: pointer;
 }
-.coll-bar-dl svg { display: block; }
 .coll-bar-dl.done { color: var(--ok); }
 /* Baixando: o toque CANCELA. Mesma família de aviso dos outros dois botões de
    cancelar (ver `.coll-group-btn.busy`). O ícone estava em `--danger`, que é
@@ -970,7 +1071,7 @@ main {
   font-family: inherit; font-size: .8rem; font-weight: 600;
   padding: .5rem .7rem; cursor: pointer;
 }
-.coll-open-cfg svg { display: block; color: var(--muted); }
+.coll-open-cfg svg { color: var(--muted); }
 .coll-open-cfg.busy { border-color: var(--accent); color: var(--accent); }
 .coll-open-cfg.busy svg { color: var(--accent); }
 /* As músicas, dentro do card. Sem teto de altura: quem abriu um álbum quer
@@ -988,7 +1089,6 @@ main {
 /* Conteúdo do bottom-sheet de opções da coleção. */
 .coll-opts { display: flex; flex-direction: column; gap: .6rem; padding: .2rem .9rem .9rem; }
 .coll-opts .hymnal-card-status { white-space: normal; }
-.coll-opts .new-folder-btn svg { display: block; }
 /* O mesmo botão vira "cancelar" enquanto o download roda (ver
    renderCollectionOptions) — sem giro, e em AVISO para não se confundir nem
    com a ação normal nem com excluir, que são os seus dois vizinhos imediatos
@@ -1225,7 +1325,6 @@ main {
   touch-action: none;
   transition: background .12s ease, border-color .12s ease, color .12s ease;
 }
-.mic-btn svg { display: block; }
 .mic-btn-label { font-size: .95rem; font-weight: 800; letter-spacing: .02em; }
 /* NO AR: preenchido e pulsante — quem está falando precisa ver de longe que o
    microfone está aberto. É o caso preenchido de "está no telão agora", então
@@ -1426,8 +1525,8 @@ main {
    não numa aba própria: um aviso de texto é uma interrupção rápida, não uma
    seção da biblioteca que se navega. */
 .msg-add-btn {
-  align-self: stretch; border: 1px dashed var(--line); background: var(--surface); color: var(--accent);
-  border-radius: var(--radius-card); padding: .7rem; font-size: .9rem; font-weight: 700;
+  align-self: stretch; border: 1px dashed var(--accent); background: var(--surface); color: var(--accent);
+  border-radius: var(--radius-btn); padding: .7rem; font-size: .9rem; font-weight: 700;
   cursor: pointer; appearance: none; -webkit-appearance: none;
 }
 .msg-item {
@@ -1601,7 +1700,7 @@ main {
   border-radius: var(--radius-pill); padding: 0 .45rem; min-width: 20px; text-align: center;
 }
 .popup-close {
-  width: 34px; height: 34px; border: none; border-radius: var(--radius-btn);
+  width: var(--hit); height: var(--hit); border: none; border-radius: var(--radius-btn);
   background: var(--surface-2); color: var(--muted);
   display: flex; align-items: center; justify-content: center; cursor: pointer;
 }
@@ -1642,7 +1741,7 @@ main {
 .new-folder-btn {
   width: 100%; padding: .6rem;
   background: var(--surface); border: 1px solid var(--accent);
-  border-radius: var(--radius-card); color: var(--accent); font-size: .9rem;
+  border-radius: var(--radius-btn); color: var(--accent); font-size: .9rem;
   display: flex; align-items: center; justify-content: center; gap: .4rem;
   cursor: pointer;
 }
@@ -1654,7 +1753,7 @@ main {
 .display-status {
   width: 100%; padding: .6rem;
   background: var(--surface); border: 1px solid var(--line);
-  border-radius: var(--radius-card); color: var(--muted); font-size: .85rem;
+  border-radius: var(--radius-btn); color: var(--muted); font-size: .85rem;
   display: flex; align-items: center; justify-content: center; gap: .4rem;
   cursor: pointer; appearance: none; -webkit-appearance: none;
 }
@@ -1665,6 +1764,10 @@ main {
 }
 /* Alvo do botão de cast da preview — informativo, discreto. */
 .cast-target { display: block; text-align: center; font-size: .72rem; color: var(--muted); padding-top: .4rem; }
+/* A versão desceu do cabeçalho da lista para cá (ver o comentário no HTML): no
+   rodapé ela fica na mesma coluna do estado do telão e do alvo de
+   espelhamento — as três coisas que se olha quando algo não está certo. */
+.popup-footer .app-version { display: block; width: fit-content; margin: .45rem auto 0; }
 
 /* ---------- Botão de pasta no picker ---------- */
 .folder-pick-btn {
@@ -1673,7 +1776,7 @@ main {
      aqui era um degrau fora da escala, invisível como alvo de toque numa lista
      de pastas. Dentro do bottom-sheet o token já está invertido (ver
      "superfície que afunda"), então o botão AFUNDA na folha em vez de flutuar. */
-  background: var(--surface); border: none; border-radius: var(--radius-card);
+  background: var(--surface); border: none; border-radius: var(--radius-btn);
   color: var(--text); font-size: .9rem;
   display: flex; align-items: center; gap: .55rem;
   cursor: pointer;
@@ -1922,17 +2025,6 @@ body.mode-simple .bottombar { display: none; }
 .simple-head { display: flex; align-items: center; gap: .5rem; flex: none; }
 .simple-brand { flex: 1; min-width: 0; font-size: .9rem; font-weight: 800; letter-spacing: .03em; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .simple-brand b { color: var(--gold); }
-/* A saída para a mesa completa. Era texto `--muted` sobre `--surface` — 5,4:1,
-   dentro do mínimo, mas lida como legenda: quem não sabia que existiam dois
-   modos não a via como botão. Passa a texto pleno sobre a superfície mais
-   clara, com a borda de accent contornando: continua discreto (não é a ação
-   principal de ninguém) e agora se ANUNCIA como controle. */
-.simple-switch {
-  border: 1px solid var(--accent); border-radius: var(--radius-btn);
-  background: var(--surface-2); color: var(--text);
-  font-size: .8rem; font-weight: 600; font-family: inherit;
-  padding: .48rem .8rem; cursor: pointer;
-}
 
 /* Tecla: a peça única deste modo. Borda + fundo próprio para parecer botão
    físico, e alvo grande o bastante para o polegar sem mirar. */
@@ -2010,6 +2102,29 @@ body.mode-simple .bottombar { display: none; }
    ação. Com tela conectada o subtítulo volta — ali ele informa QUAL tela, que
    é notícia. */
 .simple.locked #simpleCastBtn .simple-key-sub { display: none; }
+
+/* ----- Liberação de TESTE (segurar 5 s o botão de conectar) -----
+   Uma porta de desenvolvimento: sem telão à mão não há como olhar a tela
+   simplificada destravada, que é justamente a tela que o app abre. Segurar o
+   botão de conectar por 5 s destrava como se houvesse tela; segurar de novo
+   tranca. Ver `CAST_HOLD_MS` em controle.js.
+   A espera precisa de um sinal — 5 s de nada é indistinguível de um toque que
+   não pegou —, então a barra corre no pé do botão enquanto o dedo estiver lá.
+   `forwards` mantém o fim: quem completou a contagem vê a barra cheia no
+   instante em que a tela destrava, em vez de vê-la sumir e duvidar do que
+   aconteceu. */
+.simple-key--holding { position: relative; overflow: hidden; }
+.simple-key--holding::after {
+  content: ''; position: absolute; left: 0; bottom: 0; height: 3px; width: 0;
+  background: var(--on-accent); opacity: .85;
+  animation: cast-hold var(--cast-hold, 5s) linear forwards;
+}
+@keyframes cast-hold { to { width: 100%; } }
+/* Destravado por teste NÃO é "conectado": em `--warn`, que é a família de
+   aviso, e nunca no verde de `.connected` — verde ali significaria uma tela
+   real recebendo a projeção, e não há nenhuma. */
+.simple-action.testing svg { color: var(--warn); }
+.simple-action.testing .simple-key-sub { color: var(--warn-text); }
 
 /* Letra da música em cena — ocupa o espaço que sobra entre as ações e as
    teclas. Mesmas linhas da leitura auxiliar do modo avançado (.lv-row). */
