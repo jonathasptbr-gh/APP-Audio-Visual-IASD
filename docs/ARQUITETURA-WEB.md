@@ -94,7 +94,7 @@ git push origin main
   MENOR que o já publicado — caso em que `WebUpdater.compareVersions` ignora o
   bundle em silêncio. Para saber onde a base está, leia `version.json`.
 
-  No app nativo o rótulo mostra os **dois índices** — `Web v5.58 · Shell v1.22`
+  No app nativo o rótulo mostra os **dois índices** — `Web v5.59 · Shell v1.22`
   —, porque base web e shell atualizam por caminhos independentes (OTA ×
   instalar APK); no navegador sai só `Controle v<versão>`. **Ele mora no rodapé
   do popup de Configurações** desde a v5.49 (antes ficava no cabeçalho da lista,
@@ -1732,15 +1732,49 @@ app não existia aqui: só o toque no ícone. `setupTabCarousel` escuta o
   do gesto leva mais que isso e a trava expirava justamente antes do clique
   chegar (observado com a janela do Display aberta ao lado, no navegador).
 
-**Animação de troca de aba** (`animateTabSwitch`): ao trocar de aba, a lista
-`#library` entra com um leve **deslize direcional + fade** (Web Animations API
-na própria lista, ~220 ms). A direção vem da ordem das abas (`TAB_ORDER =
+#### A troca de aba é um DESLIZE INTEIRO (v5.59)
+
+As duas telas se movem juntas, larguras inteiras, como um carrossel de verdade:
+a que sai vai para `-100%`, a que entra vem de `+100%`, e em nenhum instante
+elas se sobrepõem — são vizinhas, coladas, empurrando-se. Até a v5.58 só o
+conteúdo NOVO se mexia (entrava de 44px com um fade, e o antigo simplesmente
+sumia): isso é um sinal de direção, não um deslize, e o gesto que o dispara —
+arrastar a lista para o lado — promete exatamente que a tela vai sair do lugar.
+
+O truque para ter as DUAS telas ao mesmo tempo com uma lista só no DOM é o
+**fantasma** (`makeTabGhost`): os nós antigos são MOVIDOS para um `<ul>`
+absoluto posicionado exatamente sobre a área da lista, e a `#library` de
+verdade fica livre para receber o conteúdo novo.
+
+- **Mover, não CLONAR.** Um clone reinicia o download de cada miniatura por um
+  `blob:` que o render seguinte revoga — as fotos sumiriam no meio do deslize.
+  Movidos, os mesmos elementos seguem pintados.
+- **O fantasma é feito ANTES do `load()`**, e é ele que o operador continua
+  vendo enquanto a lista nova é montada (leituras de IndexedDB — poucos ms, mas
+  não zero). Por isso `switchTab` virou `async` e o deslize dispara no
+  `finally`: um `load()` que falhe não pode deixar o fantasma congelado sobre a
+  lista para sempre.
+- **O `<input type="file">` fica para trás de propósito.** Ele mora DENTRO da
+  lista enquanto o Cronograma está aberto (ver `appendImportRow`); se fosse
+  junto para o fantasma, sairia do documento quando ele fosse descartado, e o
+  `change` que importa arquivos deixaria de acontecer.
+- **Um deslize novo mata o anterior** (`tabGhost`): dois toques rápidos
+  deixariam dois retângulos empilhados sobre a lista.
+- **`main` é `position: relative` + `overflow: hidden`**: é ele que ancora e
+  RECORTA o fantasma — as duas telas atravessam a largura inteira e não podem
+  aparecer fora da área da lista.
+- **Fechar a gaveta de Favoritos passa `semAnim`**: ali o movimento que o
+  operador vê é a gaveta subindo, e um carrossel por baixo dela contaria outra
+  história.
+
+A **direção** vem da ordem das abas (`TAB_ORDER =
 ['imports','folders','bible','mic']` — inclui os Favoritos, que são um
-`activeTab` sem botão na faixa): ir pra uma aba à **direita** desliza entrando
-da direita (`translateX(22px)→0`), à esquerda o contrário. Como o `load()`
-reconstrói o conteúdo em poucos ms, animar já a partir de `opacity:0` esconde a
-troca e revela o conteúdo novo entrando; o `overflow:hidden` do `main` clipa o
-deslize (não vaza horizontalmente). Respeita `prefers-reduced-motion` (sai cedo).
+`activeTab` sem botão na faixa): ir para uma aba à **direita** faz a nova entrar
+pela direita, à esquerda o contrário. A duração e a curva são as MESMAS do
+vazado que desliza na faixa (`TAB_MOVE_MS`/`TAB_MOVE_EASE` × `--tab-move`): os
+dois são efeitos de UM gesto, e tempos diferentes os separariam em dois eventos.
+Respeita `prefers-reduced-motion` — ali não há fantasma nem deslize, a lista
+simplesmente troca.
 
 **`load()` tem guarda de sequência** (`loadSeqCtl`, como o `loadSeq` do
 stage): é async e disparada fire-and-forget por dezenas de handlers, então

@@ -112,7 +112,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.58';
+const WEB_VERSION = '5.59';
 
 // Escrita UMA vez, na carga: o indicador mora no rodapé de Configurações desde
 // a v5.49 e não depende mais de qual aba está aberta (no cabeçalho ele
@@ -5292,7 +5292,7 @@ function closeFavorites() {
   folderQuery = '';
   libSearchEl.value = '';
   hostSelbar();
-  switchTab('imports');
+  switchTab('imports', true);
 }
 
 // A barra de seleção múltipla vive na caixa de controles, ATRÁS da gaveta — com
@@ -8050,32 +8050,71 @@ const TAB_MOVE_EASE = 'cubic-bezier(.22,.61,.36,1)';
 // conteúdo em poucos ms (leituras IDB em memória), animar já a partir de
 // opacity:0 esconde a troca e revela o conteúdo novo entrando. Sai cedo se o
 // usuário prefere menos movimento.
-function animateTabSwitch(dir) {
-  if (prefersReducedMotion || !libraryEl.animate) return;
-  // A gaveta de Favoritos entra e sai deslizando por conta própria (transform
-  // do `.popup-sheet`): animar a lista de baixo junto seria um segundo
-  // movimento por trás do primeiro.
-  if (activeTab === 'folders' || favPopupEl.classList.contains('open')) return;
-  // Distância e duração são as MESMAS do vazado da faixa (`--tab-move` no CSS,
-  // `TAB_MOVE_MS` aqui): a lista e o indicador são dois efeitos de UM gesto, e
-  // dois tempos diferentes os separam em dois eventos. Os 22px de antes eram
-  // curtos demais para se ler como "veio de lá" — o conteúdo parecia só piscar;
-  // com 44px o movimento tem direção, e continua curto o bastante para não
-  // atrasar quem está trocando de aba no meio de um culto.
+// ===== A troca de aba é um DESLIZE INTEIRO =====
+// Até a v5.58 só o conteúdo NOVO se mexia: entrava de 44px com um fade, e o
+// antigo simplesmente sumia. Isso é um sinal de direção, não um deslize — a
+// tela nunca saía do lugar, e o gesto (arrastar a lista para o lado) prometia
+// exatamente que ela sairia.
+//
+// Agora as duas telas se movem juntas, larguras inteiras, como um carrossel de
+// verdade: a que sai vai para `-100%`, a que entra vem de `+100%`, e em nenhum
+// instante elas se sobrepõem — são vizinhas, coladas, empurrando-se.
+//
+// O truque está em ter as DUAS ao mesmo tempo com uma lista só no DOM: os nós
+// antigos são MOVIDOS para um fantasma posicionado exatamente sobre a área da
+// lista (`makeTabGhost`), e a `#library` de verdade fica livre para receber o
+// conteúdo novo. Mover, e não CLONAR: um clone reinicia o download de cada
+// miniatura por um `blob:` que o render seguinte revoga — as fotos sumiriam no
+// meio do deslize. Movidos, os mesmos elementos seguem pintados.
+let tabGhost = null;
+
+function makeTabGhost() {
+  // Um deslize ainda em curso perdeu a vez: tira o fantasma velho na hora, ou
+  // dois deslizes rápidos deixariam dois retângulos empilhados sobre a lista.
+  if (tabGhost) { tabGhost.remove(); tabGhost = null; }
+  const g = document.createElement('ul');
+  g.className = 'lib-list lib-ghost' + (libraryEl.classList.contains('lib-misc') ? ' lib-misc' : '');
+  g.style.top = libraryEl.offsetTop + 'px';
+  g.style.left = libraryEl.offsetLeft + 'px';
+  g.style.width = libraryEl.offsetWidth + 'px';
+  g.style.height = libraryEl.offsetHeight + 'px';
+  const topo = libraryEl.scrollTop;
+  // O seletor de arquivos MORA dentro da lista enquanto o Cronograma está
+  // aberto (ver appendImportRow). Se ele fosse junto para o fantasma, sairia do
+  // documento quando o fantasma fosse descartado — e o `change` que importa
+  // arquivos deixaria de acontecer até o próximo render devolvê-lo.
+  if (fileEl.parentElement && fileEl.parentElement.closest('#library')) mainEl.appendChild(fileEl);
+  while (libraryEl.firstChild) g.appendChild(libraryEl.firstChild);
+  mainEl.appendChild(g);
+  g.scrollTop = topo;   // o fantasma tem de começar onde o olho estava
+  tabGhost = g;
+  return g;
+}
+
+// `dir` = +1 quando a tela nova está à DIREITA (o dedo foi para a esquerda):
+// a nova vem de +100% e a velha sai por -100%.
+function animateTabSwitch(dir, ghost) {
+  const opts = { duration: TAB_MOVE_MS, easing: TAB_MOVE_EASE, fill: 'both' };
+  if (ghost) {
+    const saida = ghost.animate(
+      [{ transform: 'none' }, { transform: 'translateX(' + (-dir * 100) + '%)' }], opts);
+    const limpar = () => { ghost.remove(); if (tabGhost === ghost) tabGhost = null; };
+    saida.onfinish = limpar;
+    saida.oncancel = limpar;
+  }
   libraryEl.animate(
-    [
-      { opacity: 0, transform: 'translateX(' + (dir * 44) + 'px)' },
-      { opacity: 1, transform: 'translateX(0)' },
-    ],
-    { duration: TAB_MOVE_MS, easing: TAB_MOVE_EASE },
-  );
+    [{ transform: 'translateX(' + (dir * 100) + '%)' }, { transform: 'none' }], opts);
 }
 
 // Troca de tela da lista. Nem toda tela tem aba: **Favoritos** é alcançada
 // pelo botão no fim do Cronograma (ver appendImportRow), e o botão voltar dali
 // retorna ao Cronograma — mas continua sendo um `activeTab` ('folders'), com a
 // mesma navegação interna (atalhos, pastas do dispositivo, busca).
-function switchTab(tab) {
+// `semAnim` para as trocas que NÃO são um passo lateral entre abas: fechar a
+// gaveta de Favoritos volta para o Cronograma, mas o movimento que o operador
+// vê ali é a gaveta subindo — um carrossel por baixo dela seria um segundo
+// movimento contando outra história.
+async function switchTab(tab, semAnim) {
   if (tab === activeTab) return;
   // Direção do deslize: +1 se a tela nova está à direita da atual, -1 se à esquerda.
   const dir = TAB_ORDER.indexOf(tab) > TAB_ORDER.indexOf(activeTab) ? 1 : -1;
@@ -8089,10 +8128,23 @@ function switchTab(tab) {
   // estado, e a projeção tem laço próprio). Sem isto sobraria um timer de 5 Hz
   // reescrevendo um nó que o `innerHTML = ''` da lista já descartou.
   if (activeTab === 'mic') { stopChronoPanelTimer(); stopDrawPanelTimer(); }
+  // Os Favoritos são a gaveta, não uma aba: nem sai deslizando nem entra.
+  const anima = !semAnim && !prefersReducedMotion && !!libraryEl.animate
+    && activeTab !== 'folders' && tab !== 'folders'
+    && !favPopupEl.classList.contains('open');
+  // O fantasma é feito ANTES do render: ele leva embora os nós que ainda estão
+  // na tela, e é ele que o operador continua vendo enquanto o `load()` monta a
+  // lista nova (leituras de IndexedDB — poucos ms, mas não zero).
+  const fantasma = anima ? makeTabGhost() : null;
   activeTab = tab;
   if (selectionMode) exitSelection();
-  load();
-  animateTabSwitch(dir);
+  try {
+    await load();
+  } finally {
+    // No `finally` porque um `load()` que falhe não pode deixar o fantasma
+    // congelado sobre a lista para sempre.
+    if (anima) animateTabSwitch(dir, fantasma);
+  }
   // Ao entrar na Bíblia: garante versões/livros e baixa a versão INTEIRA na
   // 1ª vez (em segundo plano — ver ensureBibleVersionDownloaded).
   if (activeTab === 'bible') enterBibleTab();

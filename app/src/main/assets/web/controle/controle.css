@@ -746,6 +746,11 @@ body {
 /* ---------- Conteúdo principal ---------- */
 main {
   flex: 1; min-height: 0; overflow: hidden;
+  /* offsetParent do fantasma da troca de aba (`.lib-ghost`) e o que o RECORTA:
+     as duas telas atravessam a largura inteira durante o deslize, e é o
+     `overflow: hidden` daqui que impede as duas de aparecerem fora da área da
+     lista. */
+  position: relative;
   /* padding-top inclui a safe-area (notch/status bar) já que não há mais appbar.
      Embaixo sobrou pouco de propósito: o que fechava a tela ali era a faixa de
      abas, que mudou para dentro da caixa de controles (v5.54) — o resto é só a
@@ -1007,6 +1012,16 @@ main {
 .sel-btn:disabled { opacity: .35; }
 .sel-btn.danger { color: var(--danger-text); }
 .sel-btn .msym { font-size: var(--icon-sm); }
+
+/* A tela que SAI durante a troca de aba: os nós antigos são movidos para cá
+   (ver `makeTabGhost` em controle.js), sobre a mesma área da lista, enquanto a
+   `#library` recebe os novos. Não rola e não recebe toque — é uma fotografia
+   que dura o tempo do deslize. As medidas vêm inline, do JS, porque a lista é
+   um item flex e só ela sabe onde parou. */
+.lib-ghost {
+  position: absolute; z-index: 2;
+  overflow: hidden; pointer-events: none;
+}
 
 /* ---------- Itens (biblioteca) ---------- */
 /* `touch-action: pan-y` na lista que NÃO é a da aba Ferramentas: ela só rola na
