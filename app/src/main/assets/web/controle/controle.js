@@ -41,6 +41,40 @@ const simpleVolWrapEl = document.getElementById('simpleVolWrap');
 const simpleVolUpEl = document.getElementById('simpleVolUp');
 const simpleVolDownEl = document.getElementById('simpleVolDown');
 const simpleVolValueEl = document.getElementById('simpleVolValue');
+
+// ===== O modo LEMBRADO (o resto da história em "Modos de uso", mais abaixo) =====
+// O modo escolhido sobrevive a fechar o app. Quem opera o culto toda semana
+// estava pagando dois toques por sessão para voltar ao avançado, e o operador
+// que só quer tocar um louvor nunca sai do simplificado — que continua sendo o
+// padrão de quem nunca escolheu nada.
+//
+// **Em `localStorage`, e não no IndexedDB como TODO o resto do estado**, por um
+// motivo específico: esta chave precisa ser lida ANTES DO PRIMEIRO QUADRO. O
+// `<body>` nasce `mode-simple` justamente para a tela certa aparecer sem
+// esperar JS nenhum, e uma leitura do IDB é assíncrona — ela só volta depois de
+// o app já ter pintado o simplificado. Quem tivesse deixado o avançado veria a
+// tela errada e ela trocaria embaixo do dedo, no meio do primeiro toque.
+// `localStorage` é síncrono, e vive no mesmo `app_webview/` do IDB: mesma
+// durabilidade, mesma regra de backup, some junto numa desinstalação.
+//
+// UMA fonte, não duas: gravar nos dois lugares "por garantia" só cria o dia em
+// que eles discordam e ninguém sabe qual vale.
+const APP_MODE_KEY = 'av.appMode';
+function storedAppMode() {
+  // `localStorage` lança quando o armazenamento está bloqueado (aba anônima de
+  // certos navegadores). O padrão do app é o simplificado, então o `catch` já
+  // é a resposta certa — não há o que tratar.
+  try { return localStorage.getItem(APP_MODE_KEY) === 'full' ? 'full' : 'simple'; }
+  catch (_) { return 'simple'; }
+}
+let appMode = storedAppMode();
+// Só a PINTURA aqui, no topo do arquivo: é a única parte que não pode esperar.
+// O resto de `setAppMode` (segmento das Configurações, render do simplificado,
+// o vazado da faixa de abas) roda no `init()`, quando o módulo inteiro já
+// existe e a faixa de abas já tem largura para ser medida.
+document.body.classList.toggle('mode-simple', appMode === 'simple');
+simpleModeEl.classList.toggle('open', appMode === 'simple');
+
 const mixerEl = document.getElementById('mixer');
 const volToggleEl = document.getElementById('volToggle');
 const volCloseEl = document.getElementById('volClose');
@@ -115,7 +149,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.65';
+const WEB_VERSION = '5.66';
 
 // Escrita UMA vez, na carga: o indicador mora no rodapé de Configurações desde
 // a v5.49 e não depende mais de qual aba está aberta (no cabeçalho ele
@@ -8186,23 +8220,36 @@ let volSeekingEl = null;
 // O app atende duas pessoas diferentes: quem só precisa conectar a tela e
 // tocar um louvor, e o sonoplasta que opera o culto inteiro.
 //
-// **Abre SEMPRE no simplificado**, sem perguntar nada: é o caso mais comum, e
-// uma pergunta na abertura cobra um toque de todo mundo — inclusive de quem
-// nem sabia que havia dois modos — antes de mostrar qualquer coisa útil. O
-// avançado fica a um toque, no botão do cabeçalho (e no segmento "Modo do app"
-// do popup de Exibição, para voltar). A escolha vale só para a sessão: cada
-// abertura recomeça no simplificado.
+// **Abre no simplificado sem perguntar nada** — mas só até alguém escolher o
+// contrário. Nunca há uma pergunta na abertura: ela cobraria um toque de todo
+// mundo, inclusive de quem nem sabia que havia dois modos, antes de mostrar
+// qualquer coisa útil. O que existe é MEMÓRIA: a partir da v5.66 o app reabre
+// no último modo usado (ver `storedAppMode`, no topo do arquivo).
+//
+// A escolha era só da sessão, e o argumento era que o simplificado é o caso
+// mais comum. Ele continua sendo — para quem nunca escolheu. Mas quem opera o
+// culto TODA semana escolhia o avançado toda semana, e um app que esquece uma
+// preferência explícita a cada abertura está cobrando o mesmo toque para
+// sempre. O risco do outro lado — cair no avançado sem querer e reabrir nele —
+// custa um toque no "← Modo simplificado" do cabeçalho, que é o par visível do
+// botão que levou até ali (v5.49).
+//
+// O avançado fica a um toque, no botão do cabeçalho, e o segmento "Modo do app"
+// do popup de Configurações é o mesmo destino, junto das demais preferências.
 //
 // O simplificado não é uma segunda implementação do transporte: os botões
 // dele acionam os MESMOS controles do modo avançado por `.click()` (o mesmo
 // padrão da notificação nativa), e o volume passa pelo mesmo `applyVolume`.
 // Assim nenhuma regra de borda — texto sem áudio de fundo, YouTube que precisa
 // recarregar, mudo bloqueado pelo navegador — existe em dois lugares.
-let appMode = 'simple';         // o HTML já nasce com `body.mode-simple`
+// (`appMode` é declarado no TOPO do arquivo, junto de `storedAppMode`: a classe
+// do `<body>` precisa estar certa antes do primeiro quadro.)
 let lastDisplays = [];          // telas conectadas (ponte nativa)
 
 function setAppMode(mode) {
   appMode = mode === 'simple' ? 'simple' : 'full';
+  // A escolha é do operador, e ele não deveria refazê-la a cada abertura.
+  try { localStorage.setItem(APP_MODE_KEY, appMode); } catch (_) { /* storage bloqueado */ }
   document.body.classList.toggle('mode-simple', appMode === 'simple');
   simpleModeEl.classList.toggle('open', appMode === 'simple');
   renderAppModeSeg();
@@ -8440,9 +8487,14 @@ holdRepeat(simpleVolDownEl, () => simpleVolStep(-1));
     else openWebDisplay();
   });
 })();
-// Fecha o ciclo com o HTML: as classes já vêm do documento, aqui o estado do
-// JS (segmento do popup, espelho dos controles) nasce igual a elas.
-setAppMode('simple');
+// Fecha o ciclo com o HTML: as classes já vêm do documento (e, no modo
+// lembrado, já foram corrigidas no topo do arquivo), aqui o estado do JS
+// (segmento do popup, espelho dos controles) nasce igual a elas.
+// `appMode`, e NÃO a constante `'simple'` que estava aqui: com o modo lembrado
+// essa linha reescrevia o `localStorage` para "simple" em toda abertura, e o
+// avançado nunca sobrevivia a fechar o app — o defeito era invisível, porque a
+// tela ainda pintava certo até esta linha rodar.
+setAppMode(appMode);
 // Mesa de som nasce desligada (não é persistida); o segmento precisa nascer
 // dizendo isso, senão a primeira abertura de Configurações mostra dois botões
 // apagados e nenhuma escolha marcada.
@@ -9247,6 +9299,12 @@ document.addEventListener('visibilitychange', () => {
   // ANTES do load(): é ele que lê `current` e monta a tela a partir dela.
   await clearCurrentSelection();
   await load();
+  // A SEGUNDA METADE do modo lembrado. A classe do `<body>` já foi escrita no
+  // topo do arquivo (antes do primeiro quadro); falta o que depende do módulo
+  // pronto: o segmento das Configurações, os renders do simplificado e — no
+  // avançado — o vazado da faixa de abas, que só pode ser POSICIONADO agora,
+  // porque medir a faixa antes de `load()` a desenhar daria zero.
+  setAppMode(appMode);
   // Wallpaper escolhido pelo operador (a preview espelha o telão).
   await applyPvWallpaper();
   // processa share pendente (Web Share Target via SW)

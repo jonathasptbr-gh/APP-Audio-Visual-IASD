@@ -94,7 +94,7 @@ git push origin main
   MENOR que o já publicado — caso em que `WebUpdater.compareVersions` ignora o
   bundle em silêncio. Para saber onde a base está, leia `version.json`.
 
-  No app nativo o rótulo mostra os **dois índices** — `Web v5.65 · Shell v1.22`
+  No app nativo o rótulo mostra os **dois índices** — `Web v5.66 · Shell v1.22`
   —, porque base web e shell atualizam por caminhos independentes (OTA ×
   instalar APK); no navegador sai só `Controle v<versão>`. **Ele mora no rodapé
   do popup de Configurações** desde a v5.49 (antes ficava no cabeçalho da lista,
@@ -796,7 +796,8 @@ Bíblia, Camada de Texto, playlist, letra sincronizada, microfone. A tela que
 serve bem à segunda é excessiva para a primeira, e esconder recursos atrás de
 uma configuração só empurraria a escolha para um lugar onde ninguém procura.
 
-**O app abre SEMPRE no simplificado**, sem perguntar nada. A versão anterior
+**O app abre no simplificado sem perguntar nada** — e, desde a v5.66, no
+ÚLTIMO modo usado, para quem já escolheu. A versão anterior
 (v5.23) mostrava um seletor de modo na abertura; ele saiu porque cobrava um
 toque de todo mundo — inclusive de quem nem sabia que havia dois modos — antes
 de mostrar qualquer coisa útil, e o caso comum é justamente o simplificado.
@@ -815,9 +816,45 @@ do app** do popup de Exibição — hoje **Configurações** — (`#appModeSeg`,
 continua lá): quem tocasse em
 "Modo avançado" por curiosidade caía na mesa de som completa e a saída estava
 atrás de uma engrenagem sobre a preview — um caminho que ninguém adivinha. Sair
-tem de custar o mesmo tanto que entrar. A escolha vale só para a sessão: cada
-abertura recomeça no simplificado — quem abre o app hoje pode não ser quem abre
-no próximo culto.
+tem de custar o mesmo tanto que entrar.
+
+#### O modo é LEMBRADO entre aberturas (v5.66)
+
+A escolha valia só para a sessão, e o argumento era que quem abre o app hoje
+pode não ser quem abre no próximo culto. Ele não se sustentou: o app é do
+aparelho da igreja, e quem opera o culto TODA semana escolhia o avançado toda
+semana. Um app que esquece uma preferência explícita a cada abertura cobra o
+mesmo par de toques para sempre. O simplificado continua sendo o padrão — de
+quem **nunca escolheu nada**, que é o caso que o argumento original de fato
+descrevia.
+
+O risco do outro lado (cair no avançado sem querer e reabrir nele) custa um
+toque no "← Modo simplificado" do cabeçalho, que é o par visível do botão que
+levou até lá (v5.49) — e é justamente por isso que aquela volta existe.
+
+- **Fica em `localStorage`** (`av.appMode`), e não no IndexedDB como TODO o
+  resto do estado. O motivo é único e decisivo: esta chave precisa ser lida
+  **antes do primeiro quadro**. O `<body>` nasce `mode-simple` para a tela certa
+  aparecer sem esperar JS, e uma leitura do IDB é assíncrona — ela volta depois
+  de o app já ter pintado o simplificado, e quem tivesse deixado o avançado veria
+  a tela errada trocar embaixo do dedo, no meio do primeiro toque.
+  `localStorage` é síncrono e mora no mesmo `app_webview/` do IDB: mesma
+  durabilidade, mesma regra de backup, some junto numa desinstalação.
+- **UMA fonte, não duas.** Gravar nos dois lugares "por garantia" só cria o dia
+  em que eles discordam e ninguém sabe qual vale.
+- **A restauração é em duas metades.** No TOPO do `controle.js` vai só a
+  pintura — a classe do `<body>` e o `.open` do `#simpleMode` —, que é a única
+  parte que não pode esperar. O resto (`setAppMode(appMode)`) roda no `init()`,
+  **depois do `load()`**: no avançado ele posiciona o vazado da faixa de abas
+  (`moveTabIndicator`), e medir a faixa antes de `load()` desenhá-la daria zero.
+- **A armadilha que isto criou:** havia um `setAppMode('simple')` literal no
+  fim do módulo, para "fechar o ciclo com o HTML". Com a persistência ele passou
+  a reescrever o `localStorage` para `simple` em toda abertura, e o avançado
+  nunca sobrevivia a fechar o app — invisível na leitura do diff, porque a tela
+  ainda pintava certo até aquela linha rodar. Hoje é `setAppMode(appMode)`.
+- **`localStorage` pode LANÇAR** (armazenamento bloqueado). Leitura e escrita
+  ficam em `try`; o padrão do app é o simplificado, então o `catch` já é a
+  resposta certa e não há o que tratar.
 
 **A seta não é enfeite**: o rótulo sozinho nomeia um destino sem dizer que o
 toque TROCA de tela. Com ela o par se lê como ida e volta, que é o que ele é.

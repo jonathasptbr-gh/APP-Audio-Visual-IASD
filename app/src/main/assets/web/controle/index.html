@@ -25,9 +25,11 @@
   <link rel="stylesheet" href="../shared/tokens.css">
   <link rel="stylesheet" href="controle.css">
 </head>
-<!-- O app SEMPRE abre no modo simplificado; a classe já vem no HTML para a
-     tela certa aparecer sem esperar JS/IndexedDB. O modo avançado fica a um
-     toque, no botão do cabeçalho. -->
+<!-- A classe vem no HTML para a tela certa aparecer sem esperar JS/IndexedDB —
+     o simplificado é o padrão de quem nunca escolheu. Quem escolheu reabre no
+     ÚLTIMO modo usado, e a troca acontece ainda no topo do controle.js, numa
+     leitura SÍNCRONA (localStorage), antes do primeiro quadro: uma leitura do
+     IDB chegaria tarde e a tela trocaria embaixo do dedo. Ver "Modos de uso". -->
 <body class="mode-simple">
   <!-- MODO SIMPLIFICADO: conectar a tela, buscar a música, tocar. Os controles
        são os mesmos botões do modo completo acionados por `.click()` (ver
@@ -508,7 +510,9 @@
         <!-- Modo de uso: a mesma escolha da abertura, para trocar sem fechar o
              app. Nos dois modos o caminho curto é o botão do cabeçalho
              (`.mode-switch`); esta linha é o mesmo destino, junto das demais
-             preferências. -->
+             preferências. LEMBRADO entre aberturas desde a v5.66 — e é por isso
+             que ele mora aqui, entre as preferências, e não só nos dois botões
+             de ida e volta: escolher aqui é dizer como o app deve ABRIR. -->
         <div class="fade-row fade-row--fit">
           <span>Modo do app</span>
           <div class="fit-seg" id="appModeSeg">
@@ -576,7 +580,7 @@
              METADADO de diagnóstico e o lugar onde se procura diagnóstico é
              junto do estado do telão e do alvo de espelhamento, não numa faixa
              de navegação. Preenchido por `renderVersionLabel`. -->
-        <span id="appVersion" class="app-version">Controle v5.65</span>
+        <span id="appVersion" class="app-version">Controle v5.66</span>
       </div>
     </div>
   </div>
