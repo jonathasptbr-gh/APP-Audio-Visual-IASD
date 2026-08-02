@@ -90,7 +90,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.51';
+const WEB_VERSION = '5.52';
 
 // Escrita UMA vez, na carga: o indicador mora no rodapé de Configurações desde
 // a v5.49 e não depende mais de qual aba está aberta (no cabeçalho ele
@@ -7981,7 +7981,8 @@ tabsEl.addEventListener('click', (e) => {
 // Bíblia — reconhecidas pelo botão voltar visível), onde o eixo horizontal
 // pertence à navegação de dentro, não à de fora.
 const SWIPE_TABS = ['imports', 'bible', 'mic'];
-const TAB_SWIPE_MIN = 60;     // px — acima do limiar de 10px que a linha usa
+const TAB_SWIPE_MIN = 60;     // px — para TROCAR de aba
+const TAB_CLAIM_MIN = 12;     // px — para REIVINDICAR o gesto do navegador
 const TAB_SWIPE_RATIO = 1.5;  // quanto o eixo X precisa dominar o Y
 
 (function setupTabCarousel() {
@@ -8004,6 +8005,32 @@ const TAB_SWIPE_RATIO = 1.5;  // quanto o eixo X precisa dominar o Y
     if (!elegivel(e.target)) { pid = null; return; }
     pid = e.pointerId; x0 = e.clientX; y0 = e.clientY; done = false;
   });
+  // ===== Reivindicar o gesto ANTES de o navegador decidir =====
+  // O `touch-action: pan-y` da `.lib-list` diz ao navegador "o eixo horizontal
+  // é do app" — mas ele NÃO vale na aba Ferramentas: ali dentro há trilho que
+  // rola na horizontal (o histórico do sorteio), e `touch-action` de um
+  // ancestral se INTERSECTA com o do alvo, então um `pan-y` na lista tiraria o
+  // `pan-x` de lá. Sem a declaração o navegador continua achando que o gesto é
+  // dele: ao primeiro movimento ele assume a rolagem e manda `pointercancel`,
+  // muito antes dos 60px que o carrossel exige. Era exatamente isso que se via
+  // no aparelho — dava para ENTRAR em Ferramentas (o gesto começava numa aba
+  // com `pan-y`) e não dava para sair.
+  //
+  // Um `touchmove` NÃO passivo resolve para valer, e em toda tela: enquanto ele
+  // existe o navegador espera o handler decidir, e um `preventDefault()` no
+  // momento em que o movimento se revela HORIZONTAL tira a rolagem da jogada
+  // sem nunca atrapalhar um movimento vertical. O limiar aqui é curto de
+  // propósito (`TAB_CLAIM_MIN`) — reivindicar é uma decisão de EIXO, e ela
+  // precisa acontecer antes de o navegador tomar a dele; agir sobre a aba
+  // continua a cargo do `pointermove`, aos 60px.
+  mainEl.addEventListener('touchmove', (e) => {
+    if (pid === null || done || !e.cancelable) return;
+    const t = e.touches && e.touches[0];
+    if (!t) return;
+    const dx = t.clientX - x0, dy = t.clientY - y0;
+    if (Math.abs(dx) > TAB_CLAIM_MIN && Math.abs(dx) > Math.abs(dy) * TAB_SWIPE_RATIO) e.preventDefault();
+  }, { passive: false });
+
   mainEl.addEventListener('pointermove', (e) => {
     if (pid === null || e.pointerId !== pid || done) return;
     const dx = e.clientX - x0, dy = e.clientY - y0;

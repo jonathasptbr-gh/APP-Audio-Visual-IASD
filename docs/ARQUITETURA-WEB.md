@@ -94,7 +94,7 @@ git push origin main
   MENOR que o já publicado — caso em que `WebUpdater.compareVersions` ignora o
   bundle em silêncio. Para saber onde a base está, leia `version.json`.
 
-  No app nativo o rótulo mostra os **dois índices** — `Web v5.51 · Shell v1.22`
+  No app nativo o rótulo mostra os **dois índices** — `Web v5.52 · Shell v1.22`
   —, porque base web e shell atualizam por caminhos independentes (OTA ×
   instalar APK); no navegador sai só `Controle v<versão>`. **Ele mora no rodapé
   do popup de Configurações** desde a v5.49 (antes ficava no cabeçalho da lista,
@@ -805,7 +805,10 @@ A classe `mode-simple` **já vem no `<body>` do HTML** (e `.open` no
 mesmo motivo pelo qual o seletor nascia visível no documento.
 
 O **modo avançado** fica a um toque, no botão do cabeçalho ("Modo avançado"), e
-**a volta é o mesmo botão ao contrário**: `#fullSimpleBtn` ("Simplificado"), no
+**a volta é o mesmo botão ao contrário**: `#fullSimpleBtn` ("Modo simplificado"
+— o rótulo completo, igual ao da ida; "Simplificado" sozinho, na v5.51, nomeava
+o destino sem dizer que ele é um MODO, e o par só se lê como par quando as duas
+metades falam a mesma língua), no
 mesmo canto do cabeçalho da lista, mesmo componente (`.mode-switch`), seta
 apontando para o outro lado. Até a v5.48 a volta só existia no segmento **Modo
 do app** do popup de Exibição — hoje **Configurações** — (`#appModeSeg`, que
@@ -962,7 +965,7 @@ Dois detalhes que só aparecem em uso:
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│  [←] Cronograma        [busca][sync]  [← Simplificado]  │ ← .list-header (topo; sem appbar)
+│ [←] Cronograma      [busca][sync] [← Modo simplificado] │ ← .list-header (topo; sem appbar)
 │  ┌───────────────────────────────────────────────────┐  │
 │  │  item 1                                           │  │  ← .lib-list
 │  │  item 2                                           │  │     (área scrollável)
@@ -1618,12 +1621,25 @@ app não existia aqui: só o toque no ícone. `setupTabCarousel` escuta o
   usá-lo. O deslize da linha saiu; o eixo horizontal ficou livre.
 - **`touch-action: pan-y` em `.lib-list:not(.lib-misc)`**: a lista só rola na
   vertical, e declarar isso entrega o eixo horizontal ao app. Sem a declaração o
-  navegador ainda considera o gesto seu (`manipulation`, herdado do `*`) e pode
-  engoli-lo com um `pointercancel` — a falha mais difícil de diagnosticar,
-  porque depende do aparelho. Fica de fora a lista de Ferramentas, que tem trilhos
+  navegador ainda considera o gesto seu (`manipulation`, herdado do `*`) e o
+  engole com um `pointercancel` ao primeiro movimento — muito antes dos 60px que
+  o carrossel exige. Fica de fora a lista de **Ferramentas**, que tem trilho
   rolando na HORIZONTAL dentro dela (o histórico do sorteio): `touch-action` de
   um ancestral se INTERSECTA com o do alvo, então um `pan-y` ali tiraria o
   `pan-x` de lá.
+- **E por isso o gesto também é REIVINDICADO em JS** (v5.52), o que cobre a
+  aba que a declaração não alcança: um `touchmove` **não passivo** no `<main>`
+  chama `preventDefault()` assim que o movimento se revela horizontal
+  (`TAB_CLAIM_MIN`, 12px, com a mesma dominância de eixo). Enquanto existe um
+  listener não passivo o navegador ESPERA o handler decidir, então a rolagem
+  nunca chega a começar; um movimento vertical não é tocado. Sem isto dava para
+  ENTRAR em Ferramentas (o gesto começava numa aba com `pan-y`) e não dava para
+  sair — reproduzido com eventos de toque reais, e o defeito volta assim que o
+  `preventDefault` é removido. Reivindicar é decisão de EIXO e acontece cedo
+  (12px); TROCAR de aba continua a cargo do `pointermove`, aos 60px.
+  O `touchmove` só age quando o `pointerdown` armou o gesto, então um deslize
+  que comece no histórico do sorteio (inelegível) segue sendo do trilho —
+  conferido: ele rola e a aba não muda.
 - **Nem em sub-tela** (pasta aberta, capítulo/leitura da Bíblia), reconhecida
   pelo `#backBtn` visível: ali o eixo horizontal pertence à navegação de dentro.
   Também ficam de fora campos de texto e trilhos que rolam na horizontal (as
