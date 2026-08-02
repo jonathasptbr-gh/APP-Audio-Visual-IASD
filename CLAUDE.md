@@ -233,7 +233,7 @@ Além disso, `native.js` publica **quatro globais** lidas direto (sem Promise):
 o `versionName` do APK, que é o **índice de versão do shell exibido ao
 operador**. Ele não se confunde com `__SHELL_VERSION__`: base web e shell
 atualizam por caminhos independentes (OTA × instalar APK), então o rodapé de
-**Configurações** mostra os dois (`Web v5.52 · Shell v<versionName do APK>`,
+**Configurações** mostra os dois (`Web v5.53 · Shell v<versionName do APK>`,
 montado em `renderVersionLabel`; até a v5.48 ficava no cabeçalho do Cronograma —
 saiu de lá porque metadado de diagnóstico pertence à mesma tela do estado do
 telão, não a uma faixa de navegação). Num shell antigo (sem
@@ -909,13 +909,17 @@ obedece. A ordem vai do mais efêmero ao mais permanente, que é a ordem em que
 as coisas foram abertas:
 
 1. diálogo modal (cancela, como o botão Cancelar)
-2. bottom-sheet aberto (o de cima, se houver mais de um)
-3. preview em tela cheia — que, sem telão conectado, **é** a projeção
-4. coluna do mixer aberta no fader
-5. seleção múltipla
-6. sub-tela com voltar próprio (pasta, Favoritos, telas da Bíblia) → `navigateBack()`
-7. aba diferente do Cronograma → volta para ele
-8. nada aberto → `moveTaskToBack`
+2. dentro da gaveta de Favoritos: seleção múltipla, depois a pasta aberta — a
+   hierarquia de DENTRO vem antes da gaveta, e a seleção antes da pasta porque
+   ela é do conteúdo dela
+3. bottom-sheet aberto (o de cima, se houver mais de um — a gaveta de Favoritos
+   é um deles)
+4. preview em tela cheia — que, sem telão conectado, **é** a projeção
+5. coluna do mixer aberta no fader
+6. seleção múltipla (a da lista de baixo, sem gaveta aberta)
+7. sub-tela com voltar próprio (telas da Bíblia) → `navigateBack()`
+8. aba diferente do Cronograma → volta para ele
+9. nada aberto → `moveTaskToBack`
 
 A tabela de popups é **a mesma** que registra o ✕ e o toque no fundo
 (`POPUPS`): um popup novo entra numa linha e já é fechável pelos três caminhos.
@@ -1203,7 +1207,7 @@ aparelho nenhum.
 O `versionCode`/`versionName` do APK vêm do CI (ver "Build") e não se tocam à
 mão.
 
-**Versão atual: v5.52** (base web) · `SHELL_VERSION` **14**, e o bundle segue com
+**Versão atual: v5.53** (base web) · `SHELL_VERSION` **14**, e o bundle segue com
 `minShell: 2` — ele funciona igual num shell antigo, só sem os recursos que são
 nativos por construção (a escada do voltar, os botões de volume, a notificação de
 controles), que **só chegam instalando o APK novo**, não pelo OTA.

@@ -94,7 +94,7 @@ git push origin main
   MENOR que o já publicado — caso em que `WebUpdater.compareVersions` ignora o
   bundle em silêncio. Para saber onde a base está, leia `version.json`.
 
-  No app nativo o rótulo mostra os **dois índices** — `Web v5.52 · Shell v1.22`
+  No app nativo o rótulo mostra os **dois índices** — `Web v5.53 · Shell v1.22`
   —, porque base web e shell atualizam por caminhos independentes (OTA ×
   instalar APK); no navegador sai só `Controle v<versão>`. **Ele mora no rodapé
   do popup de Configurações** desde a v5.49 (antes ficava no cabeçalho da lista,
@@ -965,12 +965,13 @@ Dois detalhes que só aparecem em uso:
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│ [←] Cronograma      [busca][sync] [← Modo simplificado] │ ← .list-header (topo; sem appbar)
+│  Cronograma                     [← Modo simplificado]   │ ← .list-header (topo; sem appbar)
 │  ┌───────────────────────────────────────────────────┐  │
 │  │  item 1                                           │  │  ← .lib-list
 │  │  item 2                                           │  │     (área scrollável)
 │  └───────────────────────────────────────────────────┘  │
-│  [+ Importar] [★ Favoritos]  ← última linha do Cronograma │
+│  [+ Importar] [★ Favoritos]   ← última linha do Cronograma │
+│      (Favoritos abre a GAVETA que desce do topo)        │
 │ [Cronograma] [Bíblia] [Ferramentas] [🔍]                │  ← .tabs (segmentado)
 ├─────────────────────────────────────────────────────────┤
 │  ┌─────────────────────────────────────┬──────┐         │  ← .bottombar (base fixa)
@@ -988,14 +989,20 @@ Dois detalhes que só aparecem em uso:
 lista. `main` ganhou `padding-top` com `env(safe-area-inset-top)` (a antiga
 appbar cuidava do notch/status bar).
 
-**Cabeçalho da lista (`.list-header`):** botão voltar (dentro de pasta), título
-da aba/pasta (`.list-title`, **.84rem** desde a v5.51 — em .72rem o único texto
-que responde "onde eu estou" era menor que o subtítulo de qualquer linha da
-lista, e a faixa passou a ter espaço quando a versão saiu dela), campo de busca (dentro de pasta OPFS), botão de sincronizar pasta
-do dispositivo (só na raiz dos **Favoritos**) e, sempre no canto direito, a
-**volta para o modo simplificado** (`#fullSimpleBtn`, `margin-left: auto` — o
-par de troca de modo tem de estar sempre no mesmo canto, e o `auto` garante
-isso mesmo numa tela em que o título não ocupe a linha). O
+**Cabeçalho da lista (`.list-header`):** TRÊS elementos, e é esse o ponto —
+botão voltar (só na navegação da Bíblia), título da aba (`.list-title`,
+**.84rem** desde a v5.51 — em .72rem o único texto que responde "onde eu estou"
+era menor que o subtítulo de qualquer linha da lista) e, sempre no canto
+direito, a **volta para o modo simplificado** (`#fullSimpleBtn`,
+`margin-left: auto` — o par de troca de modo tem de estar sempre no mesmo
+canto, e o `auto` garante isso mesmo numa tela em que o título não ocupe a
+linha).
+
+A faixa já teve seis: o campo de busca da pasta e o botão de sincronizar
+**foram com os Favoritos para a gaveta** (v5.53) e o indicador de versão desceu
+para Configurações (v5.49). Eram esses três que faziam dela a faixa mais
+disputada do app — e o sintoma era objetivo: numa tela de 360px a raiz dos
+Favoritos cortava o próprio título com reticências. O
 **indicador de versão** morava aqui e foi para o rodapé de Configurações na
 v5.49: o cabeçalho é navegação, o texto completo (`Web vX · Shell vY`) comia
 quase metade da largura de um celular, e ele só aparecia numa das abas — o mesmo
@@ -1577,12 +1584,12 @@ Duas regras de cor dentro do trilho:
 - **Favoritos** (`activeTab` segue sendo `'folders'`) — atalhos criados pelo
   operador e pastas do dispositivo sincronizadas no OPFS. Continua sendo um
   `activeTab` (com toda a navegação interna: abrir, buscar, sincronizar), mas
-  chega-se a ela pelo **botão ao lado de "Importar arquivos"**, no fim do
-  Cronograma: as duas respondem à mesma pergunta — "de onde vem a mídia?" — e
-  ficam onde o resultado delas aparece. O `#backBtn` passa a aparecer também
-  na **raiz** dos Favoritos (é a única saída de lá) e `navigateBack()` volta
-  ao Cronograma; `renderTabs()` mantém o Cronograma aceso enquanto se está
-  neles, para a faixa não ficar sem nada marcado.
+  desde a v5.53 é uma **gaveta que desce do topo** (ver a seção própria),
+  aberta pelo **botão ao lado de "Importar arquivos"**, no fim do Cronograma:
+  as duas respondem à mesma pergunta — "de onde vem a mídia?" — e ficam onde o
+  resultado delas aparece. O voltar e o sincronizar moram no cabeçalho DA
+  GAVETA; `renderTabs()` mantém o Cronograma aceso enquanto ela está aberta,
+  porque é ele que está atrás.
 - **Mensagens** — foi para a aba **Ferramentas** (v5.31), como seção do
   acordeão. Antes era um botão flutuante sobre a preview; ver abaixo.
 
@@ -1723,10 +1730,43 @@ indicados **só pelo realce** (`.lib-item.selected` — borda `--accent` + fundo
 reservada). Excluir dentro de pasta virtual só remove da pasta; nas demais abas
 usa `listRemove` (com gc).
 
-### Favoritos (atalhos + pastas do dispositivo)
+### Favoritos: a gaveta do topo (atalhos + pastas do dispositivo)
 
-A tela é a **seção de atalhos organizados** do app: o caminho curto para o que
-o operador usa toda semana. O mecanismo por baixo é o mesmo de sempre — pastas
+É a **seção de atalhos organizados** do app: o caminho curto para o que o
+operador usa toda semana. Desde a v5.53 ela é uma **gaveta que desce do topo**
+(`#favPopup`), aberta pelo botão "Favoritos" no fim do Cronograma.
+
+**Por que saiu da lista.** Era uma tela do `#library` como as outras, e por isso
+disputava o cabeçalho com o resto do app: ela é a única que precisa de
+**voltar + título + busca + sincronizar** ao mesmo tempo, numa faixa que também
+carrega a troca de modo. Numa tela de 360px isso não cabia — o título saía com
+reticências. Como gaveta ela traz o **próprio cabeçalho** (`renderFavHeader`) e
+devolve o de baixo ao que ele é: um rótulo de aba com três elementos.
+
+**O `activeTab` continua `'folders'` enquanto a gaveta está aberta**, e essa é a
+decisão que mantém o custo baixo: abrir/fechar/navegar/selecionar/excluir
+seguem sendo o mesmo código de sempre. O que mudou foi **o container em que a
+lista é desenhada** — `listHost()` devolve `#favList` quando o `activeTab` é
+`'folders'` e `#library` no resto. Uma segunda implementação da lista de
+favoritos divergiria da primeira no primeiro ajuste.
+
+Três consequências que só aparecem em uso, e as três estão tratadas:
+
+- **A barra de seleção múltipla é MOVIDA para dentro da folha** (`hostSelbar`):
+  ela vive no `main`, atrás da gaveta, e selecionar itens dentro de uma pasta
+  deixaria a barra invisível. É o mesmo padrão do `<input type="file">`, que já
+  muda de casa a cada render — um nó só, movido, em vez de dois que divergem.
+  No `main` o lugar dela é o fim (depois da faixa de abas), que é exatamente
+  onde o `appendChild` a devolve.
+- **O voltar do aparelho tem a hierarquia de DENTRO primeiro** (`__avBack`,
+  passo 1.5): seleção múltipla → pasta aberta → gaveta. A seleção vem antes da
+  pasta porque ela é do conteúdo DELA: sair da pasta com a seleção de pé
+  deixaria itens marcados numa lista que não é mais a deles.
+- **Fechar volta para a RAIZ.** Uma gaveta reabre no topo; reaparecer dentro de
+  um atalho que o operador fechou há dois toques seria uma memória que ninguém
+  pediu. A posição de ROLAGEM, essa sim, continua guardada por `scrollPos`.
+
+O mecanismo por baixo é o mesmo de sempre O mecanismo por baixo é o mesmo de sempre — pastas
 virtuais (`state.folders` + `folder_<id>`) e pastas do dispositivo
 sincronizadas no OPFS (`state['opfs-folders']`), com as MESMAS chaves de state
 (renomear a leitura não pode custar a biblioteca de ninguém) —, o que mudou é o

@@ -139,13 +139,11 @@
            de uso privado da fonte (na prática, "sem rótulo"). O aria-label não
            é redundante com o title: o title é fallback na ordem de cálculo do
            nome acessível e nem toda combinação de leitor/navegador o usa. -->
+      <!-- O voltar serve HOJE só à navegação da Bíblia: a tela de Favoritos,
+           que era a outra dona dele, virou a gaveta `#favPopup` e levou junto o
+           próprio voltar, a busca da pasta e o botão de sincronizar. -->
       <button id="backBtn" class="back-btn" title="Voltar" aria-label="Voltar" hidden><span class="msym" aria-hidden="true">&#xe5c4;</span></button>
       <span class="list-title" id="listTitle">Cronograma</span>
-      <input id="libSearch" class="lib-search" type="search" placeholder="Buscar na pasta…" hidden>
-      <!-- Setas circulares = "sincronizar" (o mesmo desenho dos cards de coleção
-           e do botão de re-sync na linha da pasta). folder_open fica reservado
-           à IDENTIDADE de pasta, nunca à ação. -->
-      <button id="addDirBtn" class="add-dir-btn" hidden title="Sincronizar pasta do dispositivo"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></button>
       <!-- A volta para o modo simplificado. Mesmo componente, mesmo canto e a
            seta invertida do botão que traz o operador para cá (ver a
            `.simple-head`). Está no CABEÇALHO, e não numa configuração, porque
@@ -546,7 +544,7 @@
              METADADO de diagnóstico e o lugar onde se procura diagnóstico é
              junto do estado do telão e do alvo de espelhamento, não numa faixa
              de navegação. Preenchido por `renderVersionLabel`. -->
-        <span id="appVersion" class="app-version">Controle v5.52</span>
+        <span id="appVersion" class="app-version">Controle v5.53</span>
       </div>
     </div>
   </div>
@@ -592,6 +590,45 @@
         <button id="collPopupClose" class="popup-close" title="Fechar"><span class="msym" aria-hidden="true">&#xe14c;</span></button>
       </div>
       <div class="coll-opts" id="collOpts"></div>
+    </div>
+  </div>
+
+  <!-- FAVORITOS: a GAVETA que desce do topo (v5.53). Era uma tela da lista
+       (`activeTab === 'folders'`) alcançada pelo botão no fim do Cronograma, e
+       isso a fazia disputar o cabeçalho com o resto do app: ela era a única
+       que precisava de voltar, título, busca E botão de sincronizar ao mesmo
+       tempo — quatro coisas numa faixa que também carrega a troca de modo. Como
+       gaveta ela traz o próprio cabeçalho e devolve o de baixo para o que ele
+       é, um rótulo de aba.
+       O `activeTab` CONTINUA sendo `'folders'` enquanto ela está aberta: toda a
+       navegação interna (abrir atalho/pasta, buscar, seleção múltipla, excluir)
+       segue funcionando como sempre — o que mudou foi o CONTAINER em que a
+       lista é desenhada (ver `listHost()` em controle.js).
+       Desce do topo como a bandeja do acervo, e pelo mesmo motivo: com o
+       teclado aberto (a busca dentro de uma pasta), uma folha que sobe da base
+       ficaria coberta por ele. -->
+  <div id="favPopup" class="popup-backdrop popup-backdrop--full">
+    <div class="popup-sheet popup-sheet--full" id="favSheet">
+      <div class="popup-header">
+        <!-- Dentro de um atalho/pasta o voltar sobe um nível; na raiz ele nem
+             aparece, porque ali quem fecha é o ✕ (e o voltar do aparelho, que
+             passa pela mesma tabela POPUPS). -->
+        <button id="favBack" class="back-btn" title="Voltar" aria-label="Voltar" hidden><span class="msym" aria-hidden="true">&#xe5c4;</span></button>
+        <span class="msym popup-header-icon" id="favIcon" aria-hidden="true">&#xe838;</span>
+        <span class="popup-title" id="favTitle">Favoritos</span>
+        <!-- Setas circulares = "sincronizar" (o mesmo desenho dos cards de
+             coleção e do botão de re-sync na linha da pasta). folder_open fica
+             reservado à IDENTIDADE de pasta, nunca à ação. -->
+        <button id="addDirBtn" class="add-dir-btn" hidden title="Sincronizar pasta do dispositivo"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></button>
+        <button id="favClose" class="popup-close" title="Fechar"><span class="msym" aria-hidden="true">&#xe14c;</span></button>
+      </div>
+      <!-- A busca só existe dentro de uma pasta do dispositivo (catálogo em
+           memória). Mesmo elemento de sempre — só mudou de endereço junto com
+           a tela. -->
+      <div class="hymn-search-bar" id="favSearchBar" hidden>
+        <input id="libSearch" class="lib-search" type="search" placeholder="Buscar na pasta…">
+      </div>
+      <ul id="favList" class="popup-list"></ul>
     </div>
   </div>
 
