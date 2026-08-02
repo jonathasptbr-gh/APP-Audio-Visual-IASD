@@ -74,15 +74,27 @@ git push origin main
   dispositivo, compartilhamento, fullscreen, atualização) estão tabelados em
   `../CLAUDE.md`, "Divergências entre o caminho web e o nativo".
 - **A cada atualização de código, incrementar a versão visual do Controle** em
-  **três lugares que precisam bater**: a constante `WEB_VERSION` em
-  `controle/controle.js` (é ela que o cabeçalho renderiza — ver
-  `renderVersionLabel()`), o fallback estático do `<span id="appVersion">` em
-  `controle/index.html` e `version` em `version.json` (é este último que
-  dispara a atualização por OTA nos aparelhos). Versionamento incremental
-  simples (5.26, 5.27, 5.28…). **Versão atual: v5.28.**
-  No app nativo o rótulo mostra os **dois índices** — `Web v5.17 · Shell v1.18`
+  **três lugares que precisam bater**:
+  1. `version` em `assets/web/version.json` — **a fonte da verdade**. É este
+     valor que o `WebUpdater` compara e que dispara (ou não) a atualização por
+     OTA nos aparelhos.
+  2. a constante `WEB_VERSION` em `controle/controle.js` — é ela que o
+     cabeçalho renderiza (`renderVersionLabel()`). Esquecê-la é o erro mais
+     traiçoeiro dos três: o OTA entrega o bundle novo e o aparelho continua
+     **exibindo a versão antiga**, que é exatamente a leitura que o indicador
+     existe para dar.
+  3. o fallback estático do `<span id="appVersion">` em `controle/index.html`
+     — o que aparece antes de o JS rodar.
+
+  Versionamento incremental simples (5.46, 5.47, 5.48…). **Este documento não
+  registra a versão corrente**: um número fixo aqui é a 19ª cópia a
+  desatualizar, e quem partisse dela escreveria em `version.json` um valor
+  MENOR que o já publicado — caso em que `WebUpdater.compareVersions` ignora o
+  bundle em silêncio. Para saber onde a base está, leia `version.json`.
+
+  No app nativo o rótulo mostra os **dois índices** — `Web v5.48 · Shell v1.22`
   —, porque base web e shell atualizam por caminhos independentes (OTA ×
-  instalar APK); no navegador sai só `Controle v5.28`.
+  instalar APK); no navegador sai só `Controle v<versão>`.
 
 ---
 
@@ -123,6 +135,7 @@ itens de URL externa e a primeira sincronização do acervo LouvorJA.
 app/src/main/assets/web/
 ├── version.json                # identidade do bundle OTA (version + minShell)
 ├── shared/
+│   ├── tokens.css              # A PALETA — fonte única, carregada pelos DOIS apps
 │   ├── native.js               # ponte AVNative (só existe no app; no-op no navegador)
 │   ├── db.js                   # Camada comum: IndexedDB + OPFS + BroadcastChannel (+ relay nativo)
 │   ├── stage.js                # Motor de renderização compartilhado
@@ -165,16 +178,40 @@ arquivos sincronizados no OPFS. `thumb` pode ser um `Blob`
 (miniatura gerada via Canvas) ou uma **string URL** (ex: thumbnail
 `hqdefault.jpg` do YouTube).
 
-> **Atenção:** qualquer código que abra o banco fora de `db.js` (ex:
-> `storePendingShare` no SW do Controle) deve usar `indexedDB.open('av-iasd')`
-> **sem número de versão**, para não quebrar com `VersionError` quando o schema
-> for atualizado. **Porém** esse open sem versão precisa de um
-> `onupgradeneeded` que crie ao menos o store `state`: numa **instalação
-> nova** (share recebido ANTES da 1ª abertura do app) o banco ainda não
-> existe e nasceria sem nenhum object store, fazendo o `transaction('state')`
-> lançar `NotFoundError` e perder o share silenciosamente. O `db.js` completa
-> o schema (media/files) no upgrade 1→2 seguinte, que checa
-> `if (!contains(...))` — sem conflito com o store criado pelo SW.
+**A conexão é memorizada; a FALHA não.** `openDB()` guarda a promise da
+conexão, mas zera esse cache no caminho de erro. Até a v5.47 a promise
+**rejeitada** também ficava memorizada: uma única falha do `indexedDB.open`
+(pressão de armazenamento, renderer se recuperando de um OOM) deixava o `AVDB`
+inteiro rejeitando para sempre, e o app ficava sem dados até ser fechado e
+reaberto — sem nenhum caminho de recuperação. Zerando o cache, a chamada
+seguinte simplesmente tenta de novo. O `forget()` confere se o cache ainda é
+*esta* promise antes de anulá-lo, senão um `openDB` posterior abriria uma
+terceira conexão à toa.
+
+**Os três eventos de ciclo de vida que faltavam**, e todos os três se resumem
+a "não deixar o chamador pendurado":
+
+- `db.onversionchange` — a **outra página** (Controle × Display, mesmo origin)
+  pediu um upgrade. Sem fechar a conexão daqui, ela bloqueia o upgrade de lá e
+  aquela página fica esperando para sempre, com a tela montada e sem dado
+  nenhum. Hoje o caso não chega a acontecer no app (o `beginSession` do shell
+  fixa um único bundle por sessão, logo um único `DB_VERSION`) — mas o dia em
+  que `DB_VERSION` subir de 2 para 3 é exatamente o dia em que ninguém vai
+  lembrar disto.
+- `req.onblocked` — a ponta oposta: se ALGUÉM não fechar a conexão velha, este
+  é o único aviso que existe. Sem ele o `open` não resolve **nem** rejeita.
+- `db.onclose` — o navegador pode fechar a conexão por fora numa falha de
+  armazenamento; o handle memorizado está morto e precisa ser reaberto.
+
+> **Atenção:** qualquer código que abra o banco fora de `db.js` deve usar
+> `indexedDB.open('av-iasd')` **sem número de versão**, para não quebrar com
+> `VersionError` quando o schema for atualizado — e precisa de um
+> `onupgradeneeded` que crie ao menos o store `state`, senão numa instalação
+> nova o banco nasceria sem nenhum object store e o `transaction('state')`
+> lançaria `NotFoundError`. Hoje **não há** nenhum abridor externo (o service
+> worker que gravava o share sumiu junto com os andaimes de PWA — ver
+> "Compartilhamento"); a regra fica registrada porque o `if (!contains(...))`
+> do upgrade 1→2 existe por causa dela.
 
 ### OPFS + catálogo (`files`)
 
@@ -187,7 +224,7 @@ e buscar centenas de arquivos é instantâneo (nunca toca o disco); o arquivo s�
 - OPFS pertence ao origin: **nenhuma permissão é pedida** para ler — nem no
   Controle, nem no Display (mesmo origin ⇒ mesmo OPFS).
 - `getMedia(id)` procura em `media` e cai para `files` — assim IDs do catálogo
-  entram em `playlist`/`imports`/pastas virtuais **sem copiar bytes**.
+  entram em `playlist`/`imports`/atalhos dos Favoritos **sem copiar bytes**.
 - O `gc()` das listas só apaga do store `media`; registros de `files`
   pertencem à sua pasta OPFS e só são removidos pela exclusão na pasta.
 - `renameMedia` cobre os dois stores (no catálogo, renomeia só a exibição;
@@ -219,8 +256,9 @@ O campo `kind` é derivado do `type` (ou definido pelo chamador para itens de UR
 | `fit` | `'contain'` \| `'cover'` \| `'fill'` — preenchimento da mídia (ajustar/preencher/esticar) no Display e na preview |
 | `lyricsBg` | `'black'` (padrão) \| `'image'` — fundo atrás da letra sincronizada: preto ou as imagens dos slides |
 | `wallpaper` | `Blob` da imagem escolhida para a cortina do telão, ou ausente/`null` = gradiente padrão (ver "Wallpaper personalizado") |
-| `folders` | `[{ id, name }]` — pastas virtuais |
-| `folder_<id>` | array de IDs de mídia da pasta |
+| `folders` | `[{ id, name }]` — atalhos dos Favoritos (as antigas "pastas virtuais") |
+| `folder_<id>` | array de IDs de mídia do atalho. **É um detentor de referência**, como as listas — ver o gc abaixo |
+| `downloadOk` | `true` depois que o operador autorizou o download sob demanda uma vez (modo simplificado — `ensureDownloadConsent`) |
 | `messages` | `[{ id, text }]` — mensagens de texto puro da aba Mensagens (ver "Camada de Texto") |
 | `opfs-folders` | `[{ id, name, count, syncedAt, handle? }]` — pastas sincronizadas no OPFS (`handle` acelera re-sync) |
 | `coll:<id>` | `{ indexSyncedAt, songs: [{ id_music, track, name, duration, has_instrumental_music, fileIdFull, fileIdPlayback }] }` — índice offline de UMA coleção do LouvorJA (`coll:hymnal-2022`, `coll:hymnal-1996`, `coll:album-<id>`) — ver "Coleções de mídia (LouvorJA)" |
@@ -230,8 +268,12 @@ O campo `kind` é derivado do `type` (ou definido pelo chamador para itens de UR
 | `bibleVersion` | id da versão da Bíblia selecionada pelo operador |
 | `bible:<v>_<b>_<c>` | `{ verses: [{ n, text }], syncedAt }` — texto de UM capítulo (`bible_{v}_{b}_{c}`); a versão inteira é baixada na 1ª vez que a aba é usada (e cada capítulo também sob demanda como fallback) |
 | `bibleComplete:<v>` | `true` quando a versão `<v>` foi baixada por completo (todos os capítulos) — evita refazer o download em massa |
+| `lyrics:<collId>` | acervo de LETRAS por coleção: `{ <id_music>: [{ a: rótulo\|null, l: [linhas] }] }`, ou `0` marcando "esta música não tem letra". É o que a BUSCA consome — ver "Acervo de LETRAS" |
+| `chronoPrefs` | preferências do cronômetro/relógio/timer (modo, duração, formato, legenda, mais o campo `v` de versão do registro). A contagem em curso **não** é persistida |
+| `drawPrefs` | sorteio: faixa/lista de opções, "não repetir", histórico e o último resultado — este **é** persistido (ver "Diversos: sorteio") |
+| `migSemNumeroAlbuns` | marca de passagem única: os arquivos já baixados de coleções que não numeram tiveram o prefixo `N. ` removido (ver "O número é do HINÁRIO") |
 | `hymnal2022` | legado — migrado para `coll:hymnal-2022` no `loadCollections()` (a chave antiga permanece, ignorada) |
-| `pending-share` | `{ files, url, title, ts }` — share recebido pelo SW aguardando processamento |
+| `pending-share` | legado — era o share que o service worker gravava aguardando processamento. O SW saiu; hoje o share chega pela ponte nativa, mas `checkPendingShare()` ainda **lê** esta chave, para não perder um share gravado por uma versão anterior |
 | `order` | legado — lido apenas como fallback de `imports` |
 | `favorites` | legado (recurso de favoritos removido) — array de IDs; não é mais lido nem gravado, ignorado |
 | `linked-folders` | legado (pastas vinculadas por handle) — substituído por `opfs-folders`; ignorado |
