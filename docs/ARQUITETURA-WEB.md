@@ -94,7 +94,7 @@ git push origin main
   MENOR que o já publicado — caso em que `WebUpdater.compareVersions` ignora o
   bundle em silêncio. Para saber onde a base está, leia `version.json`.
 
-  No app nativo o rótulo mostra os **dois índices** — `Web v5.68 · Shell v1.22`
+  No app nativo o rótulo mostra os **dois índices** — `Web v5.69 · Shell v1.22`
   —, porque base web e shell atualizam por caminhos independentes (OTA ×
   instalar APK); no navegador sai só `Controle v<versão>`. **Ele mora no rodapé
   do popup de Configurações** desde a v5.49 (antes ficava no cabeçalho da lista,
@@ -494,6 +494,9 @@ que estado (view) a mídia foi carregada.
 - **`computeCover()`**: `!current || ended || view === 'wallpaper'` — a
   cortina deve cobrir sempre que não há mídia, ela "terminou" (`ended`,
   aguardando replay) ou o operador pediu `view='wallpaper'`.
+  Repare que os dois primeiros termos **não dependem da view**: sem mídia em
+  cena a cortina cobre nos dois valores dela. É disso que sai a guarda de
+  `setViewFaded` descrita abaixo.
 - **`instantCover(show)`** / **`coverIn(rampAudio)`** / **`coverOut()`**: as
   três únicas funções que tocam o elemento do wallpaper. `coverIn`/`coverOut`
   fazem fade (conforme `fadeOut`/`fadeIn` e `fadeTime`) e usam `coverSeq` para
@@ -783,6 +786,25 @@ descarta se um `setViewFaded` mais novo assumiu (`viewSeq`) **ou** se um
 `load`/`clear` assumiu a cena no meio do fade (`loadSeq`) — nesses casos quem
 chegou depois já decidiu o estado final da cortina. Ações exclusivas
 (`load`/`clear`) continuam podendo cancelar um `load`; trocar a view, não.
+
+#### Sem nada em cena, trocar a view não transiciona (v5.69)
+
+`setViewFaded` compara `computeCover()` **antes e depois** de trocar a view e
+volta cedo quando o resultado é o mesmo. Sem mídia — ou com a que havia já
+terminada — a cortina cobre nos dois valores da view (os termos `!current` e
+`ended` não dependem dela), então não há transição nenhuma a fazer.
+
+Fazer uma era o defeito: `coverOut()` esmaecia o wallpaper por 0,6 s sobre o
+VAZIO, que é **preto**, e o `instantCover(computeCover())` do fim o recolocava.
+Do lado de quem opera, descobrir o telão sem mídia nenhuma **"piscava preto e
+voltava"** — uma reação forte para um botão que ali não muda nada do que está
+projetado. Só a direção `wallpaper → visual` sofria: na oposta, `coverIn` já
+voltava cedo por `coveredNow`.
+
+A exceção é o parâmetro **`overlay`** (`stage.handle({ type:'view', overlay:true })`),
+que o Display passa quando o cartão de texto está no ar: ali existe uma camada
+por cima do stage, descobrir revela alguma coisa, e o fade tem de acontecer. O
+stage sozinho não tem como saber disso — ele só enxerga o que ele mesmo desenha.
 
 ---
 
@@ -4057,6 +4079,12 @@ reengoliria o versículo logo depois do fade. Por isso, ao voltar de um
 `view:'visual'`, o Display **reafirma a cortina aberta** — reconferindo
 `textActive`, porque o fade dura 0,6 s e nesse intervalo o texto pode ter saído
 de cena, caso em que quem manda é o `restoreSceneAfterText`.
+
+E é pela mesma razão que essa chamada passa **`overlay: true`** (v5.69): o stage
+só enxerga o que ele mesmo desenha, e sem mídia a cortina cobre nos dois valores
+de view — a guarda de `setViewFaded` (abaixo) pularia a transição inteira e o
+versículo apareceria seco, sem o fade. O `overlay` é o aviso de que existe uma
+camada por cima do stage, então descobrir revela ALGUMA coisa.
 
 **Sair do texto devolve a cena** (`hideText(restore)` → `restoreSceneAfterText()`,
 espelhado por `hidePvText`/`restorePvSceneAfterText` na preview): vídeo, imagem e

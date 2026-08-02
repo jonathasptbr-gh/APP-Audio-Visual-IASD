@@ -309,11 +309,24 @@
     // ido a opacity 0 e volume 0, o src novo nunca era aplicado, e o telão
     // ficava preto e mudo. Só ações exclusivas (load/clear) podem cancelar um
     // load; trocar a view, não.
-    async function setViewFaded(v) {
+    //
+    // `cmd.overlay` = quem chamou tem uma camada PRÓPRIA por cima do stage (o
+    // cartão de texto do Display), então descobrir revela alguma coisa mesmo
+    // sem mídia. Sem esse aviso o stage só enxerga o que ele mesmo desenha.
+    async function setViewFaded(v, overlay) {
       if (v === view) return;
       const seq = ++viewSeq;
       const lseq = loadSeq;
+      const antes = computeCover();
       view = v;
+      // NADA EM CENA: a cortina cobre nos DOIS valores de view (computeCover
+      // devolve true por `!current`/`ended`, independentemente dela), então não
+      // há transição a fazer. Fazer uma era o defeito: `coverOut` esmaecia o
+      // wallpaper sobre o VAZIO — que é preto — e o `instantCover` do fim o
+      // recolocava. Do lado de quem opera, descobrir o telão sem mídia nenhuma
+      // "piscava preto e voltava", uma reação forte para um botão que ali não
+      // muda nada do que está projetado.
+      if (computeCover() === antes && !overlay) return;
       if (v === 'wallpaper') {
         await coverIn(false);
       } else {
@@ -595,7 +608,7 @@
     function handle(cmd) {
       switch (cmd.type) {
         case 'load': return load(cmd.mediaId, cmd.view, cmd.muted, cmd.volume, cmd.time, cmd.playing);
-        case 'view': return setViewFaded(cmd.view);
+        case 'view': return setViewFaded(cmd.view, cmd.overlay);
         case 'mute': setMute(cmd.muted); break;
         case 'volume': if (typeof cmd.volume === 'number') setVolume(cmd.volume); break;
         case 'play': play(); break;
