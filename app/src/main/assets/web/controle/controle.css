@@ -1847,6 +1847,33 @@ main {
 .lib-search::-webkit-search-results-button,
 .lib-search::-webkit-search-results-decoration { -webkit-appearance: none; appearance: none; display: none; }
 
+/* ---------- Gaveta dos Favoritos ---------- */
+/* Desce do TOPO, como a bandeja do acervo — e pelo mesmo motivo: dentro de uma
+   pasta do dispositivo há um campo de busca, e uma folha que sobe da base fica
+   coberta pelo teclado. Ocupa a tela inteira (`--full`) porque é uma SEÇÃO com
+   navegação própria (raiz → atalho/pasta), não uma escolha rápida.
+   Era uma tela da lista até a v5.52; o que a tirou de lá foi o cabeçalho: ela
+   era a única que precisava de voltar, título, busca E sincronizar ao mesmo
+   tempo, numa faixa que também carrega a troca de modo. */
+#favPopup { align-items: flex-start; }
+#favPopup .popup-sheet {
+  border-radius: 0 0 var(--radius-sheet) var(--radius-sheet);
+  transform: translateY(-100%);
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: 0;
+}
+#favPopup.open .popup-sheet { transform: translateY(0); }
+/* A barra de seleção múltipla é MOVIDA para dentro da folha enquanto a gaveta
+   está aberta (ver `hostSelbar` em controle.js) — aqui ela ganha a margem que o
+   `.popup-list` já tem, para não encostar nas bordas da folha. A margem de
+   baixo desconta a área segura: a folha zera o próprio `padding-bottom` (ela
+   desce do topo e a lista rola até a borda), e sem isto a barra ficaria sob a
+   navegação por gestos do Android. */
+.popup-sheet > .selbar { margin: 0 .7rem max(env(safe-area-inset-bottom), .7rem); }
+/* O ✕ e o voltar são os dois do cabeçalho: o voltar entra no lugar do ícone de
+   estrela quando se está dentro de um atalho/pasta (ver renderFavHeader). */
+#favPopup .back-btn { margin-left: -.25rem; }
+
 /* ---------- popup de busca no Hinário 2022 ---------- */
 /* Bandeja da busca do Hinário: desliza a partir do TOPO (não da base como os
    demais bottom-sheets). Além de ser o pedido de UX, casa melhor com o teclado
