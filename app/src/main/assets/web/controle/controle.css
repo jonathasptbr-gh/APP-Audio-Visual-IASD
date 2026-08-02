@@ -1033,16 +1033,25 @@ main {
 }
 
 /* ---------- Itens (biblioteca) ---------- */
-/* `touch-action: pan-y` na lista que NÃO é a da aba Ferramentas: ela só rola na
-   vertical, então declarar isso entrega o eixo horizontal ao app — sem a
-   declaração o navegador ainda considera o gesto seu (`manipulation`, do `*`
-   no topo da folha) e pode engolir o deslize do carrossel de abas com um
-   `pointercancel`, que é a falha mais difícil de diagnosticar porque depende
-   do aparelho. Fica de fora `.lib-misc` (Ferramentas), que tem trilhos rolando na
-   HORIZONTAL dentro dela (o histórico do sorteio): `touch-action` de um
-   ancestral se INTERSECTA com o do alvo, então um `pan-y` aqui tiraria o
-   `pan-x` de lá. */
-.lib-list:not(.lib-misc) { touch-action: pan-y; }
+/* `touch-action: pan-y` em TODA lista de conteúdo: ela só rola na vertical,
+   então declarar isso entrega o eixo horizontal ao app. Sem a declaração o
+   navegador continua achando que o gesto é dele (`manipulation`, do `*` no topo
+   da folha) e engole o deslize do carrossel com um `pointercancel` ao primeiro
+   movimento — muito antes dos 60px que a troca de aba exige.
+
+   A aba Ferramentas ficou de fora até a v5.60, por causa do histórico do
+   sorteio (`.draw-hist`), que rola na HORIZONTAL: a regra de `touch-action`
+   intersecta o valor do alvo com o dos ancestrais, e supor que isso tiraria o
+   `pan-x` dele parecia seguro. Não é o que a regra diz nem o que os navegadores
+   fazem: a caminhada para cima PARA no elemento que implementa o gesto — e para
+   uma rolagem horizontal esse elemento é o próprio `.draw-hist`. Verificado com
+   toque real: com `pan-y` aqui, o histórico continua rolando de lado (scrollLeft
+   0 → 143) e a aba não troca.
+   E a exceção custava caro: era EXATAMENTE na Ferramentas que o carrossel
+   travava no aparelho. O `preventDefault` do `touchmove` (ver
+   `setupTabCarousel`) devia cobrir o buraco e cobria no navegador de mesa, mas
+   não no WebView — declarar o eixo é o que funciona nos dois. */
+.lib-list { touch-action: pan-y; }
 .lib-list {
   flex: 1; min-height: 0; overflow-y: auto;
   position: relative; list-style: none; display: flex; flex-direction: column; gap: .4rem;
