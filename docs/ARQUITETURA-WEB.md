@@ -94,7 +94,7 @@ git push origin main
   MENOR que o já publicado — caso em que `WebUpdater.compareVersions` ignora o
   bundle em silêncio. Para saber onde a base está, leia `version.json`.
 
-  No app nativo o rótulo mostra os **dois índices** — `Web v5.55 · Shell v1.22`
+  No app nativo o rótulo mostra os **dois índices** — `Web v5.56 · Shell v1.22`
   —, porque base web e shell atualizam por caminhos independentes (OTA ×
   instalar APK); no navegador sai só `Controle v<versão>`. **Ele mora no rodapé
   do popup de Configurações** desde a v5.49 (antes ficava no cabeçalho da lista,
@@ -1023,9 +1023,8 @@ segmentado passa a ter exatamente a mesma superfície dos botões de transporte
 logo abaixo (`--surface` é branco com ALFA, então acompanha a base nova
 sozinho — o degrau vai de 1,38:1 sobre o fundo do app para 1,46:1 sobre a
 barra). Ela **não tem mais `border-top`** desde a v5.55, quando a fileira
-passou a encostar no topo: a linha cortava o vazado da aba ativa justamente
-onde ele deve emendar com o conteúdo, e a sombra já marcava onde a caixa
-começa. O `padding-bottom` da barra usa
+passou a encostar no topo: a linha cortava as abas justamente onde elas devem
+emendar com o conteúdo, e a sombra já marcava onde a caixa começa. O `padding-bottom` da barra usa
 `max(env(safe-area-inset-bottom), 12px)` para garantir margem segura contra
 acionamentos acidentais pela navegação por gestos do Android/iOS.
 
@@ -1539,14 +1538,21 @@ quatro alvos idênticos — **Cronograma** · **Bíblia** · **Ferramentas** (as
 `.tab`) e o **acervo** (`#hymnSearchBtn`, `.tab-add`) —, todos `flex: 1` e
 `--hit-nav` de altura, transparentes enquanto não estão escolhidos.
 
-**A ativa é um VAZADO na cor do corpo** (v5.55): ela é pintada com `--bg`, o
-mesmo fundo das listas que estão logo acima dela na tela, e tem raio só
-EMBAIXO. Encostada no topo da caixa, a célula deixa de parecer um botão aceso e
-passa a ser a continuação do conteúdo descendo até a fileira — a aba e a tela
-que ela abre viram a mesma superfície, que é o que a palavra "aba" sempre
-significou. Quem confirma o estado é o **ícone em `--accent`**: o degrau
-`--bg` × `--bar` é 1,32:1, o piso das superfícies grandes, e num salão escuro
-isso sozinho é pouco.
+**Quem tem tinta são as abas NÃO escolhidas** (v5.56): elas são pintadas com
+`--bg` — o mesmo fundo das listas logo acima na tela —, encostadas no topo da
+caixa e com raio só EMBAIXO, como abas ainda guardadas atrás. **A escolhida não
+tem preenchimento nenhum**: ela é o rasgo por onde a caixa de controles sobe até
+o conteúdo. O destaque é o VAZIO — nada acende, é o entorno que recua, que é o
+que a palavra "aba" sempre significou antes de virarem botões.
+
+> A v5.55 fez o contrário (tinta na escolhida, vazio nas outras). Dá a mesma
+> silhueta, mas põe a mancha escura no lugar errado: a fileira inteira ficava
+> clara com um furo, quando o que se quer é o oposto — ela acompanha o corpo da
+> lista e ABRE onde você está.
+
+Quem confirma o estado é o **ícone em `--accent`**: o degrau `--bg` × `--bar` é
+1,32:1, o piso das superfícies grandes, e num salão escuro isso sozinho é
+pouco.
 
 A faixa passou por quatro formas antes desta, e o caminho é sempre o mesmo
 defeito — cada versão desenhava uma caixa em volta da navegação:
@@ -1557,23 +1563,24 @@ defeito — cada versão desenhava uma caixa em volta da navegação:
 | v5.49 | sem moldura, cada aba com fundo próprio sobre o fundo do app | quatro retângulos que se leem como quatro AÇÕES |
 | v5.50 | segmentado (trilho raso em `--surface`, abas transparentes) | um trilho dizendo "isto é um grupo" — coisa que quatro ícones na base da tela já dizem |
 | v5.54 | o mesmo segmentado, agora DENTRO da caixa de controles | idem, só que sobre `--bar` |
+| v5.55 | flat, com a ESCOLHIDA pintada de `--bg` | a mancha no lugar errado: fileira clara com um furo |
 
 > A v5.49 resolveu de fato o desperdício do cartão, e o degrau foi medido na
 > ocasião: uma aba sobre o fundo do app dá **1,38:1**, acima do piso de 1,30:1.
 > O problema dela não era contraste, era gramática — fundo próprio em quatro
 > células vizinhas é a forma de uma barra de ferramentas, não de uma navegação.
 
-**O acervo continua SÓLIDO** (`--accent-fill`), e divide com a aba ativa a mesma
-FORMA (preenchido, descendo do topo, raio embaixo). Na fileira convivem um
+**O acervo continua SÓLIDO** (`--accent-fill`), dividindo a FORMA com as demais
+(desce do topo, raio embaixo) e trocando só a tinta. Na fileira convivem um
 ESTADO ("estou no Cronograma") e uma AÇÃO ("abrir o acervo"): sólido em accent é
 o que o app já usa para "toque aqui e algo acontece" (`.misc-project`,
-`.dialog-btn.primary`, `#volToggle`), e o vazado é lugar. Mesma forma, cores
-opostas — é a diferença que se lê sem legenda.
+`.dialog-btn.primary`, `#volToggle`). A fileira inteira é lugar; ele é o único
+que age — mesma forma, cor oposta, e a diferença se lê sem legenda.
 
 **A caixa de controles perdeu o `border-top`** por causa disso: ela existia para
 marcar onde a caixa começa, e a sombra (`0 -2px 12px`) já fazia esse trabalho —
-mas com a fileira encostada no topo a linha passava a cortar o vazado
-exatamente no ponto em que ele deve emendar com o conteúdo.
+mas com a fileira encostada no topo a linha passava a cortar as abas
+exatamente no ponto em que elas devem emendar com o conteúdo.
 
 As quatro células:
 

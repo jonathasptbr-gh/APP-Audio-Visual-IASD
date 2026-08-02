@@ -829,11 +829,16 @@ main {
    um trilho por cima deles é uma segunda caixa dizendo "isto aqui é um
    grupo" — coisa que quatro ícones lado a lado na base da tela já dizem.
 
-   O que sobra é a forma que a palavra "aba" sempre significou: a célula ativa é
-   RECORTADA na cor da seção que ela abre (`--bg`, o corpo das listas logo
-   acima), encostada na borda de cima da caixa, com o raio só embaixo. Ela deixa
-   de ser um botão aceso e passa a ser a continuação do conteúdo descendo até a
-   fileira — a aba e a tela dela viram a mesma superfície.
+   O que sobra é a forma que a palavra "aba" sempre significou, e ela é feita de
+   VAZIO: quem tem tinta são as células NÃO escolhidas — pintadas com `--bg`, o
+   corpo das listas logo acima, encostadas na borda de cima da caixa e com o
+   raio só embaixo, como abas ainda guardadas atrás. A escolhida não tem
+   preenchimento nenhum: ela é o rasgo por onde a caixa de controles sobe até o
+   conteúdo, e é isso que a liga ao que está em cena.
+   (A v5.55 fez o contrário — tinta na escolhida, vazio nas outras. Dá a mesma
+   silhueta, mas põe a mancha escura no lugar errado: a fileira inteira ficava
+   clara com um furo, quando o que se quer é o oposto — a fileira acompanha o
+   corpo da lista e ABRE onde você está.)
    `margin: 0 -.7rem` desfaz o padding lateral da caixa: a fileira vai de borda
    a borda, porque uma faixa recuada volta a parecer um componente pousado em
    cima em vez de parte da caixa. */
@@ -869,13 +874,13 @@ main {
    Eram duas receitas (a aba em `flex:1`, o acervo fixo em 42×38 com margem
    própria), e a diferença não dizia nada — o acervo é o quarto alvo da mesma
    fileira e se lia como um apêndice colado nela.
-   Fundo TRANSPARENTE e SEM raio: no estado inativo a célula é só o ícone sobre
-   a caixa de controles. O raio de baixo é de quem está preenchido (ver
-   `.tab.active`/`.tab-add`) — é ele que faz o bloco "descer" do conteúdo. */
+   Fundo `--bg` e raio SÓ EMBAIXO: a célula desce do conteúdo, como uma aba
+   guardada atrás. Quem tira o preenchimento é a escolhida (ver `.tab.active`);
+   o acervo troca a tinta pela dele (`.tab-add`), sem mudar a forma. */
 .tab, .tab-add {
   flex: 1; min-width: 0; height: var(--hit-nav);
   border: none; border-radius: 0 0 var(--radius-btn) var(--radius-btn);
-  background: none; color: var(--muted); cursor: pointer;
+  background: var(--bg); color: var(--muted); cursor: pointer;
   display: flex; align-items: center; justify-content: center;
   appearance: none; -webkit-appearance: none;
 }
@@ -893,17 +898,14 @@ main {
    com a seleção preenchida, e isso não é incoerência: lá não há ação nenhuma
    competindo pela mesma faixa — a escolha É a única coisa que aquele trilho
    comunica. */
-/* A aba ativa é um VAZADO: ela é pintada com `--bg`, a cor do CORPO das seções
-   que ela abre — o mesmo fundo que está logo acima dela na tela. Encostada no
-   topo da caixa de controles, a célula deixa de parecer um botão aceso e passa
-   a parecer um recorte por onde o conteúdo desce: a aba e a seção que ela abre
-   viram a mesma superfície, que é o que uma aba sempre foi antes de virarem
-   botões.
-   A cor não carrega o estado sozinha (o degrau `--bg` × `--bar` é 1,32:1, o
+/* A aba escolhida é a ÚNICA SEM TINTA: o `--bar` da caixa de controles sobe por
+   ela e o conjunto se lê como uma fileira de abas guardadas com uma ABERTA. O
+   vazio é o destaque — nada é aceso, é o entorno que recua.
+   A cor não carrega o estado sozinha (o degrau `--bar` × `--bg` é 1,32:1, o
    piso das superfícies grandes, e num salão escuro isso é pouco) — quem
    confirma é o ÍCONE em `--accent`, que é o mesmo recurso do resto do app para
    dizer "é aqui". */
-.tab.active { background: var(--bg); color: var(--accent); }
+.tab.active { background: none; color: var(--accent); }
 
 /* Fim da lista do Cronograma: "Importar arquivos" e "Pastas" lado a lado — as
    duas respondem à mesma pergunta ("de onde vem a mídia?") e ficam onde o
@@ -938,10 +940,10 @@ main {
 /* Buscar no acervo (único .tab-add que restou — o de importar desceu para o
    fim do Cronograma). A caixa vem da regra compartilhada com `.tab`, acima;
    aqui fica só o que o distingue: ele é a AÇÃO da faixa, então é o SÓLIDO —
-   numa fileira de células transparentes, o bloco cheio é o único que não se
-   parece com "uma das telas", que é exatamente o que ele não é. Divide com a
-   aba ativa a mesma FORMA (preenchido, descendo do topo com o raio embaixo) e
-   se distingue dela pela cor: accent cheio é ação, o vazado é lugar. */
+   numa fileira que é toda tinta escura ou vazio, o bloco em accent é o único
+   que não se parece com "uma das telas", que é exatamente o que ele não é.
+   Divide a FORMA com as demais (desce do topo, raio embaixo) e se distingue
+   pela cor — a fileira inteira é lugar, ele é ação. */
 .tab-add { background: var(--accent-fill); color: var(--on-accent); }
 
 /* barra de seleção */
