@@ -94,7 +94,7 @@ git push origin main
   MENOR que o já publicado — caso em que `WebUpdater.compareVersions` ignora o
   bundle em silêncio. Para saber onde a base está, leia `version.json`.
 
-  No app nativo o rótulo mostra os **dois índices** — `Web v5.50 · Shell v1.22`
+  No app nativo o rótulo mostra os **dois índices** — `Web v5.51 · Shell v1.22`
   —, porque base web e shell atualizam por caminhos independentes (OTA ×
   instalar APK); no navegador sai só `Controle v<versão>`. **Ele mora no rodapé
   do popup de Configurações** desde a v5.49 (antes ficava no cabeçalho da lista,
@@ -276,7 +276,7 @@ O campo `kind` é derivado do `type` (ou definido pelo chamador para itens de UR
 | `bibleComplete:<v>` | `true` quando a versão `<v>` foi baixada por completo (todos os capítulos) — evita refazer o download em massa |
 | `lyrics:<collId>` | acervo de LETRAS por coleção: `{ <id_music>: [{ a: rótulo\|null, l: [linhas] }] }`, ou `0` marcando "esta música não tem letra". É o que a BUSCA consome — ver "Acervo de LETRAS" |
 | `chronoPrefs` | preferências do cronômetro/relógio/timer (modo, duração, formato, legenda, mais o campo `v` de versão do registro). A contagem em curso **não** é persistida |
-| `drawPrefs` | sorteio: faixa/lista de opções, "não repetir", histórico e o último resultado — este **é** persistido (ver "Diversos: sorteio") |
+| `drawPrefs` | sorteio: faixa/lista de opções, "não repetir", histórico e o último resultado — este **é** persistido (ver "Ferramentas: sorteio") |
 | `migSemNumeroAlbuns` | marca de passagem única: os arquivos já baixados de coleções que não numeram tiveram o prefixo `N. ` removido (ver "O número é do HINÁRIO") |
 | `hymnal2022` | legado — migrado para `coll:hymnal-2022` no `loadCollections()` (a chave antiga permanece, ignorada) |
 | `pending-share` | legado — era o share que o service worker gravava aguardando processamento. O SW saiu; hoje o share chega pela ponte nativa, mas `checkPendingShare()` ainda **lê** esta chave, para não perder um share gravado por uma versão anterior |
@@ -412,7 +412,7 @@ significaria perder o comando seguinte no meio de um culto.
 | `fit` | `fit` (`'contain'`\|`'cover'`\|`'fill'`) | Atualiza ao vivo o preenchimento da mídia (ajustar/preencher/esticar) |
 | `lyricsbg` | `mode` (`'black'`\|`'image'`) | Atualiza ao vivo o fundo atrás da letra sincronizada (preto ou imagens dos slides) |
 | `wallpaper` | — | Avisa que a imagem do wallpaper mudou. **Sem payload**: o blob mora no state `wallpaper`, que os dois apps compartilham — o Display relê do IDB (ver "Wallpaper personalizado") |
-| `text` | `mode, view` + payload conforme o modo | Projeta/atualiza a **Camada de Texto** (ver a seção própria). `mode` = `'verse'` (Bíblia) \| `'message'` (aviso) \| `'chrono'` (relógio/cronômetro/timer) \| `'draw'` (sorteio). Nos dois primeiros o payload é `main` (texto principal) + `sub` (referência dourada abaixo; vazio nas mensagens); nos dois últimos é um **descritor** (`chrono` / `draw`) a partir do qual cada lado calcula o número localmente — ver as seções de Diversos. Um novo `text` troca o conteúdo em cena; `view` só liga/desliga a cortina compartilhada. **Independente do áudio**: um `text` NÃO para a mídia do stage — o áudio segue tocando por baixo |
+| `text` | `mode, view` + payload conforme o modo | Projeta/atualiza a **Camada de Texto** (ver a seção própria). `mode` = `'verse'` (Bíblia) \| `'message'` (aviso) \| `'chrono'` (relógio/cronômetro/timer) \| `'draw'` (sorteio). Nos dois primeiros o payload é `main` (texto principal) + `sub` (referência dourada abaixo; vazio nas mensagens); nos dois últimos é um **descritor** (`chrono` / `draw`) a partir do qual cada lado calcula o número localmente — ver as seções de Ferramentas. Um novo `text` troca o conteúdo em cena; `view` só liga/desliga a cortina compartilhada. **Independente do áudio**: um `text` NÃO para a mídia do stage — o áudio segue tocando por baixo |
 | `text-hide` | — | Encerra a Camada de Texto (Bíblia/Mensagem) sem tocar na mídia de fundo |
 | `mic` | `on` (bool) | **Microfone ao vivo** (push-to-talk): o Display abre o microfone e reproduz a voz na projeção. Camada de ÁUDIO independente — não toca na mídia, no texto nem na cortina. Enviado por `AVDB.sendCommand` direto, **nunca** por `cmd()`: a preview é o mesmo aparelho, a centímetros do microfone |
 | `audio-retry` | — | Retentativa imediata de liberar o áudio bloqueado (botão de mudo do Controle no estado "sem áudio") |
@@ -968,7 +968,7 @@ Dois detalhes que só aparecem em uso:
 │  │  item 2                                           │  │     (área scrollável)
 │  └───────────────────────────────────────────────────┘  │
 │  [+ Importar] [★ Favoritos]  ← última linha do Cronograma │
-│  [Cronograma] [Bíblia] [Diversos] [🔍]                  │  ← .tabs (sem trilho; 4 alvos iguais)
+│ [Cronograma] [Bíblia] [Ferramentas] [🔍]                │  ← .tabs (segmentado)
 ├─────────────────────────────────────────────────────────┤
 │  ┌─────────────────────────────────────┬──────┐         │  ← .bottombar (base fixa)
 │  │  Nome da mídia atual  [seek bar]    │ Cfg  │         │
@@ -986,7 +986,9 @@ lista. `main` ganhou `padding-top` com `env(safe-area-inset-top)` (a antiga
 appbar cuidava do notch/status bar).
 
 **Cabeçalho da lista (`.list-header`):** botão voltar (dentro de pasta), título
-da aba/pasta, campo de busca (dentro de pasta OPFS), botão de sincronizar pasta
+da aba/pasta (`.list-title`, **.84rem** desde a v5.51 — em .72rem o único texto
+que responde "onde eu estou" era menor que o subtítulo de qualquer linha da
+lista, e a faixa passou a ter espaço quando a versão saiu dela), campo de busca (dentro de pasta OPFS), botão de sincronizar pasta
 do dispositivo (só na raiz dos **Favoritos**) e, sempre no canto direito, a
 **volta para o modo simplificado** (`#fullSimpleBtn`, `margin-left: auto` — o
 par de troca de modo tem de estar sempre no mesmo canto, e o `auto` garante
@@ -1252,7 +1254,7 @@ deck é `--deck-pv-h`, 130px).
 > miniatura é a que ninguém acha.
 
 > Havia um quarto (`#pvMsgBtn`, mensagem na tela). Ele saiu na v5.31: Mensagens
-> virou uma seção da aba **Diversos**. Enquanto era a única ferramenta avulsa o
+> virou uma seção da aba **Ferramentas**. Enquanto era a única ferramenta avulsa o
 > FAB se justificava; com três delas, ter uma em cima da preview e duas numa aba
 > era a mesma pergunta ("que aviso eu ponho na tela?") respondida em dois
 > lugares — e o espaço sobre a preview é o que menos sobra.
@@ -1507,9 +1509,9 @@ janela à parte — útil para desenvolver a base web fora do app, e nada mais.
 
 As abas ficam na **base da seção de listas** (ícones) e são um **SEGMENTADO**,
 não uma fileira de botões: um trilho raso em `--surface` (a mesma receita do
-`.misc-switch`, o seletor de ferramentas da aba Diversos) com quatro alvos
+`.misc-switch`, o seletor de ferramentas da própria aba Ferramentas) com quatro alvos
 idênticos e **transparentes** dentro dele — **Cronograma** · **Bíblia** ·
-**Diversos** (as `.tab`) e o **acervo** (`#hymnSearchBtn`, `.tab-add`), todos
+**Ferramentas** (as `.tab`) e o **acervo** (`#hymnSearchBtn`, `.tab-add`), todos
 `flex: 1`, `--hit-nav` de altura e o mesmo raio.
 
 A faixa passou por três formas, e cada uma corrigiu a anterior:
@@ -1546,10 +1548,10 @@ Duas regras de cor dentro do trilho:
   três telas dela (livros, capítulo+versículo e leitura): as telas internas têm
   nome próprio no corpo (`.bible-book-head`), mas a faixa de cima responde "em
   que aba eu estou".
-- **Diversos** (`activeTab` segue sendo `'mic'`, por herança) — as **ferramentas
-  que não são acervo**: **Mensagens**, **Tempo** (relógio/cronômetro/timer) e
+- **Ferramentas** (`activeTab` segue sendo `'mic'`, por herança) — as que **não
+  são acervo**: **Mensagens**, **Tempo** (relógio/cronômetro/timer) e
   **Sorteio**, escolhidas num seletor no topo, mais o rodapé com **microfone** e
-  **"Projetar no telão"**. Ver "Diversos" abaixo.
+  **"Projetar no telão"**. Ver "Ferramentas" abaixo.
 - **Acervo** (`#hymnSearchBtn`, a lupa) — **não é uma aba**, e por isso não tem
   `activeTab` nem entra em `TAB_ORDER`. Abre o popup que é, ao mesmo tempo, o
   navegador de coleções do LouvorJA (com o campo vazio) e a busca por
@@ -1559,10 +1561,13 @@ Duas regras de cor dentro do trilho:
 
 > A aba nasceu como **Microfone**, com uma ferramenta só. Ao ganhar a segunda,
 > virou **Diversos** e o ícone deixou de ser o microfone: com mais de uma coisa
-> dentro, um glifo que nomeia só uma delas esconde o resto. O `data-tab`
-> continua `mic` de propósito — renomeá-lo não mudaria nada visível e quebraria
-> o `TAB_ORDER`, o `scrollKey()` e as guardas espalhadas que já falam essa
-> string.
+> dentro, um glifo que nomeia só uma delas esconde o resto. Na v5.51 o rótulo
+> virou **Ferramentas**: "Diversos" nomeava a aba pelo que ela NÃO é (nem
+> acervo, nem Bíblia, nem Cronograma), e o que está lá dentro tem um nome
+> próprio. O `data-tab` continua `mic` e as funções continuam
+> `renderDiversos`/`refreshDiversos`, os dois de propósito e pela mesma razão —
+> renomeá-los não muda nada visível e esbarraria em `TAB_ORDER`, `scrollKey()`
+> e nas guardas espalhadas que já falam essas strings.
 
 **Duas telas saíram da faixa de abas**, cada uma por um motivo próprio:
 
@@ -1575,8 +1580,8 @@ Duas regras de cor dentro do trilho:
   na **raiz** dos Favoritos (é a única saída de lá) e `navigateBack()` volta
   ao Cronograma; `renderTabs()` mantém o Cronograma aceso enquanto se está
   neles, para a faixa não ficar sem nada marcado.
-- **Mensagens** — foi para a aba **Diversos** (v5.31), como seção do acordeão.
-  Antes era um botão flutuante sobre a preview; ver "Diversos" abaixo.
+- **Mensagens** — foi para a aba **Ferramentas** (v5.31), como seção do
+  acordeão. Antes era um botão flutuante sobre a preview; ver abaixo.
 
 **Importar arquivos e Favoritos** (`appendImportRow`) são a **última linha da
 lista do Cronograma** (`.import-row` com dois `.import-btn` lado a lado,
@@ -1615,7 +1620,7 @@ app não existia aqui: só o toque no ícone. `setupTabCarousel` escuta o
   vertical, e declarar isso entrega o eixo horizontal ao app. Sem a declaração o
   navegador ainda considera o gesto seu (`manipulation`, herdado do `*`) e pode
   engoli-lo com um `pointercancel` — a falha mais difícil de diagnosticar,
-  porque depende do aparelho. Fica de fora a lista de Diversos, que tem trilhos
+  porque depende do aparelho. Fica de fora a lista de Ferramentas, que tem trilhos
   rolando na HORIZONTAL dentro dela (o histórico do sorteio): `touch-action` de
   um ancestral se INTERSECTA com o do alvo, então um `pan-y` ali tiraria o
   `pan-x` de lá.
@@ -2614,7 +2619,7 @@ graça", sem tocar em `stage.js`). São eles:
 | **Sorteio** | **derivado** (rolo até assentar) | faixa numérica ou lista de opções (`drawReading`) | `#text` / `#pvText` |
 | **Letra sincronizada** | **temporizado** (segue o `currentTime` do áudio) | música do LouvorJA | `#lyrics` / `#pvLyrics` |
 
-> **Mensagens vive na aba Diversos** (v5.31), como uma das ferramentas do
+> **Mensagens vive na aba Ferramentas** (v5.31), como uma das ferramentas do
 > seletor: lista de avisos salvos, "+ Nova mensagem" e — quando há uma
 > projetada — "Tirar do telão" (`hideMessage` → `text-hide`, que encerra só a
 > Camada de Texto; um áudio de fundo segue tocando). Tocar numa mensagem
@@ -2942,7 +2947,7 @@ normal no meio de um culto.
   `normalizeForSearch` (NFD + remoção de diacríticos), então "criacao" acha
   "criação".
 
-### Diversos: o seletor de ferramenta
+### Ferramentas: o seletor de ferramenta
 
 A aba reúne quatro ferramentas, e três delas empilhadas **não cabiam** numa tela
 de celular: a página ganhava rolagem vertical, e o que a rolagem escondia era
@@ -3003,9 +3008,9 @@ conforme o painel cresce (no sorteio de texto ele ficava abaixo da lista).
 > wrapper) resolve. É o vazamento clássico de flexbox, e vale para qualquer
 > input futuro dentro de uma linha `.misc-row`.
 
-### Diversos: cronômetro · relógio · timer
+### Ferramentas: cronômetro · relógio · timer
 
-Terceiro provedor da Camada de Texto, na aba **Diversos** (junto do microfone).
+Terceiro provedor da Camada de Texto, na aba **Ferramentas** (junto do microfone).
 O que vai ao telão é o **mesmo cartão** da Bíblia e das Mensagens
 (`mode: 'chrono'`), e isso não é economia de CSS: herdando o cartão, herda
 junto toda a regra de convivência já madura — `load` de **áudio** mantém o
@@ -3095,7 +3100,7 @@ exibindo exatamente o mesmo valor do Controle.
 - A ferramenta vive só no **modo avançado**, como o microfone: o simplificado
   existe para quem quer conectar a tela e tocar um louvor.
 
-### Diversos: sorteio
+### Ferramentas: sorteio
 
 Quarto provedor da Camada de Texto, na mesma aba. Sorteia **número** (faixa
 de/até) ou **texto** (lista de opções — nomes, prêmios, perguntas).
@@ -4669,7 +4674,7 @@ de cancelar (`closeIconSvg`), as **setas circulares** de sincronizar
 (`listIconSvg`); e nos resultados da busca os botões de tocar
 **voz/microfone** (Cantado, `voiceIconSvg`) e **nota musical** (Playback,
 `noteIconSvg`); e o **livro com uma cruz** da aba **Bíblia**
-(`.tab[data-tab="bible"]`), mais a **grade de módulos** da aba **Diversos** —
+(`.tab[data-tab="bible"]`), mais a **grade de módulos** da aba **Ferramentas** —
 que substituiu o microfone quando a aba deixou de ter uma ferramenta só.
 
 > **Borda nativa dos `<button>`**: `.tab-add` e `.pv-fab` zeram

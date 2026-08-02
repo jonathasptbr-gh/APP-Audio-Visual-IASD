@@ -90,7 +90,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.50';
+const WEB_VERSION = '5.51';
 
 // Escrita UMA vez, na carga: o indicador mora no rodapé de Configurações desde
 // a v5.49 e não depende mais de qual aba está aberta (no cabeçalho ele
@@ -1745,7 +1745,12 @@ function renderTabs() {
 function renderListTitle() {
   if (activeTab === 'mic') {
     backBtnEl.hidden = true; addDirBtnEl.hidden = true; libSearchEl.hidden = true; libSearchEl.value = '';
-    listTitleEl.hidden = false; listTitleEl.textContent = 'Diversos';
+    // "Ferramentas" desde a v5.51 — "Diversos" nomeava a aba pelo que ela NÃO
+    // é (nem acervo, nem Bíblia, nem Cronograma). O `activeTab` segue `'mic'` e
+    // as funções seguem `renderDiversos`/`refreshDiversos`: é a MESMA razão do
+    // `data-tab="mic"` — trocar a string interna não muda nada visível e
+    // esbarraria em `TAB_ORDER`, `scrollKey()` e nas guardas espalhadas.
+    listTitleEl.hidden = false; listTitleEl.textContent = 'Ferramentas';
     return;
   }
   if (activeTab === 'bible') {
@@ -2783,7 +2788,7 @@ function renderMic() {
   return btn;
 }
 
-// ===== Rodapé da aba Diversos: microfone + projetar =====
+// ===== Rodapé da aba Ferramentas: microfone + projetar =====
 // "Projetar no telão" saiu do fim de cada painel e veio para cá, ao lado do
 // microfone. São as duas ações que MANDAM ALGO PARA A TELA — as únicas com
 // efeito fora do celular —, e tê-las sempre no mesmo lugar vale mais do que a
@@ -2838,7 +2843,7 @@ function renderFoot() {
   renderMicUI();
 }
 
-// ===== Cronômetro / Relógio / Timer (aba Diversos) =====
+// ===== Cronômetro / Relógio / Timer (aba Ferramentas) =====
 // Terceiro provedor da Camada de Texto, ao lado da Bíblia e das Mensagens, e
 // pelo mesmo motivo: o que vai ao telão é um cartão de texto. A diferença é que
 // aqui o texto é DERIVADO do tempo, não digitado — ver chronoReading em
@@ -3137,7 +3142,7 @@ function renderChrono() {
   startChronoPanelTimer();
 }
 
-// ===== Sorteio (aba Diversos) =====
+// ===== Sorteio (aba Ferramentas) =====
 // Quarto provedor da Camada de Texto. Sorteia NÚMERO (faixa de/até) ou TEXTO
 // (uma lista de opções — nomes, prêmios, perguntas).
 //
@@ -3476,7 +3481,7 @@ function renderDraw() {
   startDrawPanelTimer();
 }
 
-// ===== Mensagens na aba Diversos =====
+// ===== Mensagens na aba Ferramentas =====
 // Deixou de ser um botão flutuante sobre a preview e passou a ser uma seção
 // como as outras. O FAB fazia sentido quando Mensagens era a única ferramenta
 // avulsa; com três delas, ter uma em cima da preview e duas numa aba era a
@@ -3522,7 +3527,7 @@ function renderMsg() {
 
 }
 
-// ===== A aba Diversos =====
+// ===== A aba Ferramentas =====
 // Três ferramentas empilhadas não cabiam numa tela de celular. A primeira
 // tentativa (v5.31) foi um acordeão, e ele custava caro pelo que entregava:
 // três cabeçalhos permanentes comendo altura, e a ferramenta em uso empurrada
@@ -3585,7 +3590,7 @@ function renderDiversos() {
   renderFoot();
 }
 
-// Redesenha só a aba Diversos (usado quando o estado de uma ferramenta muda
+// Redesenha só a aba Ferramentas (usado quando o estado de uma ferramenta muda
 // por fora do painel — ex.: uma mensagem projetada por outro caminho).
 function refreshDiversos() {
   if (activeTab !== 'mic') return;
@@ -3608,7 +3613,7 @@ function renderLibrary() {
   thumbUrls.forEach((u) => URL.revokeObjectURL(u));
   thumbUrls = [];
   libraryEl.innerHTML = '';
-  // Diversos NÃO rola: quem administra a altura ali é o acordeão (a seção
+  // Ferramentas NÃO rola: quem administra a altura ali é o acordeão (a seção
   // aberta ocupa o que sobra e rola por dentro, se precisar). Com a rolagem da
   // lista ligada, a página inteira voltaria a rolar e o microfone sairia da
   // base — que é justamente o que o acordeão veio resolver.
