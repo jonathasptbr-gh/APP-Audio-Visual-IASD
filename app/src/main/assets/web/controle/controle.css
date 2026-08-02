@@ -733,10 +733,17 @@ main {
    o subtítulo de qualquer linha da lista. Segue em `--muted` e em caixa alta:
    é um rótulo de seção, não um cabeçalho de conteúdo. */
 /* `min-width: 0` + reticências: dentro de uma pasta o título é o NOME dela, de
-   comprimento imprevisível, e o cabeçalho agora tem um vizinho de largura fixa
-   à direita (a troca de modo). Sem isto um nome longo empurraria o botão para
-   fora da tela — o padrão de um item flex é `min-width: auto`, que se recusa a
-   encolher abaixo do conteúdo. */
+   comprimento imprevisível, e o cabeçalho tem um vizinho de largura fixa à
+   direita (a troca de modo, 177px com o rótulo "Modo simplificado"). Sem isto
+   um nome longo empurraria o botão para fora da tela — o padrão de um item flex
+   é `min-width: auto`, que se recusa a encolher abaixo do conteúdo.
+   MEDIDO: numa tela de 360px a única combinação que aperta é a RAIZ DOS
+   FAVORITOS, o único cabeçalho com quatro elementos (voltar + título +
+   sincronizar + troca de modo) — ali "FAVORITOS" sai com reticências por ~17px.
+   É troca assumida: encolher o botão a ponto de caber deixaria o rótulo menor
+   que o resto da UI, e reduzi-lo a só a seta o tornaria uma segunda seta
+   apontando para a esquerda na mesma faixa que já tem o voltar. Em 390px (e em
+   qualquer outra tela do app) o título cabe inteiro. */
 .list-title {
   flex: 1; min-width: 0;
   font-size: .84rem; font-weight: 700; color: var(--muted);
