@@ -94,7 +94,7 @@ git push origin main
   MENOR que o já publicado — caso em que `WebUpdater.compareVersions` ignora o
   bundle em silêncio. Para saber onde a base está, leia `version.json`.
 
-  No app nativo o rótulo mostra os **dois índices** — `Web v5.64 · Shell v1.22`
+  No app nativo o rótulo mostra os **dois índices** — `Web v5.65 · Shell v1.22`
   —, porque base web e shell atualizam por caminhos independentes (OTA ×
   instalar APK); no navegador sai só `Controle v<versão>`. **Ele mora no rodapé
   do popup de Configurações** desde a v5.49 (antes ficava no cabeçalho da lista,
@@ -2568,7 +2568,7 @@ Tocar (`playSongVariant`), +Cronograma (`addSongVariant` →
 também, mas só quando precisa: a letra costuma já estar no acervo de textos (ver
 "Letra avulsa", na Camada de Texto).
 
-### O download vira estado da PREVIEW (v5.64)
+### O download vira estado da tela (v5.64-65)
 
 Tocar uma música que ainda não está no aparelho abre um download de dezenas de
 segundos. Até a v5.63 o toque não mudava **nada** na tela: o acervo continuava
@@ -2614,9 +2614,38 @@ Os detalhes que não são óbvios:
   decidir se `ensureSongDownloaded` ainda deve mostrar o toast
   (`opts.toast`). Dois avisos para o mesmo download é ruído; **nenhum** é o
   defeito que isto conserta.
-- **Os caminhos de ADICIONAR seguem com o toast.** Eles não mexem na preview, e o
-  acervo continua aberto de propósito (adicionar três músicas seguidas é o uso
-  normal) — sem o toast o toque ficaria mudo.
+
+#### Adicionar a uma lista: a marca vai para a LINHA (v5.65)
+
+Adicionar também pode disparar o download, e ali a preview é o lugar errado: o
+acervo **continua aberto de propósito** (adicionar três músicas seguidas é o uso
+normal) e nada vai para a preview. O indicador vai então para a miniatura da
+própria música — o botão `.hymn-play-thumb`, que é o quadrado de 46px que era a
+miniatura. O ▶ some e o anel entra no lugar; o botão segue clicável, porque
+tocar uma faixa que já está baixando é legítimo e o download é o mesmo
+(`songDownloadInFlight` dedupa).
+
+- **É o MESMO anel** (`.dl-ring`, com `--dl-ring` dando o tamanho): um aro
+  girando com a seta de download parada dentro. Dois spinners diferentes para a
+  mesma espera fariam o operador perguntar se são coisas diferentes. Cada lugar
+  só escolhe onde ele mora — a preview quando a mídia vai aparecer ali, a linha
+  quando o que baixa é aquela faixa da lista.
+- **Quem acende é `ensureSongDownloaded`**, logo DEPOIS da checagem
+  `needsFull || needsPlayback` — o único ponto que já sabe que existe download de
+  verdade. Acender no chamador exigiria repetir a checagem (e piscar em toda
+  música já baixada, que é o defeito que o atraso de 180 ms evita na preview).
+  Como efeito, **todo caminho que baixa sob demanda ganha a marca sem precisar
+  lembrar dela**.
+- **O estado vive num `Map`, não só na classe do botão** (`songRowBusy`, contado
+  por música). A lista do acervo é **reconstruída** durante o download — o
+  progresso redesenha a cada 400 ms —, e uma classe escrita no nó sumia no
+  redesenho seguinte: a linha voltava a mostrar ▶ com o download ainda correndo.
+  `hymnResultRow` relê o Map ao montar (a linha carrega `data-song`) e
+  `setSongRowBusy` cuida das que já estão na tela. Contado, e não booleano:
+  adicionar a mesma faixa à playlist e ao Cronograma abre dois pedidos, e o
+  primeiro a terminar não pode apagar a marca do outro.
+- **Os três caminhos de adicionar passam `toast: false`.** O toast que sobra é o
+  do RESULTADO ("Adicionado à playlist"), que é outra informação.
 
 **Resolução do id de mídia por variante** (`resolveSongMediaId`) é
 **offline-first com download sob demanda**: se a variante já foi baixada

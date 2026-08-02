@@ -426,28 +426,37 @@ body {
   background: var(--bg);
   box-shadow: 0 4px 14px rgba(0, 0, 0, .55);
 }
-/* O anel gira; a SETA de download fica parada dentro dele. Um spinner puro
-   diria só "espere"; o que precisa ser dito é o que está acontecendo, e a seta
-   é a mesma dos botões de baixar do acervo. */
-.pv-busy-ring {
+/* ---------- O ANEL DE DOWNLOAD (`.dl-ring`) ----------
+   O aro gira; a SETA fica parada dentro dele. Um spinner puro diria só
+   "espere"; o que precisa ser dito é O QUE está acontecendo, e a seta é a mesma
+   dos botões de baixar do acervo.
+   Um desenho só para os DOIS lugares em que o app espera um download disparado
+   por um toque: a miniatura da preview (tocar) e a miniatura da linha do acervo
+   (adicionar). Dois spinners diferentes para a mesma espera fariam o operador
+   perguntar se são coisas diferentes. O tamanho vem de `--dl-ring`, escrito por
+   quem o hospeda. */
+.dl-ring {
   position: relative; flex-shrink: 0;
-  width: 28px; height: 28px;
+  width: var(--dl-ring, 28px); height: var(--dl-ring, 28px);
   display: flex; align-items: center; justify-content: center;
   color: var(--accent);
 }
-.pv-busy-ring::before {
+.dl-ring::before {
   content: ''; position: absolute; inset: 0;
   border-radius: 50%;
   border: 2px solid var(--accent-soft);
   border-top-color: var(--accent);
-  animation: pv-busy-spin .9s linear infinite;
+  animation: dl-ring-spin .9s linear infinite;
 }
-.pv-busy-ring svg { display: block; width: 15px; height: 15px; }
-@keyframes pv-busy-spin { to { transform: rotate(360deg); } }
-/* Quem pediu menos movimento no sistema pediu para o app inteiro: o anel para,
-   e o que resta é a mesma mensagem escrita — que é o essencial. */
+.dl-ring svg {
+  display: block;
+  width: calc(var(--dl-ring, 28px) * .54); height: calc(var(--dl-ring, 28px) * .54);
+}
+@keyframes dl-ring-spin { to { transform: rotate(360deg); } }
+/* Quem pediu menos movimento no sistema pediu para o app inteiro: o aro para, e
+   o que resta é a seta de download — que é o essencial da mensagem. */
 @media (prefers-reduced-motion: reduce) {
-  .pv-busy-ring::before { animation: none; border-color: var(--accent); }
+  .dl-ring::before { animation: none; border-color: var(--accent); }
 }
 .pv-busy-text { display: flex; flex-direction: column; min-width: 0; }
 /* A AÇÃO em caixa alta miúda e o NOME embaixo, em vez de uma frase só. Numa
@@ -2146,6 +2155,18 @@ main {
   background: var(--accent-soft); color: var(--accent); cursor: pointer;
 }
 .hymn-play-thumb .msym { font-size: var(--icon-lg); }
+/* BAIXANDO ESTA MÚSICA. Adicionar a uma lista pode disparar um download de
+   dezenas de segundos, e ali o acervo continua aberto de propósito (adicionar
+   três músicas seguidas é o uso normal) — então o aviso é da LINHA, não da
+   tela: a miniatura da própria música vira o anel de download. É o mesmo
+   desenho que a preview usa no caminho de tocar (ver `.dl-ring`), no lugar que
+   corresponde àquela tela: lá a mídia vai aparecer na preview, aqui o que está
+   baixando é esta faixa da lista.
+   O ▶ some enquanto isso, mas o botão segue clicável: tocar uma música que já
+   está baixando é legítimo, e o download é o mesmo (`songDownloadInFlight`). */
+.hymn-play-thumb .dl-ring { --dl-ring: 30px; display: none; }
+.hymn-play-thumb.busy .dl-ring { display: flex; }
+.hymn-play-thumb.busy .msym { display: none; }
 /* O segundo botão herda `.row-btn` (o quadrado de ação das listas) — aqui fica
    só a cor, que o distingue do tocar: adicionar é o gesto secundário. */
 .hymn-add-btn { flex-shrink: 0; color: var(--accent); }
