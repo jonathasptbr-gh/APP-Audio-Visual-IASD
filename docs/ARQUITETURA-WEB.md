@@ -94,7 +94,7 @@ git push origin main
   MENOR que o já publicado — caso em que `WebUpdater.compareVersions` ignora o
   bundle em silêncio. Para saber onde a base está, leia `version.json`.
 
-  No app nativo o rótulo mostra os **dois índices** — `Web v5.53 · Shell v1.22`
+  No app nativo o rótulo mostra os **dois índices** — `Web v5.54 · Shell v1.22`
   —, porque base web e shell atualizam por caminhos independentes (OTA ×
   instalar APK); no navegador sai só `Controle v<versão>`. **Ele mora no rodapé
   do popup de Configurações** desde a v5.49 (antes ficava no cabeçalho da lista,
@@ -972,8 +972,8 @@ Dois detalhes que só aparecem em uso:
 │  └───────────────────────────────────────────────────┘  │
 │  [+ Importar] [★ Favoritos]   ← última linha do Cronograma │
 │      (Favoritos abre a GAVETA que desce do topo)        │
-│ [Cronograma] [Bíblia] [Ferramentas] [🔍]                │  ← .tabs (segmentado)
 ├─────────────────────────────────────────────────────────┤
+│ [Cronograma] [Bíblia] [Ferramentas] [🔍]                │  ← .tabs (dentro da barra)
 │  ┌─────────────────────────────────────┬──────┐         │  ← .bottombar (base fixa)
 │  │  Nome da mídia atual  [seek bar]    │ Cfg  │         │
 │  │─────────────────────────────────────│ Wall │         │
@@ -1011,7 +1011,18 @@ voltou a ter título** (v5.50): ela era a única tela sem nome, e o título tinh
 saído justamente para caber a versão — "onde eu estou" passava a depender de
 reconhecer a grade de 66 ladrilhos.
 
-**Controles (`.bottombar`):** fixados na base da tela. O padding inferior usa
+**Controles (`.bottombar`):** fixados na base da tela, e desde a v5.54 eles
+**começam na faixa de abas**: a barra é um `flex` em coluna com dois filhos — a
+`.tabs` (ou a `.selbar`, que a substitui na seleção múltipla) e o `.deck`. A
+faixa era o último elemento do `<main>` e flutuava sobre o fundo do app,
+encostada na barra mas separada dela por dois espaços (o `padding-bottom` do
+main mais o `padding-top` da barra) e por um degrau de cor — duas superfícies
+para duas coisas que o polegar usa no mesmo movimento. Juntas viram um bloco
+só: mesma cor de fundo, mesma borda de cima, mesma sombra, e o trilho do
+segmentado passa a ter exatamente a mesma superfície dos botões de transporte
+logo abaixo (`--surface` é branco com ALFA, então acompanha a base nova
+sozinho — o degrau vai de 1,38:1 sobre o fundo do app para 1,46:1 sobre a
+barra). O `padding-bottom` da barra usa
 `max(env(safe-area-inset-bottom), 12px)` para garantir margem segura contra
 acionamentos acidentais pela navegação por gestos do Android/iOS.
 
@@ -1517,7 +1528,8 @@ janela à parte — útil para desenvolver a base web fora do app, e nada mais.
 
 ### Abas e biblioteca
 
-As abas ficam na **base da seção de listas** (ícones) e são um **SEGMENTADO**,
+As abas ficam **no alto da caixa de controles** (`.bottombar`, v5.54 — antes
+eram o último elemento do `<main>`; ver "Layout geral") e são um **SEGMENTADO**,
 não uma fileira de botões: um trilho raso em `--surface` (a mesma receita do
 `.misc-switch`, o seletor de ferramentas da própria aba Ferramentas) com quatro alvos
 idênticos e **transparentes** dentro dele — **Cronograma** · **Bíblia** ·
@@ -1621,6 +1633,11 @@ app não existia aqui: só o toque no ícone. `setupTabCarousel` escuta o
   indicação de onde ele está.
 - **Age no meio do gesto**, não ao soltar: a aba nova entra deslizando enquanto
   o dedo ainda se move, que é o que faz o gesto parecer arrastar a tela.
+- **Duas superfícies escutam**: o `<main>` e a própria `.tabs`. Desde a v5.54 a
+  faixa mora na caixa de controles, fora do `<main>` — e deslizar sobre a
+  fileira de abas é o gesto mais óbvio de todos, então ele passou a ser
+  registrado explicitamente. O estado do gesto é compartilhado: é UM gesto, não
+  dois.
 - **Vale SOBRE A LISTA, inclusive sobre as linhas** (v5.50). Na v5.49 o gesto
   ignorava tudo o que começasse numa `.row`, porque a linha tinha deslize
   próprio (adicionar à playlist) — e como o Cronograma inteiro é feito de
@@ -1753,11 +1770,12 @@ favoritos divergiria da primeira no primeiro ajuste.
 Três consequências que só aparecem em uso, e as três estão tratadas:
 
 - **A barra de seleção múltipla é MOVIDA para dentro da folha** (`hostSelbar`):
-  ela vive no `main`, atrás da gaveta, e selecionar itens dentro de uma pasta
-  deixaria a barra invisível. É o mesmo padrão do `<input type="file">`, que já
-  muda de casa a cada render — um nó só, movido, em vez de dois que divergem.
-  No `main` o lugar dela é o fim (depois da faixa de abas), que é exatamente
-  onde o `appendChild` a devolve.
+  ela vive na caixa de controles, atrás da gaveta, e selecionar itens dentro de
+  uma pasta deixaria a barra invisível. É o mesmo padrão do
+  `<input type="file">`, que já muda de casa a cada render — um nó só, movido,
+  em vez de dois que divergem. Em casa o lugar dela é **antes do `.deck`**,
+  porque é ali que fica a faixa de abas que ela substitui: daí o `insertBefore`
+  e não um `appendChild`, que a jogaria para depois do transporte.
 - **O voltar do aparelho tem a hierarquia de DENTRO primeiro** (`__avBack`,
   passo 1.5): seleção múltipla → pasta aberta → gaveta. A seleção vem antes da
   pasta porque ela é do conteúdo DELA: sair da pasta com a seleção de pé

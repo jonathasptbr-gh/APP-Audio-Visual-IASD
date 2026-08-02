@@ -213,8 +213,17 @@ body {
 }
 
 /* ---------- Barra de controles (base) ---------- */
+/* Desde a v5.54 ela começa na FAIXA DE ABAS e termina no transporte: um bloco
+   só. A faixa era o último elemento do `<main>` e flutuava sobre o fundo do
+   app — encostada na caixa de controles, mas separada dela por dois espaços
+   (o padding de baixo do main mais o de cima da barra) e por um degrau de cor.
+   Duas superfícies para duas coisas que o polegar usa no mesmo movimento.
+   `display: flex` em coluna com `gap` porque agora há dois filhos (a faixa e o
+   `.deck`) e o espaço entre eles é o mesmo em qualquer estado — inclusive
+   quando a faixa dá lugar à barra de seleção múltipla. */
 .bottombar {
   flex-shrink: 0;
+  display: flex; flex-direction: column; gap: .5rem;
   background: var(--bar);
   padding: .5rem .7rem;
   /* margem extra na base para não conflitar com navegação por gestos */
@@ -720,8 +729,11 @@ body {
 /* ---------- Conteúdo principal ---------- */
 main {
   flex: 1; min-height: 0; overflow: hidden;
-  /* padding-top inclui a safe-area (notch/status bar) já que não há mais appbar */
-  padding: calc(.6rem + env(safe-area-inset-top)) .8rem .8rem;
+  /* padding-top inclui a safe-area (notch/status bar) já que não há mais appbar.
+     Embaixo sobrou pouco de propósito: o que fechava a tela ali era a faixa de
+     abas, que mudou para dentro da caixa de controles (v5.54) — o resto é só a
+     folga entre a última linha da lista e a borda de cima da caixa. */
+  padding: calc(.6rem + env(safe-area-inset-top)) .8rem .35rem;
   display: flex; flex-direction: column; gap: .7rem;
 }
 
@@ -807,7 +819,12 @@ main {
    é a diferença entre uma barra de ferramentas e uma navegação, e o app já
    tinha a forma certa a duas telas de distância.
    O trilho custa .25rem de padding (8px na altura) — o cartão da v5.31 cobrava
-   isso MAIS 2px de borda e desenhava uma moldura fechada em volta. */
+   isso MAIS 2px de borda e desenhava uma moldura fechada em volta.
+   Desde a v5.54 ele repousa sobre `--bar` (a caixa de controles) e não mais
+   sobre o fundo do app: como `--surface` é branco com ALFA, o trilho acompanha
+   a base nova sozinho e passa a ter exatamente a mesma superfície dos botões
+   de transporte logo abaixo — que é o que faz os dois se lerem como um bloco
+   só. Degrau medido nessa base: 1,46:1 (era 1,38:1 sobre o fundo do app). */
 .tabs {
   display: flex; gap: .25rem; align-items: center; flex-shrink: 0;
   background: var(--surface); border-radius: var(--radius-btn); padding: .25rem;
