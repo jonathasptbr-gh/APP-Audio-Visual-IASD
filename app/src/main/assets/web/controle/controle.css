@@ -727,7 +727,22 @@ main {
 
 /* ---------- Título da lista ativa ---------- */
 .list-header { flex-shrink: 0; display: flex; align-items: center; gap: .3rem; }
-.list-title { flex: 1; font-size: .72rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+/* O nome da tela. Subiu de .72rem para .84rem na v5.51: com a versão fora do
+   cabeçalho e o botão de troca de modo ancorado à direita, a faixa passou a ter
+   espaço — e em .72rem o único texto que responde "onde eu estou" era menor que
+   o subtítulo de qualquer linha da lista. Segue em `--muted` e em caixa alta:
+   é um rótulo de seção, não um cabeçalho de conteúdo. */
+/* `min-width: 0` + reticências: dentro de uma pasta o título é o NOME dela, de
+   comprimento imprevisível, e o cabeçalho agora tem um vizinho de largura fixa
+   à direita (a troca de modo). Sem isto um nome longo empurraria o botão para
+   fora da tela — o padrão de um item flex é `min-width: auto`, que se recusa a
+   encolher abaixo do conteúdo. */
+.list-title {
+  flex: 1; min-width: 0;
+  font-size: .84rem; font-weight: 700; color: var(--muted);
+  text-transform: uppercase; letter-spacing: .06em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 /* Os dois botões de ícone do cabeçalho têm a MESMA caixa de toque (`--hit`, o
    mesmo dos botões de linha e de fechar popup). O voltar tinha só ~20×20 px —
    o menor alvo do app inteiro, e é a única saída da aba Pastas e da navegação
@@ -776,7 +791,7 @@ main {
 /* SEGMENTADO, não fileira de botões (v5.50). A faixa passou por três formas:
    trilho de CARTÃO (`--bar` + borda 1px, v5.31), nenhuma moldura com cada aba
    virando um botão de fundo próprio (v5.49) e agora a MESMA receita do seletor
-   de ferramentas da aba Diversos (`.misc-switch`): um trilho raso em
+   de ferramentas da aba Ferramentas (`.misc-switch`): um trilho raso em
    `--surface`, sem borda, e as abas TRANSPARENTES dentro dele.
    O que a v5.49 corrigiu foi o desperdício do cartão; o que ela não resolveu é
    que quatro retângulos com fundo próprio, lado a lado, se leem como quatro
@@ -889,12 +904,12 @@ main {
 .sel-btn .msym { font-size: var(--icon-sm); }
 
 /* ---------- Itens (biblioteca) ---------- */
-/* `touch-action: pan-y` na lista que NÃO é a de Diversos: ela só rola na
+/* `touch-action: pan-y` na lista que NÃO é a da aba Ferramentas: ela só rola na
    vertical, então declarar isso entrega o eixo horizontal ao app — sem a
    declaração o navegador ainda considera o gesto seu (`manipulation`, do `*`
    no topo da folha) e pode engolir o deslize do carrossel de abas com um
    `pointercancel`, que é a falha mais difícil de diagnosticar porque depende
-   do aparelho. Fica de fora `.lib-misc` (Diversos), que tem trilhos rolando na
+   do aparelho. Fica de fora `.lib-misc` (Ferramentas), que tem trilhos rolando na
    HORIZONTAL dentro dela (o histórico do sorteio): `touch-action` de um
    ancestral se INTERSECTA com o do alvo, então um `pan-y` aqui tiraria o
    `pan-x` de lá. */
@@ -1321,7 +1336,7 @@ main {
 /* ---------- Microfone (push-to-talk) ---------- */
 /* Um alvo grande e central: é para ser encontrado e segurado sem olhar, no
    meio do culto.
-   `flex-shrink:0` (e não mais `flex:1`): a aba Diversos passou a ter uma
+   `flex-shrink:0` (e não mais `flex:1`): a aba Ferramentas passou a ter uma
    segunda ferramenta abaixo — com o microfone crescendo, ele engolia a altura
    toda e empurrava o cronômetro para fora da área visível. */
 /* Rodapé da aba: as duas ações que MANDAM ALGO PARA A TELA, lado a lado. */
@@ -1375,7 +1390,7 @@ main {
    letra logo acima e ao realce da busca. */
 .mic-note { font-size: .84rem; font-weight: 600; color: var(--warn-text); text-align: center; max-width: 34ch; line-height: 1.45; }
 
-/* ---------- Ferramentas da aba Diversos (base comum) ---------- */
+/* ---------- Primitivos da aba Ferramentas (base comum) ---------- */
 /* `.misc-*` são os primitivos COMPARTILHADOS pelo cronômetro e pelo sorteio
    (painel, segmentado, chip, campos, botão de projetar). Nasceram como
    `.chrono-*`, com uma ferramenta só; ao ganhar a segunda, um nome que anuncia
@@ -1492,7 +1507,7 @@ main {
    o microfone pular de largura a cada troca de ferramenta. */
 .misc-project:disabled { opacity: .4; border-color: var(--line); background: var(--surface); color: var(--muted); cursor: default; }
 
-/* ---------- Sorteio (aba Diversos) ---------- */
+/* ---------- Sorteio (aba Ferramentas) ---------- */
 /* O resultado. Sem `tabular-nums` (ao contrário do cronômetro): aqui o valor
    pode ser um nome, e a métrica tabular espaça mal as letras. */
 .draw-read {
@@ -1546,7 +1561,7 @@ main {
 .draw-go:disabled { opacity: .45; border-color: var(--line); background: var(--surface); color: var(--muted); }
 
 /* ---------- Mensagens (texto puro) ---------- */
-/* Vivem numa das ferramentas da aba Diversos (o painel `.misc-panel--msg`),
+/* Vivem numa das ferramentas da aba Ferramentas (o painel `.misc-panel--msg`),
    não numa aba própria: um aviso de texto é uma interrupção rápida, não uma
    seção da biblioteca que se navega. */
 .msg-add-btn {

@@ -671,7 +671,7 @@
   createStage.fadeLayerOut = fadeLayerOut;
   createStage.findSlideIndex = findSlideIndex;
 
-  // ===== Cronômetro / Relógio / Timer (aba Diversos) =====
+  // ===== Cronômetro / Relógio / Timer (aba Ferramentas) =====
   // O descritor é um OBJETO PEQUENO E ESTÁVEL, e não um fluxo de ticks: quem
   // conta o tempo é cada lado, localmente, a partir de uma ORIGEM comum
   // (`startAt`, em epoch ms). Mandar o texto pronto a cada segundo colocaria
@@ -739,7 +739,7 @@
     return { text: formatSpan(elapsed), over: false };
   }
 
-  // ===== Sorteio (aba Diversos) =====
+  // ===== Sorteio (aba Ferramentas) =====
   // Mesmo desenho do cronômetro: o Controle SORTEIA e manda um descritor; os
   // dois lados apenas derivam o que mostrar. Quem sorteia tem que ser um só —
   // se cada tela rodasse o próprio `Math.random`, o telão e a preview
