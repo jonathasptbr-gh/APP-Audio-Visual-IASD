@@ -115,7 +115,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.64';
+const WEB_VERSION = '5.65';
 
 // Escrita UMA vez, na carga: o indicador mora no rodapé de Configurações desde
 // a v5.49 e não depende mais de qual aba está aberta (no cabeçalho ele
@@ -6825,11 +6825,24 @@ function hymnResultRow(coll, s, lyricHit, semColecao) {
   const li = document.createElement('li');
   li.className = 'lib-item hymn-result';
 
+  // A chave da linha: é por ela que o indicador de download reencontra esta
+  // música depois de um redesenho (ver setSongRowBusy).
+  const chave = songRowKey(coll, s);
+  li.dataset.song = chave;
+
   const row = document.createElement('div'); row.className = 'row hymn-row';
   const play = document.createElement('button');
-  play.className = 'hymn-play-thumb';
+  play.className = 'hymn-play-thumb' + (songRowBusy.has(chave) ? ' busy' : '');
   play.title = 'Tocar "' + songLabel(coll, s) + '"';
   play.appendChild(msym(ICON.play));
+  // O anel de download convive com o ▶ no mesmo botão: a classe `busy` troca
+  // qual dos dois aparece. Montá-lo aqui, e não na hora, é o que faz a marca
+  // sobreviver ao redesenho da lista (o progresso da sincronização redesenha o
+  // acervo a cada 400 ms).
+  const anel = document.createElement('span');
+  anel.className = 'dl-ring'; anel.setAttribute('aria-hidden', 'true');
+  anel.innerHTML = downloadArrowIconSvg();
+  play.appendChild(anel);
   play.addEventListener('click', (e) => {
     e.stopPropagation();   // divide a linha com o acordeão da letra
     // No simplificado não há escolha: o toque toca o CANTADO. Abrir uma folha
@@ -7055,6 +7068,43 @@ function renderSongMenu(modo) {
     (vr) => addSongToFavorites(coll, s, vr)));
 }
 
+// A seta de download dentro do `.dl-ring` — o mesmo desenho que o `#pvBusy`
+// traz no HTML. (Aqui precisa ser JS: a linha é construída em tempo de
+// execução.) Fora do subset da fonte, como a de `downloadAllIconSvg`.
+function downloadArrowIconSvg() {
+  return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+    + '<path d="M12 4v9"/><polyline points="8 9.5 12 13.5 16 9.5"/>'
+    + '<path d="M5 16v2a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-2"/>'
+    + '</svg>';
+}
+
+// ===== "Baixando" na LINHA da música =====
+// Contador por música, não booleano: dois pedidos para a mesma faixa (adicionar
+// à playlist e, em seguida, ao Cronograma) não podem fazer o primeiro a
+// terminar apagar a marca do outro.
+const songRowBusy = new Map();
+function songRowKey(coll, s) { return coll.id + ':' + s.id_music; }
+
+// O estado vive no Map, e não só na classe do botão, porque a lista do acervo é
+// RECONSTRUÍDA durante o download (o progresso da sincronização redesenha a
+// cada 400 ms): uma classe escrita no nó some no redesenho seguinte, e a linha
+// voltava a mostrar ▶ com o download ainda correndo. `hymnResultRow` relê o
+// Map ao montar; esta função cuida das linhas que já estão na tela.
+function setSongRowBusy(coll, s, on) {
+  const key = songRowKey(coll, s);
+  const n = (songRowBusy.get(key) || 0) + (on ? 1 : -1);
+  if (n > 0) songRowBusy.set(key, n); else songRowBusy.delete(key);
+  const ligado = songRowBusy.has(key);
+  // Comparação por `dataset`, sem seletor de atributo: a chave carrega `:` e
+  // `-`, e montar um seletor a partir de dado é o tipo de coisa que quebra
+  // calada no dia em que um id novo trouxer outro caractere.
+  document.querySelectorAll('.hymn-result').forEach((li) => {
+    if (li.dataset.song !== key) return;
+    const btn = li.querySelector('.hymn-play-thumb');
+    if (btn) btn.classList.toggle('busy', ligado);
+  });
+}
+
 // SVG inline de "só a letra" (linhas de texto). O Material Symbols embarcado é
 // um SUBCONJUNTO: um glifo que não foi incluído sai como retângulo vazio.
 function lyricsOnlyIconSvg() {
@@ -7092,16 +7142,27 @@ async function ensureSongDownloaded(coll, s, opts) {
   const { needsFull, needsPlayback } = await songVariantsNeeded(coll, s);
   if (!needsFull && !needsPlayback) return;
 
-  const key = coll.id + ':' + s.id_music;
-  if (songDownloadInFlight.has(key)) { await songDownloadInFlight.get(key); return; }
-  const p = withBgWork(async () => {
-    if (!opts || opts.toast !== false) flash('Baixando "' + s.name + '"…', true);
-    await downloadCollectionSong(coll, s);
-    await AVDB.setState('coll:' + coll.id, collState[coll.id]);
-    refreshCollectionsIfVisible();
-  });
-  songDownloadInFlight.set(key, p);
-  try { await p; } finally { songDownloadInFlight.delete(key); }
+  // A LINHA da música mostra que ela está baixando. A marca é acesa AQUI, e não
+  // no chamador, porque este é o único ponto que já sabe que existe download de
+  // verdade: acendê-la antes da checagem acima faria a miniatura piscar em toda
+  // música que já está no aparelho — e um indicador que pisca lê-se como falha.
+  // Como consequência, todo caminho que baixa sob demanda ganha a marca sem
+  // precisar lembrar dela.
+  setSongRowBusy(coll, s, true);
+  try {
+    const key = coll.id + ':' + s.id_music;
+    if (songDownloadInFlight.has(key)) { await songDownloadInFlight.get(key); return; }
+    const p = withBgWork(async () => {
+      if (!opts || opts.toast !== false) flash('Baixando "' + s.name + '"…', true);
+      await downloadCollectionSong(coll, s);
+      await AVDB.setState('coll:' + coll.id, collState[coll.id]);
+      refreshCollectionsIfVisible();
+    });
+    songDownloadInFlight.set(key, p);
+    try { await p; } finally { songDownloadInFlight.delete(key); }
+  } finally {
+    setSongRowBusy(coll, s, false);
+  }
 }
 
 async function resolveSongMediaId(coll, s, variant, opts) {
@@ -7211,8 +7272,13 @@ async function playSongVariant(coll, s, variant) {
   }
 }
 
+// Os três caminhos de ADICIONAR passam `toast: false` pelo mesmo motivo que o
+// de tocar: quem anuncia o download é o indicador — aqui, a miniatura da linha
+// da música (`setSongRowBusy`), que fica à vista porque o acervo continua
+// aberto de propósito. O toast que sobra é o do RESULTADO ("Adicionado à
+// playlist"), que é outra informação.
 async function addSongVariant(coll, s, variant) {
-  const id = await resolveSongMediaId(coll, s, variant);
+  const id = await resolveSongMediaId(coll, s, variant, { toast: false });
   if (!id) { flash('Não foi possível adicionar (sem internet para baixar)'); return; }
   const had = await AVDB.listHas('imports', id);
   await AVDB.listAdd('imports', id);
@@ -7225,14 +7291,14 @@ async function addSongVariant(coll, s, variant) {
 // seleção. Uma segunda lista de atalhos só para o acervo divergiria da
 // primeira no dia em que alguém criasse um atalho novo.
 async function addSongToFavorites(coll, s, variant) {
-  const id = await resolveSongMediaId(coll, s, variant);
+  const id = await resolveSongMediaId(coll, s, variant, { toast: false });
   if (!id) { flash('Não foi possível adicionar (sem internet para baixar)'); return; }
   dismissFlash();
   openFolderPicker([id]);
 }
 
 async function addSongToPlaylist(coll, s, variant) {
-  const id = await resolveSongMediaId(coll, s, variant);
+  const id = await resolveSongMediaId(coll, s, variant, { toast: false });
   if (!id) { flash('Não foi possível adicionar (sem internet para baixar)'); return; }
   const had = await AVDB.listHas('playlist', id);
   await AVDB.listAdd('playlist', id);
