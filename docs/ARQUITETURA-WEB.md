@@ -94,7 +94,7 @@ git push origin main
   MENOR que o já publicado — caso em que `WebUpdater.compareVersions` ignora o
   bundle em silêncio. Para saber onde a base está, leia `version.json`.
 
-  No app nativo o rótulo mostra os **dois índices** — `Web v5.54 · Shell v1.22`
+  No app nativo o rótulo mostra os **dois índices** — `Web v5.55 · Shell v1.22`
   —, porque base web e shell atualizam por caminhos independentes (OTA ×
   instalar APK); no navegador sai só `Controle v<versão>`. **Ele mora no rodapé
   do popup de Configurações** desde a v5.49 (antes ficava no cabeçalho da lista,
@@ -1022,7 +1022,10 @@ só: mesma cor de fundo, mesma borda de cima, mesma sombra, e o trilho do
 segmentado passa a ter exatamente a mesma superfície dos botões de transporte
 logo abaixo (`--surface` é branco com ALFA, então acompanha a base nova
 sozinho — o degrau vai de 1,38:1 sobre o fundo do app para 1,46:1 sobre a
-barra). O `padding-bottom` da barra usa
+barra). Ela **não tem mais `border-top`** desde a v5.55, quando a fileira
+passou a encostar no topo: a linha cortava o vazado da aba ativa justamente
+onde ele deve emendar com o conteúdo, e a sombra já marcava onde a caixa
+começa. O `padding-bottom` da barra usa
 `max(env(safe-area-inset-bottom), 12px)` para garantir margem segura contra
 acionamentos acidentais pela navegação por gestos do Android/iOS.
 
@@ -1529,40 +1532,50 @@ janela à parte — útil para desenvolver a base web fora do app, e nada mais.
 ### Abas e biblioteca
 
 As abas ficam **no alto da caixa de controles** (`.bottombar`, v5.54 — antes
-eram o último elemento do `<main>`; ver "Layout geral") e são um **SEGMENTADO**,
-não uma fileira de botões: um trilho raso em `--surface` (a mesma receita do
-`.misc-switch`, o seletor de ferramentas da própria aba Ferramentas) com quatro alvos
-idênticos e **transparentes** dentro dele — **Cronograma** · **Bíblia** ·
-**Ferramentas** (as `.tab`) e o **acervo** (`#hymnSearchBtn`, `.tab-add`), todos
-`flex: 1`, `--hit-nav` de altura e o mesmo raio.
+eram o último elemento do `<main>`; ver "Layout geral") e são **abas de
+verdade**: uma fileira SEM trilho, encostada na borda de cima da caixa e indo de
+borda a borda (`margin: 0 -.7rem`, que desfaz o padding lateral dela). São
+quatro alvos idênticos — **Cronograma** · **Bíblia** · **Ferramentas** (as
+`.tab`) e o **acervo** (`#hymnSearchBtn`, `.tab-add`) —, todos `flex: 1` e
+`--hit-nav` de altura, transparentes enquanto não estão escolhidos.
 
-A faixa passou por três formas, e cada uma corrigiu a anterior:
+**A ativa é um VAZADO na cor do corpo** (v5.55): ela é pintada com `--bg`, o
+mesmo fundo das listas que estão logo acima dela na tela, e tem raio só
+EMBAIXO. Encostada no topo da caixa, a célula deixa de parecer um botão aceso e
+passa a ser a continuação do conteúdo descendo até a fileira — a aba e a tela
+que ela abre viram a mesma superfície, que é o que a palavra "aba" sempre
+significou. Quem confirma o estado é o **ícone em `--accent`**: o degrau
+`--bg` × `--bar` é 1,32:1, o piso das superfícies grandes, e num salão escuro
+isso sozinho é pouco.
 
-- **v5.31 — trilho de cartão** (`--bar` + borda 1px). Existia para resolver um
-  problema real: com a faixa transparente E as abas sem fundo, um botão inativo
-  era indistinguível do vazio ao redor.
-- **v5.49 — sem moldura, cada aba com fundo próprio.** Matou o desperdício do
-  cartão (o degrau foi medido: uma aba sobre o fundo do app dá **1,38:1**, acima
-  do piso de 1,30:1), mas deixou quatro retângulos com fundo lado a lado — que
-  se leem como quatro BOTÕES, quatro ações, e não como "escolha uma destas
-  telas".
-- **v5.50 — segmentado.** O fundo passa a ser do TRILHO e o que se destaca é o
-  segmento escolhido. É a diferença entre uma barra de ferramentas e uma
-  navegação, e o app já tinha a forma certa a duas telas de distância. Custa
-  `.25rem` de padding (8px de altura) — o cartão da v5.31 cobrava isso mais 2px
-  de borda e ainda fechava uma moldura em volta.
+A faixa passou por quatro formas antes desta, e o caminho é sempre o mesmo
+defeito — cada versão desenhava uma caixa em volta da navegação:
 
-Duas regras de cor dentro do trilho:
+| Versão | Forma | O que ela ainda cobrava |
+|---|---|---|
+| v5.31 | trilho de cartão (`--bar` + borda 1px), cada aba num botão | uma moldura fechada em volta de tudo |
+| v5.49 | sem moldura, cada aba com fundo próprio sobre o fundo do app | quatro retângulos que se leem como quatro AÇÕES |
+| v5.50 | segmentado (trilho raso em `--surface`, abas transparentes) | um trilho dizendo "isto é um grupo" — coisa que quatro ícones na base da tela já dizem |
+| v5.54 | o mesmo segmentado, agora DENTRO da caixa de controles | idem, só que sobre `--bar` |
 
-- **O segmento escolhido é tinta suave** (`--accent-soft` + texto em
-  `--accent`), **sem contorno**: dentro de um trilho o realce do fundo já é o
-  sinal, e a borda vinha da forma anterior, em que a aba flutuava sobre o fundo
-  do app e precisava de um limite próprio.
-- **O acervo é SÓLIDO** (`--accent-fill`). Na faixa convivem um ESTADO ("estou
-  no Cronograma") e uma AÇÃO ("abrir o acervo"), e sólido é o que o app já usa
-  para "toque aqui e algo acontece" (`.misc-project`, `.dialog-btn.primary`,
-  `#volToggle`). Num trilho de segmentos transparentes o bloco cheio é o único
-  que não se parece com "uma das telas" — que é exatamente o que ele não é.
+> A v5.49 resolveu de fato o desperdício do cartão, e o degrau foi medido na
+> ocasião: uma aba sobre o fundo do app dá **1,38:1**, acima do piso de 1,30:1.
+> O problema dela não era contraste, era gramática — fundo próprio em quatro
+> células vizinhas é a forma de uma barra de ferramentas, não de uma navegação.
+
+**O acervo continua SÓLIDO** (`--accent-fill`), e divide com a aba ativa a mesma
+FORMA (preenchido, descendo do topo, raio embaixo). Na fileira convivem um
+ESTADO ("estou no Cronograma") e uma AÇÃO ("abrir o acervo"): sólido em accent é
+o que o app já usa para "toque aqui e algo acontece" (`.misc-project`,
+`.dialog-btn.primary`, `#volToggle`), e o vazado é lugar. Mesma forma, cores
+opostas — é a diferença que se lê sem legenda.
+
+**A caixa de controles perdeu o `border-top`** por causa disso: ela existia para
+marcar onde a caixa começa, e a sombra (`0 -2px 12px`) já fazia esse trabalho —
+mas com a fileira encostada no topo a linha passava a cortar o vazado
+exatamente no ponto em que ele deve emendar com o conteúdo.
+
+As quatro células:
 
 - **Cronograma** (`imports`) — itens importados; ficam até serem excluídos.
 - **Bíblia** (`bible`) — seleção e projeção de textos bíblicos. Não é uma lista
