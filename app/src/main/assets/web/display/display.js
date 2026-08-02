@@ -52,6 +52,15 @@ const stage = createStage({
   forceMuted: false,
   onTime: sendStatus,
   onBlocked: () => {
+    // A guarda de nativo fica AQUI, e não só dentro de beginAudioRecovery():
+    // no APK não há política de gesto (ver #startBtn), então um NotAllowedError
+    // só pode ser falso positivo — e mutar o stage antes de descobrir isso
+    // deixava o telão sem som sem armar recuperação nenhuma (beginAudioRecovery
+    // devolve cedo em __NATIVE__, `audioBlocked` continua false e nem
+    // tryRestoreAudio nem o comando 'audio-retry' fazem qualquer coisa). O
+    // silêncio durava até o próximo load, e o Controle não recebia sinal: o
+    // display-status só carrega `audioBlocked`, que ali é false.
+    if (window.__NATIVE__) return;
     // Autoplay com som bloqueado: segue tocando MUDO (sempre permitido — o
     // vídeo aparece no telão sem toque) e a recuperação religa o áudio.
     stage.setMute(true);
@@ -84,6 +93,7 @@ let lyricSlideIdx = -1;
 let lyricLoadSeq = 0;     // descarta resoluções de imagem obsoletas (mesmo padrão do loadSeq do stage)
 let lyricImgKey = null;   // imageOpfsPath já renderizado agora (evita recriar a object URL à toa)
 let lyricImgUrl = null;   // object URL em uso, para revogar quando trocar de fato
+let lyricTeardownTimer = null; // desmontagem atrasada da camada (ver hideLyrics/showLyrics)
 // 'black' (padrão) ignora as imagens dos slides e mantém o fundo preto atrás
 // do texto; 'image' usa as imagens de verdade. Persistido em state.lyricsBg
 // pelo Controle, aplicado ao vivo via comando (ver setLyricsBgMode).
@@ -123,9 +133,10 @@ function hideLyrics(fade) {
     lyricsImgEl.hidden = true;
     lyricsImgEl.removeAttribute('src');
   };
+  clearTimeout(lyricTeardownTimer);
   if (fade && !lyricsEl.hidden && lyricsEl.animate && fadeCfg.out) {
     fadeLayerOut(lyricsEl);
-    setTimeout(teardown, LAYER_FADE_MS);
+    lyricTeardownTimer = setTimeout(teardown, LAYER_FADE_MS);
   } else {
     lyricsEl.hidden = true;
     teardown();
@@ -136,6 +147,15 @@ function showLyrics(rec) {
   // Um texto manual (Bíblia/mensagem) em cena tem precedência: a música toca de
   // fundo, mas a letra dela não substitui o texto projetado pelo operador.
   if (textActive) return;
+  // A letra VOLTOU antes do teardown agendado por hideLyrics: cancela-o de
+  // forma explícita. A guarda de sequência sozinha não bastava — se a estrofe
+  // que volta usa a MESMA imagem (`key === lyricImgKey`, o caso normal quando
+  // um versículo entra e sai em menos de LAYER_FADE_MS, e também quando dois
+  // hinos compartilham o mesmo imageOpfsPath), applyLyricsImage devolve cedo e
+  // NÃO incrementa lyricLoadSeq: o teardown disparava com o seq ainda válido,
+  // revogava a object URL em uso e apagava o fundo da letra que acabara de
+  // reaparecer, deixando-a sobre preto até a próxima troca de estrofe.
+  clearTimeout(lyricTeardownTimer);
   currentLyrics = rec.lyrics;
   currentLyricsMeta = { hymnName: rec.hymnName, hymnTrack: rec.hymnTrack };
   lyricSlideIdx = -1;
@@ -146,9 +166,14 @@ function showLyrics(rec) {
 // Só mexe no DOM quando o índice realmente muda (chamado a cada tick de tempo).
 function renderLyricSlide(idx) {
   if (idx === lyricSlideIdx) return;
-  lyricSlideIdx = idx;
   const slide = currentLyrics[idx];
+  // O índice só é REGISTRADO depois de validado: gravá-lo antes fazia um índice
+  // inexistente (findSlideIndex devolvendo -1 num tempo anterior ao 1º slide,
+  // ou um showLyrics com a lista ainda vazia) ficar marcado como "já
+  // renderizado" — e se o mesmo índice voltasse a ser pedido, a guarda de cima
+  // devolvia cedo e o slide certo nunca era pintado.
   if (!slide) return;
+  lyricSlideIdx = idx;
 
   lyricsContentEl.classList.toggle('cover', !!slide.cover);
   if (slide.cover) {
@@ -195,9 +220,16 @@ function applyLyricsImage(slide) {
     lyricImgUrl = null;
     fadeLayerOut(lyricsImgEl);
     setTimeout(() => {
-      if (seq !== lyricLoadSeq) return; // outra imagem já assumiu
-      lyricsImgEl.removeAttribute('src');
+      // A revogação vem ANTES da guarda de sequência, e de propósito:
+      // `lyricImgUrl` já foi zerada acima, então esta URL não é mais de
+      // ninguém — nenhum outro caminho vai revogá-la. Deixá-la atrás do guard
+      // significava que uma imagem nova entrando em menos de LAYER_FADE_MS
+      // (estrofe seguinte, ou o operador religando o fundo pelo 'lyricsbg')
+      // invalidava o callback e o blob da foto ficava retido até o WebView do
+      // telão morrer — uma vez a cada ocorrência, o culto inteiro.
       if (url) URL.revokeObjectURL(url);
+      if (seq !== lyricLoadSeq) return; // outra imagem já assumiu: o src é DELA
+      lyricsImgEl.removeAttribute('src');
     }, LAYER_FADE_MS);
     return;
   }
@@ -383,17 +415,37 @@ function hideText(restore = true) {
 // reaparecem sozinhos assim que o cartão opaco sai da frente. Só a letra
 // sincronizada precisa ser remontada — e no slide certo, não do começo.
 function restoreSceneAfterText() {
-  // YouTube segue tocando por baixo do cartão e reaparece sozinho.
-  if (yt) return;
+  // YouTube segue tocando por baixo do cartão e reaparece sozinho — mas a
+  // cortina ainda precisa concordar com a view do player: enquanto o cartão
+  // estava no ar o operador pode ter coberto ou descoberto o telão.
+  if (yt) { reconcileCover(yt.view); return; }
   const cur = stage.getCurrent();
   // NADA de fato em cena — nenhuma mídia carregada, ou a que havia já terminou
   // (só na playlist, ou tocada antes). O ponto de repouso do telão é o
   // WALLPAPER, não o preto: `showText` abriu a cortina para o cartão aparecer,
   // e sem isto ela ficava aberta sobre o vazio quando o texto saía.
   if (!cur || stage.hasEnded()) { stage.coverIn(false); return; }
-  if (cur.kind !== 'audio' || !Array.isArray(cur.lyrics) || !cur.lyrics.length) return;
-  showLyrics(cur);
-  updateLyricSlide(stage.getTime());
+  if (cur.kind === 'audio' && Array.isArray(cur.lyrics) && cur.lyrics.length) {
+    showLyrics(cur);
+    updateLyricSlide(stage.getTime());
+  }
+  // Última coisa, e para TODOS os tipos de mídia (antes só a letra era
+  // remontada e os demais devolviam cedo): `showText` mexeu na cortina por
+  // conta própria para o cartão aparecer, então sair de cena tem que devolvê-la
+  // ao que a view vigente manda. Sem isto, um versículo tirado do ar com o
+  // telão coberto deixava a cortina cobrindo uma mídia cuja view é 'visual' —
+  // e o toque seguinte no botão de visual não fazia nada, porque para o stage
+  // nada havia mudado.
+  reconcileCover(stage.getView());
+}
+
+// A cortina do wallpaper é COMPARTILHADA (stage, YouTube e a camada de texto
+// mexem nela), mas o estado de view é de quem é dono da cena. Este helper só
+// faz a cortina obedecer a uma view já decidida — coverIn/coverOut devolvem
+// cedo quando ela já está onde deveria, então chamar à toa não custa nem
+// pisca nada no telão.
+function reconcileCover(view) {
+  if (view === 'wallpaper') stage.coverIn(false); else stage.coverOut();
 }
 
 // ===== Microfone ao vivo (push-to-talk) =====
@@ -423,8 +475,20 @@ function micStatus(on, error) {
   AVDB.sendCommand({ type: 'mic-status', on: !!on, error: error || '' });
 }
 
+// Token da captura EM VOO. `micStream` sozinho não servia como guarda: ele só
+// existe DEPOIS de o getUserMedia resolver, e o primeiro push-to-talk da sessão
+// demora (permissão + onPermissionRequest do WebView). Um on→off→on nesse
+// intervalo — o operador aperta, não ouve nada, solta e aperta de novo —
+// disparava um SEGUNDO getUserMedia com o primeiro ainda pendente; quando os
+// dois resolviam, o segundo sobrescrevia micStream/micSrc/micGain e o primeiro
+// ficava com as trilhas vivas e o ganho ligado ao destination, sem ninguém
+// para pará-lo: microfone aberto no telão (e o indicador de gravação do
+// Android aceso) até o WebView do telão ser recriado.
+let micSeq = 0;
+
 async function startMic() {
   if (micStream) return; // já no ar
+  const seq = ++micSeq;
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
     micStatus(false, 'unsupported');
     return;
@@ -439,13 +503,24 @@ async function startMic() {
     micStatus(false, (e && e.name) || 'error');
     return;
   }
-  // O operador pode ter soltado o botão enquanto a permissão era resolvida:
-  // aí este stream já nasceu obsoleto e não pode virar áudio no telão.
-  if (!micWanted) { stream.getTracks().forEach((t) => t.stop()); return; }
+  // O operador pode ter soltado o botão (ou apertado de novo, começando outra
+  // captura) enquanto a permissão era resolvida: nos dois casos este stream já
+  // nasceu obsoleto e não pode virar áudio no telão — quem manda é a última
+  // intenção, e o token diz se esta ainda é ela.
+  if (seq !== micSeq || !micWanted) { stream.getTracks().forEach((t) => t.stop()); return; }
   micStream = stream;
   try {
     micCtx = micCtx || new (window.AudioContext || window.webkitAudioContext)();
     if (micCtx.state === 'suspended') { try { await micCtx.resume(); } catch (_) {} }
+    // O resume é OUTRO await, e um stopMic() aqui no meio já teria passado
+    // batido: ele derruba as trilhas, mas não existiria micSrc/micGain para
+    // desconectar — e a continuação abaixo ligaria a fonte ao destination
+    // depois de o operador ter soltado o botão. Reconfere antes de conectar.
+    if (seq !== micSeq || !micWanted) {
+      stream.getTracks().forEach((t) => t.stop());
+      if (micStream === stream) micStream = null;
+      return;
+    }
     micSrc = micCtx.createMediaStreamSource(micStream);
     micGain = micCtx.createGain();
     micGain.gain.value = 0;
@@ -460,6 +535,11 @@ async function startMic() {
 }
 
 function stopMic() {
+  // Invalida a captura em voo ANTES da saída antecipada: com `micStream` ainda
+  // null (permissão não resolveu) esta função não tinha nada a derrubar, mas
+  // precisa mesmo assim registrar que o operador soltou o botão — senão o
+  // getUserMedia pendente vira um microfone aberto que nenhum comando desliga.
+  ++micSeq;
   if (!micStream) return;
   const stream = micStream, src = micSrc, gain = micGain;
   micStream = null; micSrc = null; micGain = null;
@@ -469,6 +549,12 @@ function stopMic() {
     try { if (src) src.disconnect(); } catch (_) {}
     try { if (gain) gain.disconnect(); } catch (_) {}
     stream.getTracks().forEach((t) => t.stop());
+    // SUSPENDE o contexto, não fecha: fechado exigiria criar outro no aperto
+    // seguinte, e é justamente esse custo (e a latência de abertura) que se
+    // quer evitar num push-to-talk. Suspenso, ele para de segurar a saída de
+    // áudio. Só se ninguém tiver reaberto o microfone nesse meio tempo —
+    // startMic religa com o resume que já existe lá.
+    if (micCtx && !micStream) { try { micCtx.suspend(); } catch (_) {} }
   };
   if (gain && micCtx) {
     try {
@@ -602,8 +688,15 @@ document.addEventListener('keydown', onUserGesture);
 let yt = null;   // estado do player ativo (null = sem YouTube em cena)
 let ytSeq = 0;   // guarda sequencial: descarta fades/loads assíncronos obsoletos
 
-// Carrega a API oficial uma única vez (é só um <script>, não uma dependência
-// de build — o projeto já depende de rede/youtube.com para tocar o vídeo).
+// Carrega a API oficial uma única vez. Não é dependência de BUILD (não entra
+// npm nenhum, e o projeto já depende de rede/youtube.com para tocar o vídeo),
+// mas também NÃO é "só um <script>": ele executa no mesmo documento onde o
+// shell publica `__AVBridge` via addJavascriptInterface, com acesso
+// same-origin ao IndexedDB, ao OPFS e à ponte nativa. Não há CSP em nenhuma
+// das duas páginas, então o risco de supply-chain neste endpoint é ACEITO
+// conscientemente — a mitigação (header Content-Security-Policy servido pelo
+// WebPathHandler, ou o player dentro de um iframe de outro origin) está fora
+// do alcance deste arquivo e ainda não foi feita.
 let ytApiPromise = null;
 function loadYtApi() {
   if (window.YT && window.YT.Player) return Promise.resolve();
@@ -1056,8 +1149,31 @@ AVDB.onCommand(async (cmd) => {
   //    (vídeo/imagem/YouTube) e 'clear' encerram o texto e seguem o fluxo.
   if (textActive) {
     if (cmd.type === 'view') {
-      textView = cmd.view === 'wallpaper' ? 'wallpaper' : 'visual';
-      if (textView === 'wallpaper') stage.coverIn(false); else stage.coverOut();
+      const v = cmd.view === 'wallpaper' ? 'wallpaper' : 'visual';
+      textView = v;
+      // Delega a mudança a QUEM É DONO do estado (o player do YouTube, ou o
+      // stage), em vez de mexer na cortina por fora. Chamar coverIn/coverOut
+      // direto daqui movia a cortina deixando `stage.view`/`yt.view`
+      // congelados no valor antigo, e o estrago só aparecia DEPOIS do
+      // 'text-hide': o 'view' seguinte comparava com esse valor, concluía que
+      // nada mudara e RETORNAVA SEM FAZER NADA — o botão de cobrir/mostrar o
+      // telão ficava morto e o operador precisava tocá-lo duas ou três vezes.
+      // Na direção oposta era pior: com a cortina cobrindo e `stage.view`
+      // ainda 'visual', o 'play' seguinte reavaliava computeCover() e
+      // DESCOBRIA o telão sozinho, expondo a mídia que o operador tinha
+      // coberto de propósito.
+      if (yt) { ytSetView(v); return; }
+      await stage.handle({ type: 'view', view: v });
+      // O cartão de texto é INDEPENDENTE da mídia — um versículo no ar sem
+      // nada carregado é o caso mais comum na pregação. Para o stage, porém,
+      // "sem mídia" (ou mídia terminada) quer dizer cortina fechada
+      // (computeCover), e o instantCover final de setViewFaded reengoliria o
+      // versículo logo depois do fade. Reafirma a cortina aberta agora que o
+      // estado interno da view já foi atualizado, que é o que o delegar acima
+      // veio buscar. `textActive` é reconferido porque o fade dura 0,6 s: se
+      // nesse meio tempo o texto saiu de cena, quem manda é
+      // restoreSceneAfterText.
+      if (textActive && textView === 'visual') stage.instantCover(false);
       return;
     }
     if (cmd.type === 'load') {
@@ -1134,24 +1250,37 @@ async function restore() {
   // Transições são INERENTES ao sistema (sempre ligadas, duração fixa — ver
   // fadeCfg acima): não há mais config salva nem ajustável; aplica o valor fixo.
   stage.setFade({ fadeIn: fadeCfg.in, fadeOut: fadeCfg.out, time: fadeCfg.time });
-  // Fundo da letra sincronizada (preto/imagens dos slides) — preferência
-  // visual, igual ao fade/fit.
-  const lyricsBg = await AVDB.getState('lyricsBg');
-  lyricsBgMode = lyricsBg === 'image' ? 'image' : 'black';
-  applyLyricsBgClass();
-  // Preenchimento da mídia (ajustar/preencher/esticar) — preferência visual,
-  // igual ao fade acima.
-  const fit = await AVDB.getState('fit');
-  if (fit) stage.setFit(fit);
-  // Wallpaper escolhido pelo operador — preferência visual, igual às acima.
-  await applyWallpaper();
-  // NÃO recarrega nem toca a última mídia sozinho: abrir o Display nunca
-  // deve iniciar reprodução por conta própria — fica no wallpaper (ponto
-  // inicial) até um comando explícito chegar. O Controle, ao receber
-  // 'display-ready', decide (baseado no que ELE sabe que estava tocando,
-  // não em algo persistido pelo próprio Display) se reenvia um 'load' para
-  // retomar.
-  AVDB.sendCommand({ type: 'display-ready' });
+  // As preferências visuais ficam num try/finally porque ANUNCIAR-SE não pode
+  // depender delas. Toda a reconexão do sistema pende do 'display-ready' (é ele
+  // que dispara o resendSceneToDisplay do Controle): se uma leitura do IDB
+  // rejeitasse — upgrade bloqueado, armazenamento despejado, transação
+  // abortada —, a Presentation recriada depois de um blip do espelhamento
+  // ficava parada no wallpaper, sem nada no Controle explicando e sem outra
+  // saída além de reiniciar o app. Perder o fundo da letra ou o wallpaper é
+  // um defeito visível e recuperável; perder a reconexão, não.
+  try {
+    // Fundo da letra sincronizada (preto/imagens dos slides) — preferência
+    // visual, igual ao fade/fit.
+    const lyricsBg = await AVDB.getState('lyricsBg');
+    lyricsBgMode = lyricsBg === 'image' ? 'image' : 'black';
+    applyLyricsBgClass();
+    // Preenchimento da mídia (ajustar/preencher/esticar) — preferência visual,
+    // igual ao fade acima.
+    const fit = await AVDB.getState('fit');
+    if (fit) stage.setFit(fit);
+    // Wallpaper escolhido pelo operador — preferência visual, igual às acima.
+    await applyWallpaper();
+  } catch (_) {
+    // Segue nos padrões (preto na letra, 'contain' no fit, gradiente no fundo).
+  } finally {
+    // NÃO recarrega nem toca a última mídia sozinho: abrir o Display nunca
+    // deve iniciar reprodução por conta própria — fica no wallpaper (ponto
+    // inicial) até um comando explícito chegar. O Controle, ao receber
+    // 'display-ready', decide (baseado no que ELE sabe que estava tocando,
+    // não em algo persistido pelo próprio Display) se reenvia um 'load' para
+    // retomar.
+    AVDB.sendCommand({ type: 'display-ready' });
+  }
 }
 
 // Toque único ao abrir ("Ligar Sistema"): o gesto real (pointerdown, que já
@@ -1189,34 +1318,14 @@ startBtnEl.addEventListener('click', () => {
   setTimeout(() => { startBtnEl.hidden = true; }, 300);
 }, { once: true });
 
-// Auto-atualização: checa por versão nova ao abrir/retomar e recarrega quando
-// um novo service worker assume — MAS nunca recarrega com mídia em cena (evita
-// piscar/interromper a projeção ao vivo): adia até o Display voltar ao
-// wallpaper (idle = sem YouTube e sem mídia local carregada).
-// No app nativo NÃO há service worker: os assets já são locais (vêm do APK) e
-// o auto-reload por `controllerchange` brigaria com o ciclo de vida da
-// Presentation — recarregar o WebView do telão no meio de um culto é
-// exatamente o que não pode acontecer.
-if (!window.__NATIVE__ && 'serviceWorker' in navigator) {
-  const hadController = !!navigator.serviceWorker.controller;
-  let refreshing = false;
-  const idle = () => !yt && !stage.isPlaying() && !stage.getCurrent();
-  const reloadWhenIdle = () => {
-    if (refreshing || !idle()) return;
-    refreshing = true;
-    location.reload();
-  };
-  navigator.serviceWorker.addEventListener('controllerchange', () => {
-    if (refreshing || !hadController) return;
-    reloadWhenIdle();
-    // Ainda com mídia em cena: reavalia periodicamente até ficar idle.
-    if (!refreshing) setInterval(reloadWhenIdle, 3000);
-  });
-  navigator.serviceWorker.register('sw.js').then((reg) => {
-    const check = () => { if (document.visibilityState === 'visible') reg.update().catch(() => {}); };
-    check();
-    document.addEventListener('visibilitychange', check);
-  }).catch(() => {});
-}
+// NÃO há auto-atualização por service worker aqui. Havia um bloco que
+// registrava `sw.js` e recarregava a página no `controllerchange` (adiando até
+// o telão ficar idle), mas o `sw.js` saiu do bundle junto com os andaimes dos
+// dois PWAs instaláveis: no navegador o register devolvia 404 e a promise era
+// engolida pelo .catch, e no app nativo o bloco nem chegava a rodar. Ou seja,
+// código morto nos dois contextos, sugerindo ao próximo leitor uma atualização
+// que não existia. Quem atualiza a base web agora é o OTA do shell, aplicado
+// no PRÓXIMO lançamento — justamente para nunca recarregar o WebView do telão
+// no meio de um culto.
 
 restore();

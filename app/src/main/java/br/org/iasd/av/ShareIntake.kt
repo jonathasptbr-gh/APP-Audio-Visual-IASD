@@ -31,7 +31,7 @@ object ShareIntake {
             Intent.ACTION_SEND -> listOfNotNull(extraStream(intent))
             Intent.ACTION_SEND_MULTIPLE -> extraStreams(intent)
             else -> emptyList()
-        }
+        }.filter { aceitavel(ctx, it) }
 
         val text = intent.getStringExtra(Intent.EXTRA_TEXT)
         val title = intent.getStringExtra(Intent.EXTRA_SUBJECT)
@@ -55,6 +55,28 @@ object ShareIntake {
             .put("url", url ?: JSONObject.NULL)
             .put("title", title ?: JSONObject.NULL)
             .put("ts", System.currentTimeMillis())
+    }
+
+    /**
+     * Validação de entrada de um ponto EXPORTADO: o `intent-filter` de
+     * ACTION_SEND é público e qualquer app instalado pode dispará-lo.
+     *
+     * Só `content://` passa. `ContentResolver.openInputStream` também atende
+     * `file://` e `android.resource://`, e a leitura acontece com o uid DESTE
+     * app — um app malicioso com `targetSdk` antigo podia compartilhar
+     * `file:///data/data/br.org.iasd.av/shared_prefs/…` e o conteúdo virava
+     * item de mídia do Cronograma, projetável na TV. Não há canal de volta
+     * para quem compartilhou (o dano demonstrável é nulo), mas um ponto de
+     * entrada exportado que não valida o que recebe é dívida gratuita.
+     *
+     * A autoridade do próprio app também cai fora, pelo mesmo motivo: hoje o
+     * app não declara nenhum provider, e se um dia declarar, um share não é a
+     * porta por onde ele deve ser lido.
+     */
+    private fun aceitavel(ctx: Context, uri: Uri): Boolean {
+        if (uri.scheme != "content") return false
+        val autoridade = uri.authority ?: return false
+        return autoridade != ctx.packageName && !autoridade.startsWith(ctx.packageName + ".")
     }
 
     private fun describe(ctx: Context, uri: Uri): JSONObject? = try {

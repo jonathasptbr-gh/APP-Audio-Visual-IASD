@@ -15,85 +15,34 @@
 input, textarea { user-select: text !important; -webkit-user-select: text !important; }
 [hidden] { display: none !important; }
 
-/* ---------- Tokens de design (padrões visuais) ----------
-   Fonte única de verdade para cores, superfícies, raios e a curva de toque.
-   NÃO usar valores literais soltos na folha: sempre referenciar um token.
-   Alguns tokens de marca (--gold e o gradiente do wallpaper) precisam ficar
-   IDÊNTICOS aos de display.css — os dois apps são folhas separadas (não há
-   CSS compartilhado), então a sincronização é manual. Ver seção "Design
-   System" no CLAUDE.md. */
+/* ---------- Tokens de design: aqui só o que NÃO é cor ----------
+   A PALETA saiu deste arquivo e mora em `../shared/tokens.css`, carregado
+   ANTES desta folha e compartilhado com o Display. Enquanto as cores de marca
+   eram mantidas à mão nas duas folhas, o processo era "sincronização manual" —
+   e um ajuste que entrasse só de um lado fazia a preview do Controle deixar de
+   espelhar o telão, que é a única razão de ela existir.
+
+   Ficam aqui as decisões da UI DENSA do Controle, que o Display (que não tem
+   UI) não teria o que fazer com elas: raio, escala de ícone, curva de toque e
+   as duas medidas de layout que o JS também lê.
+   NÃO usar valores literais soltos na folha: sempre referenciar um token. */
 :root {
-  /* ---------- Superfícies: uma ESCADA de elevação ----------
-     O que importa aqui não é cada cor isolada, é o DEGRAU entre elas. A escala
-     anterior era quase plana e, no celular, botão e fundo viravam a mesma
-     mancha preta: medido na tela renderizada, fundo × barra de abas dava
-     1,05:1 e as bordas, 1,19:1 — abaixo do que o olho separa fora de um quarto
-     escuro. (Razões de contraste WCAG; para blocos grandes, ~1,3:1 já é um
-     degrau claramente visível, e é o piso adotado aqui.)
-
-     A correção foi pelos DOIS lados: o fundo subiu de #0a0a0a para um cinza
-     real, e os elementos da frente subiram MAIS, para o degrau crescer em vez
-     de só deslocar. Medido depois: painel 1,28:1, botão 1,39:1, borda 1,95:1.
-
-     `--surface`/`--surface-2` são branco com alfa de propósito: assim um botão
-     mantém o mesmo degrau relativo esteja ele sobre o fundo, sobre a barra ou
-     dentro de um cartão — três valores fixos divergiriam no primeiro ajuste. */
-  --bg: #121212;
-  --panel: #2a2a2a;
-  --panel-2: #383838;
-  --bar: #232323;
-  --line: #454545;                       /* separadores/bordas — 1,95:1 contra o fundo */
-  --surface: rgba(255, 255, 255, .12);   /* fundo padrão de botão/controle */
-  --surface-2: rgba(255, 255, 255, .18); /* chip/campo/badge levemente mais claro */
-
-  /* texto */
-  --text: #f2f2f2;
-  /* #777 dava 3,94:1 — reprovado no mínimo AA (4,5:1) para texto pequeno, e
-     este é justamente o tom dos rótulos de campo e das abas inativas. */
-  --muted: #a3a3a3;
-
-  /* ---------- Marca primária (azul), em DOIS papéis ----------
-     Um azul só não serve aos dois usos, e isso é aritmética, não gosto: para
-     ser legível COMO TEXTO sobre o fundo escuro ele precisa ser claro; para
-     receber TEXTO BRANCO por cima precisa ser escuro. O valor único de antes
-     (#2f81f7) dava 3,75:1 de branco sobre azul na aba ativa — reprovado no
-     mínimo AA (4,5:1) — e, depois que o fundo subiu para #121212, caía para
-     2,66:1 como cor de texto, que é pior ainda.
-
-     `--accent`     → texto, ícones e bordas sobre fundo escuro (7,4:1)
-     `--accent-fill`→ fundo de elemento com texto branco por cima (4,6:1)
-     Elementos puramente decorativos (barra de progresso, linha de arraste,
-     trilho de scroll) seguem no `--accent` claro, que é o que os destaca. */
-  --accent: #58a6ff;
-  --accent-fill: #1f6feb;
-  --accent-soft: rgba(88, 166, 255, .18);
-
-  /* marca secundária (dourado "IASD") — manter em sync com display.css */
-  --gold: #fbc02d;
-  --gold-soft: rgba(251, 192, 45, .18);
-  --gold-text: #ffe082;
-
-  /* perigo / estados de alerta */
-  --danger: #e53935;
-  --danger-soft: rgba(229, 57, 53, .22);
-  --danger-text: #ffcdd2;
-
-  /* sucesso / "check do sistema" (verde) — usado no cartão do Hinário 2022
-     quando o catálogo está completo offline */
-  --success: #66bb6a;
-  --success-soft: rgba(102, 187, 106, .18);
-
-  /* raios: botões/controles vs. cartões/painéis */
+  /* ---------- Raios ----------
+     Dois degraus principais (controle × cartão) e três exceções, todas com
+     nome próprio: um raio literal solto na folha é o que produzia dois botões
+     irmãos, na mesma linha e com a mesma altura, com cantos diferentes. */
   --radius-btn: 8px;
   --radius-card: 10px;
   --radius-pill: 999px;
-
-  /* wallpaper (cortina) — manter em sync com display.css */
-  --wallpaper: radial-gradient(circle at 50% 35%, #14331f 0%, #0a1a10 55%, #050b07 100%);
-
-  /* moldura da letra sincronizada (modo imagem) — manter em sync com display.css */
-  /* ver display.css: sem borda, e mais densa para o contraste */
-  --lyrics-frame-bg: rgba(0, 0, 0, .62);
+  /* Bottom-sheet: raio MAIOR que o de cartão, e só nos cantos que ficam para
+     dentro da tela. É o que lê como "folha que deslizou de fora" em vez de
+     "cartão grande". Eram três 18px literais (playlist/acervo, busca do
+     Hinário) — três chances de divergirem no primeiro ajuste. */
+  --radius-sheet: 18px;
+  /* Marcas MENORES que um botão (badge de 1px de padding, realce de uma linha
+     de letra, a linha-guia de arraste de 3px). Com --radius-btn elas viram
+     cápsulas; sem raio nenhum, cortes secos no meio do texto. */
+  --radius-xs: 4px;
 
   /* Altura da faixa da preview na grade do .deck. É token porque a largura da
      preview é calculada a partir dela (altura × proporção do telão) — se as
@@ -108,8 +57,15 @@ input, textarea { user-select: text !important; -webkit-user-select: text !impor
   /* feedback de toque padrão (:active) */
   --press: scale(.96);
 
-  /* Escala de ícones — três degraus, e só eles. Antes havia oito tamanhos
-     (19, 20, 21, 22, 23, 24, 26, 27 px), cinco deles usados uma única vez. */
+  /* Escala de ícones — três degraus. Antes havia oito tamanhos (19, 20, 21,
+     22, 23, 24, 26, 27 px), cinco deles usados uma única vez.
+     A escala governa os GLIFOS de fonte (`.msym`, via `font-size`), que é onde
+     ela é aplicável: os SVGs inline trazem `width`/`height` no próprio HTML e
+     nunca estiveram sob ela — e o modo simplificado tem escala própria
+     (teclas de 34px, o ícone de 44px do botão de conectar), porque ali o alvo
+     é o polegar de quem está de pé, não o dedo mirando numa lista densa.
+     "Três degraus, e só eles" era a frase antiga, e ela é desmentida por
+     dezenas de valores no HTML. */
   --icon-sm: 20px;   /* botões de linha, cabeçalho, popups */
   --icon-md: 22px;   /* abas e transporte (alvos maiores) */
   --icon-lg: 24px;   /* miniatura-ícone e dicas de deslize */
@@ -121,22 +77,61 @@ input, textarea { user-select: text !important; -webkit-user-select: text !impor
   --kb: 0px;
 }
 
+/* ---------- A superfície AFUNDA dentro de um cartão ----------
+   `--surface`/`--surface-2` são branco com alfa (ver tokens.css), então eles
+   EMPILHAM: 12% de branco sobre `--bg` dá #2f2e2e, mas o MESMO token sobre
+   `--panel` dá #4c4b49 — uma superfície 1,6x mais clara. Era essa a causa raiz
+   do pior contraste do app: todo texto/ícone colorido dentro de um cartão
+   reprovava AA (o ícone de cancelar download media 2,32:1) porque a base dele
+   era muito mais clara do que a folha supunha.
+
+   Não existe alfa que resolva: para o botão manter degrau >= 1,30:1 contra o
+   FUNDO DO APP é preciso alfa >= .10, e para o texto colorido passar AA DENTRO
+   DO CARTÃO é preciso alfa <= .08 — um overlay só não serve a duas bases.
+
+   A saída é INVERTER O SINAL dentro do cartão, que também é a convenção certa
+   de UI escura: o cartão já está elevado, então o controle dentro dele é
+   RECESSO (e ainda emite menos luz, o que importa num salão no escuro).
+   Como custom properties HERDAM, esta regra só precisa marcar os elementos que
+   de fato pintam `--panel` de fundo — toda a descendência deles vem junto.
+
+   O PREÇO, medido e assumido: o degrau recuado contra o cartão é 1,18:1 (botão)
+   e 1,11:1 (chip), abaixo do piso de 1,30:1 das superfícies grandes. Aqui,
+   diferente do fundo do app, o degrau não é o que anuncia o controle: dentro de
+   um cartão o botão tem ícone, e a linha em `--line` do próprio cartão já o
+   separa do resto. O que NÃO era negociável era o texto — e nenhum par colorido
+   dentro de cartão reprova AA depois desta regra (o pior, o ícone de cancelar
+   download, sai de 2,32:1 para 7,36:1). */
+.row-item, .lib-item, .hymnal-card, .msg-item, .bible-vsec,
+.dialog-card, .popup-sheet, .fade-row, .simple-lyrics, .simple-key {
+  --surface: rgba(0, 0, 0, .24);
+  --surface-2: rgba(0, 0, 0, .14);
+}
+
 /* ---------- Feedback de toque (regra única) ----------
    Como o `*` acima zera o -webkit-tap-highlight-color, um controle SEM
    `:active` fica totalmente mudo ao toque no aparelho — o operador não sabe se
    o toque pegou. A regra estava repetida em 17 seletores e, mesmo assim, nove
    controles ficavam de fora (voltar, abas, seleção múltipla, botões de linha,
    fechar popup, escolher pasta, preenchimento, linha de música...).
-   Uma lista só, aqui: um botão novo nasce coberto por omissão. */
+   Uma lista só, aqui: um botão novo nasce coberto por omissão.
+   As teclas do modo SIMPLIFICADO faltavam — e esse é o modo em que o app ABRE:
+   o operador tocava "Conectar a tela", play/pause, mudo ou volume e a tela não
+   dava sinal nenhum de que o toque pegou (o realce nativo está zerado pelo `*`
+   acima). Se o seletor de espelhamento demorasse a abrir, ele tocava de novo.
+   `.mic-btn` e `.display-status` seguem FORA de propósito: o microfone tem
+   feedback próprio (vira vermelho pulsante no pointerdown, e um `transform`
+   junto brigaria com a animação) e o indicador do telão é `disabled` no app. */
 :is(
   .ctl-btn, .t-btn, .slide-nav-btn, .pv-fab,
   .tab, .tab-add, .import-btn, .add-dir-btn, .back-btn, .sel-btn,
   .row-btn, .row-handle, .popup-close, .coll-open-cfg, .new-folder-btn, .folder-pick-btn,
-  .coll-pill, .coll-bar, .coll-bar-btn, .coll-bar-dl, .coll-group-btn, .hymnal-card-btn,
+  .coll-pill, .coll-bar, .coll-bar-dl, .coll-group-btn,
   .bible-cell, .bible-ref-part, .bible-vsec, .bible-ver-row,
   .hymn-row, .msg-add-btn, .msg-item,
   .misc-tab, .misc-seg, .misc-chip, .chrono-btn, .misc-project, .draw-go,
-  .fit-opt, .dialog-btn, .lib-item .row
+  .fit-opt, .dialog-btn, .lib-item .row,
+  .simple-key, .simple-action, .simple-key--big, .simple-key--vol, .simple-switch
 ):active { transform: var(--press); }
 
 html, body { height: 100%; overflow: hidden; }
@@ -248,7 +243,7 @@ body {
   flex: 0 1 auto;
   min-width: 0;
   align-self: center;
-  background: #000; border-radius: var(--radius-card); overflow: hidden;
+  background: var(--stage-bg); border-radius: var(--radius-card); overflow: hidden;
   /* `outline` (com offset negativo) no lugar de `border`: a borda entra no
      border-box e, com `box-sizing:border-box`, o `aspect-ratio` passa a valer
      para a caixa COM a borda — 1px em 128px de altura já desloca a proporção
@@ -261,18 +256,18 @@ body {
    inset:0 e a mídia usa object-fit, então preenchem/letterboxam sozinhas. */
 .preview:fullscreen, .preview:-webkit-full-screen {
   width: 100%; height: 100%; max-width: none; max-height: none; aspect-ratio: auto;
-  border: none; border-radius: 0; background: #000;
+  border: none; border-radius: 0; background: var(--stage-bg);
   /* superfície de gestos invisíveis: captura toques/deslizes sem o navegador
      interpretar como rolagem/zoom (ver setupPreviewGestures em controle.js) */
   touch-action: none;
 }
 /* ---------- Botões sobre a preview ---------- */
-/* Uma COLUNA colada à direita: configurações · cast · mensagem · tela cheia,
-   de cima para baixo. Deitados na base sobravam vazios dos dois lados; em
-   pé eles usam a altura inteira da preview, que é a dimensão apertada aqui
-   (a linha do deck tem 130px). Cada botão é `flex:1`, então a coluna se
-   reparte sozinha — inclusive quando o de cast não existe (navegador), onde
-   os três restantes simplesmente ficam mais altos.
+/* Uma COLUNA colada à direita: configurações · cast · tela cheia, de cima para
+   baixo. Deitados na base sobravam vazios dos dois lados; em pé eles usam a
+   altura inteira da preview, que é a dimensão apertada aqui (a linha do deck
+   tem 130px). Cada botão é `flex:1`, então a coluna se reparte sozinha —
+   inclusive quando o de cast não existe (navegador), onde os DOIS restantes
+   simplesmente ficam mais altos.
    Substituíram os gestos invisíveis que existiam antes (toque = tela cheia,
    toque longo = popup), que nada na tela anunciava. Agora o toque na preview
    só mostra/esconde a coluna; a ação é de quem tocar no botão.
@@ -286,13 +281,23 @@ body {
   transition: opacity .18s ease;
 }
 /* Escondidos: `display` continua flex (senão não há o que transicionar) e a
-   saída é por opacidade; `visibility` garante que não recebam foco. */
-.pv-fabs[hidden] { display: flex; opacity: 0; visibility: hidden; }
+   saída é por opacidade; `visibility` garante que não recebam foco nem toque.
+   O `!important` NÃO é enfeite: `[hidden] { display: none !important }` (linha
+   16) é declaração de autor com `!important` e vence qualquer regra normal
+   desta folha, por mais específica que seja. Sem ele a coluna sumia SECA —
+   `display:none` imediato —, a `transition: opacity .18s` nunca rodava e o
+   comentário acima descrevia um fade que o próprio arquivo impedia. */
+.pv-fabs[hidden] { display: flex !important; opacity: 0; visibility: hidden; }
 .pv-fab {
   pointer-events: auto;
-  flex: 1; min-height: 0; width: 30px; padding: 0;
-  border: 1px solid rgba(255, 255, 255, .22); border-radius: var(--radius-btn);
-  background: rgba(0, 0, 0, .45); color: rgba(255, 255, 255, .92);
+  /* 34px é o piso de alvo de toque do app (o mesmo do `.row-btn` e do
+     `.popup-close`). Em 30px estes eram os menores alvos acionáveis da tela —
+     e errar por 2px não é um no-op: o toque cai no reconhecedor de gestos da
+     preview, que ESCONDE a coluna inteira, obrigando a tocar de novo só para
+     trazê-la de volta. O ícone de 17px continua folgado. */
+  flex: 1; min-height: 0; width: 34px; padding: 0;
+  border: 1px solid var(--glass-line); border-radius: var(--radius-btn);
+  background: var(--glass-bg); color: var(--stage-text);
   backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px);
   display: flex; align-items: center; justify-content: center; cursor: pointer;
   appearance: none; -webkit-appearance: none;
@@ -300,9 +305,6 @@ body {
 /* O tamanho do ícone vem daqui, não do atributo do <svg>: a altura de cada
    botão agora é fração da preview, e um ícone de 20px estouraria a caixa. */
 .pv-fab svg { display: block; width: 17px; height: 17px; }
-/* Mensagem no ar: o mesmo botão vira o X de desligar, em vermelho para não se
-   confundir com "abrir a lista". */
-.pv-fab.live { background: var(--danger); border-color: var(--danger); color: #fff; }
 /* Em tela cheia a preview É a projeção (quando não há TV conectada): nada de
    UI por cima, ou o botão iria junto para o telão. */
 .preview:fullscreen .pv-fabs,
@@ -318,11 +320,11 @@ body {
   background-position: center;
   z-index: 3;
 }
-.pv-brand { font-size: clamp(.7rem, 3.5vw, 1.05rem); font-weight: 700; letter-spacing: .03em; color: rgba(255,255,255,.9); }
+.pv-brand { font-size: clamp(.7rem, 3.5vw, 1.05rem); font-weight: 700; letter-spacing: .03em; color: var(--stage-text-soft); }
 .pv-brand b { color: var(--gold); }
-.pv-layer { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; z-index: 1; }
+.pv-layer { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: var(--stage-bg); z-index: 1; }
 /* Camada de TEXTO manual: acima de toda a mídia (inclusive do iframe do
-   YouTube), opaca pelo `background:#000` herdado de .pv-layer. Espelha o
+   YouTube), opaca pelo `background: var(--stage-bg)` herdado de .pv-layer. Espelha o
    Display (.text-layer) — a mídia segue tocando intacta por baixo e reaparece
    onde estava quando o texto sai.
    PRECISA vir depois de `.pv-layer`: mesma especificidade, então quem é
@@ -346,16 +348,18 @@ body {
    com moldura, cantos arredondados, centralizado), só que em miniatura — a
    preview sempre espelha o telão, e isso vale pra letra igual já vale pra
    imagem/vídeo/YouTube. */
-/* `background:#000` no próprio .pv-lyrics-bg é o preto de verdade (mesmo
-   motivo do Display): no modo preto a <img> fica `hidden` de propósito, em
-   vez de só sem `src` — evita o ícone/borda padrão de "imagem quebrada" que
+/* `background: var(--stage-bg)` no próprio .pv-lyrics-bg é o preto de verdade
+   (mesmo motivo do Display): no modo preto a <img> fica `hidden` de propósito,
+   em vez de só sem `src` — evita o ícone/borda padrão de "imagem quebrada" que
    alguns navegadores mostram mesmo sem `src` (aparecia como linha branca de
-   margem). `.pv-lyrics-bg img[hidden]{display:none}` é necessário além do
-   atributo em si — mesmo motivo do Display (ver `.lyrics-bg img[hidden]` em
-   display.css): sem essa regra própria, `.pv-lyrics-bg img{display:block}`
-   (mais específica que a regra `[hidden]` padrão do navegador) vencia e a
-   <img> continuava visível mesmo com `hidden` ligado pelo JS. */
-.pv-lyrics-bg { position: absolute; inset: 0; background: #000; }
+   margem).
+   `.pv-lyrics-bg img[hidden]{display:none}` era NECESSÁRIO quando a única
+   proteção vinha da folha do navegador (`.pv-lyrics-bg img{display:block}` é
+   mais específica e vencia). Hoje quem esconde é o `[hidden] { display: none
+   !important }` da linha 16, que nenhuma regra normal desta folha alcança: a
+   linha abaixo virou REDUNDÂNCIA DELIBERADA, mantida junto da regra que ela
+   protege para que enxugar uma não reintroduza a linha branca na outra. */
+.pv-lyrics-bg { position: absolute; inset: 0; background: var(--stage-bg); }
 .pv-lyrics-bg img, .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .pv-lyrics-bg img[hidden] { display: none; }
 /* Container de tamanho — mesmo princípio do Display (`.lyrics-content` em
@@ -364,7 +368,7 @@ body {
    celular) para que a razão entre fonte/padding/gap/caixa nunca mude,
    qualquer que seja o tamanho real da preview. SEM padding percentual aqui
    (mesmo motivo do Display) — `.pv-lyrics-box` já é fração deste mesmo
-   container (92cqw/60cqh) e a margem sobra automaticamente via
+   container (76cqw/32cqh) e a margem sobra automaticamente via
    align-items/justify-content:center; um padding em cq* aqui encolheria o
    content-box e dobraria o encolhimento da caixa. */
 .pv-lyrics-content {
@@ -376,7 +380,7 @@ body {
 /* Tamanho FIXO (não cresce/encolhe com o texto do slide) — mesmo princípio
    do Display: overflow:hidden + line-clamp abaixo garantem que qualquer
    letra caiba sem vazar da moldura. Proporções equivalentes às calibradas
-   no Display (~60% da altura da caixinha para a moldura, fonte com
+   no Display (~32% da altura da caixinha para a moldura, fonte com
    cap-height proporcional), só reexpressas em `cq*` da preview. */
 /* Mesmo padrão "vídeo de louvor" do Display: cantos retos, sem borda e sem
    sombra — ver .lyrics-box em display.css. O fundo semitransparente só com
@@ -407,12 +411,12 @@ body {
    encolhe junto com a dimensão mais apertada da caixinha da preview, nunca
    só com a altura. */
 .pv-lyrics-line {
-  color: #fff; font-weight: 700; text-transform: uppercase;
+  color: var(--stage-text); font-weight: 700; text-transform: uppercase;
   font-size: 8cqmin; line-height: 1.2; white-space: pre-line;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
 .pv-lyrics-aux {
-  color: rgba(255, 255, 255, .72); font-weight: 600; font-size: 4.2cqmin; line-height: 1.25; white-space: pre-line;
+  color: var(--stage-text-dim); font-weight: 600; font-size: 4.2cqmin; line-height: 1.25; white-space: pre-line;
   display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden;
 }
 .pv-lyrics-content.cover .pv-lyrics-line {
@@ -458,7 +462,7 @@ body {
    estrofe usam a MESMA receita (9 das 11 declarações eram idênticas). */
 .t-btn, .slide-nav-btn {
   flex: 1; border: none; border-radius: var(--radius-btn);
-  background: var(--surface); color: #fff; cursor: pointer;
+  background: var(--surface); color: var(--text); cursor: pointer;
   display: flex; align-items: center; justify-content: center;
 }
 .t-btn { padding: .45rem 0; }
@@ -539,10 +543,11 @@ body {
 .mixer.vol-revealing .mixer-mid { animation: vol-slide-in .2s ease both; }
 @keyframes vol-slide-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes vol-slide-out { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(10px); } }
-/* Botão de volume: preenchido de azul (accent) com o ícone de mixer em branco
+/* Botão de volume: PREENCHIDO no accent, com o ícone de mixer em `--on-accent`
+   (o tom claro que existe justamente para ser escrito sobre `--accent-fill`)
    — visualmente distinto e prominente na base da coluna. Seletor com `.mixer`
    para ganhar de `.ctl-btn` (mesma especificidade, definido depois). */
-.mixer .vol-btn { background: var(--accent-fill); color: #fff; }
+.mixer .vol-btn { background: var(--accent-fill); color: var(--on-accent); }
 /* O fader OCUPA A COLUNA INTEIRA, como os botões que ele substitui: mesma
    largura, mesmo raio, mesmo fundo (`--surface`) — a coluna não muda de
    espessura ao abrir o volume, só de conteúdo.
@@ -550,13 +555,15 @@ body {
    nativo é fixa e NÃO acompanha a largura do elemento — alargar o `<input>`
    sozinho só deixava a barrinha de sempre boiando num alvo maior. */
 .fader {
-  /* Preenchimento: azul do zero até o nível, `--surface` acima — o mesmo papel
-     que o `accent-color` fazia no trilho nativo, que `appearance: none`
-     desliga. `--vol` (0–1) vem do JS, de onde o valor do fader já é escrito
-     (ver renderControls em controle.js).
+  /* Preenchimento: `--accent` do zero até o nível, `--surface` acima — o mesmo
+     papel que o `accent-color` fazia no trilho nativo, que `appearance: none`
+     desliga. (O texto dizia "azul": era a paleta anterior, e a cor está no
+     token justamente para o comentário não precisar nomeá-la de novo.)
+     `--vol` (0–1) vem do JS, de onde o valor do fader já é escrito (ver
+     renderControls em controle.js).
      O corte não é `--vol * 100%` puro: o CENTRO do cap percorre só a altura
-     menos a espessura dele, então esta conta mantém a borda do azul exatamente
-     sob o cap em qualquer posição. */
+     menos a espessura dele, então esta conta mantém a borda do preenchimento
+     exatamente sob o cap em qualquer posição. */
   --fader-stop: calc(var(--vol, 1) * (100% - var(--fader-cap)) + var(--fader-cap) / 2);
   -webkit-appearance: none; appearance: none;
   position: absolute; inset: 0; transform: none;
@@ -590,13 +597,17 @@ body {
   -webkit-appearance: none;
   width: 100%; height: var(--fader-cap);
   border-radius: var(--radius-btn);
-  background: #fff;
+  /* O cap é o elemento mais claro da coluna de propósito (é onde o olho vai
+     procurar o nível), e o número dentro dele é escrito em `--bg`. Branco
+     literal era a maior fonte isolada de luz emitida do app; `--text` é o
+     off-white já calibrado da paleta e mantém 11,4:1 com o número. */
+  background: var(--text);
   box-shadow: 0 1px 4px rgba(0, 0, 0, .5);
   cursor: pointer;
 }
 .ctl-btn {
   border: 2px solid transparent; border-radius: var(--radius-btn); background: var(--surface);
-  color: #fff; cursor: pointer; display: flex; align-items: center; justify-content: center;
+  color: var(--text); cursor: pointer; display: flex; align-items: center; justify-content: center;
 }
 .ctl-btn .msym { font-size: var(--icon-md); }
 .mixer .ctl-btn { width: 100%; padding: .4rem 0; }
@@ -606,16 +617,22 @@ body {
    (O botão do fundo da letra saiu do mixer: virou o segmento "Imagens dos
    slides" no popup de Exibição, e o lugar dele é a leitura da letra completa —
    um botão que ABRE algo, sem estado próprio a pintar.) */
+/* A borda é `--danger-text`, não `--danger`: o vermelho cheio da paleta é
+   ESCURO por construção (existe para receber `--on-live` por cima), então como
+   contorno sobre fundo escuro ele praticamente desaparece. Texto, ícone e
+   borda de estado vermelho usam sempre o par claro. */
 .view-btn.view-blocked, .mute-btn.muted, .coll-opts .new-folder-btn.danger {
-  border-color: var(--danger); background: var(--danger-soft); color: var(--danger-text);
+  border-color: var(--danger-text); background: var(--danger-soft); color: var(--danger-text);
 }
 .standalone-btn.active {
   border-color: var(--accent); background: var(--accent-soft); color: var(--accent);
 }
-/* Sem áudio no Display (bloqueio do navegador): indicador âmbar pulsante;
-   o clique pede a liberação do som (comando audio-retry). */
+/* Sem áudio no Display (bloqueio do navegador): AVISO pulsante; o clique pede
+   a liberação do som (comando audio-retry). Em `--warn`, e não mais em
+   `--gold`: nesta paleta o dourado da marca É o accent (mesmo valor), então
+   "áudio bloqueado" pintado de gold ficaria idêntico a "ação normal". */
 .mute-btn.blocked {
-  border-color: var(--gold); background: var(--gold-soft); color: var(--gold-text);
+  border-color: var(--warn); background: var(--warn-soft); color: var(--warn-text);
   animation: mute-blocked-pulse 1.2s ease-in-out infinite;
 }
 @keyframes mute-blocked-pulse {
@@ -650,9 +667,11 @@ main {
 .add-dir-btn svg { display: block; }
 
 /* ---------- Abas (ícones) ---------- */
-/* As abas ficam MESCLADAS ao fundo normal do app (sem card/seção isolada) — o
-   botão de importar fica à ESQUERDA (1º filho no HTML) e o de busca à direita;
-   as abas (flex:1) no meio. */
+/* A faixa tem TRÊS abas em `flex:1` (Cronograma é o 1º filho) e, à direita, o
+   botão de busca do acervo (`.tab-add`, fora do trilho pela margem). O botão
+   de importar NÃO mora mais aqui: desceu para o fim da lista do Cronograma,
+   junto de "Pastas" (ver `.import-row`). Quem contar filhos por posição
+   (`:first-child`, `order`) precisa saber disso. */
 /* A faixa era transparente, "mesclada ao fundo do app" — e com isso um botão
    inativo era indistinguível do vazio ao redor: a única pista de que ali havia
    alvos de toque era o ícone. Agora a faixa tem TRILHO próprio e cada aba tem
@@ -667,13 +686,15 @@ main {
    demais — reaproveita o tamanho/estilo de .t-btn, só ganha posição relativa
    para o badge de contagem. */
 .tab-pl { position: relative; }
-/* Só destaca em azul quando há de fato uma fila além da mídia atual
-   (mesmo critério do badge — 1 item não conta como "playlist" de verdade). */
+/* Só ganha o accent quando há de fato uma fila além da mídia atual (mesmo
+   critério do badge — 1 item não conta como "playlist" de verdade). Dizia
+   "azul", da paleta anterior: o token é que carrega a cor, e nomeá-la no
+   comentário é o que faz ele envelhecer a cada troca de paleta. */
 .tab-pl.has-items { color: var(--accent); }
 
 .pl-badge {
   position: absolute; top: 2px; right: 2px;
-  background: var(--accent-fill); color: #fff;
+  background: var(--accent-fill); color: var(--on-accent);
   font-size: .58rem; font-weight: 700;
   border-radius: var(--radius-pill); padding: 1px .3rem;
   min-width: 14px; text-align: center; line-height: 1.4;
@@ -682,7 +703,7 @@ main {
 .pl-badge:empty { display: none; }
 
 .tab {
-  flex: 1; height: 38px; border: none; border-radius: 6px;
+  flex: 1; height: 38px; border: none; border-radius: var(--radius-btn);
   background: var(--surface); color: var(--muted); cursor: pointer;
   display: flex; align-items: center; justify-content: center;
   appearance: none; -webkit-appearance: none;
@@ -691,7 +712,7 @@ main {
 /* Ativa PREENCHIDA em accent, não mais uma linha de 2px embaixo: sobre um
    trilho com fundo, o sublinhado fino era o elemento de menor contraste da
    tela justamente no que precisa ser mais óbvio — onde eu estou. */
-.tab.active { background: var(--accent-fill); color: #fff; }
+.tab.active { background: var(--accent-fill); color: var(--on-accent); }
 
 /* Fim da lista do Cronograma: "Importar arquivos" e "Pastas" lado a lado — as
    duas respondem à mesma pergunta ("de onde vem a mídia?") e ficam onde o
@@ -709,9 +730,13 @@ main {
   color: var(--muted);
 }
 .fav-section + .lib-item { margin-top: 0; }
+/* Tracejado no PRÓPRIO accent: o valor literal que estava aqui era o azul
+   #2f81f7 aposentado há versões — dois azuis diferentes lado a lado, com o
+   mesmo papel (ação secundária contornada), congelados um no token e outro
+   numa cópia que nenhuma troca de paleta alcançaria. */
 .import-btn {
   flex: 1; min-width: 0; padding: .75rem .5rem;
-  background: transparent; border: 1px dashed rgba(47, 129, 247, .5);
+  background: transparent; border: 1px dashed var(--accent);
   border-radius: var(--radius-card); color: var(--accent); font-size: .9rem;
   display: flex; align-items: center; justify-content: center; gap: .45rem;
   cursor: pointer;
@@ -734,7 +759,6 @@ main {
   background: var(--accent-soft); border: 1px solid var(--accent); color: var(--accent);
   display: flex; align-items: center; justify-content: center; cursor: pointer;
 }
-.tab-add .msym { font-size: var(--icon-md); }
 
 /* barra de seleção */
 .selbar { flex-shrink: 0; display: flex; align-items: center; gap: .6rem; background: var(--accent-soft); border: 1px solid var(--accent); border-radius: var(--radius-card); padding: .35rem .6rem; }
@@ -761,13 +785,22 @@ main {
 .row { position: relative; z-index: 1; display: flex; align-items: center; gap: .5rem; padding: .35rem .5rem; background: var(--panel); touch-action: pan-y; }
 .lib-item.selected .row, .lib-item.active .row, .row-item.active .row { background: var(--panel-2); }
 
-.thumb { width: 40px; height: 40px; flex-shrink: 0; border-radius: var(--radius-btn); overflow: hidden; background: #060606; display: flex; align-items: center; justify-content: center; }
+/* A caixa da miniatura é o FUNDO DO APP dentro do cartão: um buraco na
+   elevação, que é o que faz a capa (quando existe) parecer colada por cima.
+   Era #060606 literal — mais escuro que o próprio fundo do app e fora de
+   qualquer escala, então um ajuste de `--bg` deixaria a miniatura vazia
+   destoando de tudo. */
+.thumb { width: 40px; height: 40px; flex-shrink: 0; border-radius: var(--radius-btn); overflow: hidden; background: var(--bg); display: flex; align-items: center; justify-content: center; }
 .thumb--icon .msym { font-size: var(--icon-lg); color: var(--muted); }
 
 .row-name { flex: 1; min-width: 0; font-size: .9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-.url-badge { flex-shrink: 0; font-size: .6rem; font-weight: 700; letter-spacing: .04em; padding: 1px 5px; border-radius: 4px; background: rgba(255,255,255,.12); color: var(--muted); }
-.yt-badge { background: rgba(255, 0, 0, .18); color: #ff5252; }
+.url-badge { flex-shrink: 0; font-size: .6rem; font-weight: 700; letter-spacing: .04em; padding: 1px 5px; border-radius: var(--radius-xs); background: var(--surface); color: var(--muted); }
+/* O vermelho do YouTube é MARCA DE TERCEIRO: a matiz identifica a origem da
+   mídia, então ela é informação e não pode virar accent. Fica em token próprio
+   (`--yt`, clareado até passar AA como texto pequeno sobre o próprio fundo
+   suave) em vez de dois literais soltos, que era o que havia aqui. */
+.yt-badge { background: var(--yt-soft); color: var(--yt); }
 
 .row-btn, .row-handle { width: 34px; height: 34px; flex-shrink: 0; border: none; border-radius: var(--radius-btn); background: var(--surface); color: var(--text); display: flex; align-items: center; justify-content: center; cursor: pointer; }
 .row-btn .msym, .row-handle .msym { font-size: var(--icon-sm); }
@@ -778,11 +811,9 @@ main {
 .folder-opfs .msym { color: var(--accent); }
 .folder-opfs .folder-count { color: var(--accent); opacity: .7; }
 
-/* Indicador de Wi-Fi/dados móveis na linha do Hinário 2022 (ver
-   isConfirmedWifi em controle.js) — verde/neutro quando Wi-Fi confirmado,
-   âmbar quando não (sincronização em massa desativada por padrão). */
-.net-badge { flex-shrink: 0; display: flex; align-items: center; color: var(--accent); opacity: .8; }
-.net-badge--warn { color: var(--gold); opacity: 1; }
+/* (O indicador de rede da linha do Hinário 2022 é hoje o chip `.hymnal-stat.net`
+   dentro das opções da coleção; as regras `.net-badge`/`.net-badge--warn` que
+   viviam aqui não eram alcançadas por elemento nenhum e saíram.) */
 .storage-usage { font-size: .72rem; opacity: .7; padding: 10px 0; }
 
 /* ---------- Card de coleção (álbum / hinário) ---------- */
@@ -815,7 +846,7 @@ main {
   padding: .32rem .7rem; font-size: .76rem; font-weight: 700;
   cursor: pointer; appearance: none; -webkit-appearance: none; white-space: nowrap;
 }
-.coll-pill.active { background: var(--accent-fill); border-color: var(--accent); color: #fff; }
+.coll-pill.active { background: var(--accent-fill); border-color: var(--accent); color: var(--on-accent); }
 
 /* Cabeçalho de grupo: o nome da CATEGORIA do banco. A aba Álbuns reproduz a
    hierarquia categoria → álbum; sem isso a lista era um monte plano de
@@ -844,7 +875,7 @@ main {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .coll-group-name + .coll-group-count { flex: 0 1 auto; }
-.coll-group-count.done { color: var(--success); }
+.coll-group-count.done { color: var(--ok); }
 .coll-group-count.busy { color: var(--accent); }
 .coll-group-btn {
   /* 34px = o mesmo alvo do `.coll-bar-dl` do card: alinhados na coluna, os
@@ -856,8 +887,15 @@ main {
   display: flex; align-items: center; justify-content: center; cursor: pointer;
 }
 .coll-group-btn svg { display: block; }
-/* Em andamento o botão vira "cancelar" — muda de papel, então muda de cor. */
-.coll-group-btn.busy { background: var(--danger-soft); color: var(--danger-text); }
+/* Em andamento o botão vira "cancelar" — muda de papel, então muda de cor.
+   AVISO, e não perigo: o vermelho fica reservado para o que destrói (excluir a
+   coleção) e para o que está NO AR; interromper uma transferência não é nem um
+   nem outro, e usar a mesma cor faria "cancelar o download" e "apagar tudo"
+   dizerem a mesma coisa lado a lado no mesmo cartão. Os três lugares em que se
+   cancela um download (aqui, `.coll-bar-dl.busy` e `.new-folder-btn.cancel`)
+   usam esta MESMA família — antes eram três cores diferentes para o mesmo
+   toque. */
+.coll-group-btn.busy { background: var(--warn-soft); color: var(--warn); }
 
 .coll-bar { display: flex; align-items: center; gap: .55rem; cursor: pointer; }
 /* Coluna nome + subtítulo das linhas de lista (coleção, versão da Bíblia,
@@ -875,11 +913,11 @@ main {
 .coll-bar-icon .msym { font-size: var(--icon-sm); }
 .coll-bar-name { font-size: .95rem; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .coll-bar-sync { flex-shrink: 0; font-size: .78rem; font-weight: 700; color: var(--muted); font-variant-numeric: tabular-nums; }
-.coll-bar-sync.done { color: var(--success); }
+.coll-bar-sync.done { color: var(--ok); }
 .coll-bar-sync.busy { color: var(--accent); font-weight: 600; font-size: .7rem; max-width: 42%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-/* Único botão da linha: a engrenagem das opções. */
-.coll-bar-btn { width: 34px; height: 34px; flex-shrink: 0; }
-.hymnal-card-btn.cfg-btn { background: var(--surface); color: var(--muted); }
+/* (A engrenagem saiu da barra para dentro do card aberto, em `.coll-open-cfg`.
+   As regras `.coll-bar-btn` e `.hymnal-card-btn.cfg-btn` que descreviam o
+   botão antigo não casavam com elemento nenhum e saíram.) */
 
 /* ----- Coleção aberta no próprio card (acordeão do acervo, v5.45) ----- */
 /* Baixar/cancelar a coleção, na barra. Alvo próprio (34px) e `stopPropagation`
@@ -891,8 +929,13 @@ main {
   background: var(--surface); color: var(--accent); cursor: pointer;
 }
 .coll-bar-dl svg { display: block; }
-.coll-bar-dl.done { color: var(--success); }
-.coll-bar-dl.busy { color: var(--danger); border-color: var(--danger); }
+.coll-bar-dl.done { color: var(--ok); }
+/* Baixando: o toque CANCELA. Mesma família de aviso dos outros dois botões de
+   cancelar (ver `.coll-group-btn.busy`). O ícone estava em `--danger`, que é
+   escuro por construção, sobre a superfície de um botão DENTRO de um cartão —
+   2,32:1 medidos, o pior contraste do app inteiro, justamente no controle que
+   anuncia "toque para cancelar". */
+.coll-bar-dl.busy { color: var(--warn); border-color: var(--warn); }
 /* A seta anuncia o que o toque faz. Gira ao abrir — é o sinal de que a lista
    saiu dali, e não de outro lugar da tela. */
 .coll-bar-chev {
@@ -946,25 +989,23 @@ main {
 .coll-opts { display: flex; flex-direction: column; gap: .6rem; padding: .2rem .9rem .9rem; }
 .coll-opts .hymnal-card-status { white-space: normal; }
 .coll-opts .new-folder-btn svg { display: block; }
-.coll-opts .new-folder-btn.busy svg { animation: hymnal-spin 1s linear infinite; }
 /* O mesmo botão vira "cancelar" enquanto o download roda (ver
-   renderCollectionOptions) — sem giro, e em âmbar para não se confundir nem
-   com a ação normal (accent) nem com excluir (danger). */
-.coll-opts .new-folder-btn.cancel { color: var(--gold-text); background: var(--gold-soft); }
+   renderCollectionOptions) — sem giro, e em AVISO para não se confundir nem
+   com a ação normal nem com excluir, que são os seus dois vizinhos imediatos
+   nesta mesma folha. Era `--gold`, e nesta paleta o dourado da marca tem o
+   mesmo valor do accent: ficaria idêntico à ação normal, que é exatamente o
+   que o raciocínio original queria evitar. */
+.coll-opts .new-folder-btn.cancel { color: var(--warn-text); background: var(--warn-soft); }
 .hymnal-card-status { font-size: .72rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: .25rem; }
 .hymnal-card-status.sync { color: var(--accent); }
-.hymnal-card-status.done { color: var(--success); }
+.hymnal-card-status.done { color: var(--ok); }
 
-.hymnal-card-btn {
-  width: 38px; height: 38px; border: none; appearance: none; -webkit-appearance: none;
-  border-radius: var(--radius-btn); background: var(--surface); color: var(--text);
-  display: flex; align-items: center; justify-content: center; cursor: pointer;
-}
-.hymnal-card-btn .msym { font-size: var(--icon-sm); }
-.hymnal-card-btn svg { display: block; }
-.hymnal-card-btn.busy { opacity: .55; }
-.hymnal-card-btn.busy svg { animation: hymnal-spin 1s linear infinite; }
-@keyframes hymnal-spin { to { transform: rotate(360deg); } }
+/* (O bloco `.hymnal-card-btn` — sete regras, um alvo de 38px — descrevia os
+   botões que o card de coleção tinha antes de a manutenção mudar para o
+   bottom-sheet: nenhum elemento os usa desde então. Com eles saiu o
+   `@keyframes hymnal-spin`, que só era referenciado por regras mortas: o
+   botão de sincronizar do bottom-sheet NÃO gira enquanto baixa — ele vira
+   "cancelar", e isso está dito no comentário de `.new-folder-btn.cancel`. */
 
 /* faixa de estatísticas (chips): sincronizados / peso / Wi-Fi */
 .hymnal-card-stats { display: flex; gap: .4rem; }
@@ -982,10 +1023,13 @@ main {
 .hymnal-stat.net b svg { flex-shrink: 0; }  /* o ícone de Wi-Fi nunca encolhe */
 .hymnal-stat label { font-size: .56rem; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
 .hymnal-stat b { font-size: .82rem; font-weight: 700; color: var(--text); }
-.hymnal-stat.done b { color: var(--success); }
+.hymnal-stat.done b { color: var(--ok); }
 .hymnal-stat.net b { display: flex; align-items: center; gap: .3rem; }
-.hymnal-stat.net.ok b { color: var(--accent); }
-.hymnal-stat.net.warn b { color: var(--gold); }
+/* "Wi-Fi confirmado" é uma CONDIÇÃO ATENDIDA, não uma seleção: vai no verde de
+   concluído/conectado, o mesmo do catálogo completo logo ao lado. Em accent
+   ele dizia "é aqui que você está", que é outra coisa. */
+.hymnal-stat.net.ok b { color: var(--ok); }
+.hymnal-stat.net.warn b { color: var(--warn-text); }
 
 /* ---------- Bíblia: seleção em "tabela periódica" ---------- */
 /* Três telas de seleção (livros → capítulos → versículos), cada uma uma grade
@@ -1034,12 +1078,15 @@ main {
 .bible-ver-row.selected { color: var(--accent); }
 .bible-ver-row .row-name { font-weight: 600; }
 .bible-ver-status { font-size: .68rem; color: var(--muted); }
-.bible-ver-status.done { color: var(--success); }
+.bible-ver-status.done { color: var(--ok); }
 .bible-ver-check { color: var(--accent); font-weight: 700; flex-shrink: 0; }
 
 /* Aviso/estado (baixando versículos, sem rede etc.) */
 .bible-note { color: var(--muted); font-size: .82rem; line-height: 1.5; text-align: center; padding: .8rem .4rem; }
-.bible-note.err { color: var(--gold-text); }
+/* Diagnóstico (sem rede, versão indisponível): é AVISO, não marca. Em
+   `--gold-text` ele saía na mesma cor do rótulo de estrofe e do realce de
+   busca — nada distinguia "algo falhou" de "metadado". */
+.bible-note.err { color: var(--warn-text); }
 
 /* A barra ocupa espaço; sem esta folga a última coluna encosta nela. */
 .bible-half > .bible-grid { padding-right: 4px; }
@@ -1054,30 +1101,33 @@ main {
 /* Só a abreviação (sem nome completo) — fonte maior, centralizada. */
 .bible-grid--books .bible-cell-sym { font-size: 1.25rem; }
 
-/* Bloco de livro: preenchido POR INTEIRO com a cor do grupo/divisão canônica
-   (ver .bg-<g> abaixo e o campo `g` em bible.js) — sem número de índice.
-   Capítulos/versículos (.bible-cell--num) ficam neutros (superfície). */
+/* Bloco de livro: TINTA ESCURA do grupo + faixa lateral com a matiz dele (ver
+   .bg-<g> abaixo e o campo `g` em bible.js) — sem número de índice.
+   Capítulos/versículos (.bible-cell--num) ficam neutros (superfície).
+   A faixa é declarada AQUI, transparente: `border: none` no bloco base
+   deixaria as regras de grupo sem onde pintar a borda esquerda, e cada uma
+   teria de redeclarar a largura. */
 .bible-cell {
   position: relative; aspect-ratio: 1; min-width: 0;
-  border: none; border-radius: var(--radius-btn);
+  border: none; border-left: 3px solid transparent; border-radius: var(--radius-btn);
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   cursor: pointer; overflow: hidden; padding: 2px; text-align: center;
-  color: #fff;
+  color: var(--text);
 }
 /* célula de número (capítulo/versículo): superfície neutra por padrão, com
    TONS DISTINTOS por tela pra separar bem "capítulo" de "versículo"
    (percepção da hierarquia): capítulos em tom frio (azulado), versículos em
    tom quente (dourado/amarronzado). */
 .bible-cell--num { background: var(--panel-2); color: var(--text); }
-.bible-grid--chapters .bible-cell--num { background: #2f3d54; color: #dbe6f5; }
-.bible-grid--verses .bible-cell--num { background: #4a3f24; color: #f3e6c8; }
+.bible-grid--chapters .bible-cell--num { background: var(--cell-chapter); color: var(--cell-chapter-text); }
+.bible-grid--verses .bible-cell--num { background: var(--cell-verse); color: var(--cell-verse-text); }
 /* Célula selecionada agora — o capítulo aberto e o versículo em leitura. É o
    que faz voltar da leitura já mostrar onde se está, sem procurar. O anel
    externo destaca mesmo quando a grade rola e a célula fica meio cortada. */
-.bible-cell.active { outline: 2px solid #fff; outline-offset: -2px; }
+.bible-cell.active { outline: 2px solid var(--text); outline-offset: -2px; }
 .bible-cell--num.active {
-  background: var(--accent-fill); color: #fff;
-  outline: 2px solid #fff; outline-offset: -2px;
+  background: var(--accent-fill); color: var(--on-accent);
+  outline: 2px solid var(--on-accent); outline-offset: -2px;
   box-shadow: 0 0 0 2px var(--accent-soft);
   font-weight: 800;
 }
@@ -1085,18 +1135,33 @@ main {
 .bible-cell--num .bible-cell-sym { font-weight: 700; font-variant-numeric: tabular-nums; }
 .bible-cell-name { font-size: .5rem; opacity: .82; margin-top: 3px; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-/* Cores por grupo/divisão canônica (mesmos agrupamentos da referência; cores
-   próprias). Blocos preenchidos, texto branco. */
-.bg-lei        { background: #454b57; }  /* Pentateuco   */
-.bg-historicos { background: #b5641f; }  /* Históricos   */
-.bg-poeticos   { background: #2c8079; }  /* Poéticos     */
-.bg-pmaiores   { background: #6d3aa0; }  /* Prof. Maiores*/
-.bg-pmenores   { background: #93509a; }  /* Prof. Menores*/
-.bg-evangelhos { background: #2f66c9; }  /* Evangelhos   */
-.bg-atos       { background: #1f8ba0; }  /* Atos         */
-.bg-paulinas   { background: #3f8a49; }  /* Cartas Paulinas */
-.bg-gerais     { background: #6d8a2f; }  /* Cartas Gerais   */
-.bg-apocalipse { background: #a5702c; }  /* Apocalipse   */
+/* Cor por grupo/divisão canônica (mesmos agrupamentos da referência). Os nomes
+   das classes são montados por concatenação no JS (`'bg-' + b.g`), então elas
+   NÃO aparecem literais em lugar nenhum fora daqui — não são código morto.
+
+   TINTA ESCURA + faixa lateral com a matiz, e não mais o bloco saturado. Esta
+   é a única tela do app que preenche o visor inteiro de cor, e é justamente a
+   que o operador abre NO ESCURO no meio da pregação: medida, ela emitia 7x
+   mais luz que uma lista comum (16,3% contra 2,3% de luminância média), e
+   cinco dos dez grupos tinham o rótulo abaixo de AA — o pior em 3,94:1, com
+   Lei e Evangelhos a UM grau de matiz um do outro (indistinguíveis).
+   Com a tinta são 5,8x menos luz (2,8% de média) e o pior rótulo vai a
+   8,66:1 — o MESMO número que tokens.css registra, e não um segundo valor
+   medido de outro jeito; duas contas divergentes para a mesma coisa é o que
+   faz um comentário deixar de ser verificável. As matizes foram
+   redistribuídas para 18° de separação mínima. A informação passa a ser
+   carregada pela FAIXA (3px), que é o bastante para agrupar visualmente uma
+   grade de 66 células sem transformar a tela numa lanterna. */
+.bg-lei        { background: var(--b-lei);        border-left-color: var(--bt-lei); }        /* Pentateuco      */
+.bg-historicos { background: var(--b-historicos); border-left-color: var(--bt-historicos); } /* Históricos      */
+.bg-poeticos   { background: var(--b-poeticos);   border-left-color: var(--bt-poeticos); }   /* Poéticos        */
+.bg-pmaiores   { background: var(--b-pmaiores);   border-left-color: var(--bt-pmaiores); }   /* Prof. Maiores   */
+.bg-pmenores   { background: var(--b-pmenores);   border-left-color: var(--bt-pmenores); }   /* Prof. Menores   */
+.bg-evangelhos { background: var(--b-evangelhos); border-left-color: var(--bt-evangelhos); } /* Evangelhos      */
+.bg-atos       { background: var(--b-atos);       border-left-color: var(--bt-atos); }       /* Atos            */
+.bg-paulinas   { background: var(--b-paulinas);   border-left-color: var(--bt-paulinas); }   /* Cartas Paulinas */
+.bg-gerais     { background: var(--b-gerais);     border-left-color: var(--bt-gerais); }     /* Cartas Gerais   */
+.bg-apocalipse { background: var(--b-apocalipse); border-left-color: var(--bt-apocalipse); } /* Apocalipse      */
 
 /* ---------- Bíblia: tela de leitura (versículo anterior/atual/próximo) ---------- */
 /* A leitura cabe na tela SEM SCROLL: as quatro seções repartem entre si a
@@ -1162,18 +1227,29 @@ main {
 }
 .mic-btn svg { display: block; }
 .mic-btn-label { font-size: .95rem; font-weight: 800; letter-spacing: .02em; }
-/* No ar: vermelho pleno e pulsante — quem está falando precisa ver de longe
-   que o microfone está aberto. */
+/* NO AR: preenchido e pulsante — quem está falando precisa ver de longe que o
+   microfone está aberto. É o caso preenchido de "está no telão agora", então
+   usa o par `--live`/`--on-live` (o vermelho da paleta é escuro justamente
+   para receber texto por cima). */
 .mic-btn.live {
-  background: var(--danger); border-color: var(--danger); color: #fff;
+  background: var(--live); border-color: var(--live); color: var(--on-live);
   animation: mic-pulse 1.1s ease-in-out infinite;
 }
+/* O halo cresce e some. O quadro final é `transparent`, e não o vermelho com
+   alfa 0 que estava escrito literal aqui: a interpolação de cor do CSS é
+   PREMULTIPLICADA, então uma cor transparente não "puxa" matiz nenhuma no
+   caminho — o resultado é idêntico, sem um sexto literal da paleta na folha.
+   (Trocar por `var(--live)` opaco, como a auditoria sugeriu, ligaria um anel
+   vermelho sólido de 10px na metade do ciclo: é justamente o alfa 0 que faz
+   isto ser um halo que se dissipa.) */
 @keyframes mic-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 var(--danger-soft); }
-  50% { box-shadow: 0 0 0 10px rgba(229, 57, 53, 0); }
+  0%, 100% { box-shadow: 0 0 0 0 var(--live-soft); }
+  50% { box-shadow: 0 0 0 10px transparent; }
 }
-/* Só aparece com ERRO (permissão negada, sem microfone…) — é diagnóstico. */
-.mic-note { font-size: .84rem; font-weight: 600; color: var(--gold-text); text-align: center; max-width: 34ch; line-height: 1.45; }
+/* Só aparece com ERRO (permissão negada, sem microfone…) — é diagnóstico, e
+   diagnóstico é AVISO: em `--gold-text` ficava idêntico ao rótulo "REFRÃO" da
+   letra logo acima e ao realce da busca. */
+.mic-note { font-size: .84rem; font-weight: 600; color: var(--warn-text); text-align: center; max-width: 34ch; line-height: 1.45; }
 
 /* ---------- Ferramentas da aba Diversos (base comum) ---------- */
 /* `.misc-*` são os primitivos COMPARTILHADOS pelo cronômetro e pelo sorteio
@@ -1200,19 +1276,23 @@ main {
 .misc-tab {
   flex: 1; min-width: 0; padding: .55rem .3rem;
   display: flex; align-items: center; justify-content: center; gap: .38rem;
-  border: 0; border-radius: 6px; background: none; color: var(--muted);
+  border: 0; border-radius: var(--radius-btn); background: none; color: var(--muted);
   font-size: .84rem; font-weight: 800; cursor: pointer;
   appearance: none; -webkit-appearance: none;
 }
-.misc-tab.active { background: var(--accent-fill); color: #fff; }
+.misc-tab.active { background: var(--accent-fill); color: var(--on-accent); }
 /* Ponto = está PROJETANDO. Trocar de ferramenta não tira do telão a que estava
-   no ar; sem o ponto, descobrir qual é exigiria visitar cada uma. O anel claro
-   existe só no segmento ativo, onde vermelho sobre azul perderia contraste. */
+   no ar; sem o ponto, descobrir qual é exigiria visitar cada uma.
+   Em `--live-text`, não em `--live`: o ponto é um GRÁFICO que carrega
+   informação (piso de 3:1) e tem 7px — o vermelho cheio da paleta, que é
+   escuro, dava 2,50:1 contra a superfície do trilho e 2,54:1 contra o segmento
+   ativo. Era por isso que existia um anel claro só no segmento ativo; com o
+   tom claro o ponto passa nos dois fundos (7,4:1 e 3,3:1) e o anel — que sobre
+   um ponto claro não separa nada — saiu. */
 .misc-tab-live {
   flex-shrink: 0; width: 7px; height: 7px; border-radius: 50%;
-  background: var(--danger);
+  background: var(--live-text);
 }
-.misc-tab.active .misc-tab-live { box-shadow: 0 0 0 1.5px rgba(255, 255, 255, .75); }
 /* O painel da ferramenta ativa ocupa toda a altura restante. */
 .misc-panel {
   flex: 1; min-height: 0; overflow-y: auto;
@@ -1242,7 +1322,7 @@ main {
   font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1;
   padding: .2rem 0;
 }
-.chrono-read.over { color: var(--danger); }
+.chrono-read.over { color: var(--danger-text); }
 .chrono-presets, .misc-opts { display: flex; flex-wrap: wrap; gap: .35rem; justify-content: center; }
 .misc-chip {
   padding: .34rem .7rem;
@@ -1279,7 +1359,10 @@ main {
   font-size: .95rem; font-weight: 800; cursor: pointer;
   appearance: none; -webkit-appearance: none;
 }
-.misc-project.live { background: var(--danger-soft); border-color: var(--danger); color: var(--danger-text); }
+/* No ar: a família do "está no telão agora". Borda em `--live-text` porque
+   `--live` é escuro por construção e como contorno sobre fundo escuro
+   sumiria — o preenchimento suave é que carrega a matiz. */
+.misc-project.live { background: var(--live-soft); border-color: var(--live-text); color: var(--live-text); }
 /* Sem mensagem selecionada não há o que projetar daqui — a escolha é na lista.
    Desabilitado e não escondido: o botão é um ponto fixo da tela, e sumir faria
    o microfone pular de largura a cada troca de ferramenta. */
@@ -1339,9 +1422,9 @@ main {
 .draw-go:disabled { opacity: .45; border-color: var(--line); background: var(--surface); color: var(--muted); }
 
 /* ---------- Mensagens (texto puro) ---------- */
-/* Vivem num bottom-sheet aberto pelo botão flutuante da preview (`.msg-opts`),
-   não numa aba: um aviso de texto é uma interrupção rápida, não uma seção da
-   biblioteca que se navega. */
+/* Vivem numa das ferramentas da aba Diversos (o painel `.misc-panel--msg`),
+   não numa aba própria: um aviso de texto é uma interrupção rápida, não uma
+   seção da biblioteca que se navega. */
 .msg-add-btn {
   align-self: stretch; border: 1px dashed var(--line); background: var(--surface); color: var(--accent);
   border-radius: var(--radius-card); padding: .7rem; font-size: .9rem; font-weight: 700;
@@ -1351,8 +1434,13 @@ main {
   display: flex; align-items: center; gap: .5rem; border: 2px solid transparent;
   border-radius: var(--radius-card); background: var(--panel); padding: .5rem .6rem;
 }
-.msg-item.active { border-color: var(--success); background: var(--panel-2); }
-.msg-item.active .msg-text { color: var(--success); }
+/* NO AR — e por isso vermelho, não verde. Até a v5.47 esta linha e o versículo
+   central (`.bible-vsec.cur.live`) diziam "está no telão" em VERDE enquanto
+   outros quatro componentes diziam a mesma coisa em vermelho, na mesma tela;
+   e verde, neste mesmo app, também significa "download concluído" e "telão
+   conectado". Não havia regra que o operador pudesse aprender. */
+.msg-item.active { border-color: var(--live-text); background: var(--panel-2); }
+.msg-item.active .msg-text { color: var(--live-text); }
 .msg-text {
   flex: 1; min-width: 0; font-size: .92rem; line-height: 1.4; cursor: pointer; white-space: pre-line;
   overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
@@ -1374,9 +1462,10 @@ main {
 .bible-vsec.cur { flex: 1.5 1 0; }
 .bible-vsec.adj { opacity: .6; }             /* anterior / próximo (contexto) */
 .bible-vsec.cur { border-color: var(--accent); background: var(--panel-2); opacity: 1; }
-/* central EM EXIBIÇÃO ("no ar") — destaque verde */
-.bible-vsec.cur.live { border-color: var(--success); }
-.bible-vsec.cur.live .bible-vsec-ref { color: var(--success); }
+/* central EM EXIBIÇÃO ("no ar") — a MESMA cor de "no ar" do resto do app (ver
+   `.msg-item.active`); era verde, que aqui é a cor de concluído/conectado. */
+.bible-vsec.cur.live { border-color: var(--live-text); }
+.bible-vsec.cur.live .bible-vsec-ref { color: var(--live-text); }
 .bible-vsec.empty { opacity: .4; cursor: default; font-style: italic; }
 .bible-vsec-ref { font-size: .64rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
 .bible-vsec.cur .bible-vsec-ref { color: var(--accent); }
@@ -1413,7 +1502,7 @@ main {
   gap: 2.4cqh; text-align: center; overflow: hidden;
 }
 .pv-text-main {
-  color: #fff; font-weight: 500; font-size: 6.4cqmin; line-height: 1.34; white-space: pre-line;
+  color: var(--stage-text); font-weight: 500; font-size: 6.4cqmin; line-height: 1.34; white-space: pre-line;
   display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 8; overflow: hidden;
 }
 .pv-text-sub { color: var(--gold); font-weight: 700; font-size: 4.6cqmin; line-height: 1.2; letter-spacing: .02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
@@ -1426,7 +1515,14 @@ main {
   font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1;
   white-space: nowrap; -webkit-line-clamp: 1;
 }
-.pv-text-content.mode-chrono.chrono-over .pv-text-main { color: var(--danger); }
+/* Timer estourado: EXATAMENTE o token do gêmeo no telão
+   (`.text-content.mode-chrono.chrono-over .text-main` em display.css usa
+   `--live-text`). Ficou em `--danger-text` na primeira passada de tokens: hoje
+   os dois valem o mesmo #f0aaa2 e nada aparece na tela, mas `--danger-text` é
+   o par do DESTRUTIVO (excluir, cancelar) e um ajuste nele mudaria a preview
+   sem mudar a projeção — a preview existe para ESPELHAR o telão, e é essa
+   divergência silenciosa que a folha compartilhada foi criada para matar. */
+.pv-text-content.mode-chrono.chrono-over .pv-text-main { color: var(--live-text); }
 /* Sorteio — espelha .mode-draw do Display (display.css), inclusive o estado
    "rolando" (esmaecido/dourado até assentar). */
 .pv-text-content.mode-draw .pv-text-main {
@@ -1447,15 +1543,16 @@ main {
 .swipe-hint.right { color: var(--accent); }
 .lib-item.show-left .swipe-hint.right { opacity: 1; }
 
-/* linha-guia azul de reordenação */
-.drop-line { position: absolute; left: 6px; right: 6px; height: 3px; margin-top: -1.5px; background: var(--accent); border-radius: 2px; box-shadow: 0 0 6px var(--accent); pointer-events: none; z-index: 6; }
+/* Linha-guia de reordenação, no accent (o comentário dizia "azul" — cor da
+   paleta anterior; quem manda é `--accent`). */
+.drop-line { position: absolute; left: 6px; right: 6px; height: 3px; margin-top: -1.5px; background: var(--accent); border-radius: var(--radius-xs); box-shadow: 0 0 6px var(--accent); pointer-events: none; z-index: 6; }
 
 /* ---------- Popup de playlist (bottom sheet) ---------- */
 .popup-backdrop {
   position: fixed; inset: 0; z-index: 200;
   /* (ver #collPopup abaixo: um popup ABERTO DE DENTRO de outro precisa de um
      degrau próprio de empilhamento) */
-  background: rgba(0, 0, 0, .6);
+  background: var(--scrim);
   display: flex; align-items: flex-end;
   opacity: 0; pointer-events: none;
   transition: opacity .25s ease;
@@ -1466,7 +1563,7 @@ main {
 .popup-sheet {
   width: 100%; max-height: 80vh;
   background: var(--panel);
-  border-radius: 18px 18px 0 0;
+  border-radius: var(--radius-sheet) var(--radius-sheet) 0 0;
   display: flex; flex-direction: column;
   transform: translateY(100%);
   transition: transform .3s ease;
@@ -1496,10 +1593,10 @@ main {
   padding: .8rem 1rem .6rem;
   border-bottom: 1px solid var(--line); flex-shrink: 0;
 }
-.popup-header-icon { font-size: 20px; color: var(--accent); }
+.popup-header-icon { font-size: var(--icon-sm); color: var(--accent); }
 .popup-title { font-size: .95rem; font-weight: 700; flex: 1; }
 .popup-count {
-  background: var(--accent-fill); color: #fff;
+  background: var(--accent-fill); color: var(--on-accent);
   font-size: .72rem; font-weight: 700;
   border-radius: var(--radius-pill); padding: 0 .45rem; min-width: 20px; text-align: center;
 }
@@ -1534,9 +1631,17 @@ main {
   border-top: 1px solid var(--line);
   flex-shrink: 0;
 }
+/* Botão largo genérico do bottom-sheet (nova pasta, sincronizar, cancelar,
+   excluir): a variante base é a AÇÃO NORMAL, em accent contornado. Os dois
+   literais que estavam aqui eram o azul #2f81f7 aposentado — o mesmo papel do
+   token, congelado numa cópia que nenhuma troca de paleta alcançaria.
+   O preenchimento é `--surface` (que aqui dentro AFUNDA, ver a regra do topo)
+   e não `--accent-soft`: uma tinta âmbar CLAREIA a folha, e o rótulo em
+   `--accent` sobre ela media 4,30:1 — reprovado para texto pequeno. Recuado,
+   o mesmo rótulo vai a 7,3:1 sem perder a identidade, que é o contorno. */
 .new-folder-btn {
   width: 100%; padding: .6rem;
-  background: rgba(47, 129, 247, .12); border: 1px solid rgba(47, 129, 247, .4);
+  background: var(--surface); border: 1px solid var(--accent);
   border-radius: var(--radius-card); color: var(--accent); font-size: .9rem;
   display: flex; align-items: center; justify-content: center; gap: .4rem;
   cursor: pointer;
@@ -1556,7 +1661,7 @@ main {
 .display-status .msym { font-size: var(--icon-sm); }
 .display-status:disabled { cursor: default; }
 .display-status.connected {
-  background: var(--success-soft); border-color: var(--success); color: var(--success);
+  background: var(--ok-soft); border-color: var(--ok); color: var(--ok);
 }
 /* Alvo do botão de cast da preview — informativo, discreto. */
 .cast-target { display: block; text-align: center; font-size: .72rem; color: var(--muted); padding-top: .4rem; }
@@ -1564,7 +1669,11 @@ main {
 /* ---------- Botão de pasta no picker ---------- */
 .folder-pick-btn {
   width: 100%; padding: .55rem .6rem;
-  background: rgba(255,255,255,.04); border: none; border-radius: var(--radius-card);
+  /* `--surface`, e não um quarto nível de superfície: o .04 literal que estava
+     aqui era um degrau fora da escala, invisível como alvo de toque numa lista
+     de pastas. Dentro do bottom-sheet o token já está invertido (ver
+     "superfície que afunda"), então o botão AFUNDA na folha em vez de flutuar. */
+  background: var(--surface); border: none; border-radius: var(--radius-card);
   color: var(--text); font-size: .9rem;
   display: flex; align-items: center; gap: .55rem;
   cursor: pointer;
@@ -1598,7 +1707,7 @@ main {
    teclado que sobe da base. */
 #hymnSearchPopup { align-items: flex-start; }
 #hymnSearchPopup .popup-sheet {
-  border-radius: 0 0 18px 18px;
+  border-radius: 0 0 var(--radius-sheet) var(--radius-sheet);
   transform: translateY(-100%);
   padding-top: env(safe-area-inset-top);
   padding-bottom: 0;
@@ -1677,7 +1786,7 @@ main {
    relance, com a lista rolando. */
 .hymn-lyrics-line.hit {
   background: var(--gold-soft); color: var(--gold-text);
-  font-weight: 700; border-radius: 4px;
+  font-weight: 700; border-radius: var(--radius-xs);
   margin: .1rem -.25rem; padding: .1rem .25rem;
 }
 .hymn-lyrics-empty { font-size: .84rem; color: var(--muted); font-style: italic; }
@@ -1709,7 +1818,7 @@ main {
   background: var(--surface); color: var(--muted);
   font-size: .82rem; font-weight: 600; cursor: pointer;
 }
-.fit-opt.active { background: var(--accent-fill); color: #fff; }
+.fit-opt.active { background: var(--accent-fill); color: var(--on-accent); }
 
 /* ---------- Leitura auxiliar (letra completa / capítulo inteiro) ---------- */
 /* Bottom-sheet de LEITURA, aberto pelo botão do mixer: a íntegra do que está
@@ -1761,7 +1870,7 @@ main {
    openAppDialog/appConfirm/appPrompt em controle.js. */
 .dialog-backdrop {
   position: fixed; inset: 0; z-index: 300;
-  background: rgba(0, 0, 0, .6);
+  background: var(--scrim);
   display: flex; align-items: center; justify-content: center;
   padding: 1.2rem;
   opacity: 0; pointer-events: none; transition: opacity .2s ease;
@@ -1788,7 +1897,7 @@ main {
   background: var(--surface-2); color: var(--text);
   font-size: .9rem; font-weight: 600; cursor: pointer; font-family: inherit;
 }
-.dialog-btn.primary { background: var(--accent-fill); color: #fff; }
+.dialog-btn.primary { background: var(--accent-fill); color: var(--on-accent); }
 
 /* ---------- Modos de uso (simplificado × sonoplasta completo) ---------- */
 /* O app atende duas pessoas diferentes: quem só precisa conectar a tela e
@@ -1839,27 +1948,32 @@ body.mode-simple .bottombar { display: none; }
 .simple-actions { flex: none; display: grid; grid-template-columns: 1fr 1fr; gap: .6rem; }
 .simple-action { padding: .8rem .5rem; }
 /* Telão conectado: o ícone confirma sem precisar ler o subtítulo. */
-.simple-action.connected svg { color: var(--success); }
+.simple-action.connected svg { color: var(--ok); }
 
 /* ----- Bloqueio sem tela conectada (ver renderSimpleGate) ----- */
 /* A cortina cobre a tela inteira e é o que embaça: `backdrop-filter` age sobre
    o que está ATRÁS do elemento, então quem precisa ficar legível sobe na
    pilha. Sobem dois: o cabeçalho (onde está a saída para o modo avançado) e o
    botão de conectar, que é a única ação que resolve o bloqueio. */
+/* A cor é `--veil`, que é o próprio `--bg` com alfa: os dois têm de andar
+   JUNTOS. Escrita literal (era rgba(18,18,18,…), do tempo em que --bg valia
+   #121212), a cortina viraria um retângulo de outro preto assim que o fundo
+   do app mudasse — e isso na tela que ABRE por padrão sem TV conectada. */
 .simple-veil {
   position: absolute; inset: 0; z-index: 1;
-  background: rgba(18, 18, 18, .55);
+  background: var(--veil);
   backdrop-filter: blur(7px); -webkit-backdrop-filter: blur(7px);
 }
 /* Sem suporte a backdrop-filter o embaçado simplesmente não acontece — e uma
    cortina transparente pareceria um toque perdido, não um bloqueio. O véu
    fica então opaco: some a informação de trás, mas o BLOQUEIO continua dito. */
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  .simple-veil { background: rgba(18, 18, 18, .92); }
+  .simple-veil { background: var(--veil-solid); }
 }
-/* `display:flex` aqui venceria o `display:none` que o UA dá a [hidden] — sem
-   esta linha a cortina nunca sairia da frente. */
-.simple-veil[hidden] { display: none; }
+/* (Não há regra `[hidden]` própria para a cortina: o `[hidden] { display: none
+   !important }` da linha 16 já a esconde com prioridade que nenhuma regra
+   normal desta folha alcança. A que existia aqui justificava-se por um
+   `display:flex` que `.simple-veil` nunca declarou.) */
 .simple.locked .simple-head { position: relative; z-index: 2; }
 /* Bloqueado, a faixa de ações deixa de ser uma faixa: vira UMA coluna no
    centro da tela, com a mensagem e o botão que a resolve. É o único conteúdo
@@ -1880,10 +1994,15 @@ body.mode-simple .bottombar { display: none; }
    possível da tela não pode disputar atenção com o que está bloqueado. */
 .simple.locked #simpleCastBtn {
   padding: 1.5rem 1rem; gap: .5rem;
-  background: var(--accent-fill); border-color: var(--accent-fill); color: #fff;
-  box-shadow: 0 12px 34px rgba(31, 111, 235, .38);
+  background: var(--accent-fill); border-color: var(--accent-fill); color: var(--on-accent);
+  /* O halo segue a MATIZ do accent (`--accent-glow`), não o `--accent-fill`:
+     um halo na cor do preenchimento — que é escuro por definição — sobre o
+     fundo escuro do app seria invisível, e a sombra existe justamente para
+     separar o botão do teclado embaçado atrás dele. O valor literal que estava
+     aqui era o azul de duas paletas atrás. */
+  box-shadow: 0 12px 34px var(--accent-glow);
 }
-.simple.locked #simpleCastBtn svg { color: #fff; width: 44px; height: 44px; }
+.simple.locked #simpleCastBtn svg { color: var(--on-accent); width: 44px; height: 44px; }
 .simple.locked #simpleCastBtn .simple-key-label { font-size: 1.08rem; font-weight: 800; }
 /* Ícone e UMA frase, e nada mais. O subtítulo ("Toque para escolher a tela")
    repetia o rótulo, e a mensagem que havia acima do botão até a v5.40 dizia
@@ -1920,13 +2039,17 @@ body.mode-simple .bottombar { display: none; }
 .simple-keys { display: grid; grid-template-columns: 1fr 1fr; gap: .6rem; }
 .simple-key--big { height: 76px; }
 .simple-key--big .msym { font-size: 34px; }
-.simple-key--big.muted { border-color: var(--danger); background: var(--danger-soft); color: var(--danger-text); }
-.simple-key--big.blocked { border-color: var(--gold); background: var(--gold-soft); color: var(--gold-text); animation: mute-blocked-pulse 1.2s ease-in-out infinite; }
+/* Os mesmos dois estados do mixer, na tecla grande — e nos mesmos tokens (ver
+   `.mute-btn.muted`/`.mute-btn.blocked`): mudo é alerta, áudio bloqueado no
+   telão é aviso. Borda no par CLARO de cada família, porque os tons cheios
+   (`--danger`/`--live`) são escuros e como contorno desapareceriam. */
+.simple-key--big.muted { border-color: var(--danger-text); background: var(--danger-soft); color: var(--danger-text); }
+.simple-key--big.blocked { border-color: var(--warn); background: var(--warn-soft); color: var(--warn-text); animation: mute-blocked-pulse 1.2s ease-in-out infinite; }
 /* Volume: − e + são teclas iguais às outras; o indicador no meio mostra o
    número e, embaixo, a mesma leitura do fader (quanto do curso está usado). */
 .simple-volrow { display: grid; grid-template-columns: 1fr 1.1fr 1fr; gap: .6rem; align-items: stretch; }
 .simple-key--vol { height: 76px; }
-.simple-key--vol svg { color: #fff; }
+.simple-key--vol svg { color: var(--text); }
 .simple-vol-read {
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .15rem;
   border-radius: var(--radius-card); background: var(--surface);

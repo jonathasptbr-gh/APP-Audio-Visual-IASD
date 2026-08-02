@@ -77,7 +77,6 @@ object SessionRemote {
 class SessionService : Service() {
 
     private var session: MediaSession? = null
-    private var foregrounded = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -108,10 +107,32 @@ class SessionService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        // Publica SEMPRE, inclusive quando o intent é o toque de um botão: um
-        // serviço iniciado por startForegroundService tem poucos segundos para
-        // chamar startForeground, ou o sistema o derruba.
+        // Publica SEMPRE, e ANTES de qualquer decisão de parar: um serviço
+        // iniciado por `startForegroundService` DEVE chamar `startForeground`.
+        // Sair sem isso não satisfaz a exigência — o `bringDownServiceLocked`
+        // do sistema ainda encontra o pedido pendente e derruba o app inteiro
+        // ("Context.startForegroundService() did not then call
+        // Service.startForeground()"), levando junto os dois WebViews e a
+        // projeção. Publicar primeiro custa uma notificação de alguns
+        // milissegundos; a alternativa custa o culto.
         publish()
+
+        // A CENA PODE TER ACABADO ENQUANTO O SERVIÇO SUBIA. `nowPlaying` e
+        // `stop` chegam da thread do WebView: publicar uma cena dispara
+        // `startForegroundService`, e o `active:false` que vem logo atrás (o
+        // operador toca em Parar, ou a cena esvazia) chega ANTES de o serviço
+        // existir. Sem esta guarda o serviço nascia depois disso e ficava de pé
+        // com "Nada em exibição" — e nada mais chamaria `stop()`, porque o lado
+        // web deduplica por chave e não reenvia o `active:false`.
+        //
+        // `stopSelf(startId)` e não `stopSelf()`: se outro comando (uma cena
+        // nova) já estiver na fila, ele tem `startId` maior e o pedido de
+        // parada é ignorado, como manda o contrato do Service.
+        if (scene == null) {
+            Log.i(TAG, "sessão encerrada antes de o serviço subir — parando")
+            stopSelf(startId)
+            return START_NOT_STICKY
+        }
         val action = intent?.action
         if (action != null && action.startsWith(ACTION_PREFIX)) {
             SessionRemote.send(action.removePrefix(ACTION_PREFIX))
@@ -267,6 +288,19 @@ class SessionService : Service() {
         @Volatile
         private var running = false
 
+        /**
+         * `startForeground` já foi chamado por este serviço.
+         *
+         * Fica no companion (e não na instância) porque quem precisa dele é o
+         * [stop]: enquanto ele for falso, existe um `startForegroundService`
+         * PENDENTE, e derrubar o serviço nessa janela é o que faz o sistema
+         * matar o app por "did not then call Service.startForeground()".
+         * `running` não serve para isso — é marcado no `onCreate`, que roda
+         * antes do `onStartCommand` onde o `startForeground` de fato acontece.
+         */
+        @Volatile
+        private var foregrounded = false
+
         @Volatile
         private var instance: SessionService? = null
 
@@ -331,10 +365,25 @@ class SessionService : Service() {
             instance?.publish()
         }
 
-        /** Sem cena: derruba o serviço, e a notificação vai junto. */
+        /**
+         * Sem cena: derruba o serviço, e a notificação vai junto.
+         *
+         * O `scene = null` é a parte que sempre acontece — é ele que fecha a
+         * janela do serviço que ainda está SUBINDO: o `onStartCommand` lê a
+         * cena, encontra `null` e se despede sozinho (depois de chamar
+         * `startForeground`, como o sistema exige).
+         *
+         * `stopService` só entra quando o serviço JÁ está em primeiro plano.
+         * Chamá-lo com um `startForegroundService` pendente é o caminho
+         * conhecido para o app ser morto por "did not then call
+         * Service.startForeground()" — o sistema derruba o serviço com o
+         * pedido ainda armado e cobra a dívida do processo, que é o dos dois
+         * WebViews e da `Presentation`. Perder a notificação de controles seria
+         * um arranhão; perder a projeção, não.
+         */
         fun stop(ctx: Context) {
             scene = null
-            if (!running) return
+            if (!foregrounded) return
             try {
                 ctx.stopService(Intent(ctx, SessionService::class.java))
             } catch (e: Exception) {

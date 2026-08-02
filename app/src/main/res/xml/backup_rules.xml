@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- O MESMO conjunto de exclusões do data_extraction_rules.xml (leia lá o
+     porquê de cada uma), no formato antigo — este arquivo é o que vale da API
+     26 à 30, e o outro, da 31 em diante. Aqui não há distinção entre nuvem e
+     transferência direta: `fullBackupContent` governa só o backup automático em
+     nuvem (e o `adb backup` legado), então `app_webview` sai junto, pelo mesmo
+     motivo da cota de 25 MB.
+
+     São dois arquivos porque o Android mudou o formato, não porque as decisões
+     sejam diferentes: qualquer exclusão nova precisa entrar NOS DOIS. -->
+<full-backup-content>
+    <exclude domain="file" path="web-ota" />
+    <exclude domain="sharedpref" path="web-ota.xml" />
+    <exclude domain="root" path="app_webview" />
+</full-backup-content>

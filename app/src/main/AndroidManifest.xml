@@ -48,8 +48,23 @@
         <intent><action android:name="android.settings.DISPLAY_SETTINGS" /></intent>
     </queries>
 
+    <!-- Backup LIGADO, mas com regras: `allowBackup="true"` sozinho leva tudo
+         o que está no diretório de dados, inclusive o bundle OTA extraído
+         (`files/web-ota/`, que é CÓDIGO executado no origin privilegiado, com
+         acesso a `__AVBridge`) e o WebView inteiro (`app_webview/`:
+         IndexedDB/OPFS, potencialmente gigabytes de hinos e Bíblia). Um bundle
+         restaurado não passa por nenhuma das três garantias do OTA — sem
+         download, sem sha256, e a válvula `minShell` só existe no caminho do
+         download —, e o WebView não cabe na cota de 25 MB do backup em nuvem, o
+         que fazia o backup falhar calado sem proteger nada. Desligar o backup
+         resolveria as duas coisas, mas jogaria fora a transferência
+         aparelho-a-aparelho da biblioteca, que é útil e não tem essa cota. Os
+         dois arquivos abaixo (formatos novo e antigo) escolhem item a item —
+         ver os comentários lá. -->
     <application
         android:allowBackup="true"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
         android:hardwareAccelerated="true"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"

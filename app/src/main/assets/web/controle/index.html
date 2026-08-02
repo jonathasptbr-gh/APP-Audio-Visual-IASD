@@ -3,12 +3,26 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content">
-  <meta name="theme-color" content="#121212">
+  <!-- Mesmo valor de `--bg` em ../shared/tokens.css, e é para isso que ele
+       existe: no NAVEGADOR o `theme-color` tinge a barra de endereço e o cartão
+       do alternador de abas, então um valor congelado numa paleta antiga
+       desenha uma moldura de outra cor em volta do app. No app nativo quem
+       pinta a barra é o tema do APK (res/values/themes.xml), não isto. -->
+
+  <meta name="theme-color" content="#131211">
   <title>Controle AV</title>
   <!-- Sem manifest/ícones de PWA: aqui o Controle é uma tela hospedada pelo
        shell nativo (WebView), não um app instalável pelo navegador. Ícone,
        nome e orientação vêm do APK (res/ + AndroidManifest.xml). -->
   <link rel="stylesheet" href="../shared/material-symbols.css">
+  <!-- A PALETA: fonte única, compartilhada com o Display (ver o cabeçalho de
+       tokens.css). Vem ANTES da folha do app porque as duas declaram no
+       `:root` — mesma especificidade, vence a última: assim um token que o
+       Controle precise ajustar só para si continua podendo ser redeclarado em
+       controle.css. Sem este link a paleta simplesmente não entra em cena: as
+       cores saíram de controle.css e não há de onde herdá-las. O precedente é
+       o ../shared/material-symbols.css acima. -->
+  <link rel="stylesheet" href="../shared/tokens.css">
   <link rel="stylesheet" href="controle.css">
 </head>
 <!-- O app SEMPRE abre no modo simplificado; a classe já vem no HTML para a
@@ -71,8 +85,18 @@
     <!-- O "controle remoto": teclas grandes, nada de arrastar. -->
     <div class="simple-remote">
       <div class="simple-keys">
-        <button type="button" id="simplePlay" class="simple-key simple-key--big" title="Play/Pause"><span class="msym">&#xe037;</span></button>
-        <button type="button" id="simpleMute" class="simple-key simple-key--big" title="Mudo"><span class="msym">&#xe050;</span></button>
+        <!-- Os glifos estáticos são os do ESTADO INICIAL (nada tocando, sem
+             mudo), não o par oposto: até a v5.47 esta tecla nascia com
+             volume_up, que pela regra do projeto ("o ícone mostra a AÇÃO")
+             anuncia "tirar o mudo" — ou seja, dizia que o áudio ESTAVA mudo.
+             E a janela não é curta: `renderSimple()` copia o glifo de
+             #muteToggle, mas quem o corrige é `renderControls()`, alcançado só
+             depois de `load()` e de dezenas de leituras do IndexedDB — e o
+             modo simplificado é a primeira tela que o operador vê. O #playpause
+             já nascia certo (play = o que `setPlaying(false)` produz); aqui era
+             oversight, não convenção. -->
+        <button type="button" id="simplePlay" class="simple-key simple-key--big" title="Play/Pause"><span class="msym" aria-hidden="true">&#xe037;</span></button>
+        <button type="button" id="simpleMute" class="simple-key simple-key--big" title="Mutar"><span class="msym" aria-hidden="true">&#xe04f;</span></button>
       </div>
       <!-- Volume por teclas (− / +) com o indicador no meio: num controle não
            se arrasta nada, e o número diz onde está sem precisar mirar. -->
@@ -101,7 +125,13 @@
 
   <main>
     <div class="list-header">
-      <button id="backBtn" class="back-btn" hidden><span class="msym">&#xe5c4;</span></button>
+      <!-- title + aria-label: este é o ÚNICO botão só-de-ícone do app que não
+           tinha rótulo nenhum, e é a única saída da aba Pastas e da navegação
+           da Bíblia. Sem nome, um leitor de tela anuncia o caractere da área
+           de uso privado da fonte (na prática, "sem rótulo"). O aria-label não
+           é redundante com o title: o title é fallback na ordem de cálculo do
+           nome acessível e nem toda combinação de leitor/navegador o usa. -->
+      <button id="backBtn" class="back-btn" title="Voltar" aria-label="Voltar" hidden><span class="msym" aria-hidden="true">&#xe5c4;</span></button>
       <span class="list-title" id="listTitle">Cronograma</span>
       <span id="appVersion" class="app-version">Controle v5.48</span>
       <input id="libSearch" class="lib-search" type="search" placeholder="Buscar na pasta…" hidden>
@@ -124,7 +154,7 @@
          para a mesma tela. Duas portas para o mesmo lugar, numa barra de
          quatro botões, é espaço gasto sem informação nova. -->
     <div class="tabs">
-      <button class="tab active" data-tab="imports" title="Cronograma"><span class="msym">&#xe413;</span></button>
+      <button class="tab active" data-tab="imports" title="Cronograma"><span class="msym" aria-hidden="true">&#xe413;</span></button>
       <button class="tab" data-tab="bible" title="Bíblia">
         <!-- Ícone de Bíblia (SVG inline, fora do subset da fonte): livro aberto
              com uma cruz — distingue a aba de textos bíblicos das demais. -->
@@ -135,10 +165,12 @@
           <line x1="9.2" y1="8.4" x2="13.8" y2="8.4"/>
         </svg>
       </button>
-      <!-- Diversos: as ferramentas que não são seção da biblioteca — microfone
-           ao vivo e cronômetro/relógio/timer. O ícone é uma grade de módulos
-           (não mais o microfone): com mais de uma ferramenta dentro, um glifo
-           que nomeia só uma delas esconderia o resto. -->
+      <!-- Diversos: as ferramentas que não são seção da biblioteca. O seletor
+           (MISC_TOOLS em controle.js) traz mensagens, tempo (cronômetro/
+           relógio/timer) e sorteio, mais o microfone ao vivo, que é fixo. O
+           ícone é uma grade de módulos (não mais o microfone): com mais de uma
+           ferramenta dentro, um glifo que nomeia só uma delas esconderia o
+           resto. -->
       <button class="tab" data-tab="mic" title="Diversos">
         <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <rect x="3.5" y="3.5" width="7" height="7" rx="1.6"/>
@@ -159,13 +191,13 @@
 
     <!-- selbar substitui as abas durante a seleção múltipla -->
     <div id="selbar" class="selbar" hidden>
-      <button id="selCancel" class="sel-btn" title="Cancelar"><span class="msym">&#xe14c;</span></button>
+      <button id="selCancel" class="sel-btn" title="Cancelar"><span class="msym" aria-hidden="true">&#xe14c;</span></button>
       <span id="selCount" class="sel-count">0</span>
       <span class="sel-spacer"></span>
       <!-- Estrela (não pasta): o destino é a seção de Favoritos. -->
-      <button id="selFolder" class="sel-btn" title="Adicionar aos favoritos"><span class="msym">&#xe838;</span></button>
-      <button id="selRename" class="sel-btn" title="Renomear"><span class="msym">&#xe150;</span></button>
-      <button id="selDelete" class="sel-btn danger" title="Excluir"><span class="msym">&#xe872;</span></button>
+      <button id="selFolder" class="sel-btn" title="Adicionar aos favoritos"><span class="msym" aria-hidden="true">&#xe838;</span></button>
+      <button id="selRename" class="sel-btn" title="Renomear"><span class="msym" aria-hidden="true">&#xe150;</span></button>
+      <button id="selDelete" class="sel-btn danger" title="Excluir"><span class="msym" aria-hidden="true">&#xe872;</span></button>
     </div>
   </main>
 
@@ -186,7 +218,7 @@
         </div>
       </div>
       <div class="preview-row">
-        <button id="slidePrevBtn" class="slide-nav-btn" title="Estrofe anterior" disabled><span class="msym">&#xe045;</span></button>
+        <button id="slidePrevBtn" class="slide-nav-btn" title="Estrofe anterior" disabled><span class="msym" aria-hidden="true">&#xe045;</span></button>
         <div class="preview" id="preview">
           <div class="pv-wall" id="pvWall"><span class="pv-brand">Audio Visual <b>IASD</b></span></div>
           <img id="pvImg" class="pv-layer" alt="" hidden>
@@ -206,7 +238,10 @@
           </div>
           <!-- Camada de TEXTO manual (Bíblia/Mensagem) projetada: mesma
                visualização do Display, em miniatura (a preview sempre espelha o
-               telão). Camada paralela sob a cortina. mode-verse | mode-message. -->
+               telão). Camada paralela sob a cortina. Os modos são: SEM CLASSE =
+               versículo (a referência dourada em .pv-text-sub) · mode-message ·
+               mode-chrono · mode-draw. Não existe `mode-verse`: o versículo é o
+               estado sem classe, e uma regra escrita para ela nunca casaria. -->
           <div id="pvText" class="pv-layer pv-text" hidden>
             <div class="pv-text-content" id="pvTextContent">
               <div class="pv-text-box">
@@ -216,8 +251,10 @@
             </div>
           </div>
           <!-- Coluna de botões sobre a preview: semitransparentes, colados à
-               DIREITA, de cima para baixo (configurações · cast · mensagem ·
-               tela cheia). Visíveis por padrão; um toque na preview os
+               DIREITA, de cima para baixo (configurações · cast · tela cheia).
+               São TRÊS — não há botão de mensagem aqui: Mensagens é uma
+               ferramenta do seletor da aba Diversos, montada por renderFoot().
+               Visíveis por padrão; um toque na preview os
                esconde e outro os traz de volta (ver setupPreviewGestures).
                Ficam SEMPRE ocultos em tela cheia: é a tela cheia que vai ao
                telão quando não há TV conectada, e um botão sobreposto seria
@@ -247,28 +284,47 @@
             </button>
           </div>
         </div>
-        <button id="slideNextBtn" class="slide-nav-btn" title="Próxima estrofe" disabled><span class="msym">&#xe044;</span></button>
+        <button id="slideNextBtn" class="slide-nav-btn" title="Próxima estrofe" disabled><span class="msym" aria-hidden="true">&#xe044;</span></button>
       </div>
+      <!-- CONVENÇÃO de todo botão só-de-ícone do app: o `<span class="msym">`
+           leva `aria-hidden="true"`, exatamente como os `<svg>` já levavam. O
+           glifo é um caractere da área de uso privado da fonte — conteúdo de
+           TEXTO não vazio —, e o cálculo do nome acessível olha o conteúdo
+           ANTES do `title`: sem o aria-hidden o title nunca era consultado e o
+           leitor de tela anunciava o caractere PUA. Esconder a decoração é o
+           que faz o title voltar a valer como nome. -->
       <div class="transport">
-        <button id="repeat" class="t-btn" title="Repetição"><span class="msym">&#xe040;</span></button>
-        <button id="prev" class="t-btn" title="Anterior"><span class="msym">&#xe045;</span></button>
-        <button id="playpause" class="t-btn" title="Play/Pause"><span class="msym">&#xe037;</span></button>
-        <button id="stop" class="t-btn" title="Parar e limpar"><span class="msym">&#xe047;</span></button>
-        <button id="next" class="t-btn" title="Seguinte"><span class="msym">&#xe044;</span></button>
-        <button id="plBtn" class="t-btn tab-pl" title="Playlist">
-          <span class="msym">&#xe03d;</span>
+        <button id="repeat" class="t-btn" title="Repetição"><span class="msym" aria-hidden="true">&#xe040;</span></button>
+        <button id="prev" class="t-btn" title="Anterior"><span class="msym" aria-hidden="true">&#xe045;</span></button>
+        <button id="playpause" class="t-btn" title="Play/Pause"><span class="msym" aria-hidden="true">&#xe037;</span></button>
+        <button id="stop" class="t-btn" title="Parar e limpar"><span class="msym" aria-hidden="true">&#xe047;</span></button>
+        <button id="next" class="t-btn" title="Seguinte"><span class="msym" aria-hidden="true">&#xe044;</span></button>
+        <!-- Único botão do transporte com `aria-label`: o selo #plCount é
+             texto de verdade, então esconder só o glifo faria o nome acessível
+             virar o NÚMERO ("3"), sem dizer de quê. O aria-label nomeia o
+             botão; a contagem continua visível na tela e a lista está a um
+             toque. -->
+        <button id="plBtn" class="t-btn tab-pl" title="Playlist" aria-label="Playlist">
+          <span class="msym" aria-hidden="true">&#xe03d;</span>
           <span id="plCount" class="pl-badge"></span>
         </button>
       </div>
 
       <!-- mixer: 3 "fatias" da grade (top/mid/bottom), sem card de fundo —
            os botões ficam livres, só alinhados pela grade. mid agrupa os 3
-           botões do meio (fundo da letra/mesa de som/mudo); bottom guarda o
-           volume recolhível (vira fader ao abrir, ocupando top+mid). -->
+           botões do meio, nesta ordem no DOM: letra completa (#lyricsViewBtn),
+           mesa de som e mudo — o antigo botão de FUNDO da letra virou o
+           segmento #lyricsBgSeg do popup de Exibição, como diz o comentário
+           dele logo abaixo; bottom guarda o volume recolhível (vira fader ao
+           abrir, ocupando top+mid). -->
       <div class="mixer" id="mixer">
         <div class="mixer-slot mixer-top">
           <div class="mixer-stack">
-            <button id="viewToggle" class="ctl-btn view-btn fill-btn" title="Alternar Visual / Wallpaper"><span class="msym">&#xe251;</span></button>
+            <!-- Glifo e title do ESTADO INICIAL (`view = 'visual'`), iguais ao
+                 que `renderControls()` escreve: imagem RISCADA, porque o toque
+                 vai COBRIR o telão. Nascer com `image` dizia o contrário — que
+                 a mídia já estava coberta. Mesmo caso do #simpleMute acima. -->
+            <button id="viewToggle" class="ctl-btn view-btn fill-btn" title="Cobrir o telão"><span class="msym" aria-hidden="true">&#xf116;</span></button>
           </div>
         </div>
         <div class="mixer-slot mixer-mid">
@@ -298,7 +354,11 @@
                 <path d="M20 15a2 2 0 0 0-2-2h-1v6h1a2 2 0 0 0 2-2z"/>
               </svg>
             </button>
-            <button id="muteToggle" class="ctl-btn mute-btn fill-btn" title="Mudo (liga/desliga)"><span class="msym">&#xe050;</span></button>
+            <!-- Idem: `muted = false` no boot → o toque MUTA, então volume_off
+                 e o mesmo title que `renderControls()` escreve. É este botão
+                 que #simpleMute copia, e era daqui que a inversão se
+                 propagava para a tecla grande do modo simplificado. -->
+            <button id="muteToggle" class="ctl-btn mute-btn fill-btn" title="Mutar"><span class="msym" aria-hidden="true">&#xe04f;</span></button>
           </div>
         </div>
         <!-- estado aberto: fader ocupa o lugar de top+mid (mesma posição/altura) -->
@@ -324,7 +384,7 @@
                 <rect x="15.5" y="9" width="5" height="3" rx="1.5" fill="currentColor" stroke="none"/>
               </svg>
             </button>
-            <button id="volClose" class="ctl-btn vol-close" title="Ocultar volume"><span class="msym">&#xe14c;</span></button>
+            <button id="volClose" class="ctl-btn vol-close" title="Ocultar volume"><span class="msym" aria-hidden="true">&#xe14c;</span></button>
           </div>
         </div>
       </div>
@@ -335,10 +395,10 @@
   <div id="plPopup" class="popup-backdrop">
     <div class="popup-sheet">
       <div class="popup-header">
-        <span class="msym popup-header-icon">&#xe03d;</span>
+        <span class="msym popup-header-icon" aria-hidden="true">&#xe03d;</span>
         <span class="popup-title">Playlist</span>
         <span id="plPopupCount" class="popup-count">0</span>
-        <button id="plPopupClose" class="popup-close" title="Fechar"><span class="msym">&#xe14c;</span></button>
+        <button id="plPopupClose" class="popup-close" title="Fechar"><span class="msym" aria-hidden="true">&#xe14c;</span></button>
       </div>
       <ul id="playlist" class="popup-list"></ul>
     </div>
@@ -348,9 +408,9 @@
   <div id="fadePopup" class="popup-backdrop">
     <div class="popup-sheet">
       <div class="popup-header">
-        <span class="msym popup-header-icon">&#xe251;</span>
+        <span class="msym popup-header-icon" aria-hidden="true">&#xe251;</span>
         <span class="popup-title">Exibição</span>
-        <button id="fadePopupClose" class="popup-close" title="Fechar"><span class="msym">&#xe14c;</span></button>
+        <button id="fadePopupClose" class="popup-close" title="Fechar"><span class="msym" aria-hidden="true">&#xe14c;</span></button>
       </div>
       <div class="fade-opts">
         <!-- Modo de uso: a mesma escolha da abertura, para trocar sem fechar o
@@ -399,7 +459,7 @@
            não há Presentation, vira o atalho para a tela do Display. -->
       <div class="popup-footer">
         <button id="openDisplayBtn" class="display-status">
-          <span class="msym">&#xe251;</span> <span id="displayStatusText">Telão</span>
+          <span class="msym" aria-hidden="true">&#xe251;</span> <span id="displayStatusText">Telão</span>
         </button>
         <!-- Para onde o botão de cast da preview abre. Os alvos de
              espelhamento variam por fabricante e não são API documentada —
@@ -426,7 +486,7 @@
           </svg>
         </span>
         <span class="popup-title" id="lyricsPopupTitle">Letra</span>
-        <button id="lyricsPopupClose" class="popup-close" title="Fechar"><span class="msym">&#xe14c;</span></button>
+        <button id="lyricsPopupClose" class="popup-close" title="Fechar"><span class="msym" aria-hidden="true">&#xe14c;</span></button>
       </div>
       <!-- Só aparece quando há letra E texto bíblico em cena ao mesmo tempo. -->
       <div class="lyricsview-seg" id="lyricsViewSeg" hidden>
@@ -445,9 +505,9 @@
   <div id="collPopup" class="popup-backdrop">
     <div class="popup-sheet">
       <div class="popup-header">
-        <span class="msym popup-header-icon">&#xe2c7;</span>
+        <span class="msym popup-header-icon" aria-hidden="true">&#xe2c7;</span>
         <span class="popup-title" id="collPopupTitle">Coleção</span>
-        <button id="collPopupClose" class="popup-close" title="Fechar"><span class="msym">&#xe14c;</span></button>
+        <button id="collPopupClose" class="popup-close" title="Fechar"><span class="msym" aria-hidden="true">&#xe14c;</span></button>
       </div>
       <div class="coll-opts" id="collOpts"></div>
     </div>
@@ -461,13 +521,13 @@
   <div id="hymnSearchPopup" class="popup-backdrop popup-backdrop--full">
     <div class="popup-sheet popup-sheet--full">
       <div class="popup-header">
-        <span class="msym popup-header-icon">&#xe3a1;</span>
+        <span class="msym popup-header-icon" aria-hidden="true">&#xe3a1;</span>
         <span class="popup-title" id="hymnSearchTitle">Acervo</span>
         <!-- "Baixar todo o acervo" mora AQUI, no título: é a ação de maior
              alcance da tela e, dentro da lista, saía de vista ao primeiro
              rolar. Preenchido por renderAcervoTotal. -->
         <span id="hymnSearchTotal" class="popup-total"></span>
-        <button id="hymnSearchClose" class="popup-close" title="Fechar"><span class="msym">&#xe14c;</span></button>
+        <button id="hymnSearchClose" class="popup-close" title="Fechar"><span class="msym" aria-hidden="true">&#xe14c;</span></button>
       </div>
       <div class="hymn-search-bar">
         <input id="hymnSearchInput" class="lib-search" type="search" placeholder="Buscar por nome ou número…">
@@ -481,7 +541,7 @@
     <div class="popup-sheet">
       <div class="popup-header">
         <span class="popup-title">Versão da Bíblia</span>
-        <button id="bibleVerClose" class="popup-close" title="Fechar"><span class="msym">&#xe14c;</span></button>
+        <button id="bibleVerClose" class="popup-close" title="Fechar"><span class="msym" aria-hidden="true">&#xe14c;</span></button>
       </div>
       <ul id="bibleVerList" class="popup-list"></ul>
     </div>
@@ -491,14 +551,14 @@
   <div id="folderPopup" class="popup-backdrop">
     <div class="popup-sheet">
       <div class="popup-header">
-        <span class="msym popup-header-icon">&#xe838;</span>
+        <span class="msym popup-header-icon" aria-hidden="true">&#xe838;</span>
         <span class="popup-title">Adicionar aos favoritos</span>
-        <button id="folderPopupClose" class="popup-close" title="Fechar"><span class="msym">&#xe14c;</span></button>
+        <button id="folderPopupClose" class="popup-close" title="Fechar"><span class="msym" aria-hidden="true">&#xe14c;</span></button>
       </div>
       <ul id="folderPickerList" class="popup-list"></ul>
       <div class="popup-footer">
         <button id="newFolderInPickerBtn" class="new-folder-btn">
-          <span class="msym">&#xe2cc;</span> Novo atalho
+          <span class="msym" aria-hidden="true">&#xe2cc;</span> Novo atalho
         </button>
       </div>
     </div>

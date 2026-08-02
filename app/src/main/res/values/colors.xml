@@ -1,7 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Espelha o token `bg` do design system do PWA (controle.css). -->
-    <color name="app_bg">#0A0A0A</color>
-    <!-- Fundo do ícone adaptativo (o desenho dos PWAs é dourado sobre escuro). -->
+    <!-- Espelha o token de fundo `bg` da base web (a custom property de mesmo
+         nome em assets/web/shared/tokens.css — escrita aqui SEM os dois hífens
+         de propósito: comentário XML não pode conter dois hífens seguidos, e o
+         aapt2 recusa o arquivo inteiro, quebrando o build do APK).
+         Não é decoração: este é o preto das barras de status e de navegação, e
+         o WebView desenha o corpo do app encostado nelas — nas safe-areas do
+         topo e da base ficava uma faixa de OUTRO preto colada ao app (#0A0A0A
+         contra o token, que já tinha mudado duas vezes). É também o
+         windowBackground, isto é, o que aparece ANTES de o WebView carregar:
+         divergir aqui é reintroduzir justamente o "flash" que o themes.xml diz
+         evitar. Se o token mudar de novo, este valor muda junto — nada no
+         build detecta a divergência, e o OTA pode trocar a base web sem trocar
+         o APK. -->
+    <color name="app_bg">#131211</color>
+    <!-- Fundo do ícone adaptativo (o desenho dos PWAs é dourado sobre escuro).
+         Segue o gradiente do wallpaper, não o fundo do app: é o ÍCONE na
+         gaveta do sistema, não a UI. -->
     <color name="ic_launcher_background">#0A1A10</color>
 </resources>

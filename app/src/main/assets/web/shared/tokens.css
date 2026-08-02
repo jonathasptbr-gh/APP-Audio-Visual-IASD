@@ -35,8 +35,11 @@
      `--surface`/`--surface-2` são branco com alfa de propósito: um botão
      mantém o mesmo degrau relativo esteja ele sobre o fundo do app ou sobre a
      barra — três valores fixos divergiriam no primeiro ajuste. Dentro de um
-     CARTÃO essa mesma regra se inverte; ver "superfície que afunda" em
-     controle.css. */
+     CARTÃO essa mesma regra se INVERTE (o overlay passa a ser preto, e o
+     controle afunda em vez de flutuar), porque branco com alfa EMPILHA: sobre
+     `--panel` ele produzia uma base clara demais para qualquer texto colorido.
+     A regra e as medições estão em "superfície que afunda", no topo de
+     controle.css — quem mexer nestes dois valores precisa reler aquilo. */
   --bg: #131211;
   --bar: #2c2b29;
   --panel: #343330;
@@ -97,7 +100,14 @@
   --on-live: #f3e9e8;                    /* 4,74:1 sobre --live */
   --live-text: #f0aaa2;                  /* 9,78:1 sobre o fundo · 5,74:1 sobre --live-soft */
   --live-soft: rgba(179, 65, 52, .22);
-  --danger: #b34134;                     /* mesmo valor, token próprio: destrutivo */
+  /* `--danger` é o par ESCURO do destrutivo — mesmo valor de `--live`, token
+     próprio porque os dois papéis podem divergir um dia. Hoje ele não tem
+     nenhum uso na folha, e isso é intencional, não esquecimento: pela regra
+     acima, ação destrutiva é sempre CONTORNADA, e contorno/texto usam
+     `--danger-text`. Ele fica para o caso de um dia existir uma superfície
+     destrutiva preenchida — e para deixar explícito qual dos dois tons é o de
+     fundo, que é justamente a distinção que o código antigo não fazia. */
+  --danger: #b34134;
   --danger-text: #f0aaa2;
   --danger-soft: rgba(179, 65, 52, .22);
 

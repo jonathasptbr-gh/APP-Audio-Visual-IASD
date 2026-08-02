@@ -70,9 +70,22 @@ class NativeBridge(
          * Subir SEMPRE que a superfície da ponte mudar.
          */
         const val SHELL_VERSION = 14
-    }
 
-    private val io = Executors.newSingleThreadExecutor()
+        /**
+         * Fila de IO da ponte, **compartilhada por todas as instâncias**.
+         *
+         * Um executor por instância vazava: `newSingleThreadExecutor` cria uma
+         * thread de core sem timeout e não-daemon, viva até um `shutdown` que
+         * nunca acontecia — e a ponte é reconstruída a cada morte de renderer e
+         * a cada ciclo de desconexão/reconexão do dongle, cada uma retendo a
+         * `NativeBridge` inteira (e, por ela, a Activity/Presentation antigas).
+         * Nada nesta fila é por-WebView: é IO genérico. Daemon para nunca
+         * segurar o encerramento do processo.
+         */
+        private val io = Executors.newSingleThreadExecutor { r ->
+            Thread(r, "av-bridge-io").apply { isDaemon = true }
+        }
+    }
 
     // ---------- identidade ----------
 
@@ -101,9 +114,18 @@ class NativeBridge(
      * A base web carregou por inteiro — desarma o watchdog de boot do OTA.
      * Sem esta confirmação, um bundle baixado que quebre é descartado no
      * lançamento seguinte e o app volta ao embutido no APK.
+     *
+     * **Só o Controle confirma.** O papel já chega aqui pelo construtor, e
+     * aceitar a confirmação do telão furava o watchdog por um caminho
+     * independente: o Display carrega uma fração do código (não tem playlist,
+     * transporte, Bíblia, Cronograma), então um bundle que quebre SÓ o
+     * `controle.js` — de longe o arquivo mais provável de quebrar — era
+     * confirmado pela página do Display, que carregou bem, e adotado para
+     * sempre. Confirmar por ele não prova nada sobre o Controle.
      */
     @JavascriptInterface
     fun otaConfirm() {
+        if (role != "controle") return
         WebUpdater.confirmBoot(ctx)
     }
 
@@ -169,9 +191,14 @@ class NativeBridge(
      * está baixando e a que ritmo:
      * `{ label, done, total, etaMs, items, idleMs }`.
      *
-     * `items` traz o nome em destaque agora. São 6 downloads simultâneos, mas
-     * o lado web manda UM de cada vez, em rodízio — seis nomes parados lado a
-     * lado não transmitiam que um terminou e outro começou. A lista continua
+     * `items` traz UM nome em destaque. São 6 downloads simultâneos, mas o lado
+     * web manda um de cada vez, tirado de uma FILA (FIFO) dos itens que já
+     * entraram em download: cada nome sai uma ÚNICA vez, em ordem, escoado no
+     * ritmo médio medido por item (`bgItemStart`/`bgSpinMs` em controle.js).
+     * Não é rodízio entre os itens em voo — rodízio traria o mesmo nome de
+     * volta várias vezes e a lista não iria a lugar nenhum. Também não é um
+     * espelho do que está no ar agora: é deliberadamente ilustrativo, e
+     * CONGELA quando a tarefa passa de 90 s sem evento real. A lista continua
      * sendo lista só por compatibilidade com bundles anteriores a v5.13.
      *
      * `idleMs` é há quanto tempo NADA acontece: é o que separa "travado" de
@@ -334,9 +361,23 @@ class NativeBridge(
      * comportamento ser idêntico nos dois contextos.
      *
      * Cada item traz uma `url` servível (`/saf/<token>`), nunca bytes.
+     *
+     * **Só com host** (ou seja, só no Controle). O WebView do telão recebe a
+     * ponte com `host = null` justamente para não ter poderes de Activity, e
+     * `pickFolder`/`requestMic` já honravam isso; esta era a exceção, porque lê
+     * o `ContentResolver` direto. Sem a guarda, qualquer script rodando no
+     * documento do Display (que carrega a IFrame Player API de terceiro por
+     * design) lia o índice inteiro — nome, tamanho e token servível — de toda
+     * pasta que o operador já concedeu, num WebView que por construção deveria
+     * ter zero superfície nativa. Devolve lista vazia: o telão nunca chama
+     * isto, e um erro seria pior de diagnosticar que um vazio.
      */
     @JavascriptInterface
     fun listFolder(callId: String, treeUri: String) {
+        if (host == null) {
+            resolve(callId, "[]")
+            return
+        }
         io.execute {
             val out = try {
                 listChildren(Uri.parse(treeUri))

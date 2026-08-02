@@ -164,7 +164,21 @@ class MainActivity : ComponentActivity(), BridgeHost {
         root.addView(fullscreenContainer, matchParent())
         setContentView(root)
 
-        pendingShare = ShareIntake.parse(this, intent)
+        // SÓ na primeira criação. A única saída do app é `moveTaskToBack`, então
+        // a Activity nunca é finalizada e `getIntent()` continua devolvendo o
+        // mesmo ACTION_SEND para sempre: qualquer recriação (mudar o tamanho da
+        // fonte ou o idioma — nenhum dos dois está em `android:configChanges` —,
+        // ou voltar pelo Recentes depois de o processo ser morto) reparsearia o
+        // MESMO compartilhamento e o lado web importaria uma segunda cópia
+        // integral do arquivo, sem aviso e sem desfazer. `savedInstanceState`
+        // não-nulo é exatamente "isto é uma recriação".
+        if (savedInstanceState == null) {
+            pendingShare = ShareIntake.parse(this, intent)
+        }
+        // E marca o intent como consumido, para o caso de o sistema recriar a
+        // Activity SEM estado salvo: um ACTION_SEND que já foi lido nunca mais
+        // pode ser lido de novo.
+        consumeShareIntent()
 
         buildControleWebView()
 
@@ -192,7 +206,35 @@ class MainActivity : ComponentActivity(), BridgeHost {
             runOnUiThread { web?.evaluateJavascript(js, null) }
         }
 
+        // O serviço de sincronização pode morrer sem que ninguém aqui peça
+        // (cota de FGS do Android 15). Se `backgroundWork` continuasse `true`, o
+        // `if (on == backgroundWork)` de [setBackgroundWork] trataria o próximo
+        // `keepAlive(true)` como repetido e o download seguinte ficaria sem
+        // proteção nenhuma — em silêncio, que é a pior forma de perder isso.
+        SyncService.onGone = {
+            runOnUiThread { backgroundWork = false }
+        }
+
         onBackPressedDispatcher.addCallback(this) { handleBack() }
+    }
+
+    /**
+     * Neutraliza o ACTION_SEND já lido.
+     *
+     * O intent da Activity é reentregue em toda recriação; sem apagar a ação e
+     * os extras, um compartilhamento consumido volta a ser encontrado e o
+     * arquivo é importado de novo. `setIntent` mantém `getIntent()` coerente
+     * com o objeto mutado, para nenhum outro caminho (por exemplo um
+     * `onNewIntent` que reuse o mesmo Intent) reencontrar o conteúdo.
+     */
+    private fun consumeShareIntent() {
+        val i = intent ?: return
+        if (i.action != Intent.ACTION_SEND && i.action != Intent.ACTION_SEND_MULTIPLE) return
+        i.action = Intent.ACTION_MAIN
+        i.removeExtra(Intent.EXTRA_STREAM)
+        i.removeExtra(Intent.EXTRA_TEXT)
+        i.removeExtra(Intent.EXTRA_SUBJECT)
+        setIntent(i)
     }
 
     /**
@@ -211,9 +253,18 @@ class MainActivity : ComponentActivity(), BridgeHost {
      * devolve pelo callback; se o renderer morreu, está travado ou o bundle é
      * antigo demais para ter `__avBack`, esse callback pode simplesmente nunca
      * chegar — e um botão voltar que não faz NADA é pior que um que minimiza.
-     * O `postDelayed` garante a resposta padrão; o `AtomicBoolean` faz o
-     * primeiro dos dois caminhos vencer, para não minimizar depois de o web já
-     * ter fechado um popup.
+     * O `postDelayed` garante a resposta padrão.
+     *
+     * O que o `AtomicBoolean` garante, exatamente: que `moveTaskToBack` roda no
+     * MÁXIMO uma vez por toque. Ele **não** garante que o app não minimize
+     * depois de o web já ter fechado um popup — `__avBack()` executa a ação de
+     * forma síncrona e só então retorna, então o que chega tarde é a RESPOSTA,
+     * não a ação. Com o renderer ocupado (sincronização pesada, decodificação
+     * de vídeo), o prazo pode vencer com o popup já fechado e o operador vê as
+     * duas coisas num toque só. Fechar isso de verdade exige um token de
+     * corrida devolvido pelo lado web (`__avBack(token)` → `__avResolve`), o
+     * que é mudança de contrato da ponte; enquanto não existe, o prazo é curto
+     * justamente para o caso comum nunca chegar perto dele.
      */
     private fun handleBack() {
         val w = web
@@ -242,6 +293,21 @@ class MainActivity : ComponentActivity(), BridgeHost {
         val loader = WebViewFactory.assetLoader(this)
         val w = WebViewFactory.create(this, loader) {
             web = null
+            // O estado de "download em curso" pertencia ao documento que acabou
+            // de morrer: os `fetch` morreram com o renderer e o `finally` de
+            // `withBgWork()` nunca vai rodar, então NINGUÉM mais chamaria
+            // `keepAlive(false)`. Sem zerar aqui, sobravam para sempre o
+            // foreground service, a notificação congelada no último progresso e
+            // o wake lock parcial (2 h) — e, pior, a guarda de
+            // [setBackgroundWork] fazia o próximo download real virar no-op.
+            // A página nova recomeça a contagem do zero e volta a pedir a
+            // proteção se ainda houver trabalho.
+            if (backgroundWork) {
+                backgroundWork = false
+                try { SyncService.stop(this@MainActivity) } catch (e: Exception) {
+                    Log.w(TAG, "serviço de sincronização não parou", e)
+                }
+            }
             webContainer.post { buildControleWebView() }
         }
         w.webChromeClient = ControleChromeClient()
@@ -261,7 +327,11 @@ class MainActivity : ComponentActivity(), BridgeHost {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        val share = ShareIntake.parse(this, intent) ?: return
+        val share = ShareIntake.parse(this, intent)
+        // Consumido assim que lido — inclusive quando o parse devolve null, para
+        // um intent inútil não ficar pendurado como o intent da Activity.
+        consumeShareIntent()
+        if (share == null) return
         pendingShare = share
         // App já aberto: empurra o share na hora, sem esperar um novo init.
         web?.evaluateJavascript("window.__avShareArrived && window.__avShareArrived();", null)
@@ -273,6 +343,9 @@ class MainActivity : ComponentActivity(), BridgeHost {
     }
 
     override fun onDestroy() {
+        // O hook sai antes de tudo: ele captura esta Activity, e uma chamada
+        // depois daqui mexeria num campo de uma tela que não existe mais.
+        SyncService.onGone = null
         // Sem o WebView não há download para proteger — o serviço não pode
         // sobreviver à Activity segurando um wake lock à toa.
         if (backgroundWork) {

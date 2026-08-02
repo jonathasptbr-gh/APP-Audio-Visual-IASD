@@ -6,8 +6,11 @@
 //   - store "files": catálogo dos arquivos guardados no OPFS (só metadados +
 //     thumbnail; os bytes ficam no Origin Private File System).
 //   - listas (em "state"): "imports", "playlist" = arrays de ids.
-//   - um blob de "media" só é apagado quando não está em NENHUMA lista (gc);
-//     registros de "files" pertencem à sua pasta OPFS e não passam pelo gc.
+//   - Favoritos (atalhos): "folders" = [{id,name}] e um array de ids por
+//     atalho em "folder_<id>". São detentores de referência como as listas.
+//   - um blob de "media" só é apagado quando NADA mais aponta para ele — nem
+//     lista, nem Favorito (ver `isReferenced`); registros de "files"
+//     pertencem à sua pasta OPFS e não passam pelo gc.
 //
 // Exposto como window.AVDB.
 
@@ -20,13 +23,22 @@
   const STORE_STATE = 'state';
   const STORE_FILES = 'files';
   const CHANNEL_NAME = 'av-iasd';
+  // As listas FIXAS. NÃO é a lista completa de quem referencia um id de mídia
+  // — os Favoritos moram em chaves dinâmicas (`folder_<id>`). Quem decide se
+  // um blob pode ser apagado é `isReferenced`, não esta constante.
   const LISTS = ['imports', 'playlist'];
 
   let dbPromise = null;
 
+  // A conexão é memorizada, mas a FALHA não: até a v5.48 `dbPromise` guardava
+  // também a promise REJEITADA, então uma única falha do `indexedDB.open`
+  // (pressão de armazenamento, renderer se recuperando de um OOM) deixava todo
+  // o AVDB rejeitando para sempre — o app ficava sem dados até ser fechado e
+  // reaberto, sem nenhum caminho de recuperação. Zerando `dbPromise` no
+  // caminho de erro, a próxima chamada simplesmente tenta de novo.
   function openDB() {
     if (dbPromise) return dbPromise;
-    dbPromise = new Promise((resolve, reject) => {
+    const p = new Promise((resolve, reject) => {
       const req = indexedDB.open(DB_NAME, DB_VERSION);
       req.onupgradeneeded = () => {
         const db = req.result;
@@ -37,10 +49,34 @@
           fs.createIndex('folder', 'folder');
         }
       };
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () => reject(req.error);
+      // Só invalida o cache se ele ainda for ESTA promise: um `openDB`
+      // posterior pode já ter posto outra no lugar, e zerá-la faria a próxima
+      // chamada abrir uma terceira conexão à toa.
+      const forget = () => { if (dbPromise === p) dbPromise = null; };
+      req.onsuccess = () => {
+        const db = req.result;
+        // A OUTRA página (Controle × Display, mesmo origin) pediu um upgrade.
+        // Sem fechar aqui, a conexão velha BLOQUEIA o upgrade dela e a outra
+        // página fica esperando para sempre, com a tela montada e sem dado
+        // nenhum — no meio de um culto. Hoje o caso não chega a acontecer no
+        // app (o `beginSession` fixa um único bundle por sessão, logo um único
+        // DB_VERSION), mas o dia em que DB_VERSION subir de 2 para 3 é
+        // exatamente o dia em que ninguém vai lembrar disto.
+        db.onversionchange = () => { db.close(); forget(); };
+        // Conexão fechada por fora (o navegador pode forçar em falha de
+        // armazenamento): o handle memorizado está morto, reabrir na próxima.
+        db.onclose = forget;
+        resolve(db);
+      };
+      const fail = (err) => { forget(); reject(err || new Error('IndexedDB indisponível')); };
+      req.onerror = () => fail(req.error);
+      // A ponta oposta do `onversionchange`: se ALGUÉM não fechar a conexão
+      // velha, `onblocked` é o único aviso que existe. Sem ele o `open` não
+      // resolve NEM rejeita, e quem chamou fica pendurado sem erro nenhum.
+      req.onblocked = () => fail(new Error('IndexedDB bloqueado por outra conexão (upgrade pendente)'));
     });
-    return dbPromise;
+    dbPromise = p;
+    return p;
   }
 
   function store(name, mode) {
@@ -176,37 +212,17 @@
     if (rec) return rec;
     return fileGet(id);
   }
-  // Armazena um registro de URL temporário sem blob e sem adicioná-lo a nenhuma lista.
-  async function storeUrlTemp(urlStr, meta) {
-    const record = makeMediaRecord({
-      url: urlStr,
-      thumb: (meta && meta.thumb) || null,
-      type: (meta && meta.type) || 'audio/mpeg',
-      kind: (meta && meta.kind) || 'audio',
-      name: (meta && meta.name) || 'sem-nome',
-    });
-    const s = await store(STORE_MEDIA, 'readwrite');
-    await asPromise(s.add(record));
-    return record;
-  }
-  // Armazena um blob temporário sem adicioná-lo a nenhuma lista (para pastas vinculadas).
-  async function storeMediaTemp(blob, meta) {
-    const record = makeMediaRecord({
-      blob,
-      type: blob.type,
-      kind: (meta && meta.kind) || kindFromType(blob.type),
-      thumb: (meta && meta.thumb) || null,
-      name: (meta && meta.name) || 'sem-nome',
-    });
-    const s = await store(STORE_MEDIA, 'readwrite');
-    await asPromise(s.add(record));
-    return record;
-  }
-  // Exclui diretamente um registro de mídia pelo ID (usado para limpar temp de pastas vinculadas).
-  async function deleteMedia(id) {
-    const s = await store(STORE_MEDIA, 'readwrite');
-    return asPromise(s.delete(id));
-  }
+  // REMOVIDAS na v5.48: `storeUrlTemp`, `storeMediaTemp` e `deleteMedia`.
+  // As duas primeiras gravavam em "media" SEM entrar em lista nenhuma, e o
+  // comentário da terceira dizia que servia "para limpar temp de pastas
+  // vinculadas" — pastas vinculadas não existem mais (foram substituídas pelas
+  // pastas OPFS, sincronizadas por syncDeviceFolder/fileAdd), e as três não
+  // tinham um único chamador em toda a base. Pior que código morto: quem lesse
+  // o comentário concluiria que existe um caminho de limpeza de temporários
+  // (não existe — o gc só roda dentro de `listRemove`), e voltar a usá-las
+  // criaria registros que NENHUM gc alcança, ou seja, vazamento permanente no
+  // IDB. Quem precisar de um registro de mídia usa `addMedia`/`addUrlMedia`,
+  // que já entram numa lista e portanto são coletáveis.
   async function renameMedia(id, name) {
     // get + put na mesma transação para garantir atomicidade (o await entre os
     // dois mantém a transação viva pois ambos são requests IDB encadeados).
@@ -302,8 +318,36 @@
     if (ids == null && name === 'imports') ids = await getState('order');
     return Array.isArray(ids) ? ids.slice() : [];
   }
+  // Duas formas, e a diferença entre elas é atomicidade:
+  //
+  //   listSet(name, [ids])   grava o array como veio. O chamador leu a lista
+  //                          ANTES, fora de transação, então é um
+  //                          read-modify-write partido: um `listAdd` que
+  //                          commite entre a leitura e esta escrita é perdido
+  //                          (o item some da lista, e o registro que
+  //                          `addMediaToList` criou em "media" fica órfão para
+  //                          sempre — nunca esteve em lista nenhuma, e o gc só
+  //                          roda dentro de `listRemove`). Hoje isso não
+  //                          acontece: nenhum escritor de fundo mexe em listas
+  //                          (a sincronização usa `fileAdd`). É fragilidade
+  //                          estrutural, não defeito em operação — mas o
+  //                          primeiro escritor de fundo que alguém acrescentar
+  //                          sobre `listAdd` a transforma em perda de item.
+  //
+  //   listSet(name, fn)      forma ATÔMICA: `fn(listaAtual)` roda dentro da
+  //                          MESMA transação de "state" que grava o resultado,
+  //                          igual ao `listAdd`. `fn` precisa ser SÍNCRONA —
+  //                          um await dentro dela deixaria a transação
+  //                          autocommitar antes do `put`.
+  //
+  // Prefira a forma com função ao escrever código novo (ex.: reordenar é
+  // `listSet(name, (ids) => …)` em vez de ler, mexer e devolver o array).
   async function listSet(name, ids) {
-    return setState(name, ids);
+    if (typeof ids !== 'function') return setState(name, ids);
+    const [s, tx] = await storeTx(STORE_STATE, 'readwrite');
+    const next = ids(await readListIn(s, name));
+    await asPromise(s.put(Array.isArray(next) ? next : [], name));
+    return txDone(tx);
   }
   async function listItems(name) {
     const ids = await listIds(name);
@@ -327,6 +371,41 @@
     await asPromise(s.put(ids, name));
     await txDone(tx);
   }
+  // TODOS os detentores de referência a um id de "media" — a pergunta que o gc
+  // precisa acertar antes de destruir um blob.
+  //
+  // Até a v5.48 o gc só olhava LISTS, e os Favoritos ficaram de fora: o
+  // Controle guarda cada atalho em `state['folder_<id>']` (índice dos atalhos
+  // em `state['folders']`), que são listas de ids de mídia como qualquer
+  // outra, só que em chaves que o gc não conhecia. O resultado era destrutivo
+  // e silencioso: importar um vídeo, adicioná-lo a um Favorito e depois
+  // excluí-lo do Cronograma apagava o BLOB — o Favorito continuava com o id,
+  // `getMedia` devolvia undefined, o `filter(Boolean)` do Controle descartava
+  // sem avisar e o item sumia do atalho para sempre (um blob importado não
+  // existe em lugar nenhum além do IDB).
+  //
+  // Roda DENTRO da transação de quem chamou (recebe o objectStore de "state"
+  // já aberto), porque a decisão de apagar precisa enxergar o mesmo instante
+  // da remoção — ver o TOCTOU descrito em listRemove.
+  //
+  // NOTA para quem acrescentar um detentor novo: qualquer chave de `state` que
+  // passe a guardar ids de mídia precisa entrar AQUI. É este o ponto único.
+  async function isReferenced(stateStore, id, exceptList) {
+    for (const l of LISTS) {
+      if (l === exceptList) continue;
+      const ids = await readListIn(stateStore, l);
+      if (ids.includes(id)) return true;
+    }
+    const folders = await asPromise(stateStore.get('folders'));
+    if (Array.isArray(folders)) {
+      for (const f of folders) {
+        if (!f || f.id == null) continue;
+        const ids = await readListIn(stateStore, 'folder_' + f.id);
+        if (ids.includes(id)) return true;
+      }
+    }
+    return false;
+  }
   // Remoção + gc na MESMA transação (state + media): sem isso, um listAdd
   // concorrente entre a remoção e a checagem do gc poderia re-referenciar o
   // id e o gc apagaria o blob mesmo assim (TOCTOU).
@@ -338,26 +417,21 @@
     const after = before.filter((x) => x !== id);
     if (after.length === before.length) return; // não estava na lista
     await asPromise(st.put(after, name));
-    // gc: o id ainda está referenciado por ALGUMA outra lista?
-    let referenced = false;
-    for (const l of LISTS) {
-      if (l === name) continue; // acabou de sair desta
-      const other = await readListIn(st, l);
-      if (other.includes(id)) { referenced = true; break; }
-    }
-    if (!referenced) await asPromise(tx.objectStore(STORE_MEDIA).delete(id));
+    // gc: o id ainda está referenciado em algum outro lugar (outra lista ou um
+    // Favorito)? `name` é excluído da varredura porque acabou de sair dela.
+    if (!(await isReferenced(st, id, name))) await asPromise(tx.objectStore(STORE_MEDIA).delete(id));
     await txDone(tx);
   }
-  // Apaga o blob se não estiver referenciado por nenhuma lista. Mantido para
-  // uso avulso; a remoção normal (listRemove) já coleta na própria transação.
+  // Apaga o blob se não estiver referenciado por lista nem por Favorito.
+  // HOJE NÃO TEM CHAMADOR: a remoção normal (listRemove) já coleta na própria
+  // transação. Fica como válvula avulsa — e usa a MESMA `isReferenced` de
+  // propósito, para que um detentor novo não precise ser lembrado em dois
+  // lugares (foi essa duplicação que deixou os Favoritos de fora do gc).
   async function gc(id) {
     const db = await openDB();
     const tx = db.transaction([STORE_STATE, STORE_MEDIA], 'readwrite');
     const st = tx.objectStore(STORE_STATE);
-    for (const l of LISTS) {
-      const ids = await readListIn(st, l);
-      if (ids.includes(id)) return; // referenciado — não apaga
-    }
+    if (await isReferenced(st, id, null)) return; // referenciado — não apaga
     await asPromise(tx.objectStore(STORE_MEDIA).delete(id));
     await txDone(tx);
   }
@@ -412,19 +486,52 @@
     if (channel) channel.postMessage(command);
   }
 
-  function onCommand(handler) {
-    const deliver = (msg) => {
-      if (!msg) return;
-      if (bus && alreadySeen(msg.__mid)) return;
-      handler(msg);
-    };
-    if (channel) channel.addEventListener('message', (e) => deliver(e.data));
-    if (bus) bus.recv(deliver);
+  // Uma ÚNICA assinatura dos dois caminhos, com a lista de handlers por cima.
+  //
+  // O motivo é o `alreadySeen`, que TESTA E MARCA na mesma chamada: até a
+  // v5.48 cada `onCommand` criava seu próprio `deliver`, e todos
+  // compartilhavam o mesmo conjunto de mids. Com dois listeners na mesma
+  // página, o `deliver` do primeiro marcava o mid e o do segundo via a
+  // mensagem como repetida — o segundo listener NUNCA receberia nada. E só no
+  // app nativo: no navegador não há `bus`, não há `__mid`, e os dois
+  // funcionariam. Um recurso testado no navegador que para de funcionar no
+  // aparelho é o pior modo de falhar deste projeto.
+  //
+  // Hoje há exatamente um `onCommand` por página (controle.js e display.js),
+  // então a armadilha estava latente — e é justamente por isso que ela seria
+  // descoberta tarde, por quem só quisesse observar `display-status` num
+  // módulo novo.
+  const cmdHandlers = [];
+  let cmdSubscribed = false;
+
+  function deliverCommand(msg) {
+    if (!msg) return;
+    // Deduplica UMA vez por MENSAGEM (as duas cópias do relay), não uma vez
+    // por listener.
+    if (bus && alreadySeen(msg.__mid)) return;
+    // Cópia da lista: um handler que registre outro durante a entrega não
+    // altera a rodada em curso.
+    for (const fn of cmdHandlers.slice()) {
+      // Um handler que lança não pode calar os demais — no telão isso
+      // significaria perder o comando seguinte no meio de um culto.
+      try { fn(msg); } catch (e) { console.error('[AVDB] handler de comando falhou', e); }
+    }
   }
 
+  function onCommand(handler) {
+    cmdHandlers.push(handler);
+    if (cmdSubscribed) return;
+    cmdSubscribed = true;
+    if (channel) channel.addEventListener('message', (e) => deliverCommand(e.data));
+    if (bus) bus.recv(deliverCommand);
+  }
+
+  // `openDB` saiu da superfície pública na v5.48: não tinha chamador fora
+  // daqui, e expor a conexão crua convida a montar transações por fora dos
+  // helpers — que é exatamente onde mora a atomicidade deste arquivo.
   global.AVDB = {
-    openDB, setState, getState, stateKeys,
-    addMedia, addUrlMedia, getMedia, storeUrlTemp, storeMediaTemp, deleteMedia, renameMedia,
+    setState, getState, stateKeys,
+    addMedia, addUrlMedia, getMedia, renameMedia,
     listIds, listSet, listItems, listHas, listAdd, listRemove, gc,
     fileAdd, fileGet, fileDelete, filesByFolder, filesAll,
     opfsSupported, opfsGetFile, opfsWriteFile, opfsDeleteFile, opfsDeleteDir,
