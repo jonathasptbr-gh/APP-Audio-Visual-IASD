@@ -94,7 +94,7 @@ git push origin main
   MENOR que o já publicado — caso em que `WebUpdater.compareVersions` ignora o
   bundle em silêncio. Para saber onde a base está, leia `version.json`.
 
-  No app nativo o rótulo mostra os **dois índices** — `Web v5.59 · Shell v1.22`
+  No app nativo o rótulo mostra os **dois índices** — `Web v5.60 · Shell v1.22`
   —, porque base web e shell atualizam por caminhos independentes (OTA ×
   instalar APK); no navegador sai só `Controle v<versão>`. **Ele mora no rodapé
   do popup de Configurações** desde a v5.49 (antes ficava no cabeçalho da lista,
@@ -1763,6 +1763,14 @@ verdade fica livre para receber o conteúdo novo.
 - **`main` é `position: relative` + `overflow: hidden`**: é ele que ancora e
   RECORTA o fantasma — as duas telas atravessam a largura inteira e não podem
   aparecer fora da área da lista.
+- **A regra do fantasma precisa das DUAS classes** (`.lib-list.lib-ghost`). Ele
+  também é uma `.lib-list`, e aquela regra — que vem DEPOIS na folha — declara
+  `position: relative`. Com uma classe só o empate de especificidade era
+  decidido pela ordem: o `relative` vencia, o fantasma continuava no fluxo,
+  virava um segundo item flex do `main` e DIVIDIA a altura com a lista de
+  verdade. O sintoma era a aba de destino aparecer espremida durante o deslize
+  e se corrigir sozinha ao fim dele (medido: 478px em repouso, 233px no meio da
+  animação, 478px de novo depois que o fantasma sai).
 - **Fechar a gaveta de Favoritos passa `semAnim`**: ali o movimento que o
   operador vê é a gaveta subindo, e um carrossel por baixo dela contaria outra
   história.

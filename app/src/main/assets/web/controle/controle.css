@@ -1017,8 +1017,17 @@ main {
    (ver `makeTabGhost` em controle.js), sobre a mesma área da lista, enquanto a
    `#library` recebe os novos. Não rola e não recebe toque — é uma fotografia
    que dura o tempo do deslize. As medidas vêm inline, do JS, porque a lista é
-   um item flex e só ela sabe onde parou. */
-.lib-ghost {
+   um item flex e só ela sabe onde parou.
+
+   O seletor precisa das DUAS classes (`.lib-list.lib-ghost`, especificidade
+   0-2-0) porque o fantasma também é uma `.lib-list` — e aquela regra, que vem
+   DEPOIS nesta folha, declara `position: relative`. Com uma classe só o empate
+   de especificidade era decidido pela ordem e o `relative` vencia: o fantasma
+   continuava no fluxo, virava um segundo item flex do `main` e DIVIDIA a
+   altura com a lista de verdade. Era isso que espremia a aba de destino
+   durante o deslize (medido: 478px em repouso, 233px no meio da animação) e
+   se corrigia sozinho quando o fantasma era removido. */
+.lib-list.lib-ghost {
   position: absolute; z-index: 2;
   overflow: hidden; pointer-events: none;
 }
