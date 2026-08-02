@@ -94,7 +94,7 @@ git push origin main
   MENOR que o já publicado — caso em que `WebUpdater.compareVersions` ignora o
   bundle em silêncio. Para saber onde a base está, leia `version.json`.
 
-  No app nativo o rótulo mostra os **dois índices** — `Web v5.67 · Shell v1.22`
+  No app nativo o rótulo mostra os **dois índices** — `Web v5.68 · Shell v1.22`
   —, porque base web e shell atualizam por caminhos independentes (OTA ×
   instalar APK); no navegador sai só `Controle v<versão>`. **Ele mora no rodapé
   do popup de Configurações** desde a v5.49 (antes ficava no cabeçalho da lista,
@@ -1286,21 +1286,25 @@ local comanda a barra de progresso e o avanço automático da playlist. Para ite
 YouTube, `cmd()` também dirige um segundo `YT.Player` próprio da preview (mudo,
 qualidade mínima) — ver seção do YouTube no Display para os detalhes.
 
-**Coluna de botões sobre a preview** (`#pvFabs`, `setupPreviewGestures`):
-**dois** botões semitransparentes numa **coluna colada à direita**, de cima
-para baixo, **visíveis por padrão**. Cada um é `flex:1`, então a coluna se
-reparte sozinha pela altura da preview — inclusive quando o de cast não existe
-(navegador), onde o **restante** fica com a altura toda. O tamanho do ícone
-vem do CSS (`17px`), não do atributo do `<svg>`: a altura de cada botão é
-fração da preview, e um ícone de 20px estouraria a caixa.
+**Controles sobre a preview** (`#pvFabs`, `setupPreviewGestures`): **dois**
+ícones, um em cada canto da direita — **cast em cima, tela cheia embaixo** —,
+sempre visíveis (ver "Layout de player", abaixo). Cada um ocupa uma caixa de
+`--hit`, e o tamanho do ícone vem do CSS (`24px`), não do atributo do `<svg>`.
 
-Passaram por dois arranjos antes deste, quando ainda eram quatro. Primeiro **um
-em cada canto** — dispersos, o olho procurava cada um num lugar diferente, e o
-do topo tampava justamente a parte da miniatura onde costuma estar o texto
-projetado. Depois **uma fileira na base** — que sobrava vazio dos dois lados,
-já que quatro botões não chegavam perto da largura da preview. Em pé, à
-direita, eles usam a altura inteira, que é a dimensão apertada aqui (a faixa do
-deck é `--deck-pv-h`, 130px).
+Passaram por três arranjos antes deste — e os dois primeiros foram **com quatro
+botões**, que é o detalhe que explica por que eles não valem como precedente
+contra o atual. Um **em cada canto**: dispersos, o olho procurava cada um num
+lugar diferente, e um deles tampava a parte da miniatura onde costuma estar o
+texto projetado. Uma **fileira na base**: sobrava vazio dos dois lados, já que
+quatro botões não chegavam perto da largura da preview. Uma **coluna de vidro à
+direita**, cada botão `flex:1` pela altura toda: com quatro, era a única forma
+que cabia; com dois, virou uma barra de ferramentas grande demais para o que
+tinha dentro.
+
+Com **dois**, o canto voltou a ser a resposta certa (v5.67), e sem os dois
+problemas de antes: não há dispersão com dois alvos na mesma borda, e o de cima
+é o cast — não um botão qualquer no meio do caminho do texto, mas o mesmo canto
+que todo player usa.
 
 | Ordem (de cima) | Botão | Ação |
 |---|---|---|
@@ -4799,8 +4803,8 @@ Fora de `tokens.css`, no `:root` do Controle (não são cor):
   ícone de um saía menor que o do outro sem que nada na folha dissesse por quê.
   O atributo do elemento continua no HTML como valor de partida (vale antes de
   o CSS carregar), mas quem manda é a regra. **Duas exceções**, cada uma dita
-  no lugar onde mora: os ícones nos cantos da preview (`.pv-fab`, 20px — a altura
-  é fração da preview) e o modo simplificado (28px nas teclas, 44px no botão de
+  no lugar onde mora: os ícones nos cantos da preview (`.pv-fab`, 24px — sem
+  moldura, o ícone É o botão) e o modo simplificado (28px nas teclas, 44px no botão de
   conectar), onde o alvo é o polegar de quem está de pé. "Três degraus **e só
   eles**" era a frase antiga, e ela era desmentida por dezenas de valores no
   HTML; agora ela é verificável.

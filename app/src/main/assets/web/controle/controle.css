@@ -95,7 +95,7 @@ input, textarea { user-select: text !important; -webkit-user-select: text !impor
      26, 28, 30 e 44 px espalhados por dois arquivos, e a própria folha admitia
      que "três degraus e só eles" era desmentido por dezenas de valores. Duas
      exceções seguem fora da escala, e as duas têm motivo dito no lugar em que
-     moram: os ícones nos cantos da preview (`.pv-fab`, 20px — sem moldura, o
+     moram: os ícones nos cantos da preview (`.pv-fab`, 24px — sem moldura, o
      ícone É o botão) e o modo simplificado (teclas de 28px, 44px no botão de
      conectar), onde o alvo é o polegar de quem está de pé. */
   --icon-sm: 20px;   /* botões de linha, cabeçalho, popups */
@@ -380,8 +380,12 @@ body {
    Contorno por sombra, e não `paint-order: stroke`: estes SVGs são desenhados a
    traço (`fill: none`), então não há preenchimento em volta do qual pintar um
    contorno. */
+/* 24px num alvo de 34px: o ícone é o botão inteiro aos olhos, então ele carrega
+   sozinho o peso visual que a moldura carregava antes — a 20px ele lia como
+   pequeno demais para o que faz. A folga que sobra (5px de cada lado) é o que
+   impede o traço de encostar na borda da miniatura. */
 .pv-fab svg {
-  display: block; width: 20px; height: 20px;
+  display: block; width: 24px; height: 24px;
   filter:
     drop-shadow(0 0 1px rgba(0, 0, 0, .95))
     drop-shadow(0 0 2px rgba(0, 0, 0, .9))
