@@ -11,6 +11,14 @@
   <!-- O Display não usa a fonte de ícones (Material Symbols): a UI é só
        wallpaper + mídia, sem nenhum glifo .msym. A folha e o woff2 ficam
        apenas no Controle. -->
+  <!-- A PALETA: a MESMA folha que o Controle carrega (ver o cabeçalho de
+       tokens.css). É ela que garante que a preview do Controle e o telão
+       mostrem a mesma cor — enquanto os tokens de marca eram mantidos à mão
+       nas duas folhas, a sincronização era manual e bastava um ajuste entrar
+       só de um lado. Vem ANTES de display.css: as duas declaram no `:root`,
+       mesma especificidade, vence a última — então um token que o Display
+       precise ajustar só para si continua podendo ser redeclarado lá. -->
+  <link rel="stylesheet" href="../shared/tokens.css">
   <link rel="stylesheet" href="display.css">
 </head>
 <body>
@@ -33,8 +41,12 @@
     </div>
   </div>
   <!-- Camada de TEXTO manual (Bíblia + Mensagens) — ver "Camada de Texto" no
-       CLAUDE.md. Genérica: `mode-verse` (versículo, com referência embaixo) ou
-       `mode-message` (mensagem/texto puro). Camada paralela ao stage.js (mesmo
+       CLAUDE.md. Genérica, e os modos vivem em `.text-content`: SEM CLASSE =
+       versículo (a referência dourada em #textSub) · `mode-message`
+       (mensagem/texto puro) · `mode-chrono` (cronômetro/relógio/timer) ·
+       `mode-draw` (sorteio). Não existe `mode-verse`: o versículo é o estado
+       sem classe, e uma regra escrita para ela nunca casaria — os três nomes
+       acima são os únicos que display.js escreve. Camada paralela ao stage.js (mesmo
        z-index dos layers de mídia); a cortina do wallpaper (z-index maior) a
        cobre/revela de graça. Independente do áudio: um som pode tocar por baixo. -->
   <div id="text" class="layer text-layer" hidden>
@@ -53,7 +65,12 @@
   <!-- Toque único ao abrir: navegadores exigem um gesto real do usuário para
        liberar autoplay com som em conteúdo de terceiros (iframe do YouTube).
        Cobre a tela inteira (qualquer toque serve) — some ao primeiro toque.
-       "Ligar Sistema": além de ativar o Display, o gesto também abre o Controle. -->
+       "Ligar Sistema" APENAS ativa o Display: o handler (display.js) empurra o
+       player do YouTube e esconde o overlay, e não há nenhum window.open no
+       arquivo. O Display é independente — não abre o Controle nem redireciona
+       para lugar nenhum. No app nativo o overlay nem aparece (o WebView roda
+       com `setMediaPlaybackRequiresUserGesture(false)`, e uma TV não recebe
+       toque). -->
   <button id="startBtn" class="start-overlay"><span class="start-pill">Ligar Sistema</span></button>
 
   <!-- native.js PRIMEIRO: define window.__NATIVE__ antes que qualquer outro

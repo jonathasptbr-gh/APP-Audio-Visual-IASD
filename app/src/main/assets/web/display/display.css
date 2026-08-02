@@ -7,26 +7,21 @@
   user-select: none !important; -webkit-user-select: none !important; -webkit-touch-callout: none;
 }
 
-/* ---------- Tokens de design (padrões visuais) ----------
-   O Display tem UI mínima (só wallpaper + mídia), então só precisa dos tokens
-   de MARCA compartilhados com o Controle. Estes valores DEVEM ficar idênticos
-   aos de controle.css — as duas folhas são separadas (não há CSS
-   compartilhado), a sincronização é manual. Ver seção "Design System" no
-   CLAUDE.md. */
-:root {
-  /* marca secundária (dourado "IASD") */
-  --gold: #fbc02d;
-  /* wallpaper (cortina) */
-  --wallpaper: radial-gradient(circle at 50% 35%, #14331f 0%, #0a1a10 55%, #050b07 100%);
-  /* moldura da letra sincronizada (modo imagem). Sem linha de borda: a faixa
-     escura já separa o texto da foto, e o contorno branco competia com a
-     letra em vez de ajudá-la a ser lida. Em troca ela ficou mais densa —
-     .40 deixava um branco de foto em ~#999 (2,4:1 com o texto branco, longe
-     do mínimo); .62 põe o pior caso em ~#616161, que dá 6,2:1. */
-  --lyrics-frame-bg: rgba(0, 0, 0, .62);
-  /* perigo — aqui só o timer estourado (ver .chrono-over) */
-  --danger: #e53935;
-}
+/* ---------- Paleta ----------
+   Esta folha NÃO declara token de cor nenhum: todos vêm de
+   `../shared/tokens.css`, carregado antes dela e compartilhado com o Controle.
+   Enquanto os tokens de marca eram mantidos à mão nas duas folhas, o processo
+   era "sincronização manual" — e bastava um ajuste entrar só de um lado para o
+   telão e a preview do Controle (que existe justamente para ESPELHAR o telão)
+   passarem a mostrar coisas diferentes.
+   O Display usa daí, e só daí: `--gold` (marca), `--wallpaper` (a cortina),
+   `--lyrics-frame-bg` (a faixa da letra), os tokens `--stage-*` (o preto de
+   verdade e o branco pleno da projeção), `--live-text` (o timer estourado),
+   `--bg` (o texto sobre o dourado da pílula) e `--accent-glow` (o halo dessa
+   mesma pílula). A lista existe para ser conferida: se ela e o
+   `grep var(--` desta folha divergirem, é a lista que está errada. (A única
+   var() daqui que NÃO vem de tokens.css é `--ch`, escrita pelo display.js no
+   próprio elemento para dimensionar o cronômetro — não é cor.) */
 
 /* `hidden` sempre esconde, sem exceção. O Controle já tinha esta regra; o
    Display dependia só da folha do navegador, que qualquer seletor de classe
@@ -39,7 +34,7 @@
 
 html, body {
   height: 100%;
-  background: #000;
+  background: var(--stage-bg);
   overflow: hidden;
 }
 
@@ -51,14 +46,14 @@ html, body {
   width: 100%;
   height: 100%;
   object-fit: contain;
-  background: #000;
+  background: var(--stage-bg);
   z-index: 1;
 }
 
 /* Camada de TEXTO manual (Bíblia/Mensagem): fica ACIMA de toda a mídia
    (z-index 2), inclusive do iframe do YouTube — que vem depois no DOM e, com
    o mesmo z-index das demais camadas, pintaria por cima do cartão.
-   O `background:#000` herdado de `.layer` a torna opaca, então o texto manual
+   O `background: var(--stage-bg)` herdado de `.layer` a torna opaca, então o texto manual
    cobre a cena inteira: é uma interferência direta do operador e tem
    precedência visual sobre qualquer mídia.
    É isso que permite a mídia CONTINUAR TOCANDO intacta por baixo (áudio
@@ -89,7 +84,7 @@ html, body {
   font-size: clamp(1.5rem, 5vw, 3.5rem);
   font-weight: 700;
   letter-spacing: .04em;
-  color: rgba(255, 255, 255, .9);
+  color: var(--stage-text-soft);
 }
 .wallpaper-brand span { color: var(--gold); }
 
@@ -99,20 +94,21 @@ html, body {
    a tela inteira, então funciona igual independente do que estiver atrás.
    object-fit própria (cover, não o contain do .layer): é fundo decorativo,
    não mídia real, e não deve aparecer com barras pretas.
-   `background:#000` no próprio .lyrics-bg é o preto de verdade (não a <img>):
-   no modo preto (padrão) a <img> fica `hidden` de propósito — um <img> sem
-   `src` ainda assim tem retângulo/ícone de "imagem quebrada" com borda em
-   alguns navegadores, o que aparecia como uma linha branca de margem; ficar
-   oculta (em vez de só sem `src`) evita esse render por completo.
-   `.lyrics-bg img[hidden] { display:none }` é NECESSÁRIO além do atributo
-   `hidden` em si: o seletor `.lyrics-bg img` abaixo (uma classe + um tipo)
-   tem especificidade MAIOR que a regra `[hidden] { display:none }` da folha
-   de estilo padrão do navegador, então sem essa regra própria o `display:
-   block` daqui vencia e a <img> continuava visível (sem `src`) mesmo com o
-   atributo `hidden` ligado pelo JS — essa era a causa real do ícone de
-   "imagem quebrada" com borda que aparecia mesmo depois de esconder a
-   imagem via JS. */
-.lyrics-bg { position: absolute; inset: 0; background: #000; }
+   `background: var(--stage-bg)` no próprio .lyrics-bg é o preto de verdade
+   (não a <img>): no modo preto (padrão) a <img> fica `hidden` de propósito —
+   um <img> sem `src` ainda assim tem retângulo/ícone de "imagem quebrada" com
+   borda em alguns navegadores, o que aparecia como uma linha branca de margem;
+   ficar oculta (em vez de só sem `src`) evita esse render por completo.
+   `.lyrics-bg img[hidden] { display:none }` ERA necessário quando a única
+   proteção vinha da folha do navegador: `.lyrics-bg img` (uma classe + um
+   tipo) tem especificidade maior que a regra `[hidden]` do UA, e o
+   `display:block` daqui vencia. Desde que esta folha ganhou o próprio
+   `[hidden] { display: none !important }` (acima), quem esconde é ele — e
+   `!important` de autor não é alcançado por nenhuma regra normal desta folha,
+   qualquer que seja a especificidade. A linha abaixo virou REDUNDÂNCIA
+   DELIBERADA, mantida colada à regra que ela protege para que enxugar uma não
+   reintroduza a linha branca na projeção. */
+.lyrics-bg { position: absolute; inset: 0; background: var(--stage-bg); }
 .lyrics-bg img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .lyrics-bg img[hidden] { display: none; }
 /* Container de tamanho (`container-type:size`): tudo dentro de
@@ -198,7 +194,7 @@ html, body {
    `-webkit-line-clamp:2` e cortando a segunda linha (autorizada) inteira.
    `cqmin` faz a fonte encolher junto com a dimensão mais apertada, sempre. */
 .lyrics-line {
-  color: #fff; font-weight: 700; text-transform: uppercase;
+  color: var(--stage-text); font-weight: 700; text-transform: uppercase;
   font-size: 8cqmin; line-height: 1.2;
   white-space: pre-line;
   display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
@@ -206,7 +202,7 @@ html, body {
 /* aux_lyric é um rótulo curto de seção (ex: "Refrão") — 1 linha só, não 2:
    isso também mantém a caixa mais enxuta (linha principal domina o espaço). */
 .lyrics-aux {
-  color: rgba(255, 255, 255, .72); font-weight: 600;
+  color: var(--stage-text-dim); font-weight: 600;
   font-size: 4.2cqmin; line-height: 1.25;
   white-space: pre-line;
   display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 1; overflow: hidden;
@@ -268,7 +264,7 @@ html, body {
    largura permite. Com a tela inteira disponível, cabe fonte bem maior e mais
    linhas do que na caixa fixa anterior. */
 .text-main {
-  color: #fff; font-weight: 500;
+  color: var(--stage-text); font-weight: 500;
   font-size: 6.4cqmin; line-height: 1.34;
   white-space: pre-line;
   display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 8; overflow: hidden;
@@ -311,8 +307,11 @@ html, body {
 }
 /* Timer estourado (passou do alvo, contando em negativo): vermelho. Aqui a cor
    É a informação — "acabou" e "acabou há 4 minutos" precisam se distinguir de
-   longe, e o sinal de menos sozinho é pequeno demais para isso. */
-.text-content.mode-chrono.chrono-over .text-main { color: var(--danger); }
+   longe, e o sinal de menos sozinho é pequeno demais para isso.
+   `--live-text` (o vermelho CLARO da paleta) e não `--danger`: este número é
+   TEXTO sobre o preto do telão, e o vermelho cheio existe para ser fundo —
+   como texto ele daria 3,72:1 contra o preto, contra 10,98:1 deste. */
+.text-content.mode-chrono.chrono-over .text-main { color: var(--live-text); }
 
 /* Sorteio: mesmo cartão, mesmo dimensionamento pelo conteúdo — um nome longo
    ("Maria Aparecida") e um número de dois dígitos não podem sair do mesmo
@@ -349,7 +348,7 @@ html, body {
    ainda mais discreta em relação ao vídeo — mesmo já sendo o telão
    inteiro, o objetivo aqui é minimizar ao máximo a marca do YouTube na
    apresentação, não só corrigir desproporção. */
-.yt-frame { border: none; background: #000; pointer-events: none; overflow: hidden; }
+.yt-frame { border: none; background: var(--stage-bg); pointer-events: none; overflow: hidden; }
 .yt-frame iframe {
   position: absolute; top: 50%; left: 50%;
   width: 400%; height: 400%; border: none;
@@ -362,7 +361,7 @@ html, body {
    wallpaper (z-index maior): entra instantâneo (para vencer a UI) já com o
    wallpaper pronto por baixo, e esmaece revelando o wallpaper graciosamente. */
 .yt-shield {
-  background: #000;
+  background: var(--stage-bg);
   object-fit: unset;
   opacity: 0;
   pointer-events: none;
@@ -386,7 +385,7 @@ html, body {
   width: 100%;
   height: 100%;
   border: none;
-  background: #000;
+  background: var(--stage-bg);
   padding: 0;
   cursor: pointer;
 }
@@ -397,13 +396,19 @@ html, body {
   justify-content: center;
   padding: 1.1em 2.6em;
   border-radius: 999px;
+  /* Preenchido no dourado da marca, com o texto no ESCURO do app: `--gold` é
+     um tom claro (existe para ser lido sobre fundo escuro), então quem vai por
+     cima dele tem de ser escuro — 8,65:1 medidos. O quase-preto literal que
+     estava aqui era um valor solto que nenhuma troca de paleta alcançaria.
+     (O raio fica literal: este é o único elemento em cápsula do Display, e o
+     :root dele é intencionalmente mínimo — não há escala de raio a respeitar.) */
   background: var(--gold);
-  color: #1a1400;
+  color: var(--bg);
   font-family: system-ui, sans-serif;
   font-size: clamp(1.1rem, 4vw, 1.8rem);
   font-weight: 700;
   letter-spacing: .04em;
-  box-shadow: 0 6px 28px rgba(251, 192, 45, .35);
+  box-shadow: 0 6px 28px var(--accent-glow);
   transition: transform .12s ease;
 }
 .start-overlay:active .start-pill { transform: scale(.95); }
@@ -419,6 +424,6 @@ html, body {
   100% { transform: scale(1.08); opacity: 0; }
 }
 @keyframes startOverlayFade {
-  0% { background: #000; }
+  0% { background: var(--stage-bg); }
   100% { background: rgba(0, 0, 0, 0); }
 }

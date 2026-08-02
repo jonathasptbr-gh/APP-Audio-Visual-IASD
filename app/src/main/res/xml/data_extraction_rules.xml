@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Regras de backup/transferência (Android 12+). Sem elas, o backup automático
+     leva TUDO o que está no diretório de dados — e duas coisas ali não podem ir
+     junto pelos mesmos motivos:
+
+     1. `files/web-ota/` e `shared_prefs/web-ota.xml` são o bundle OTA extraído e
+        o ponteiro para ele. Isso é CÓDIGO que roda no origin privilegiado, com
+        acesso a `__AVBridge`. Restaurar um backup adulterado plantaria
+        JavaScript arbitrário sem passar por nenhuma das três garantias do OTA:
+        não há download, não há conferência de sha256 e a válvula `minShell` só
+        existe no caminho do download. Nada ali precisa sobreviver à troca de
+        aparelho: o APK já traz a base web embutida e o `check()` seguinte
+        rebaixa o bundle de novo.
+     2. `app_webview/` é IndexedDB/OPFS — a biblioteca do app (Cronograma,
+        pastas sincronizadas, hinos do LouvorJA, Bíblia baixada), que passa
+        facilmente de gigabytes.
+
+     A diferença entre os dois destinos é deliberada. O backup em NUVEM tem cota
+     de 25 MB por app: com `app_webview` dentro, ele não protege a biblioteca
+     (não cabe) e ainda arrisca reprovar o backup inteiro — excluí-lo é o que faz
+     sobrar um backup que de fato funciona. Já a transferência DIRETA entre
+     aparelhos não tem essa cota, e ali copiar a biblioteca é justamente o que o
+     operador quer ao trocar de celular: um hinário inteiro rebaixado de novo é
+     horas de download. Por isso `app_webview` só é excluído da nuvem. -->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="file" path="web-ota" />
+        <exclude domain="sharedpref" path="web-ota.xml" />
+        <exclude domain="root" path="app_webview" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="file" path="web-ota" />
+        <exclude domain="sharedpref" path="web-ota.xml" />
+    </device-transfer>
+</data-extraction-rules>

@@ -33,7 +33,15 @@ import androidx.core.app.ServiceCompat
  *
  * Ciclo de vida: quem liga e desliga é o LADO WEB (`AVNative.keepAlive`),
  * pelos pontos que sabem quando um download começa e termina. O serviço não
- * decide nada por conta própria.
+ * decide nada por conta própria — com UMA exceção que não é escolha dele: a
+ * cota de 6 h/24 h de FGS `dataSync` do Android 15, em que o sistema manda
+ * parar e o serviço obedece (ver `onTimeout`).
+ *
+ * A notificação segue o serviço, e não o contrário: `updateProgress` publica
+ * apenas enquanto ele existir. `NotificationManager.notify` é independente do
+ * ciclo de vida de um Service, então sem essa guarda um cartão "Baixando
+ * mídias" com `setOngoing(true)` ficava na gaveta para sempre, sem download
+ * nenhum por trás.
  */
 class SyncService : Service() {
 
@@ -41,8 +49,22 @@ class SyncService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    override fun onCreate() {
+        super.onCreate()
+        // `running` é o que autoriza [updateProgress] a publicar. Marcado aqui,
+        // no onCreate, e não no onStartCommand: a notificação só pode existir
+        // enquanto ESTE serviço existir, e é a existência do serviço (não a
+        // entrega de um comando) que define isso.
+        running = true
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         ensureChannel()
+        // `startForeground` SEMPRE, antes de qualquer decisão de parar: um
+        // serviço iniciado por `startForegroundService` que morre sem ter
+        // chamado isto faz o sistema derrubar o app inteiro ("did not then call
+        // Service.startForeground()") — e o processo é o dos dois WebViews e da
+        // `Presentation` na TV.
         ServiceCompat.startForeground(
             this,
             NOTIF_ID,
@@ -53,6 +75,19 @@ class SyncService : Service() {
                 0
             },
         )
+        foregrounded = true
+        // O DOWNLOAD PODE TER ACABADO ENQUANTO O SERVIÇO SUBIA: um item já
+        // baixado faz `withBgWork()` ligar e desligar a proteção em poucos
+        // milissegundos, e o `keepAlive(false)` chega antes do `onStartCommand`
+        // do `keepAlive(true)`. Ali o [stop] não tem serviço para derrubar (ver
+        // a explicação lá), então quem se despede é o próprio serviço — depois
+        // do `startForeground` acima, e sem tomar o wake lock de 2 h que
+        // ninguém mais liberaria.
+        if (!wanted) {
+            Log.i(TAG, "download encerrado antes de o serviço subir — parando")
+            stopSelf(startId)
+            return START_NOT_STICKY
+        }
         acquireWakeLock()
         // NOT_STICKY: se o sistema matar o serviço, não faz sentido recriá-lo
         // sozinho — sem o WebView vivo não há download para acompanhar.
@@ -60,8 +95,49 @@ class SyncService : Service() {
     }
 
     override fun onDestroy() {
+        // Antes de qualquer outra coisa: com `running` já falso, uma chamada de
+        // `updateProgress` que chegue durante a destruição não republica um
+        // cartão que ninguém mais vai cancelar.
+        running = false
+        foregrounded = false
         releaseWakeLock()
+        // O sistema remove a notificação do serviço em primeiro plano ao
+        // destruí-lo, mas o cancelamento explícito cobre o caso em que ela foi
+        // postada por `updateProgress` — que usa `notify`, não `startForeground`,
+        // e portanto não está amarrada ao ciclo de vida por construção.
+        try {
+            getSystemService(NotificationManager::class.java)?.cancel(NOTIF_ID)
+        } catch (e: Exception) {
+            Log.w(TAG, "não foi possível remover a notificação", e)
+        }
         super.onDestroy()
+    }
+
+    /**
+     * Cota de FGS do Android 15: um app com `targetSdk` 35 tem teto de 6 h
+     * acumuladas em 24 h para serviços do tipo `dataSync`. Atingido o teto, o
+     * sistema chama isto e dá poucos segundos para o serviço parar — sem o
+     * override, ele derruba o processo por ANR, e esse processo é o dos DOIS
+     * WebViews e da `Presentation` na TV.
+     *
+     * O acumulado não é hipotético: configurar um aparelho novo soma hinário
+     * completo, uma versão da Bíblia (1189 capítulos) e a cópia de pastas de
+     * vídeo, tudo numa rede de igreja.
+     *
+     * Parar aqui é a única resposta possível — mas o lado Kotlin precisa
+     * ESQUECER que estava protegendo, senão o `if (on == backgroundWork)` da
+     * Activity trata o próximo `keepAlive(true)` como repetido e o download
+     * seguinte fica sem proteção nenhuma, calado. Daí o [onGone].
+     *
+     * O método só existe a partir da API 35; em aparelhos anteriores este
+     * override é código morto (o sistema nunca o chama), que é exatamente o
+     * comportamento desejado — lá não há cota.
+     */
+    override fun onTimeout(startId: Int, fgsType: Int) {
+        Log.w(TAG, "cota de foreground service esgotada — encerrando a proteção")
+        releaseWakeLock()
+        stopSelf()
+        onGone?.invoke()
     }
 
     private fun acquireWakeLock() {
@@ -105,9 +181,16 @@ class SyncService : Service() {
         private const val WAKELOCK_TIMEOUT_MS = 2 * 60 * 60 * 1000L // 2 h
 
         /**
-         * O que está baixando agora, reportado pelo lado web. `items` traz o
-         * nome em destaque — são 6 downloads simultâneos, mas o lado web os
-         * serializa num rodízio (ver `bgItemStart` em controle.js).
+         * O que está baixando agora, reportado pelo lado web. `items` traz UM
+         * nome em destaque: são 6 downloads simultâneos, mas o lado web os
+         * serializa numa FILA (FIFO) — cada nome sai uma única vez, na ordem em
+         * que entrou em download, escoado no ritmo MÉDIO medido por item (ver
+         * `bgItemStart`/`bgSpinMs` em controle.js). Não é rodízio: um nome
+         * nunca reaparece, e a lista não espelha o que está no ar agora.
+         * Quando a tarefa passa de 90 s sem evento real (o mesmo [STALL_MS]
+         * daqui) a fila CONGELA de propósito — animar durante uma queda de rede
+         * esconderia justamente o que precisa ser visto.
+         *
          * `idleMs` é há quanto tempo nada acontece.
          */
         data class Progress(
@@ -131,14 +214,70 @@ class SyncService : Service() {
         private var progress: Progress? = null
 
         /**
+         * O serviço existe AGORA (entre `onCreate` e `onDestroy`).
+         *
+         * `NotificationManager.notify` não tem relação nenhuma com o ciclo de
+         * vida de um Service: o canal sobrevive ao serviço, e um `notify` com
+         * `setOngoing(true)` publica um cartão que ninguém mais cancela. Sem
+         * este flag, uma única chamada de [updateProgress] fora de uma janela de
+         * `keepAlive` deixava um "Baixando mídias" permanente e não-dispensável
+         * na gaveta, sem download nenhum por trás — no meio do culto.
+         */
+        @Volatile
+        private var running = false
+
+        /**
+         * O lado web QUER a proteção agora (entre [start] e [stop]).
+         *
+         * Separado de [running] porque responde a outra pergunta: `running` diz
+         * se o serviço existe, `wanted` diz se ele ainda deveria existir. É o
+         * que permite ao `onStartCommand` descobrir que o download já acabou
+         * enquanto ele subia — e se despedir sozinho, em vez de o [stop] tentar
+         * derrubar um serviço que ainda nem chamou `startForeground`.
+         */
+        @Volatile
+        private var wanted = false
+
+        /**
+         * `startForeground` já foi chamado por este serviço.
+         *
+         * Enquanto for falso existe um `startForegroundService` PENDENTE, e
+         * derrubar o serviço nessa janela é o que faz o sistema matar o app por
+         * "did not then call Service.startForeground()". `running` não serve
+         * para isso: é marcado no `onCreate`, que roda ANTES do
+         * `onStartCommand` onde o `startForeground` de fato acontece.
+         */
+        @Volatile
+        private var foregrounded = false
+
+        /**
+         * Avisa que o serviço morreu por conta própria (cota de FGS do
+         * Android 15 — ver `onTimeout`). Definido pela [MainActivity], que é
+         * quem guarda o espelho desse estado em Kotlin.
+         */
+        @Volatile
+        var onGone: (() -> Unit)? = null
+
+        /**
          * Atualiza a notificação com o progresso real (ver
          * `NativeBridge.bgProgress`). Chamado de uma thread do WebView, então
          * não toca em nada de UI — `NotificationManager.notify` é seguro.
          *
-         * Não chama `startForeground`: o serviço já está em primeiro plano
-         * (quem o liga é `keepAlive`, antes de qualquer progresso existir).
-         * Se ele não estiver rodando, a notificação simplesmente não aparece —
-         * e não deve mesmo, porque não há trabalho declarado.
+         * Não chama `startForeground`: quando o serviço está de pé ele já é o
+         * dono da notificação (quem o liga é `keepAlive`, antes de qualquer
+         * progresso existir), e aqui só se refaz o conteúdo.
+         *
+         * **Com o serviço parado nada é publicado** — e uma sobra de cartão é
+         * cancelada. Isto é uma GUARDA, não uma consequência: a chamada vem do
+         * lado web, que pode reportar progresso fora de qualquer janela de
+         * trabalho (um pacer que vazou, um bundle antigo, uma tarefa que
+         * terminou entre o último tick e este). Publicar nesse estado criava um
+         * download eterno na tela do operador.
+         *
+         * O progresso é guardado ANTES da guarda de propósito: entre o
+         * `startForegroundService` e o `onCreate` do serviço existe uma janela
+         * real, e o que chegar nela precisa aparecer no primeiro
+         * `startForeground`, não ser jogado fora.
          */
         fun updateProgress(
             ctx: Context,
@@ -152,6 +291,10 @@ class SyncService : Service() {
             progress = Progress(label, done, total, etaMs, items, idleMs)
             val nm = ctx.getSystemService(NotificationManager::class.java) ?: return
             try {
+                if (!running) {
+                    nm.cancel(NOTIF_ID)
+                    return
+                }
                 nm.notify(NOTIF_ID, buildNotification(ctx, progress))
             } catch (e: Exception) {
                 Log.w(TAG, "não foi possível atualizar a notificação", e)
@@ -244,10 +387,11 @@ class SyncService : Service() {
             // número: "23 de 54" é abstrato, "002. Ó Adorai o Senhor" é o que o
             // operador reconhece — e vê-lo TROCAR é o que mostra que a coisa
             // anda. São 6 downloads ao mesmo tempo, mas passam por aqui um de
-            // cada vez (rodízio no lado web): seis nomes parados lado a lado
-            // não transmitiam a troca, e serializados os mesmos 6 rendem seis
-            // vezes mais movimento na linha. A contagem e o tempo vão para o
-            // subtexto (cabeçalho da notificação), sempre visíveis.
+            // cada vez, numa FILA do lado web (cada nome sai uma única vez, em
+            // ordem, no ritmo médio medido por item): seis nomes parados lado a
+            // lado não transmitiam a troca, e serializados os mesmos 6 rendem
+            // seis vezes mais movimento na linha. A contagem e o tempo vão para
+            // o subtexto (cabeçalho da notificação), sempre visíveis.
             val atual = p.items.firstOrNull()
             b.setContentTitle(if (p.label.isNotEmpty()) p.label else "Baixando mídias")
                 .setContentText(atual ?: contagem)
@@ -257,6 +401,7 @@ class SyncService : Service() {
         }
 
         fun start(ctx: Context) {
+            wanted = true
             val intent = Intent(ctx, SyncService::class.java)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 ctx.startForegroundService(intent)
@@ -265,9 +410,32 @@ class SyncService : Service() {
             }
         }
 
+        /**
+         * O `wanted = false` é a parte que sempre acontece — é ele que fecha a
+         * janela do serviço que ainda está SUBINDO: o `onStartCommand` o lê e
+         * se despede sozinho, depois de cumprir o `startForeground` que o
+         * sistema exige.
+         *
+         * `stopService` só entra quando o serviço JÁ está em primeiro plano.
+         * Chamá-lo com um `startForegroundService` pendente é o caminho
+         * conhecido para o app ser morto por "did not then call
+         * Service.startForeground()" — e uma sincronização de item já baixado
+         * liga e desliga a proteção em poucos milissegundos, que é exatamente
+         * essa janela.
+         */
         fun stop(ctx: Context) {
+            wanted = false
             progress = null
-            ctx.stopService(Intent(ctx, SyncService::class.java))
+            if (foregrounded) ctx.stopService(Intent(ctx, SyncService::class.java))
+            // `stopService` é assíncrono e, quando o serviço nem chegou a
+            // existir, não há `onDestroy` nenhum para limpar. Cancelar aqui
+            // também é o que remove um cartão postado por [updateProgress] —
+            // que usa `notify` e portanto NÃO desaparece junto com o serviço.
+            try {
+                ctx.getSystemService(NotificationManager::class.java)?.cancel(NOTIF_ID)
+            } catch (e: Exception) {
+                Log.w(TAG, "não foi possível remover a notificação", e)
+            }
         }
     }
 }

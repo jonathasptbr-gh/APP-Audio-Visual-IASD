@@ -32,12 +32,19 @@ object WebViewFactory {
 
     private const val TAG = "WebViewFactory"
 
-    const val ORIGIN = "https://appassets.androidplatform.net"
+    /**
+     * Host do origin servido. Fica separado de [ORIGIN] porque toda checagem de
+     * origem tem de comparar o HOST do `Uri`, nunca o prefixo da string da URL
+     * — `appassets.androidplatform.net.evil.com` começa com o origin e não tem
+     * nada a ver com ele.
+     */
+    const val ORIGIN_HOST = "appassets.androidplatform.net"
+    const val ORIGIN = "https://$ORIGIN_HOST"
     const val URL_CONTROLE = "$ORIGIN/web/controle/index.html"
     const val URL_DISPLAY = "$ORIGIN/web/display/index.html"
 
     /**
-     * Loader compartilhado pelos dois WebViews.
+     * Loader dos WebViews.
      *
      * Ordem dos handlers importa: `/saf/` é avaliado ANTES de `/`, senão o
      * handler da base web (registrado na raiz) engoliria as requisições de
@@ -46,10 +53,21 @@ object WebViewFactory {
      * A base web vem do bundle OTA da sessão quando existe um, senão dos
      * assets do APK — nos dois casos pelo MESMO origin, então IndexedDB,
      * OPFS e a ponte nativa não notam diferença nenhuma.
+     *
+     * @param withSaf registra o handler `/saf/`. Só o **Controle** precisa
+     *   dele: os dois consumidores de arquivo do dispositivo são `importShare`
+     *   e `syncDeviceFolder`, e os dois copiam os bytes para o OPFS antes de
+     *   qualquer coisa chegar ao telão — o Display nunca busca um `/saf/`.
+     *   Deixá-lo fora do loader da `Presentation` é higiene: aquele WebView
+     *   carrega script de terceiro por design (a IFrame Player API), e não há
+     *   motivo para dar a ele um servidor de bytes de todas as pastas que o
+     *   operador já concedeu.
      */
-    fun assetLoader(ctx: Context): WebViewAssetLoader =
+    fun assetLoader(ctx: Context, withSaf: Boolean = true): WebViewAssetLoader =
         WebViewAssetLoader.Builder()
-            .addPathHandler("/saf/", SafPathHandler(ctx.applicationContext))
+            .apply {
+                if (withSaf) addPathHandler("/saf/", SafPathHandler(ctx.applicationContext))
+            }
             .addPathHandler("/", WebPathHandler(ctx.applicationContext))
             .build()
 
@@ -118,7 +136,16 @@ object WebViewFactory {
                 // Navegação dentro do app (os dois "PWAs" e seus assets)
                 // segue no WebView; qualquer outra coisa é link externo e
                 // não deve sequestrar a tela de projeção.
-                return !(url.toString().startsWith(ORIGIN))
+                //
+                // A comparação é por COMPONENTE do Uri, nunca por prefixo da
+                // string: `https://appassets.androidplatform.net.evil.com/x`
+                // começa com o origin, é um domínio que qualquer um registra, e
+                // com um `startsWith` a navegação era autorizada — dentro de um
+                // WebView que injeta `__AVBridge` em TODA página que carregar
+                // (o `addJavascriptInterface` é por-WebView, não por-origem).
+                // Este é o único ponto que impede conteúdo estranho de entrar
+                // aqui, então ele não pode falhar ABERTO.
+                return !(url.scheme == "https" && url.host == ORIGIN_HOST)
             }
 
             /**

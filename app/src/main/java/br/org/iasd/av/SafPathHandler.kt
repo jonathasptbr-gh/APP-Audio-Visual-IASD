@@ -2,10 +2,11 @@ package br.org.iasd.av
 
 import android.content.Context
 import android.net.Uri
+import android.util.Base64
 import android.webkit.WebResourceResponse
 import androidx.webkit.WebViewAssetLoader
+import java.security.SecureRandom
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Registro de URIs do Storage Access Framework expostas ao lado web.
@@ -15,23 +16,56 @@ import java.util.concurrent.atomic.AtomicLong
  * com o OPFS — nenhuma função de importação precisou ser reescrita, e um
  * vídeo de 2 GB nunca passa por base64.
  *
- * O token é um contador opaco (e não o próprio URI codificado) porque o
- * `PathHandler` recebe o caminho JÁ decodificado: um `content://` com barras
- * viraria segmentos de caminho e quebraria o roteamento.
+ * O token é opaco (e não o próprio URI codificado) porque o `PathHandler`
+ * recebe o caminho JÁ decodificado: um `content://` com barras viraria
+ * segmentos de caminho e quebraria o roteamento. Ele é **aleatório**, e não um
+ * contador: um contador é adivinhável por construção, e as entradas nunca
+ * expiram (ver abaixo) — não custa nada não deixar `/saf/1..N` enumerável.
+ *
+ * TEMPO DE VIDA: as entradas vivem até o processo morrer; não há remoção. É
+ * por isso que o reaproveitamento por URI importa de verdade — sem ele, cada
+ * `listFolder` de uma pasta de 500 arquivos acrescentava 500 entradas novas
+ * para os MESMOS arquivos, a cada re-sincronização, num processo que é mantido
+ * vivo de propósito durante todo o culto.
  */
 object SafRegistry {
     private val byToken = ConcurrentHashMap<String, Uri>()
-    private val seq = AtomicLong(0)
+    private val byUri = ConcurrentHashMap<Uri, String>()
+    private val rnd = SecureRandom()
 
-    /** Registra (ou reaproveita) um URI e devolve a URL servível pelo loader. */
+    /**
+     * Registra (ou reaproveita) um URI e devolve a URL servível pelo loader.
+     *
+     * "Reaproveita" é literal: o mesmo URI devolve sempre o mesmo token. O
+     * `putIfAbsent` resolve a corrida entre duas listagens simultâneas — quem
+     * perde descarta o token que cunhou (ele nunca chegou a ser registrado em
+     * [byToken], então não vira lixo servível).
+     */
     fun urlFor(uri: Uri): String {
-        val token = seq.incrementAndGet().toString()
-        byToken[token] = uri
+        val token = byUri[uri] ?: run {
+            val fresh = newToken()
+            val prev = byUri.putIfAbsent(uri, fresh)
+            if (prev == null) {
+                byToken[fresh] = uri
+                fresh
+            } else {
+                prev
+            }
+        }
         return "${WebViewFactory.ORIGIN}/saf/$token"
     }
 
     fun get(token: String): Uri? = byToken[token]
 
+    /**
+     * 128 bits em base64url — sem `/` nem `=`, para caber num segmento de
+     * caminho sem escapar nada (o `PathHandler` recebe o caminho decodificado).
+     */
+    private fun newToken(): String {
+        val b = ByteArray(16)
+        rnd.nextBytes(b)
+        return Base64.encodeToString(b, Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP)
+    }
 }
 
 /** Serve os bytes de um documento do SAF em streaming, sob `/saf/<token>`. */

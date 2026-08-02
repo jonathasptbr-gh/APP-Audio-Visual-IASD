@@ -32,8 +32,40 @@ jobs:
   web-ota:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    # Um grupo só, SEM cancelamento: os dois assets da release `web-latest`
+    # (o zip e o version.json que carrega o sha256 dele) são substituídos um a
+    # um, sem transação. Duas execuções em paralelo — o merge da branch seguido
+    # de um push de correção é o caso normal — podem intercalar e deixar lá o
+    # zip de uma com o sha256 da outra; a partir daí todo aparelho baixa,
+    # confere o hash, e o OTA fica INERTE até o próximo push em main, sem
+    # nenhum sinal (o checkAsync engole tudo em Log.i). Cancelar no meio do
+    # upload produziria exatamente o mesmo estado, por isso a fila espera.
+    concurrency:
+      group: web-ota
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
+
+      # O canal OTA publica direto para a frota: um erro de sintaxe aqui chega
+      # aos aparelhos e o watchdog de boot NÃO evita o primeiro estrago —
+      # `beginSession()` arma o pending e SERVE o bundle; só o lançamento
+      # seguinte o descarta. Ou seja, um lançamento quebrado por aparelho,
+      # garantido, e se for o do culto o operador fica sem sistema até fechar e
+      # reabrir o app. `node --check` é a verificação mais barata que pega
+      # justamente o caso letal (o `node` já vem no runner), e com
+      # `set -euo pipefail` qualquer falha reprova o job ANTES de publicar.
+      # Não substitui teste de comportamento — só garante que o bundle carrega.
+      - name: Sanidade da base web (sintaxe do JS)
+        run: |
+          set -euo pipefail
+          find app/src/main/assets/web -name '*.js' -print0 |
+            xargs -0 -n1 -t node --check
+          python3 -c "
+          import json
+          m = json.load(open('app/src/main/assets/web/version.json'))
+          assert m['version'] and int(m['minShell']) > 0, m
+          print('version.json OK:', m)
+          "
 
       - name: Empacotar a base web
         run: |
@@ -85,7 +117,18 @@ jobs:
   apk:
     runs-on: ubuntu-latest
     steps:
+      # `fetch-depth: 0` porque o versionCode sai da CONTAGEM DE COMMITS (ver
+      # "Definir versão"), e um clone raso devolveria 1.
+      # `ref`: num disparo manual COM release_tag, o código vem de `main` — a
+      # tag/Release também nasce lá (target_commitish), e sem isto o APK podia
+      # ser compilado de uma branch `claude/**` (que o `on.push` permite)
+      # enquanto a tag apontava para main: binário publicado ≠ commit da tag.
+      # Vazio = comportamento padrão da action (o próprio ref do evento), que é
+      # o certo para push de tag, push de branch e PR.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.inputs.release_tag != '' && 'main' || '' }}
 
       # O runner ubuntu-latest já traz o Android SDK e o JDK — nenhuma
       # infraestrutura externa é necessária para gerar o APK.
@@ -99,9 +142,18 @@ jobs:
       - name: Permissão de execução do wrapper
         run: chmod +x ./gradlew
 
-      # A versão sai da tag (v1.1 → versionName 1.1) e o versionCode do
-      # número da execução, que só cresce — o Android recusa instalar por
-      # cima de um versionCode igual ou maior.
+      # A versão sai da tag (v1.1 → versionName 1.1). O versionCode NÃO sai
+      # mais do número da execução: `github.run_number` conta por WORKFLOW, e
+      # renomear o `apk.yml` (ou trocar o `name:`) reinicia a contagem em 1 —
+      # o versionCode despencaria e o Android recusaria a instalação por cima
+      # (INSTALL_FAILED_VERSION_DOWNGRADE), forçando desinstalar, que é a perda
+      # de IndexedDB/OPFS que a keystore fixa existe para evitar. A contagem de
+      # commits é monotônica de verdade e independe do nome do workflow. O
+      # deslocamento de 100000 existe só para o primeiro APK desta regra ficar
+      # ACIMA do último publicado pela regra antiga (o Android exige que o
+      # versionCode apenas CRESÇA, e a contagem de commits pode ser menor que o
+      # run_number acumulado): se algum dia um versionCode já publicado chegar
+      # perto dele, aumente o deslocamento — nunca o diminua.
       - name: Definir versão
         env:
           RELEASE_TAG: ${{ github.event.inputs.release_tag }}
@@ -120,7 +172,7 @@ jobs:
             echo "APK_NAME=${GITHUB_SHA::7}" >> "$GITHUB_ENV"
             echo "VERSION_NAME=0.0-${GITHUB_SHA::7}" >> "$GITHUB_ENV"
           fi
-          echo "VERSION_CODE=${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
+          echo "VERSION_CODE=$((100000 + $(git rev-list --count HEAD)))" >> "$GITHUB_ENV"
 
       - name: Build (debug)
         run: ./gradlew --no-daemon assembleDebug
@@ -128,19 +180,24 @@ jobs:
       # Assinado com a keystore fixa quando os secrets existem — é o que
       # permite atualizar por cima sem desinstalar (e sem perder a biblioteca
       # do app: Cronograma, pastas sincronizadas, hinos e Bíblia baixados).
-      # Sem os secrets, o build.gradle.kts cai na assinatura de debug e o
-      # workflow segue funcionando.
+      # `-PrequireSigning=true` faz o PRÓPRIO Gradle reprovar a falta da chave:
+      # é ele quem sabe se ela existe. Fora daqui (build local, PR de terceiro,
+      # clone) a propriedade não é passada e o release continua caindo na
+      # assinatura de debug, compilando normalmente.
       - name: Build (release assinado)
         if: env.PUBLISH == 'true'
         env:
           KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        run: ./gradlew --no-daemon assembleRelease
+        run: ./gradlew --no-daemon assembleRelease -PrequireSigning=true
 
       # Numa release o arquivo leva o nome da versão (v1.1); fora dela, o SHA
       # curto — assim dá para saber de que commit veio um APK avulso.
-      # A Release recebe o APK ASSINADO; fora dela, o de debug.
+      # `SIGNED` diz apenas se o APK veio da VARIANTE release (o passo acima
+      # rodou e produziu o arquivo); QUEM assinou é o passo seguinte que
+      # confere, com o apksigner. Confundir as duas coisas foi exatamente o
+      # defeito que existia aqui.
       - name: Nomear o APK
         run: |
           mkdir -p dist
@@ -154,15 +211,50 @@ jobs:
           cp "$SRC" "dist/audio-visual-iasd-${APK_NAME}.apk"
           echo "APK publicado a partir de: $SRC"
 
-      # Sem os secrets o Gradle gera app-release-unsigned.apk em vez de
-      # app-release.apk — falhar aqui é melhor que publicar uma Release com
-      # um APK que o Android nem instala.
+      # Checagem POSITIVA: pergunta ao apksigner QUEM assinou o APK que vai ser
+      # publicado, em vez de deduzir da existência de um arquivo. A dedução
+      # antiga ("existe app-release.apk logo está assinado") era código morto:
+      # o build.gradle.kts atribui a signingConfig de debug quando não há
+      # keystore, e o AGP só acrescenta o sufixo `-unsigned` ao nome quando a
+      # variante não tem signingConfig NENHUM — o arquivo existia sempre,
+      # SIGNED virava 'true' e esta etapa era PULADA. O que saía era uma
+      # Release assinada com a debug.keystore gerada pelo runner naquela
+      # execução: chave diferente a cada run, INSTALL_FAILED_UPDATE_INCOMPATIBLE
+      # no aparelho e, como única saída, desinstalar — apagando IndexedDB/OPFS
+      # (Cronograma, pastas, hinos e Bíblia baixados).
+      # A chave de debug do Android tem CN=Android Debug fixo, então o teste é
+      # exato e não depende de conhecer o CN da keystore de produção.
       - name: Conferir assinatura da Release
-        if: env.PUBLISH == 'true' && env.SIGNED != 'true'
+        if: env.PUBLISH == 'true'
         run: |
-          echo "::error::Release pedida, mas o APK assinado não foi gerado."
-          echo "Confira os secrets KEYSTORE_B64, KEY_ALIAS e KEY_PASSWORD."
-          exit 1
+          set -euo pipefail
+          # Primeiro o caso grosseiro (nem chegou a sair um APK de release), que
+          # tem mensagem própria; só depois o que exige a ferramenta.
+          if [ "$SIGNED" != "true" ]; then
+            echo "::error::Release pedida, mas o APK assinado não foi gerado."
+            echo "Confira os secrets KEYSTORE_B64, KEY_ALIAS e KEY_PASSWORD."
+            exit 1
+          fi
+          APK=$(ls dist/*.apk)
+          # O apksigner vem no build-tools do SDK do runner; a versão instalada
+          # muda com o tempo, então pega-se a mais nova em vez de fixar uma. O
+          # `:-` cobre as duas variáveis porque o `set -u` transformaria uma
+          # delas ausente numa falha sem explicação.
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          if [ -z "$SDK" ]; then
+            echo "::error::SDK do Android não encontrado (ANDROID_HOME/ANDROID_SDK_ROOT)."
+            exit 1
+          fi
+          BT=$(ls -d "$SDK"/build-tools/* | sort -V | tail -1)
+          CERTS=$("$BT/apksigner" verify --print-certs "$APK")
+          echo "$CERTS"
+          if echo "$CERTS" | grep -q "CN=Android Debug"; then
+            echo "::error::O APK da Release está assinado com a chave de DEBUG."
+            echo "Instalar por cima seria recusado pelo Android (a chave de"
+            echo "debug muda a cada execução do runner). Confira os secrets"
+            echo "KEYSTORE_B64, KEY_ALIAS e KEY_PASSWORD."
+            exit 1
+          fi
 
       - uses: actions/upload-artifact@v4
         with:
@@ -197,11 +289,14 @@ jobs:
         if: env.PUBLISH == 'true'
         with:
           tag_name: ${{ github.event.inputs.release_tag || github.ref_name }}
-          # A tag nasce SEMPRE em `main`, explicitamente. Sem isto ela seguia o
-          # SHA que o runner tivesse em mãos e acabava apontando para o commit
-          # da branch de trabalho — mesmo conteúdo (o merge é --no-ff e nada
-          # entra entre os dois), mas o histórico oficial do projeto é `main`,
-          # e uma Release deve apontar para lá sem depender de coincidência.
+          # `target_commitish` só é usado pela API do GitHub para CRIAR a ref
+          # quando ela ainda não existe — ou seja, apenas no disparo manual com
+          # `release_tag` (e no `retag`, que apaga a tag antes). No fluxo
+          # documentado (`git tag v1.0 && git push --tags`) a tag JÁ EXISTE
+          # quando o workflow roda, e este campo não faz nada: a Release aponta
+          # para onde o `git tag` local foi feito. Quem garante a coerência no
+          # disparo manual é o `checkout` com `ref: main` lá em cima — assim o
+          # APK publicado vem do MESMO commit que a tag passa a apontar.
           target_commitish: main
           files: dist/*.apk
           generate_release_notes: true

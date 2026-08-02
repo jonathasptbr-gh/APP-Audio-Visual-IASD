@@ -18,11 +18,13 @@ offline.
 5. [Modelo de dados (`shared/db.js`)](#modelo-de-dados-shareddbjs) — IDB, OPFS, BroadcastChannel
 6. [Motor de renderização (`shared/stage.js`)](#motor-de-renderização-sharedstagejs) — cortina, fades, concorrência
 7. [Controle](#controle) — layout, mixer, biblioteca, coleções (LouvorJA), letra sincronizada
-8. [Display](#display) — wallpaper, YouTube, recuperação de áudio
-9. [Design System (padrões visuais / CSS)](#design-system-padrões-visuais--css) — **tokens de cor/medida/método**
-10. [Como esta base é servida](#como-esta-base-é-servida)
-11. [Fonte de ícones (Material Symbols)](#fonte-de-ícones-material-symbols)
-12. [Build, distribuição e instalação](#build-distribuição-e-instalação)
+8. [Camada de Texto](#camada-de-texto-bíblia--mensagens--letra) — Bíblia, Mensagens, cronômetro, sorteio, letra
+9. [Bíblia](#bíblia-aba-bible) — seleção, leitura e projeção
+10. [Display](#display) — wallpaper, YouTube, microfone, recuperação de áudio
+11. [Design System](#design-system--a-paleta-sala-escura-âmbar) — a paleta "Sala Escura", tokens, contraste
+12. [Como esta base é servida](#como-esta-base-é-servida)
+13. [Fonte de ícones (Material Symbols)](#fonte-de-ícones-material-symbols)
+14. [Build, distribuição e instalação](#build-distribuição-e-instalação)
 
 ---
 
@@ -74,15 +76,27 @@ git push origin main
   dispositivo, compartilhamento, fullscreen, atualização) estão tabelados em
   `../CLAUDE.md`, "Divergências entre o caminho web e o nativo".
 - **A cada atualização de código, incrementar a versão visual do Controle** em
-  **três lugares que precisam bater**: a constante `WEB_VERSION` em
-  `controle/controle.js` (é ela que o cabeçalho renderiza — ver
-  `renderVersionLabel()`), o fallback estático do `<span id="appVersion">` em
-  `controle/index.html` e `version` em `version.json` (é este último que
-  dispara a atualização por OTA nos aparelhos). Versionamento incremental
-  simples (5.26, 5.27, 5.28…). **Versão atual: v5.28.**
-  No app nativo o rótulo mostra os **dois índices** — `Web v5.17 · Shell v1.18`
+  **três lugares que precisam bater**:
+  1. `version` em `assets/web/version.json` — **a fonte da verdade**. É este
+     valor que o `WebUpdater` compara e que dispara (ou não) a atualização por
+     OTA nos aparelhos.
+  2. a constante `WEB_VERSION` em `controle/controle.js` — é ela que o
+     cabeçalho renderiza (`renderVersionLabel()`). Esquecê-la é o erro mais
+     traiçoeiro dos três: o OTA entrega o bundle novo e o aparelho continua
+     **exibindo a versão antiga**, que é exatamente a leitura que o indicador
+     existe para dar.
+  3. o fallback estático do `<span id="appVersion">` em `controle/index.html`
+     — o que aparece antes de o JS rodar.
+
+  Versionamento incremental simples (5.46, 5.47, 5.48…). **Este documento não
+  registra a versão corrente**: um número fixo aqui é a 19ª cópia a
+  desatualizar, e quem partisse dela escreveria em `version.json` um valor
+  MENOR que o já publicado — caso em que `WebUpdater.compareVersions` ignora o
+  bundle em silêncio. Para saber onde a base está, leia `version.json`.
+
+  No app nativo o rótulo mostra os **dois índices** — `Web v5.48 · Shell v1.22`
   —, porque base web e shell atualizam por caminhos independentes (OTA ×
-  instalar APK); no navegador sai só `Controle v5.28`.
+  instalar APK); no navegador sai só `Controle v<versão>`.
 
 ---
 
@@ -123,6 +137,7 @@ itens de URL externa e a primeira sincronização do acervo LouvorJA.
 app/src/main/assets/web/
 ├── version.json                # identidade do bundle OTA (version + minShell)
 ├── shared/
+│   ├── tokens.css              # A PALETA — fonte única, carregada pelos DOIS apps
 │   ├── native.js               # ponte AVNative (só existe no app; no-op no navegador)
 │   ├── db.js                   # Camada comum: IndexedDB + OPFS + BroadcastChannel (+ relay nativo)
 │   ├── stage.js                # Motor de renderização compartilhado
@@ -165,16 +180,40 @@ arquivos sincronizados no OPFS. `thumb` pode ser um `Blob`
 (miniatura gerada via Canvas) ou uma **string URL** (ex: thumbnail
 `hqdefault.jpg` do YouTube).
 
-> **Atenção:** qualquer código que abra o banco fora de `db.js` (ex:
-> `storePendingShare` no SW do Controle) deve usar `indexedDB.open('av-iasd')`
-> **sem número de versão**, para não quebrar com `VersionError` quando o schema
-> for atualizado. **Porém** esse open sem versão precisa de um
-> `onupgradeneeded` que crie ao menos o store `state`: numa **instalação
-> nova** (share recebido ANTES da 1ª abertura do app) o banco ainda não
-> existe e nasceria sem nenhum object store, fazendo o `transaction('state')`
-> lançar `NotFoundError` e perder o share silenciosamente. O `db.js` completa
-> o schema (media/files) no upgrade 1→2 seguinte, que checa
-> `if (!contains(...))` — sem conflito com o store criado pelo SW.
+**A conexão é memorizada; a FALHA não.** `openDB()` guarda a promise da
+conexão, mas zera esse cache no caminho de erro. Até a v5.47 a promise
+**rejeitada** também ficava memorizada: uma única falha do `indexedDB.open`
+(pressão de armazenamento, renderer se recuperando de um OOM) deixava o `AVDB`
+inteiro rejeitando para sempre, e o app ficava sem dados até ser fechado e
+reaberto — sem nenhum caminho de recuperação. Zerando o cache, a chamada
+seguinte simplesmente tenta de novo. O `forget()` confere se o cache ainda é
+*esta* promise antes de anulá-lo, senão um `openDB` posterior abriria uma
+terceira conexão à toa.
+
+**Os três eventos de ciclo de vida que faltavam**, e todos os três se resumem
+a "não deixar o chamador pendurado":
+
+- `db.onversionchange` — a **outra página** (Controle × Display, mesmo origin)
+  pediu um upgrade. Sem fechar a conexão daqui, ela bloqueia o upgrade de lá e
+  aquela página fica esperando para sempre, com a tela montada e sem dado
+  nenhum. Hoje o caso não chega a acontecer no app (o `beginSession` do shell
+  fixa um único bundle por sessão, logo um único `DB_VERSION`) — mas o dia em
+  que `DB_VERSION` subir de 2 para 3 é exatamente o dia em que ninguém vai
+  lembrar disto.
+- `req.onblocked` — a ponta oposta: se ALGUÉM não fechar a conexão velha, este
+  é o único aviso que existe. Sem ele o `open` não resolve **nem** rejeita.
+- `db.onclose` — o navegador pode fechar a conexão por fora numa falha de
+  armazenamento; o handle memorizado está morto e precisa ser reaberto.
+
+> **Atenção:** qualquer código que abra o banco fora de `db.js` deve usar
+> `indexedDB.open('av-iasd')` **sem número de versão**, para não quebrar com
+> `VersionError` quando o schema for atualizado — e precisa de um
+> `onupgradeneeded` que crie ao menos o store `state`, senão numa instalação
+> nova o banco nasceria sem nenhum object store e o `transaction('state')`
+> lançaria `NotFoundError`. Hoje **não há** nenhum abridor externo (o service
+> worker que gravava o share sumiu junto com os andaimes de PWA — ver
+> "Compartilhamento"); a regra fica registrada porque o `if (!contains(...))`
+> do upgrade 1→2 existe por causa dela.
 
 ### OPFS + catálogo (`files`)
 
@@ -187,7 +226,7 @@ e buscar centenas de arquivos é instantâneo (nunca toca o disco); o arquivo s�
 - OPFS pertence ao origin: **nenhuma permissão é pedida** para ler — nem no
   Controle, nem no Display (mesmo origin ⇒ mesmo OPFS).
 - `getMedia(id)` procura em `media` e cai para `files` — assim IDs do catálogo
-  entram em `playlist`/`imports`/pastas virtuais **sem copiar bytes**.
+  entram em `playlist`/`imports`/atalhos dos Favoritos **sem copiar bytes**.
 - O `gc()` das listas só apaga do store `media`; registros de `files`
   pertencem à sua pasta OPFS e só são removidos pela exclusão na pasta.
 - `renameMedia` cobre os dois stores (no catálogo, renomeia só a exibição;
@@ -219,8 +258,9 @@ O campo `kind` é derivado do `type` (ou definido pelo chamador para itens de UR
 | `fit` | `'contain'` \| `'cover'` \| `'fill'` — preenchimento da mídia (ajustar/preencher/esticar) no Display e na preview |
 | `lyricsBg` | `'black'` (padrão) \| `'image'` — fundo atrás da letra sincronizada: preto ou as imagens dos slides |
 | `wallpaper` | `Blob` da imagem escolhida para a cortina do telão, ou ausente/`null` = gradiente padrão (ver "Wallpaper personalizado") |
-| `folders` | `[{ id, name }]` — pastas virtuais |
-| `folder_<id>` | array de IDs de mídia da pasta |
+| `folders` | `[{ id, name }]` — atalhos dos Favoritos (as antigas "pastas virtuais") |
+| `folder_<id>` | array de IDs de mídia do atalho. **É um detentor de referência**, como as listas — ver o gc abaixo |
+| `downloadOk` | `true` depois que o operador autorizou o download sob demanda uma vez (modo simplificado — `ensureDownloadConsent`) |
 | `messages` | `[{ id, text }]` — mensagens de texto puro da aba Mensagens (ver "Camada de Texto") |
 | `opfs-folders` | `[{ id, name, count, syncedAt, handle? }]` — pastas sincronizadas no OPFS (`handle` acelera re-sync) |
 | `coll:<id>` | `{ indexSyncedAt, songs: [{ id_music, track, name, duration, has_instrumental_music, fileIdFull, fileIdPlayback }] }` — índice offline de UMA coleção do LouvorJA (`coll:hymnal-2022`, `coll:hymnal-1996`, `coll:album-<id>`) — ver "Coleções de mídia (LouvorJA)" |
@@ -230,8 +270,12 @@ O campo `kind` é derivado do `type` (ou definido pelo chamador para itens de UR
 | `bibleVersion` | id da versão da Bíblia selecionada pelo operador |
 | `bible:<v>_<b>_<c>` | `{ verses: [{ n, text }], syncedAt }` — texto de UM capítulo (`bible_{v}_{b}_{c}`); a versão inteira é baixada na 1ª vez que a aba é usada (e cada capítulo também sob demanda como fallback) |
 | `bibleComplete:<v>` | `true` quando a versão `<v>` foi baixada por completo (todos os capítulos) — evita refazer o download em massa |
+| `lyrics:<collId>` | acervo de LETRAS por coleção: `{ <id_music>: [{ a: rótulo\|null, l: [linhas] }] }`, ou `0` marcando "esta música não tem letra". É o que a BUSCA consome — ver "Acervo de LETRAS" |
+| `chronoPrefs` | preferências do cronômetro/relógio/timer (modo, duração, formato, legenda, mais o campo `v` de versão do registro). A contagem em curso **não** é persistida |
+| `drawPrefs` | sorteio: faixa/lista de opções, "não repetir", histórico e o último resultado — este **é** persistido (ver "Diversos: sorteio") |
+| `migSemNumeroAlbuns` | marca de passagem única: os arquivos já baixados de coleções que não numeram tiveram o prefixo `N. ` removido (ver "O número é do HINÁRIO") |
 | `hymnal2022` | legado — migrado para `coll:hymnal-2022` no `loadCollections()` (a chave antiga permanece, ignorada) |
-| `pending-share` | `{ files, url, title, ts }` — share recebido pelo SW aguardando processamento |
+| `pending-share` | legado — era o share que o service worker gravava aguardando processamento. O SW saiu; hoje o share chega pela ponte nativa, mas `checkPendingShare()` ainda **lê** esta chave, para não perder um share gravado por uma versão anterior |
 | `order` | legado — lido apenas como fallback de `imports` |
 | `favorites` | legado (recurso de favoritos removido) — array de IDs; não é mais lido nem gravado, ignorado |
 | `linked-folders` | legado (pastas vinculadas por handle) — substituído por `opfs-folders`; ignorado |
@@ -240,14 +284,12 @@ O campo `kind` é derivado do `type` (ou definido pelo chamador para itens de UR
 ### API exposta (`window.AVDB`)
 
 ```js
-openDB, setState, getState
+setState, getState
 stateKeys(prefix)             // chaves de `state` com esse prefixo, numa transação
                               // só e SEM ler valor nenhum — teste de presença em massa
 addMedia(blob, meta)          // cria registro + adiciona a 'imports'
 addUrlMedia(url, meta)        // item de URL externa (blob=null) + adiciona a 'imports'
-storeUrlTemp(url, meta)       // registro temporário de URL, fora de qualquer lista
-storeMediaTemp(blob, meta)    // blob temporário fora de listas (pastas vinculadas)
-getMedia(id), deleteMedia(id), renameMedia(id, name)
+getMedia(id), renameMedia(id, name)
 listIds, listSet, listItems, listHas, listAdd, listRemove, gc
 fileAdd, fileGet, fileDelete, filesByFolder, filesAll   // catálogo OPFS
 opfsSupported, opfsGetFile, opfsWriteFile,              // Origin Private
@@ -255,14 +297,63 @@ opfsDeleteFile, opfsDeleteDir                           // File System
 kindFromType, sendCommand, onCommand
 ```
 
+**`listSet` tem duas formas, e a diferença entre elas é atomicidade:**
+
+- `listSet(name, [ids])` grava o array como veio. O chamador leu a lista
+  **antes**, fora de transação, então é um read-modify-write partido: um
+  `listAdd` que comite entre a leitura e esta escrita é perdido — o item some
+  da lista e o registro criado em `media` fica órfão para sempre, porque nunca
+  esteve em lista nenhuma e o gc só roda dentro de `listRemove`. Hoje isso não
+  acontece (nenhum escritor de fundo mexe em listas; a sincronização usa
+  `fileAdd`), então é fragilidade estrutural, não defeito em operação.
+- `listSet(name, fn)` é a forma **atômica**: `fn(listaAtual)` roda dentro da
+  MESMA transação de `state` que grava o resultado. `fn` precisa ser SÍNCRONA
+  — um `await` dentro dela deixaria a transação autocommitar antes do `put`.
+
+Prefira a forma com função ao escrever código novo.
+
+**O que saiu da superfície pública na v5.48**, e por quê:
+
+- `openDB` — não tinha chamador fora do próprio `db.js`, e expor a conexão
+  crua convida a montar transações por fora dos helpers, que é exatamente onde
+  mora a atomicidade deste arquivo.
+- `storeUrlTemp` / `storeMediaTemp` / `deleteMedia` — as duas primeiras
+  gravavam em `media` **sem** entrar em lista nenhuma, e a terceira era a
+  contrapartida manual ("limpar temp de pastas vinculadas" — recurso que não
+  existe mais). As três estavam sem um único chamador. Pior que código morto:
+  quem lesse o comentário concluiria que existe um caminho de limpeza de
+  temporários, e voltar a usá-las criaria registros que **nenhum gc alcança**
+  — vazamento permanente no IDB. Quem precisar de um registro usa
+  `addMedia`/`addUrlMedia`, que já entram numa lista e portanto são
+  coletáveis.
+
 #### Garbage collection de blobs
 
-Um registro só é excluído automaticamente quando **não está em nenhuma das duas listas** (`imports`/`playlist`):
+Um registro só é excluído automaticamente quando **nada mais aponta para ele**
+— nem lista, nem atalho dos Favoritos:
 
 ```
 listRemove(listName, id)
-  → se id não aparece em nenhuma outra lista → delete no store media (gc)
+  → isReferenced(id, exceto listName)?  → não; delete no store media (gc)
 ```
+
+**`isReferenced` é o ponto único da pergunta "posso destruir este blob?"**, e
+ela precisa cobrir mais do que as duas listas fixas. Até a v5.47 o gc só olhava
+`LISTS` (`imports`/`playlist`), e os **Favoritos ficavam de fora**: cada atalho
+guarda seus ids em `state['folder_<id>']`, que são listas de mídia como
+qualquer outra, só que em chaves dinâmicas que o gc não conhecia. O resultado
+era destrutivo e silencioso — importar um vídeo, pô-lo num Favorito e depois
+excluí-lo do Cronograma apagava o **blob**; o Favorito seguia com o id,
+`getMedia` devolvia `undefined`, o `filter(Boolean)` do Controle descartava sem
+avisar e o item sumia do atalho para sempre. Um blob importado não existe em
+lugar nenhum além do IDB.
+
+`isReferenced` recebe o objectStore de `state` **já aberto**, para decidir
+dentro da transação de quem chamou — é isso que fecha o TOCTOU descrito abaixo.
+O `gc(id)` avulso (hoje sem chamador; fica como válvula) usa a MESMA função de
+propósito: foi a duplicação da regra em dois lugares que deixou os Favoritos de
+fora. **Qualquer chave de `state` que passe a guardar ids de mídia precisa
+entrar ali.**
 
 **Atomicidade (transação única):** `listAdd`, `listRemove` (com o gc embutido)
 e `addMedia`/`addUrlMedia` (registro + entrada na lista) fazem o
@@ -280,20 +371,33 @@ dentro dessas transações; `txDone(tx)` confirma o commit.) A regra do projeto
 ("operação IDB multi-passo atômica usa transação única") agora é honrada por
 essas funções — antes elas a violavam.
 
-Registros **temporários** (`storeUrlTemp` / `storeMediaTemp`) não pertencem a
-lista alguma — quem cria é responsável por excluí-los com `deleteMedia()`.
-Sem consumidores atuais (o hinário, que usava o mecanismo, foi removido na
-v2.5); a API permanece disponível.
-
 ### BroadcastChannel — canal `av-iasd`
 
 Todos os comandos são objetos com um campo `type`.
+
+**Um só ponto de entrega, com a lista de handlers por cima.** `onCommand` só
+assina o canal (e o relay nativo) na **primeira** chamada; as seguintes apenas
+entram numa lista. O motivo é o `alreadySeen`, que **testa e marca** o `__mid`
+na mesma chamada: até a v5.47 cada `onCommand` criava seu próprio `deliver` e
+todos compartilhavam o mesmo conjunto de mids, então com dois listeners na
+mesma página o primeiro marcava o mid e o segundo via a mensagem como
+repetida — o segundo **nunca receberia nada**. E só no app: no navegador não há
+relay, não há `__mid`, e os dois funcionariam. Um recurso testado no navegador
+que para de funcionar no aparelho é o pior modo de falhar deste projeto. Hoje
+há exatamente um `onCommand` por página, então a armadilha estava latente — e é
+justamente por isso que seria descoberta tarde, por quem só quisesse observar
+`display-status` num módulo novo.
+
+A entrega itera sobre uma **cópia** da lista (um handler que registre outro
+durante a entrega não altera a rodada em curso) e envolve cada chamada em
+`try/catch`: um handler que lança não pode calar os demais — no telão isso
+significaria perder o comando seguinte no meio de um culto.
 
 #### Controle → Display
 
 | `type` | Campos extras | Descrição |
 |---|---|---|
-| `load` | `mediaId, view, muted, volume` | Carrega e exibe uma mídia |
+| `load` | `mediaId, view, muted, volume, time?, playing?` | Carrega e exibe uma mídia. `time` (segundos) e `playing` (bool) existem para a **reconexão do telão** — ver "Reenvio da cena" |
 | `play` | — | Inicia reprodução |
 | `pause` | — | Pausa |
 | `seek` | `time` (segundos) | Pula para o instante indicado |
@@ -304,7 +408,7 @@ Todos os comandos são objetos com um campo `type`.
 | `fit` | `fit` (`'contain'`\|`'cover'`\|`'fill'`) | Atualiza ao vivo o preenchimento da mídia (ajustar/preencher/esticar) |
 | `lyricsbg` | `mode` (`'black'`\|`'image'`) | Atualiza ao vivo o fundo atrás da letra sincronizada (preto ou imagens dos slides) |
 | `wallpaper` | — | Avisa que a imagem do wallpaper mudou. **Sem payload**: o blob mora no state `wallpaper`, que os dois apps compartilham — o Display relê do IDB (ver "Wallpaper personalizado") |
-| `text` | `main, sub, mode, view` | Projeta/atualiza a **Camada de Texto** manual (Bíblia OU Mensagem — ver "Camada de Texto"). `main`=texto principal, `sub`=referência (dourada, abaixo; vazio nas mensagens), `mode`=`'verse'`\|`'message'`. Um novo `text` troca o conteúdo em cena; `view` só liga/desliga a cortina compartilhada. **Independente do áudio**: um `text` NÃO para a mídia do stage — o áudio segue tocando por baixo |
+| `text` | `mode, view` + payload conforme o modo | Projeta/atualiza a **Camada de Texto** (ver a seção própria). `mode` = `'verse'` (Bíblia) \| `'message'` (aviso) \| `'chrono'` (relógio/cronômetro/timer) \| `'draw'` (sorteio). Nos dois primeiros o payload é `main` (texto principal) + `sub` (referência dourada abaixo; vazio nas mensagens); nos dois últimos é um **descritor** (`chrono` / `draw`) a partir do qual cada lado calcula o número localmente — ver as seções de Diversos. Um novo `text` troca o conteúdo em cena; `view` só liga/desliga a cortina compartilhada. **Independente do áudio**: um `text` NÃO para a mídia do stage — o áudio segue tocando por baixo |
 | `text-hide` | — | Encerra a Camada de Texto (Bíblia/Mensagem) sem tocar na mídia de fundo |
 | `mic` | `on` (bool) | **Microfone ao vivo** (push-to-talk): o Display abre o microfone e reproduz a voz na projeção. Camada de ÁUDIO independente — não toca na mídia, no texto nem na cortina. Enviado por `AVDB.sendCommand` direto, **nunca** por `cmd()`: a preview é o mesmo aparelho, a centímetros do microfone |
 | `audio-retry` | — | Retentativa imediata de liberar o áudio bloqueado (botão de mudo do Controle no estado "sem áudio") |
@@ -313,10 +417,43 @@ Todos os comandos são objetos com um campo `type`.
 
 | `type` | Campos extras | Descrição |
 |---|---|---|
-| `display-ready` | — | Display pronto; Controle reenvia o estado atual (se estiver tocando) |
+| `display-ready` | — | Display pronto; o Controle reenvia a **cena inteira** (ver abaixo) |
 | `display-status` | `mediaId, view, muted, volume, playing, currentTime, duration, audioBlocked` | Estado do Display a cada evento de tempo/estado (`audioBlocked`: navegador bloqueou som sem gesto; o Controle avisa o operador) |
 | `media-ended` | `mediaId` | Vídeo/áudio chegou ao fim |
 | `mic-status` | `on`, `error` | Resultado da abertura do microfone (permissão negada, sem microfone, em uso por outro app…) |
+
+#### Reenvio da cena (`resendSceneToDisplay`)
+
+O Display **sempre** abre no wallpaper e espera um comando — quem sabe o que
+estava em cena é o Controle. Quando o dongle cai e volta, o Android destrói e
+recria a `Presentation`, o WebView recarrega `/display/` e dispara
+`display-ready`; é aí que o Controle reconstitui o telão. Três decisões
+sustentam isso, e as duas primeiras nasceram de defeitos vistos em culto:
+
+- **Cena é tudo que está no telão, não "mídia tocando".** A condição de reenvio
+  é só `currentId` — qualquer mídia carregada. Ela já foi `playing || isImage`,
+  e o que ficava de fora era justamente o caso mais comum de uma queda de
+  dongle: o louvor de fundo **pausado** para a oração. Um vídeo pausado mostra
+  o quadro congelado, um áudio pausado mantém a letra sincronizada em cena —
+  nos dois casos havia algo projetado, e nos dois casos ele sumia para sempre.
+- **O `load` leva a POSIÇÃO e o estado de reprodução** (`time`, `playing`). Sem
+  eles o telão recarregava do zero: um hino aos 3:20 recomeçava do início na
+  frente da congregação, e o `display-status` seguinte chegava com
+  `currentTime` 0 e arrastava a preview do Controle junto — o operador perdia
+  até a referência de onde estava. O tempo sai da **barra de progresso**
+  (`#seek`), a mesma fonte que `pushNowPlaying` usa: é a única que cobre todos
+  os tipos, inclusive YouTube, onde `preview.getTime()` não sabe de nada.
+  Os campos viajam **dentro do próprio `load`**, e não como um `seek`/`pause`
+  enviado logo depois, porque o `onCommand` do Display não serializa: o load é
+  assíncrono (`getMedia` → `opfsGetFile` → `mediaReady`) e um comando seguinte
+  chegaria a tempo de agir sobre o `<video>` **anterior**, antes de a fonte
+  nova entrar.
+- **A ordem é mídia primeiro, texto depois.** No Display um `load` **visual**
+  encerra a Camada de Texto e um `load` de **áudio** a mantém — mandar o texto
+  por último faz as duas combinações caírem no estado certo. Cronômetro e
+  sorteio voltam pelo **descritor**, não por um valor: o telão recalcula o
+  número a partir do mesmo `startAt`/`rollUntil`, então reaparecem no segundo
+  certo (e no mesmo quadro do rolo), não no ponto em que a conexão caiu.
 
 ---
 
@@ -475,7 +612,12 @@ fadeTime)` roda **depois** de `play()` (que restaura o volume alvo e limpa o
 
 ```js
 stage.handle(cmd)
-stage.load(id, view, muted, volume)
+stage.load(id, view, muted, volume, startAt, autoplay)
+                       // startAt: posição inicial em segundos (opcional)
+                       // autoplay: só `false` muda algo — a cena volta PAUSADA.
+                       //   `undefined` mantém o comportamento de sempre (todo
+                       //   load normal toca), então nenhum chamador antigo mudou.
+                       // `handle({type:'load'})` os lê de cmd.time / cmd.playing
 stage.clear()
 stage.play() / pause()
 stage.seek(seconds)
@@ -605,6 +747,19 @@ arquivos e podiam divergir. A *orquestração* do mudo (quando mutar de fato,
 `load()` é assíncrona. O contador `loadSeq` garante que apenas o **último** `load()`
 iniciado aplica seu resultado — chamadas anteriores obsoletas são descartadas.
 
+**Posição inicial e autoplay (`startAt`/`autoplay`)** existem para a
+**reconexão do telão** (ver "Reenvio da cena"), e cada um tem uma sutileza:
+
+- A posição só "gruda" **depois que a duração é conhecida** — escrever
+  `currentTime` junto com o `src` é perdido em silêncio. Por isso ela é
+  aplicada num listener `loadedmetadata` com `{ once: true }`: vale para ESTA
+  fonte, e a próxima traz o seu próprio pedido. O listener reconfere `loadSeq`
+  antes de escrever — outro `load` pode ter assumido durante a espera.
+- `autoplay === false` **suprime o `play()`**, e só isso: quem revela a mídia
+  continua sendo o `applyMedia()` + a cortina, no fim do mesmo `load`. Um vídeo
+  pausado mostra o quadro congelado, que é exatamente o que o telão tinha antes
+  de cair.
+
 **A troca de view tem contador PRÓPRIO (`viewSeq`).** `setViewFaded` usava o
 mesmo `loadSeq`, e isso fazia um toque em "visual on/off" **cancelar um `load()`
 em curso**: o `load` fica assíncrono de 0,7 s a 3 s (fade-out de 0,6 s +
@@ -668,7 +823,7 @@ mirar um alvo fino ali é o pior formato possível.
 | **Letra** (`#simpleLyrics`) | a letra INTEIRA da música em cena, com o mesmo destaque e o mesmo acompanhamento da leitura auxiliar do modo avançado |
 | **Play/pause e mudo** | `.click()` em `#playpause` / `#muteToggle` |
 | **Volume** (`#simpleVolDown` / `#simpleVolUp`) | teclas **−** e **+** com o número no meio (`.simple-vol-read`), não um slider |
-| **Modo avançado** (`#simpleFullBtn`) | `setAppMode('full')` — a tela completa de sempre. Era texto `--muted` sobre `--surface` (5,38:1): dentro do mínimo, mas lido como legenda, não como botão. Desde a v5.40 é texto pleno sobre `--surface-2` com borda de accent — **9,75:1**, e agora se anuncia como controle sem virar a ação principal de ninguém |
+| **Modo avançado** (`#simpleFullBtn`, `.simple-switch`) | `setAppMode('full')` — a tela completa de sempre. Era texto `--muted` sobre `--surface`: dentro do mínimo de contraste, mas lido como **legenda**, não como botão. Desde a v5.40 é texto pleno (`--text`) sobre `--surface-2` com borda de `--accent` — **7,03:1** na paleta atual, e agora se anuncia como controle sem virar a ação principal de ninguém |
 
 **Sem escolha de variante.** No simplificado o toque na linha da busca chama
 `simplePlaySong()`, que toca o **Cantado** e pronto: abrir o acordeão com
@@ -731,11 +886,12 @@ coisas, e só duas:
   saída transformaria a falta de telão numa parede. O que se bloqueia é o modo
   simplificado, não o app.
 
-**A mensagem é legenda do botão, não par dele.** `.simple-gate-msg` mora dentro
-de `.simple-actions` (e não na cortina) para ficar colada ao botão que resolve
-o problema, mas sai do fluxo e se pendura acima dele — assim quem fica no meio
-exato é o BOTÃO. Centralizar o grupo inteiro o empurraria para baixo do centro
-pela altura do texto (medido: 481 em vez de 450, numa tela de 900).
+**E não há mensagem separada.** Houve uma (`.simple-gate-msg`, pendurada acima
+do botão); ela saiu porque a tela passou a ter **um texto só**: com o botão
+dizendo "Toque para conectar uma tela", uma legenda por cima repetia o que o
+próprio botão já dizia. Sem ela, `.simple-actions` pode simplesmente centralizar
+o que sobrou — o botão fica no meio exato, sem ninguém precisar medir a altura
+de um para posicionar o outro.
 
 **A única parte que muda por contexto é quem responde "há tela?"** — o resto do
 mecanismo é o mesmo nos dois. No app são as telas de apresentação que a ponte
@@ -761,18 +917,18 @@ Dois detalhes que só aparecem em uso:
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│  [←] Cronograma            Controle v4.75  [busca][sync] │  ← .list-header (topo; sem appbar)
+│  [←] Cronograma      Web v5.48 · Shell v1.22  [busca][sync] │ ← .list-header (topo; sem appbar)
 │  ┌───────────────────────────────────────────────────┐  │
 │  │  item 1                                           │  │  ← .lib-list
 │  │  item 2                                           │  │     (área scrollável)
 │  └───────────────────────────────────────────────────┘  │
 │  [+ Importar] [★ Favoritos]  ← última linha do Cronograma │
-│  Cronograma  Álbuns  Bíblia  Microfone              🔍   │  ← .tabs (mescladas ao fundo)
+│  Cronograma   Bíblia   Diversos                     🔍   │  ← .tabs (trilho próprio)
 ├─────────────────────────────────────────────────────────┤
 │  ┌─────────────────────────────────────┬──────┐         │  ← .bottombar (base fixa)
 │  │  Nome da mídia atual  [seek bar]    │ Wall │         │
 │  │─────────────────────────────────────│ Letra│         │
-│  │  ⏮ Preview 16:9 ⏭                  │ Mesa │         │
+│  │  ⏮ Preview (proporção do telão) ⏭   │ Mesa │         │
 │  │─────────────────────────────────────│ Mudo │         │
 │  │  🔁  ⏮  ▶/⏸  ⏹  ⏭  [Playlist]    │ Vol  │         │
 │  └─────────────────────────────────────┴──────┘         │
@@ -795,8 +951,9 @@ pasta OPFS) e botão de sincronizar pasta do dispositivo (só na raiz dos
 acionamentos acidentais pela navegação por gestos do Android/iOS.
 
 **Grade real (CSS Grid), não flex aproximado:** `.deck` é um `display:grid` de
-2 colunas (`1fr` / `56px` do mixer) × 3 linhas (`auto` / `130px` do preview /
-`auto`), com `.nowplaying`, `.preview-row` e `.transport` como itens diretos
+2 colunas (`minmax(0, 1fr)` / `56px` do mixer) × 3 linhas (`auto` /
+`var(--deck-pv-h)` do preview / `auto`), com `.nowplaying`, `.preview-row` e
+`.transport` como itens diretos
 da grade (não há mais um `.deck-main` intermediário). O `#mixer` ocupa as 3
 linhas (`grid-row: 1 / 4`) e usa `grid-template-rows: subgrid` para **herdar
 exatamente essas mesmas 3 faixas de altura** — garante alinhamento pixel a
@@ -805,6 +962,12 @@ depender de flex-basis calculado à parte (a fonte de um desalinhamento
 antigo entre as duas colunas). `padding` do `#mixer` é **só horizontal** (`0
 .35rem`): padding vertical deslocaria as linhas herdadas do subgrid,
 reintroduzindo o desalinhamento.
+
+A primeira coluna é `minmax(0, 1fr)`, **não** `1fr`: uma faixa `1fr` tem mínimo
+automático igual ao min-content do conteúdo, e o título (`#npName`, com
+`white-space: nowrap`) tem min-content do texto INTEIRO mesmo já sendo cortado
+por `overflow`/ellipsis. Um nome de mídia longo inflava a coluna, esmagava a de
+56px do mixer e fazia a largura da preview depender do título.
 
 **Sem "card" de fundo:** os botões do mixer ficam **livres** (cada um só com
 o próprio fundo via `.ctl-btn`) — `#mixer` não tem `background`/`border-radius`
@@ -894,8 +1057,8 @@ deslize) e sai ao fechar (`.vol-closing` mantém a classe durante a saída),
 e ao voltar os botões de top/mid entram animados (`.vol-revealing`). É só
 estado de UI (não persistido; cada abertura começa recolhida). As durações
 no JS (`openVolume`/`closeVolume` em `controle.js`) casam com as do CSS
-(`@keyframes vol-slide-in/out`). O botão de volume é **preenchido de azul
-(accent) com o ícone de mixer/faders em branco** (SVG inline — o ícone não
+(`@keyframes vol-slide-in/out`). O botão de volume é **preenchido em `--accent-fill`
+com o ícone de mixer/faders em `--on-accent`** (SVG inline — o ícone não
 existe no subset da fonte; ver seção da fonte), visualmente distinto do
 mudo. Mexer no volume com mudo ativo desliga o mudo automaticamente.
 Mutar/desmutar não corta o volume na hora — faz uma rampa curta (ver
@@ -914,7 +1077,7 @@ Como `appearance: none` desliga junto o preenchimento que vinha do
 escrito por `renderControls()` no mesmo ponto em que o valor do fader é
 sincronizado — um lugar só, e os dois nunca discordam. O corte não é
 `--vol * 100%` puro: o CENTRO do cap percorre a altura MENOS a espessura dele
-(`--fader-cap`, 26px), então a conta desconta isso e a borda do azul fica
+(`--fader-cap`, 26px), então a conta desconta isso e a borda do preenchimento fica
 exatamente sob o cap em qualquer posição (conferido em 0%, 35%, 75% e 100%).
 O cap atravessa a coluna inteira, como o de uma mesa de som de verdade — e é
 um alvo de toque bem maior que o thumb redondo de 34px que havia antes.
@@ -958,19 +1121,20 @@ YouTube, `cmd()` também dirige um segundo `YT.Player` próprio da preview (mudo
 qualidade mínima) — ver seção do YouTube no Display para os detalhes.
 
 **Coluna de botões sobre a preview** (`#pvFabs`, `setupPreviewGestures`):
-quatro botões semitransparentes numa **coluna colada à direita**, de cima para
-baixo, **visíveis por padrão**. Cada um é `flex:1`, então a coluna se reparte
-sozinha pela altura da preview — inclusive quando o de cast não existe
-(navegador), onde os três restantes ficam mais altos. O tamanho do ícone vem do
-CSS (`17px`), não do atributo do `<svg>`: a altura de cada botão é fração da
-preview, e um ícone de 20px estouraria a caixa.
+**três** botões semitransparentes numa **coluna colada à direita**, de cima
+para baixo, **visíveis por padrão**. Cada um é `flex:1`, então a coluna se
+reparte sozinha pela altura da preview — inclusive quando o de cast não existe
+(navegador), onde os **dois** restantes ficam mais altos. O tamanho do ícone
+vem do CSS (`17px`), não do atributo do `<svg>`: a altura de cada botão é
+fração da preview, e um ícone de 20px estouraria a caixa.
 
-Passaram por dois arranjos antes deste. Primeiro **um em cada canto** —
-dispersos, o olho procurava os quatro em lugares diferentes, e o do topo
-tampava justamente a parte da miniatura onde costuma estar o texto projetado.
-Depois **uma fileira na base** — que sobrava vazio dos dois lados, já que quatro
-botões não chegam perto da largura da preview. Em pé, à direita, eles usam a
-altura inteira, que é a dimensão apertada aqui (a linha do deck tem 130px).
+Passaram por dois arranjos antes deste, quando ainda eram quatro. Primeiro **um
+em cada canto** — dispersos, o olho procurava cada um num lugar diferente, e o
+do topo tampava justamente a parte da miniatura onde costuma estar o texto
+projetado. Depois **uma fileira na base** — que sobrava vazio dos dois lados,
+já que quatro botões não chegavam perto da largura da preview. Em pé, à
+direita, eles usam a altura inteira, que é a dimensão apertada aqui (a faixa do
+deck é `--deck-pv-h`, 130px).
 
 | Ordem (de cima) | Botão | Ação |
 |---|---|---|
@@ -1071,7 +1235,7 @@ separada (`.tabs`); abre o mesmo bottom-sheet com a fila de reprodução de
 sempre. Reaproveita o tamanho/estilo de `.t-btn` (a linha de transporte
 cresceu de 5 para 6 botões, cada um um pouco mais estreito). O badge de
 contagem (`#plCount`) só aparece a partir do **2º item** (mostra
-`count - 1`), e o ícone só fica destacado em azul (`.has-items`) nesse mesmo
+`count - 1`), e o ícone só fica destacado em `--accent` (`.has-items`) nesse mesmo
 caso: com apenas a mídia atual em fila, a playlist é só a reprodução avulsa
 e não deve chamar atenção nem com um "1" enganoso nem com o ícone colorido —
 fica neutro (branco).
@@ -1093,7 +1257,7 @@ limpa mensagens finais/erro sozinho; o progresso fica até a próxima chamada. O
 
 `confirm()`/`prompt()` **nativos foram substituídos** por um **modal no tema do
 app** (`#appDialog`/`.dialog-*` no CSS + `openAppDialog`/`appConfirm`/`appPrompt`
-em `controle.js`) — centralizado, com botão primário azul (accent) e cancelar
+em `controle.js`) — centralizado, com botão primário preenchido em `--accent-fill` e cancelar
 neutro. É **assíncrono** (retorna uma Promise): `appConfirm({title, message,
 okText, cancelText})` → `true`/`false`; `appPrompt({title, message, value,
 placeholder, okText})` → string (OK) ou `null` (cancelar/fora/Esc). Um só
@@ -1221,22 +1385,26 @@ próprio** (`--bar` + borda `--line`). Até a v5.31 a faixa era transparente
 redor: a única pista de que ali havia alvos de toque era o ícone. Hoje cada aba
 tem fundo (`--surface`) e a **ativa é preenchida em accent** — o sublinhado de
 2 px de antes era o elemento de menor contraste da tela justamente no que
-precisa ser mais óbvio, "onde eu estou". O **botão de busca** (`.tab-add`)
+precisa ser mais óbvio, "onde eu estou". O **botão do acervo** (`.tab-add`)
 passou a ser **contornado** em vez de preenchido: encostado numa aba ativa
-sólida, dois azuis cheios diriam a mesma coisa para naturezas diferentes — um é
-onde eu estou, o outro é uma ação. São **quatro**:
-**Cronograma** · **Álbuns** · **Bíblia** · **Diversos** (as `.tab`, `flex:1`) ·
-**buscar no acervo** (`#hymnSearchBtn`, `.tab-add`, à direita):
+sólida, dois blocos cheios da mesma cor diriam a mesma coisa para naturezas
+diferentes — um é onde eu estou, o outro é uma ação. São **três abas**:
+**Cronograma** · **Bíblia** · **Diversos** (as `.tab`, `flex:1`), mais o
+**acervo** (`#hymnSearchBtn`, `.tab-add`, à direita, fora do `flex:1`):
 
 - **Cronograma** (`imports`) — itens importados; ficam até serem excluídos.
-- **Álbuns** (`albums`) — o acervo do LouvorJA, agrupado por categoria. Ver
-  "Coleções de mídia (LouvorJA)".
 - **Bíblia** (`bible`) — seleção e projeção de textos bíblicos. Não é uma lista
   de mídia; ver a seção **"Bíblia"** abaixo.
 - **Diversos** (`activeTab` segue sendo `'mic'`, por herança) — as **ferramentas
   que não são acervo**: **Mensagens**, **Tempo** (relógio/cronômetro/timer) e
   **Sorteio**, escolhidas num seletor no topo, mais o rodapé com **microfone** e
   **"Projetar no telão"**. Ver "Diversos" abaixo.
+- **Acervo** (`#hymnSearchBtn`, a lupa) — **não é uma aba**, e por isso não tem
+  `activeTab` nem entra em `TAB_ORDER`. Abre o popup que é, ao mesmo tempo, o
+  navegador de coleções do LouvorJA (com o campo vazio) e a busca por
+  nome/número/trecho de letra (ao digitar). É a única porta do acervo desde a
+  v5.44, quando a aba de Álbuns saiu — ver "O acervo É o estado padrão da
+  busca".
 
 > A aba nasceu como **Microfone**, com uma ferramenta só. Ao ganhar a segunda,
 > virou **Diversos** e o ícone deixou de ser o microfone: com mais de uma coisa
@@ -1277,7 +1445,8 @@ trocar de aba, abrir pasta ou voltar. (Memória por sessão, em RAM.)
 **Animação de troca de aba** (`animateTabSwitch`): ao trocar de aba, a lista
 `#library` entra com um leve **deslize direcional + fade** (Web Animations API
 na própria lista, ~220 ms). A direção vem da ordem das abas (`TAB_ORDER =
-['imports','folders','albums','bible']`): ir pra uma aba à **direita** desliza entrando
+['imports','folders','bible','mic']` — inclui os Favoritos, que são um
+`activeTab` sem botão na faixa): ir pra uma aba à **direita** desliza entrando
 da direita (`translateX(22px)→0`), à esquerda o contrário. Como o `load()`
 reconstrói o conteúdo em poucos ms, animar já a partir de `opacity:0` esconde a
 troca e revela o conteúdo novo entrando; o `overflow:hidden` do `main` clipa o
@@ -1318,7 +1487,8 @@ destino real nunca discordam.
 
 **Modo de seleção múltipla:** barra substitui as abas, com contagem e botões de
 adicionar aos favoritos, renomear (1 item) e excluir. Os itens selecionados são
-indicados **só pelo highlight azul** (`.lib-item.selected` — borda accent), sem
+indicados **só pelo realce** (`.lib-item.selected` — borda `--accent` + fundo
+`--panel-2`), sem
 ícone de check; a miniatura fica sempre encostada à esquerda (não há coluna
 reservada). Excluir dentro de pasta virtual só remove da pasta; nas demais abas
 usa `listRemove` (com gc).
@@ -1366,8 +1536,9 @@ sincroniza:
   - Itens da pasta têm botão ➕ que adiciona o **id do catálogo** ao Cronograma
     (zero-cópia — `getMedia` resolve pelo fallback). Seleção múltipla permite
     renomear e excluir (exclui do OPFS + catálogo + remove das listas).
-  - Excluir a pasta (com `confirm()`) apaga o diretório OPFS inteiro, os
-    registros do catálogo e as referências em listas.
+  - Excluir a pasta (com `appConfirm`, o diálogo do app — não há mais nenhum
+    `confirm()` nativo na base) apaga o diretório OPFS inteiro, os registros do
+    catálogo e as referências em listas.
 - **Atalhos (pastas virtuais)** — criados pelo usuário (state `folders` +
   `folder_<id>`); recebem itens pelo botão "Adicionar aos favoritos" da seleção
   múltipla (funciona também com IDs do catálogo OPFS) e nascem vazios pelo
@@ -1463,16 +1634,22 @@ fonte de verdade em memória (`collState`, carregada uma vez no `init` por
 continuam válidos). UI transitória (sync em andamento, status, peso) fica em
 `collUI` (não persistida).
 
-**Aba Álbuns** (`data-tab="albums"`): `renderCollectionsList` renderiza um card
-por coleção (`renderCollectionCard`), **agrupados por categoria** — os dois
-hinários num grupo fixo no topo, depois cada categoria do banco. No topo, uma
-faixa de **pílulas de filtro** (`.coll-filters`: Todos · Hinários · uma por
-categoria, `albumFilter`): com dezenas de álbuns em várias categorias, rolar a
-lista inteira para achar um grupo é lento. Uma categoria sem nenhum card
+**O navegador do acervo** (`renderCollectionsList(alvo, redesenhar, opts)`)
+renderiza um card por coleção (`renderCollectionCard`), **agrupados por
+categoria** — os dois hinários num grupo fixo no topo, depois cada categoria do
+banco. Ele **não tem aba própria**: desde a v5.43 é o estado padrão do popup da
+lupa, e desde a v5.44 é o único (ver "O acervo É o estado padrão da busca"). A
+função recebe o elemento-alvo e o callback de redesenho justamente por isso —
+duas cópias divergiriam no primeiro ajuste de categoria.
+
+No topo, uma faixa de **pílulas de filtro** (`.coll-filters`: Todos · Hinários ·
+uma por categoria, `albumFilter`): com dezenas de álbuns em várias categorias,
+rolar a lista inteira para achar um grupo é lento. Uma categoria sem nenhum card
 visível não vira pílula (levaria a uma lista vazia), e os álbuns órfãos — os
 que categoria nenhuma reivindica — só aparecem em "Todos". O filtro é estado de
-sessão, não persistido: cada abertura mostra o acervo inteiro. O card do Hinário **saiu da tela de pastas** (hoje os **Favoritos**, que voltou
-a ser só atalhos e pastas do dispositivo).
+sessão, não persistido: cada abertura mostra o acervo inteiro. O card do Hinário
+**saiu da tela de pastas** (hoje os **Favoritos**, que voltou a ser só atalhos e
+pastas do dispositivo).
 
 Os mecanismos abaixo (sincronização/download/letra/Wi-Fi/busca) valem **por
 coleção**, exatamente como antes valiam só pro Hinário 2022.
@@ -1517,6 +1694,19 @@ redundante, o que está lá agora é uma ação.
   soma das músicas pendentes de todos eles, contada uma vez no começo
   (`bgTaskStart` no `syncGroup`, e `syncCollection` recebe `notifOwned` para
   não abrir uma tarefa própria). Ver "Progresso em segundo plano".
+- **Um álbum do LOTE não pode cancelar a si mesmo.** `syncCollection` interpreta
+  uma segunda chamada com `syncBusy` ligado como "o operador tocou de novo" e
+  **aborta** o download em curso — que é o comportamento certo para o botão, e
+  desastroso para o laço: o lote pedia dois downloads e o efeito líquido era
+  parar um. `opts.fromGroup` marca a chamada como programática, e aí o lote
+  apenas **pula** o álbum que já está baixando por conta própria.
+- **Sem rede, o cabeçalho conta as falhas.** `fetchCollectionIndex` lança em
+  cada álbum e o laço inteiro termina em segundos sem baixar nada; anunciar
+  "Coleção completa" em verde ali mandava o operador embora convencido de que o
+  acervo estava no aparelho. O status por álbum existe, mas fica dentro de um
+  card colapsado e se autolimpa — o cabeçalho, que é o que ele está olhando,
+  agora diz "N álbum(ns) sem rede — tente de novo". Isso só é possível porque
+  `syncCollection` passou a **devolver um resultado** (abaixo).
 
 **Baixar TODO o acervo** é o mesmo mecanismo com todas as coleções: um
 cabeçalho "Todo o acervo" no topo, visível **só em "Todos"** — com um filtro
@@ -1599,11 +1789,16 @@ total do lote), `ensureBibleVersionDownloaded` (por capítulo) e
   notificação para de prometer tempo restante (uma ETA sobre um ritmo que já
   não existe é a promessa mais enganosa possível) e passa a "sem resposta há
   X" — sem degraus, porque aqui o número precisa SUBIR a cada atualização.
-- **O freio é por PRIORIDADE, escolhida pelo chamador**: 250 ms para um item
-  que ENTROU em download, 700 ms para rotina. Explícita, e não deduzida de "o
-  nome mudou": no laço do worker o fim de uma música e o início da seguinte
-  distam poucos ms, e disputando o mesmo piso o fim derrubava o início — que é
-  o fato mais fresco.
+- **Um freio só (`BG_NOTIF_MIN_MS`, 700 ms), e ele vale apenas para a ROTINA**
+  — a atualização em que só o contador andou (`bgTaskStep`). Tudo que precisa
+  chegar na hora passa `force`. Houve um **segundo piso** (250 ms) "escolhido
+  pelo chamador" por um parâmetro `destaque`: ele foi removido porque nenhum
+  dos cinco chamadores o passava — era código morto, e mexer na constante não
+  produzia efeito nenhum no aparelho. Quem de fato dá o ritmo do item que entra
+  em download é o **compasso** (`bgPacerTick`, `BG_TICK_MS` = 250 ms), que
+  envia com `force` sempre que o nome da linha troca. Repor o piso curto seria
+  **pior** que o `force`: o primeiro nome de uma tarefa nasce a poucos ms do
+  envio de abertura e ficaria retido até o batimento de 2 s.
 - **`bgTasks` é um REGISTRO (Map), não um slot único.** Downloads simultâneos
   existem — é por isso que `bgWorkCount` conta em vez de ser booleano — e com
   um slot só as tarefas se sobrescreviam: o `done` de uma saía com o `total` e
@@ -1620,10 +1815,16 @@ total do lote), `ensureBibleVersionDownloaded` (por capítulo) e
   de um número que sobe e desce. Por tempo, e não por chamada: o compasso de
   1 s pede a estimativa muito mais vezes que os eventos pediam, e um fator fixo
   por chamada devolveria o número instável.
-- **Intervalo mínimo de `BG_NOTIF_MIN_MS` (700 ms)** entre atualizações: o
-  Android limita a taxa de updates de notificação e passa a descartá-los; sem
-  o freio, uma faixa curta atualizaria várias vezes por segundo e a barra
-  pareceria travada. O estado final é enviado com `force`, ignorando o freio.
+- **`bgWorkEnd` é IDEMPOTENTE, e precisa ser.** Quando o último trabalho pesado
+  termina, ele limpa o `bgTasks` como rede de segurança contra uma tarefa
+  órfã — mas o `clear()` **sozinho** deixava o compasso ligado para sempre: com
+  o Map já vazio, o `bgTaskEnd` que viesse depois não achava nada, o `delete`
+  devolvia `false`, e nem o `bgPacerSync()` nem o envio final rodavam. O
+  `setInterval` de 250 ms vazava pelo resto da sessão, batendo na ponte a cada
+  2 s com uma tarefa vazia (notificação "Baixando mídias" **presa**) e, pior,
+  fazendo o próximo `bgTaskStart` reusar um pacer órfão. Hoje `bgWorkEnd`
+  sincroniza o compasso e envia o estado final ele mesmo — e a ordem entre ele
+  e o `bgTaskEnd` deixa de importar.
 - No navegador, e num shell anterior ao `SHELL_VERSION` 10, é no-op.
 
 **Duas camadas, independentes** (`state['coll:<id>']`, ver tabela acima):
@@ -1641,23 +1842,39 @@ total do lote), `ensureBibleVersionDownloaded` (por capítulo) e
    "Favoritos" acima), só que a fonte da sincronização é uma API remota em vez
    de `showDirectoryPicker()`.
 
-**UI — o card É o álbum; a manutenção mora atrás da engrenagem**
-(`renderCollectionCard()` + `.hymnal-card` no CSS): cada coleção é uma **linha
-só** — símbolo + nome (+ subtítulo da categoria) + **resumo de sincronização**
-(`baixados/total`, ou o progresso ao vivo enquanto sincroniza) + um botão de
-**engrenagem**. **Tocar no card abre a LISTA DE MÚSICAS** (`openCollectionSongs`),
-que é o que o operador quer quase sempre; sem índice ainda, o toque leva às
-opções, que é justamente onde está o sincronizar que resolve isso.
+**UI — o card É o álbum, e tocar nele ABRE o álbum**
+(`renderCollectionCard()` + `.hymnal-card` no CSS). A barra do card
+(`.coll-bar`) é uma **linha só**: símbolo + nome (+ subtítulo da categoria) +
+**resumo de sincronização** (`baixados/total`, ou o progresso ao vivo enquanto
+sincroniza) + **baixar/cancelar** (`.coll-bar-dl`) + a **seta de acordeão**
+(`.coll-bar-chev`). Tocar na barra **expande o card ali mesmo**
+(`ui(coll.id).expanded`), com a lista de músicas dentro; sem índice ainda, o
+toque leva às **opções**, que é justamente onde está o sincronizar que resolve
+isso.
 
 O card ganha uma **faixa lateral** com a `color` que o álbum tem no banco
 (`--coll-color`, escrita no `style` pelo JS) — identidade visual que vem de
 graça no catálogo, sem baixar nada.
 
-> Antes o card era um **acordeão de "check do sistema"**: tocar nele expandia
-> um painel de status, e as músicas só eram alcançáveis por um botão "Ver
-> músicas" na barra ou pela busca do acervo. Ou seja, o toque natural no álbum
-> fazia a coisa menos útil. O acordeão (`ui(coll.id).expanded`) e o botão de
-> sincronizar da barra deixaram de existir.
+**Uma coleção aberta por vez** (abrir uma fecha as demais): duas listas de
+centenas de faixas empurrariam o acervo para fora da tela e tirariam do lugar
+exatamente o card que o operador estava mirando. Dentro do aberto vêm, nesta
+ordem, a **engrenagem larga e rotulada** ("Sincronizar e opções",
+`.coll-open-cfg`) e a lista **inteira** de músicas — sem teto, porque ali o
+operador está folheando um álbum, não filtrando o acervo, e cortar em 60
+esconderia o fim de qualquer hinário. As linhas são as mesmas `hymnResultRow`
+da busca, com `semColecao` ligado: repetir o nome do álbum nas dez faixas é
+ruído, o card em volta já diz de quem elas são.
+
+> O card já foi um **acordeão de "check do sistema"**: expandia um painel de
+> status, e as músicas só eram alcançáveis por um botão "Ver músicas" ou pela
+> busca. O toque natural no álbum fazia a coisa menos útil. Depois virou um
+> atalho para uma **segunda tela** com a lista (`openCollectionSongs`, com
+> voltar próprio e um degrau em `__avBack`) — e entrar e sair para ver o que
+> tem dentro é caro quando a pergunta é "em qual deles está aquela música?".
+> Hoje o acordeão voltou, mas expandindo a **lista**, não o status: o mecanismo
+> antigo com um conteúdo novo. `openCollectionSongs` e o `searchScope` que a
+> acompanhava não existem mais.
 
 **Opções da coleção** (`openCollectionOptions` → bottom-sheet `#collPopup`):
 tudo que é manutenção, fora do caminho de uso — **linha de status** (progresso
@@ -1670,8 +1887,11 @@ e os botões **Sincronizar/Atualizar** (`syncCollection`) e **Excluir baixado**
 (`deleteCollection`). Não há "Ver músicas" aqui: a lista é o **toque no card**,
 e ter duas rotas fazia o popup competir com o gesto principal.
 
+**As opções abrem ACIMA do acervo** — ver "Tela cheia, e a ação de maior
+alcance no título" para o degrau de `z-index` e a ordem em `POPUPS`.
+
 **O botão de sincronizar é o mesmo botão de CANCELAR.** Com o download em
-curso ele vira ✕ ("Cancelar o download", classe `.cancel` — âmbar e **sem
+curso ele vira ✕ ("Cancelar o download", em `--warn` e **sem
 giro**: um ✕ girando não se lê como "toque para parar", e quem indica
 atividade é o status acima). Antes, um segundo toque caía num `return` mudo
 por `u.syncBusy`: um álbum de centenas de faixas, uma vez começado, só parava
@@ -1709,6 +1929,28 @@ baixa o que falta (`fileGet` reconfirma que o arquivo catalogado ainda existe
 de fato antes de pular — cobre até exclusões manuais feitas por dentro da
 pasta via seleção múltipla).
 
+**`syncCollection` devolve `{ ok, baixados, falhou }`.** Ela já devolveu
+`undefined` em todos os caminhos, e por isso uma queda de rede era **invisível
+para o chamador** — o `syncGroup` varria dezenas de álbuns em segundos sem
+baixar nada e ainda anunciava sucesso. Convenção: `ok:false` é "não deu para
+baixar" (rede, armazenamento, erro); **cancelar ou já estar completo é
+`ok:true`**, porque nos dois casos o sistema fez o que devia.
+
+Na mesma linha, `downloadCollectionSong` devolve `false` quando nem os
+metadados vieram, e o worker separa `done` (tentativas — é ele que move a
+barra) de `falhou`. Sem essa separação, uma queda de rede fazia o rodapé
+anunciar "Atualizado (60 baixado(s))" com **zero bytes no disco**: a falha era
+engolida e o worker contava a música como baixada. Hoje o status final diz
+"Atualizado (N baixado(s)) · M sem rede".
+
+**A ordem entre `bgTaskEnd` e `withBgWork` importa**, e é a mesma nos quatro
+fluxos de massa (`syncCollection`, `syncGroup`, `ensureBibleVersionDownloaded`,
+`syncLyrics`): o `bgTaskEnd` fica **dentro** do `withBgWork`. Um `finally`
+externo roda *depois* do `finally` do `withBgWork`, e é este último que solta o
+serviço em primeiro plano e **limpa o registro de tarefas** — encerrar a tarefa
+depois disso chegava sempre tarde demais, sem efeito nenhum. Encerrar a tarefa
+primeiro e só então soltar o serviço é a ordem correta.
+
 #### Classificação: categoria → álbum (a hierarquia do banco)
 
 O acervo do LouvorJA tem **dois níveis, e só isso: categoria → álbum →
@@ -1745,12 +1987,12 @@ palpite pelo nome (`/hin[aá]rio/i`), que era o único critério antes.
 **Índices sempre em dia, automaticamente** (`fetchCollectionIndex` /
 `autoRefreshCollections`): sem esperar o operador apertar "sincronizar", ao
 abrir o app (`init()`) e toda vez que o Controle volta de segundo plano
-(`visibilitychange`, mesma cadência do check de versão do service worker),
-buscam-se (fase 1) os **índices leves dos hinários** (id/número/nome/duração/
+(`visibilitychange` — o mesmo handler único que também desliga o microfone ao
+minimizar), buscam-se (fase 1) os **índices leves dos hinários** (id/número/nome/duração/
 tem-playback — **sem** áudio nenhum) + o **catálogo de álbuns** (nomes dos
 cards, via `fetchAlbumCatalog`); e (fase 2) o **índice leve de CADA álbum**
 (`album_{id}.musics`, também só metadados), com concorrência limitada
-(`runLimited`, 5) e TTL (`ALBUM_INDEX_TTL`, 12 h — pula álbuns indexados há
+(`runLimited` com `NET_CONCURRENCY`) e TTL (`ALBUM_INDEX_TTL`, 12 h — pula álbuns indexados há
 pouco, mas sempre busca os novos/vazios). `autoRefreshCollections` é
 **silenciosa**: sem rede, só mantém o que já está em cache, sem erro visível.
 `fetchCollectionIndex` faz o merge **mutando os objetos existentes no lugar**,
@@ -1769,32 +2011,35 @@ objeto também preserva de graça qualquer campo extra (`lyrics`, `_norm`).
 Complementarmente, `autoRefreshCollections` **pula coleções com `syncBusy`** —
 não há por que competir pela mesma chave durante o trabalho pesado.
 
-**Busca/lista — popup único com dois escopos** (`searchScope`): o mesmo popup
-(`#hymnSearchPopup`) serve tanto pra **busca global** quanto pra **lista de uma
-coleção**. O **botão de lupa** (`#hymnSearchBtn`, SVG inline, no canto direito
-das abas) abre com `searchScope=null` (título "Buscar no acervo") e
-varre **todas as coleções** indexadas; o botão **Ver músicas** do card
-(`openCollectionSongs(coll)`) abre com `searchScope=coll.id` (título = nome da
-coleção) e mostra só as músicas daquela coleção (o campo então **filtra dentro
-dela**; sem auto-focar o campo, pra não abrir o teclado sobre a lista).
-`renderSearchResults` escolhe as coleções conforme o escopo; cada resultado
-carrega sua `coll` pra tocar/adicionar/baixar sob demanda. No escopo global o
-subtítulo do resultado mostra a coleção de origem; escopado, só a duração.
+**Busca/lista — um popup só, e O CAMPO É A CHAVE.** `#hymnSearchPopup` é
+aberto exclusivamente pelo botão de lupa (`#hymnSearchBtn`, SVG inline, à
+direita das abas), com o título fixo "Acervo". `searchIsBrowsing(q)` é
+literalmente `!q`: **campo vazio** = o navegador de coleções (pílulas,
+cabeçalhos de categoria e cards, com as músicas de cada uma dentro do próprio
+acordeão); **com texto** = a lista de músicas que casam, varrendo **todas** as
+coleções indexadas. Não existe mais um "modo coleção" separado — o escopo por
+coleção (`searchScope`, com título próprio e um degrau de navegação) foi
+substituído pelo acordeão do card, que mostra o álbum **sem perder o acervo de
+vista em volta**.
+
+`renderSearchResults` monta os resultados dos índices já em memória
+(`collState`, filtro em memória), então funciona sem rede assim que os índices
+tiverem sido buscados ao menos uma vez (hinários e álbuns entram sozinhos via
+`autoRefreshCollections`); se o popup estiver aberto quando um índice atualiza,
+a lista se re-renderiza na hora. Cada resultado carrega sua `coll` para
+tocar/adicionar/baixar sob demanda, e o subtítulo mostra a coleção de origem.
+
+**A busca mantém o teto de 60 resultados**, com uma linha final dizendo quantos
+ficaram de fora: ela varre milhares de músicas de todos os álbuns e renderizar
+tudo a cada tecla travaria o campo. Folhear uma coleção INTEIRA não passa por
+aqui — é o acordeão do card, que lista tudo.
+
 Diferente dos demais popups (bottom-sheets), a bandeja **desliza a partir do
 TOPO** (CSS: `#hymnSearchPopup` com `align-items:flex-start`, `.popup-sheet` com
 `translateY(-100%)` e cantos arredondados embaixo) — além de ser o pedido de UX,
 casa com o teclado, que sobe da base sem cobrir os resultados. O campo de busca
 usa `.lib-search`, hoje com `appearance:none` + supressão das pseudo-partes
-`::-webkit-search-*` (mata o visual nativo do `type="search"`). **Escopado a uma coleção, a lista sai INTEIRA** (sem teto): ali o operador
-está folheando um álbum, não filtrando o acervo, e cortar em 60 escondia o fim
-de qualquer hinário. A busca **global** mantém o teto de 60 — ela varre
-milhares de músicas de todos os álbuns, e renderizar tudo a cada tecla
-travaria o campo. Resultados vêm
-dos índices já em memória (`collState`, filtro em memória; o subtítulo do
-resultado mostra a coleção de origem) —
-funciona sem rede assim que os índices já tiverem sido buscados pelo menos uma
-vez (hinários e álbuns entram sozinhos via `autoRefreshCollections`); se o popup
-estiver aberto quando um índice atualiza, a lista se re-renderiza na hora.
+`::-webkit-search-*` (mata o visual nativo do `type="search"`).
 
 **Nome normalizado uma vez, não por tecla** (`s._norm`, gravado por
 `fetchCollectionIndex` e preenchido sob demanda no filtro): `normalizeForSearch`
@@ -1843,12 +2088,14 @@ terminar. Ver
 "Wi-Fi vs dados móveis" abaixo para a política de quando cada tipo de
 download é permitido.
 
-> **Nota de rede**: a API de produção precisa aceitar CORS para a origin do
-> Audio Visual IASD (`https://jonathasptbr-gh.github.io`) — não verificado
-> em produção no momento desta implementação (rede da sessão de
-> desenvolvimento não tinha acesso a `api.louvorja.com.br` para testar). Se o
-> `fetch` falhar por CORS, a sincronização e a busca ao vivo (mas não a busca
-> no índice já baixado) param de funcionar.
+> **Nota de rede**: a API de produção precisa aceitar CORS para a origin em que
+> a base roda — no aparelho, `https://appassets.androidplatform.net`, servida
+> pelo `WebViewAssetLoader` do shell (ver "Como esta base é servida"); no
+> navegador, o que o servidor estático de desenvolvimento usar. Não verificado
+> em produção: a rede das sessões de desenvolvimento não alcança
+> `api.louvorja.com.br`. Se o `fetch` falhar por CORS, a sincronização e a
+> busca ao vivo param de funcionar — mas não a busca no índice já baixado, que
+> é toda em memória.
 
 #### Letra sincronizada (slides + temporizador)
 
@@ -1927,16 +2174,19 @@ cada toque seria só atrito. Na prática,
 sem Wi-Fi o hinário vai sendo baixado aos poucos, só com o que de fato for
 usado em cada culto, em vez de baixar tudo de uma vez usando dados móveis.
 
-**Display** (`public/display/`): novo layer `#lyrics` (imagem de fundo
-`object-fit:cover` + um retângulo central com moldura — `.lyrics-box`: no
-padrão visual de "vídeo de louvor" (cantos **retos**, não arredondados;
-borda fina e **nítida**, `rgba(255,255,255,.85)`; fundo semitransparente
-`rgba(0,0,0,.4)`; sem `box-shadow`), `width`/`height` fixos e margens
-(`.lyrics-content`, padding em vh/vw) — a legibilidade do texto vem da
-própria moldura, não de um gradiente cobrindo a tela inteira, então
-funciona igual independente da imagem por trás), inserido no DOM entre
+**Display** (`display/`): layer `#lyrics` (imagem de fundo
+`object-fit:cover` + uma faixa central — `.lyrics-box`: no padrão visual de
+"vídeo de louvor", cantos **retos** (`border-radius: 0`), **sem linha de
+borda** (v5.42 — o contorno branco desenhava um retângulo que competia com a
+letra; quem separa o texto da foto é a própria faixa escura) e sem
+`box-shadow`; o fundo é `--lyrics-frame-bg` e **só existe no modo imagem**
+(ver "Moldura só no modo imagem" abaixo), com `width`/`height` como fração do
+container (`76cqw`/`32cqh`) — a legibilidade do texto vem da própria faixa,
+não de um gradiente cobrindo a tela inteira, então funciona igual
+independente da imagem por trás), inserido no DOM entre
 `#video` e `#youtube`, mesmo `z-index:1` dos demais layers de mídia — a
-cortina do wallpaper (`z-index:2`, já existente) cobre/revela esse layer de
+cortina do wallpaper (hoje `z-index:3`, acima de toda mídia e do cartão de
+texto) cobre/revela esse layer de
 graça, **sem nenhuma mudança em `stage.js`** (letra é tratada como camada
 paralela, mesmo padrão já usado pela ponte do YouTube). `hideLyrics()` é
 chamado incondicionalmente no início do tratamento de `load` (antes do
@@ -1974,14 +2224,14 @@ parte de `stage.handle()` (letra é camada paralela, não um comando do
 stage). A preview aplica o mesmo modo em si mesma via `applyPvLyricsBg()`
 (chamado direto em `cmd()`, sem esperar o Display confirmar nada).
 
-**Moldura só no modo imagem**: a borda + fundo semitransparente da caixa
-(`.lyrics-box`/`.pv-lyrics-box`) só existem para dar contraste/legibilidade
-contra uma imagem de fundo de verdade — no modo preto puro seriam só uma
+**Moldura só no modo imagem**: o fundo semitransparente da caixa
+(`.lyrics-box`/`.pv-lyrics-box`) só existe para dar contraste/legibilidade
+contra uma imagem de fundo de verdade — no modo preto puro seria só uma
 zona escura flutuando à toa sobre uma tela já preta, sem função nenhuma.
 `applyLyricsBgClass()` (Display) / `applyPvLyricsBgClass()` (Controle)
 ligam a classe `.imgbg` em `.lyrics-content`/`.pv-lyrics-content` só quando
-o modo é `'image'` — `border`/`background` de `.lyrics-box`/`.pv-lyrics-box`
-ficam `transparent` por padrão e só ganham cor via
+o modo é `'image'` — o `background` de `.lyrics-box`/`.pv-lyrics-box`
+fica `transparent` por padrão e só recebe `--lyrics-frame-bg` via
 `.lyrics-content.imgbg .lyrics-box`/`.pv-lyrics-content.imgbg .pv-lyrics-box`.
 Chamado em `setLyricsBgMode()`/`restore()` (Display) e em
 `showPvLyrics()`/`applyPvLyricsBg()` (Controle) — cobre tanto a troca ao
@@ -1992,11 +2242,13 @@ vivo do botão quanto o estado inicial ao abrir um item já com o modo salvo.
 compartilhado) e pra YouTube (segundo player, ver seção própria); letra
 sincronizada segue o mesmo princípio universal do sistema. `#pvLyrics`
 dentro de `#preview` reproduz a mesma estrutura visual do Display (fundo +
-retângulo com moldura), só que com tamanhos **fixos em px** (não vw/vh, que
-aqui seriam relativos à tela toda do celular, não à caixinha pequena da
-preview — por isso não dá pra reaproveitar a mesma folha de estilo, embora a
-estrutura e a lógica JS sejam praticamente idênticas, no mesmo padrão de
-duplicação já usado pela preview do YouTube). `showPvLyrics`/`hidePvLyrics`/
+faixa central) com **exatamente os mesmos números**, porque são unidades de
+container (`cq*`) e não `vw`/`vh`: relativas ao próprio container, elas são
+invariantes de escala e dão a mesma composição na caixinha da preview e no
+telão (ver "Redimensionamento por Container Queries" abaixo). O que continua
+duplicado é a **folha** — as regras `.pv-*` existem à parte porque o container
+é outro —, no mesmo padrão da preview do YouTube.
+`showPvLyrics`/`hidePvLyrics`/
 `renderPvLyricSlide`/`updatePvLyricSlide` espelham exatamente as funções do
 Display, chamadas nos mesmos pontos: `cmd()` (`load`/`stop`/`clear`, em vez
 do tratamento de comando do Display) e `previewTick()` (em vez do
@@ -2006,10 +2258,12 @@ mostra a composição real (fundo + posição do texto), tornando a legenda
 redundante.
 
 **Controle**: dois botões de navegação manual de estrofe (`#slidePrevBtn`/
-`#slideNextBtn`) flanqueiam a preview (`.preview-row`, preview mantida em
-16:9, botões ocupam o espaço horizontal que sobra — e, por compartilharem a
-mesma faixa de 130px da grade do `.deck`, ficam com a mesma altura da fatia
-`.mixer-mid`, ver seção do Mixer). `stepSlide(delta)` reaproveita o
+`#slideNextBtn`) flanqueiam a preview (`.preview-row`, preview na **proporção
+do telão** — `--pv-ar`, ver a seção própria —, botões ocupam o espaço
+horizontal que sobra e a preview ENCOLHE antes de expulsá-los da linha; por
+compartilharem a mesma faixa `--deck-pv-h` da grade do `.deck`, ficam com a
+mesma altura da fatia `.mixer-mid`, ver seção do Mixer). `stepSlide(delta)`
+reaproveita o
 **comando `seek` já existente** (sem novo tipo no protocolo) — pula pro
 `time` do slide vizinho, e tanto o Display quanto a própria preview
 sincronizam a letra sozinhos ao reagir ao novo tempo.
@@ -2087,9 +2341,13 @@ padrão de "imagem quebrada" (aparecia como uma linha branca de margem sobre
 o preto), no Display e às vezes na preview. A correção precisa de uma regra
 própria com especificidade suficiente: `.lyrics-bg img[hidden] { display:
 none; }` / `.pv-lyrics-bg img[hidden] { display: none; }`. `.lyrics-bg`/
-`.pv-lyrics-bg` têm `background:#000` próprio (preto de verdade,
-independente da `<img>`); `applyLyricsImage`/`applyPvLyricsImage` alternam
-`hidden` junto com `src` a cada troca de modo/slide.
+`.pv-lyrics-bg` têm `background: var(--stage-bg)` próprio (o preto de
+verdade do palco, independente da `<img>`);
+`applyLyricsImage`/`applyPvLyricsImage` alternam
+`hidden` junto com `src` a cada troca de modo/slide. As duas folhas ganharam
+`[hidden] { display: none !important }` no topo, o que torna essas regras
+específicas redundantes — mas elas ficam, porque a regra genérica é a proteção
+de fundo e a específica documenta o caso concreto que já falhou.
 
 ### Compartilhamento
 
@@ -2137,10 +2395,10 @@ assim que o operador acrescentar itens a ela.
 
 ## Camada de Texto (Bíblia · Mensagens · Letra)
 
-O sistema serve **texto no telão** por três provedores que compartilham um
+O sistema serve **texto no telão** por cinco provedores que compartilham um
 **modelo padronizado** de camada paralela (mesmo padrão do YouTube: um layer
-`z-index:1` que a **cortina do wallpaper** — `z-index:2`, sempre por cima de
-tudo — cobre/revela "de graça", sem tocar em `stage.js`). Os três são:
+que a **cortina do wallpaper** — sempre por cima de tudo — cobre/revela "de
+graça", sem tocar em `stage.js`). São eles:
 
 | Provedor | Driver | Origem do texto | Camada física |
 |---|---|---|---|
@@ -2148,16 +2406,16 @@ tudo — cobre/revela "de graça", sem tocar em `stage.js`). Os três são:
 | **Mensagens** | manual (operador avança mensagem) | `state.messages` (texto puro) | `#text` / `#pvText` |
 | **Cronômetro/relógio/timer** | **derivado do relógio** (sem avanço) | o próprio tempo (`chronoReading`) | `#text` / `#pvText` |
 | **Sorteio** | **derivado** (rolo até assentar) | faixa numérica ou lista de opções (`drawReading`) | `#text` / `#pvText` |
-
-> **Mensagens vive na aba Diversos** (v5.31), como uma seção do acordeão:
-> lista de avisos salvos, "+ Nova mensagem" e — quando há uma projetada —
-> "Tirar do telão" (`hideMessage` → `text-hide`, que encerra só a Camada de
-> Texto; um áudio de fundo segue tocando). Tocar numa mensagem projeta e a
-> linha fica marcada, então passar de um aviso a outro não exige reabrir nada
-> — que era o atrito do bottom-sheet anterior. Com a mensagem fora do ar mas a
-> sessão viva, os botões de slide só MOVEM a seleção (mesma regra da Bíblia).
-
 | **Letra sincronizada** | **temporizado** (segue o `currentTime` do áudio) | música do LouvorJA | `#lyrics` / `#pvLyrics` |
+
+> **Mensagens vive na aba Diversos** (v5.31), como uma das ferramentas do
+> seletor: lista de avisos salvos, "+ Nova mensagem" e — quando há uma
+> projetada — "Tirar do telão" (`hideMessage` → `text-hide`, que encerra só a
+> Camada de Texto; um áudio de fundo segue tocando). Tocar numa mensagem
+> projeta e a linha fica marcada, então passar de um aviso a outro não exige
+> reabrir nada — que era o atrito do bottom-sheet anterior. Com a mensagem fora
+> do ar mas a sessão viva, os botões de slide só MOVEM a seleção (mesma regra
+> da Bíblia).
 
 **Bíblia e Mensagens são literalmente o MESMO cartão** (`#text` no Display,
 `#pvText` na preview) — mesmo comando `text`/`text-hide`, só o campo `mode`
@@ -2279,8 +2537,6 @@ slides. O índice de busca (`buildLyricIndex`) lê os **dois**, chaveado por
   defeito quase não aparecia (uma coleção, sempre com item seguinte para
   remarcá-la); varrer o acervo inteiro (v5.38) — muitas coleções pequenas
   acabando no meio dos flushes — foi o que o trouxe à tona.
-  `test-letras-corrida` reproduz com 150 hinos + 20 álbuns de 5: falha em 3
-  asserções com o `clear()` no lugar errado, passa com ele no certo.
 - **Indexa TODA linha**, inclusive `aux_lyric` e estrofes sem `show_slide` — ao
   contrário de `buildLyricSlides`, que filtra o que vira slide. Uma estrofe que
   não é projetada continua sendo letra da música, e para buscar isso só ajuda.
@@ -2325,7 +2581,7 @@ onde entrou.
 
 A busca ganha assim **dois níveis**, e isso muda três coisas:
 
-- **Digitar troca o nível.** `searchIsBrowsing(q)` é `!searchScope && !q`: com
+- **Digitar troca o nível.** `searchIsBrowsing(q)` é `!q`: com
   texto, volta a listar músicas exatamente como antes; apagando, o acervo
   retorna. Nenhuma outra regra da busca mudou.
 - **Tocar num card abre a coleção NO PRÓPRIO CARD** (acordeão), com o acervo
@@ -2503,8 +2759,13 @@ no topo** (`.misc-switch`), uma linha só:
   mesma tela; parecidos demais, leriam como um só.
 - **Ponto vermelho no segmento = aquela ferramenta está projetando.** Trocar de
   ferramenta **não** tira do telão a que estava no ar, e sem o ponto descobrir
-  qual é exigiria visitar cada uma. No segmento ativo o ponto ganha um anel
-  claro, onde vermelho sobre azul perderia contraste.
+  qual é exigiria visitar cada uma. O ponto (`.misc-tab-live`, 7px) é
+  `--live-text`, **não** `--live`: ele é um gráfico que carrega informação
+  (piso de 3:1), e o vermelho cheio da paleta — escuro por construção, ver R2 —
+  não chegava lá em fundo nenhum. Com o tom claro ele passa nos dois fundos que
+  encontra (**7,08:1** sobre o trilho e **3,29:1** sobre o `--accent-fill` do
+  segmento ativo), e o anel claro que existia só no segmento ativo saiu: sobre
+  um ponto claro ele não separava nada.
 - **`#library` não rola nesta aba** (`.lib-misc`): quem administra a altura é o
   seletor + painel, e o painel ativo rola por dentro se precisar. Com a rolagem
   da lista ligada, a página inteira voltaria a rolar e o rodapé sairia da base.
@@ -2610,6 +2871,17 @@ exibindo exatamente o mesmo valor do Controle.
   na letra do áudio de fundo, que está **escondido atrás do cartão** — o
   operador apertaria "próxima estrofe" e a música saltaria sem nada mudar na
   tela.
+- **Cronômetro e sorteio CONTAM como cena** para `pushNowPlaying` (o que
+  alimenta a sessão de mídia e a notificação nativa — ver `CLAUDE.md`).
+  Ficavam de fora: `renderNowPlaying` já os tratava como cena (escreve
+  "Cronômetro" no título e chama a função), mas ali `active` dava `false` e o
+  Kotlin derrubava a sessão. O efeito não é a projeção cair no meio — uma vez
+  que qualquer mídia foi tocada, `currentId` nunca mais volta a `null` e a cena
+  segue ativa —, é o caso da sessão **recém-aberta**: projetar a contagem
+  regressiva de abertura sem ter selecionado mídia nenhuma **não levantava** o
+  serviço em primeiro plano, e o processo (com a `Presentation` junto) seguia
+  descartável sob pressão de memória exatamente durante os dez minutos em que o
+  operador minimiza o app para esperar.
 - **Só as PREFERÊNCIAS persistem** (`state.chronoPrefs`: modo, duração, formato
   do relógio, legenda). Uma contagem em curso não sobrevive ao fechamento do
   app de propósito: restaurar um cronômetro que "correu" com o app fechado
@@ -2694,9 +2966,30 @@ carregam calibração continuam duplicadas, de propósito.
   apagaria o que acabou de entrar.
 - **`hideLyrics(fade)` adia o teardown da imagem de fundo** em `LAYER_FADE_MS`.
   A `<img>` é FILHA da camada: revogar a object URL e escondê-la de imediato
-  faria o fundo sumir por trás de um texto ainda esmaecendo. O `lyricLoadSeq`
-  guarda esse teardown atrasado (se a letra voltar nesse meio tempo, ele é
-  descartado). Mesma coisa em `hidePvLyrics(fade)`.
+  faria o fundo sumir por trás de um texto ainda esmaecendo. Mesma coisa em
+  `hidePvLyrics(fade)`.
+  - **O teardown é cancelado EXPLICITAMENTE quando a letra volta** (o timer
+    fica guardado em `lyricTeardownTimer`, e `showLyrics` o limpa). A guarda de
+    sequência sozinha **não bastava**: se a estrofe que volta usa a MESMA
+    imagem (`key === lyricImgKey` — o caso normal quando um versículo entra e
+    sai em menos de `LAYER_FADE_MS`, e também quando dois hinos compartilham o
+    mesmo `imageOpfsPath`), `applyLyricsImage` devolve cedo e **não**
+    incrementa a sequência; o teardown então disparava com o `seq` ainda
+    válido, revogava a object URL em uso e apagava o fundo da letra que acabara
+    de reaparecer, deixando-a sobre preto até a próxima troca de estrofe.
+  - **A revogação vem ANTES da guarda de sequência**, e de propósito: quando o
+    caminho de troca já zerou `lyricImgUrl`, aquela URL não é mais de ninguém —
+    nenhum outro caminho vai revogá-la. Deixá-la atrás do guard significava que
+    uma imagem nova entrando em menos de `LAYER_FADE_MS` (estrofe seguinte, ou
+    o operador religando o fundo pelo comando `lyricsbg`) invalidava o callback
+    e **o blob da foto ficava retido** até o WebView do telão morrer — uma vez
+    a cada ocorrência, o culto inteiro. Só o `removeAttribute('src')` continua
+    atrás do guard, porque aí o `src` já é de outra imagem.
+- **`renderLyricSlide` só REGISTRA o índice depois de validá-lo.** Gravá-lo
+  antes fazia um índice inexistente (`findSlideIndex` devolvendo -1 num tempo
+  anterior ao primeiro slide, ou um `showLyrics` com a lista ainda vazia) ficar
+  marcado como "já renderizado" — e se o mesmo índice voltasse a ser pedido, a
+  guarda de topo devolvia cedo e o slide certo **nunca era pintado**.
 - `hideText`/`hidePvText` **não limpam o texto** ao sair: apagá-lo na hora
   deixaria o cartão vazio visível durante todo o fade. O próximo `showText`
   sobrescreve.
@@ -2736,11 +3029,27 @@ provedor mínimo (CRUD de texto puro em `state.messages` + `projectMessage`/
 `msgStep`, análogos a `startBibleReading`/`bibleStep`), e a **Letra** tem sua
 própria seção ("Letra sincronizada").
 
+**Excluir uma mensagem mexe na SESSÃO, não só no array** (`deleteMessage`), e
+são dois casos distintos:
+
+- **A projetada** precisa ser **tirada do ar antes** de a sessão morrer:
+  `clearMsgSession()` sozinho zerava `msgSession` sem mandar `text-hide`, e o
+  aviso apagado continuava projetado no telão e na preview. Como a sessão
+  morria junto, o botão "Tirar do telão" ficava **desabilitado** e a linha
+  sumia da lista — o operador não tinha mais nenhum caminho na aba para tirar o
+  texto do ar, só ⏹ Parar ou projetar outra coisa por cima. Hoje é
+  `hideMessage()` (que envia o `text-hide`) e **depois** `clearMsgSession()`.
+- **Uma ACIMA da projetada** exige reindexar `msgSession.idx`. Sem isso ele
+  passava a apontar para a vizinha errada — ou para fora do array: "Mensagem 3"
+  numa lista de duas, nenhuma linha marcada como ativa, e "Projetar no telão"
+  caindo no guard `idx >= messages.length` de `projectMessage`, ou seja, um
+  botão que não faz nada e não explica por quê.
+
 ## Bíblia (aba `bible`)
 
 Aba própria para **selecionar e projetar textos bíblicos**, com os dados vindos
 do mesmo banco público do LouvorJA (ver `docs/FONTE-DE-DADOS-LOUVORJA.md` §5.6).
-O cliente é `public/controle/bible.js` (`window.Bible`, JS puro), que reaproveita
+O cliente é `controle/bible.js` (`window.Bible`, JS puro), que reaproveita
 o transporte de `louvorja.js` (`Louvorja.fetchList`) — sem novas credenciais.
 
 ### Duas fontes de dados
@@ -2762,8 +3071,8 @@ o transporte de `louvorja.js` (`Louvorja.fetchList`) — sem novas credenciais.
 disparado por `enterBibleTab()` ao entrar na aba e ao trocar de versão): em vez
 de baixar só o capítulo tocado, ao usar a Bíblia pela primeira vez o app baixa
 **todos os 1189 capítulos** da versão selecionada em segundo plano — resumível
-(pula o que já está em cache), concorrência limitada (`runLimited`, 5). O texto
-é leve (só versículos, sem mídia), então o volume total é modesto. O progresso
+(pula o que já está em cache), concorrência limitada (`runLimited` com
+`NET_CONCURRENCY`). O texto é leve (só versículos, sem mídia), então o volume total é modesto. O progresso
 (`bibleDl`, memória) aparece **só dentro do popup de seleção de versão**
 (`.bible-ver-status` por versão: "✓ Completa offline" / "Baixando N/1189…" /
 "Baixa ao usar" — `refreshBibleDl` re-renderiza a lista enquanto o popup está
@@ -2785,9 +3094,19 @@ Consequência boa: se a varredura mostrar que **nada falta**, a flag é marcada
 ali mesmo — antes ela só era gravada com `failed === 0`, e uma única falha de
 rede (o Wi-Fi da igreja) condenava a versão a revarrer para sempre.
 
+**A varredura é identificada por SEQUÊNCIA (`bibleDlSeq`), não pela versão.**
+Cada invocação ganha um `runSeq` monotônico, e os workers comparam com ele.
+Comparar `versionId` era **reversível**: trocar de versão e **voltar** fazia os
+workers da varredura antiga, ainda em voo, passarem no teste de novo e
+retomarem em paralelo com a nova. Pior, a antiga terminava primeiro e — como os
+capítulos que ela pulava saíam por um `return` sem contar falha — gravava
+`bibleComplete` sobre uma varredura incompleta: flag **persistida**, versão
+nunca mais completada. Com a sequência, um worker superado sai contando falha,
+que é o que impede a marca de completude indevida.
+
 **Persistência offline (não some entre sessões)**: os capítulos ficam no
-IndexedDB (`state`, durável por natureza — sobrevive a fechar/reabrir o app e a
-atualizações de service worker, que só trocam o cache de assets estáticos). Além
+IndexedDB (`state`, durável por natureza — sobrevive a fechar/reabrir o app e à
+troca de bundle por OTA, que só substitui arquivos servidos). Além
 disso, `enterBibleTab()` pede `navigator.storage.persist()` — **a mesma
 proteção do sync de músicas/pastas** — para o browser não descartar a origin sob
 pressão de espaço (é origin-wide e idempotente). O download é **resumível**:
@@ -2801,25 +3120,42 @@ já baixou — a reabertura pula o que está em cache e continua de onde parou.
 
 **Versão padrão: Almeida Revista e Atualizada** (`pickDefaultBibleVersion` casa
 por nome — "revista e atualizada"/"RA"/"ARA"; senão a 1ª disponível). A troca de
-versão fica num **botão seletor** (`.bible-ver-btn`, com a versão atual) que abre
-o **popup** `#bibleVerPopup` com a lista — a lista não fica mais toda exposta em
-chips. **O seletor mora na tela de LEITURA** (não na de livros — dá mais espaço
-pra grade). Persistido em `state.bibleVersion`; trocar (`changeBibleVersion`)
-recarrega o capítulo atual na nova versão (mantendo o versículo) e dispara o
-download da nova versão inteira.
+versão **não tem botão próprio**: ela é o primeiro segmento da barra de
+referência da tela de leitura (`part('Versão', …)`, uma `.bible-ref-part` como
+Livro/Capítulo/Versículo), e o toque abre o popup `#bibleVerPopup` com a lista
+— que não fica mais toda exposta em chips. **É na tela de LEITURA**, não na de
+livros: ali a grade precisa da altura inteira. Persistido em
+`state.bibleVersion`.
+
+`changeBibleVersion` recarrega o capítulo atual na nova versão (mantendo o
+versículo) e dispara o download da nova versão inteira. Duas coisas que ela
+precisa fazer, e ambas nasceram de defeito:
+
+- **Invalidar o `bibleLoadSeq`.** Sem isso, um capítulo lento pedido *antes* da
+  troca voltava *depois*, passava na guarda de sequência (que não havia mudado)
+  e sobrescrevia `bibleChapterData` com os versículos do capítulo/versão
+  **antigos sob o rótulo dos novos** — e `startBibleReading` monta a sessão a
+  partir daí, projetando o versículo errado com a referência certa. É o mesmo
+  papel do `loadSeq` do stage.
+- **Zerar o estado de erro/carregamento da grade.** Uma falha antiga ("Não foi
+  possível baixar este capítulo") continuava na metade de baixo da tela mesmo
+  com o capítulo novo já carregado e no ar.
 
 ### Seleção em "tabela periódica" (três telas)
 
 `renderBible()` despacha por `bibleScreen` (`'books'`|`'chapters'`|`'reading'`),
 renderizando dentro de `#library` uma **grade de células no estilo de uma
 tabela periódica** (`.bible-grid` + `.bible-cell`): cada célula é um "símbolo"
-(a abreviação do livro, ou o número do capítulo/versículo). Os **blocos de
-livro são preenchidos por inteiro com a cor do grupo/divisão canônica** (campo
-`g` em `bible.js` → classe `.bg-<g>`: `lei`, `historicos`, `poeticos`,
-`pmaiores`, `pmenores`, `evangelhos`, `atos`, `paulinas`, `gerais`,
-`apocalipse`) — **sem** número de índice e **só a abreviação** (sem o nome
-completo, fonte maior). A grade de livros (`.bible-grid--books`) **preenche a
-altura disponível** (11 linhas em `1fr`) pra caber **sem scroll**.
+(a abreviação do livro, ou o número do capítulo/versículo). O grupo/divisão
+canônica de cada livro vem do campo `g` em `bible.js`, concatenado numa classe
+(`'bg-' + b.g`: `lei`, `historicos`, `poeticos`, `pmaiores`, `pmenores`,
+`evangelhos`, `atos`, `paulinas`, `gerais`, `apocalipse`) — por isso essas
+classes **não aparecem literais em lugar nenhum fora do CSS**, e não são código
+morto. Cada ladrilho é **tinta escura + faixa lateral de 3px** com a matiz do
+grupo, não mais um bloco saturado: ver "Ladrilhos da Bíblia" no Design System
+para o porquê e as medições. Sem número de índice e **só a abreviação** (sem o
+nome completo, fonte maior). A grade de livros (`.bible-grid--books`)
+**preenche a altura disponível** (11 linhas em `1fr`) pra caber **sem scroll**.
 
 **Capítulo e versículo convivem numa tela só** (`'chapters'`), dividida na
 vertical (`.bible-split`): em cima a grade de **capítulos**, embaixo a de
@@ -2846,14 +3182,18 @@ novo). A grade ganha um `padding-right` para a última coluna não encostar nela
 > variável fazia a tela mudar de cara a cada livro. Rolar com uma barra
 > visível é mais previsível.
 
-As duas grades marcam a seleção atual (`.bible-cell.active`: fundo accent +
-anel branco), e é isso que faz **voltar da leitura mostrar de imediato o
-capítulo E o versículo que estão no ar**, sem o operador ter que se localizar —
-e sem procurar, já que nada rola.
+As duas grades marcam a seleção atual (`.bible-cell--num.active`: preenchimento
+em `--accent-fill`, texto em `--on-accent` e `outline` da mesma cor; na grade de
+livros, `.bible-cell.active` marca só com um `outline` em `--text`, para não
+apagar a tinta do grupo), e é isso que faz **voltar da
+leitura mostrar de imediato o capítulo E o versículo que estão no ar**, sem o
+operador ter que se localizar — e sem procurar, já que nada rola.
 
-Capítulos e versículos mantêm **tons distintos** (`.bible-grid--chapters` em
-tom frio/azulado, `.bible-grid--verses` em tom quente/dourado) pra separar bem
-os dois níveis. Fluxo: **livros → capítulo+versículo → leitura**; o botão
+Capítulos e versículos mantêm **tons distintos** (`--cell-chapter` em tom frio,
+`--cell-verse` em tom quente) pra separar bem os dois níveis: as duas grades
+são iguais em forma e conteúdo (só números) e ficam uma sobre a outra na mesma
+tela — sem a diferença de temperatura, o operador perde de vista em qual das
+metades está tocando. Fluxo: **livros → capítulo+versículo → leitura**; o botão
 voltar (`#backBtn`) recua uma tela (`navigateBack` é `bible`-aware,
 `gotoBibleScreen`), e cada troca faz um **leve slide direcional**
 (`animateTabSwitch` reaproveitado; `BIBLE_SCREENS` dá a direção).
@@ -2917,11 +3257,15 @@ cache `bibleAdjCache`). Início/fim da Bíblia mostram "Início/Fim da Bíblia".
 **Gate de ativação (`projecting`)** — o texto só vai pro telão depois de um
 toque no versículo CENTRAL:
 - Tocar no **anterior/próximo** (`.bible-vsec.adj`) → `bibleSetIdx` move aquele
-  versículo pro central. Enquanto `projecting` é `false`, **só move** (nada é
-  exibido; aparece a dica `.bible-read-hint`).
+  versículo pro central. Enquanto `projecting` é `false`, **só move** — nada vai
+  ao telão.
 - Tocar no **central** (`.bible-vsec.cur`) → `activateBibleVerse` liga
-  `projecting` e **exibe** o versículo (o central ganha o rótulo verde "● No ar",
-  classe `.live`).
+  `projecting` e **exibe** o versículo. O central ganha a classe `.live`, que
+  troca a borda e a referência para `--live-text` e prefixa o rótulo com
+  "● No ar". Era **verde** até a v5.47, enquanto quatro outros lugares do app
+  diziam "está no ar" em vermelho — duas cores opostas para a mesma mensagem,
+  sem regra que o operador pudesse aprender (ver "As três famílias" no Design
+  System).
 - Já **ativado**, tocar no anterior/próximo (ou usar os botões de slide) **exibe
   automaticamente** o novo versículo (`bibleSetIdx` chama `projectBibleVerse`).
 
@@ -2987,7 +3331,7 @@ Layer `#text` (`.text-layer`), **`z-index:2` — acima de toda a mídia**
 (`z-index:1`), inclusive do iframe do YouTube, que vem depois no DOM e com
 z-index igual pintaria por cima do cartão. A cortina do wallpaper sobe para
 `z-index:3` (nada é colocado sobre o wallpaper) e o escudo do YouTube para
-`4`. Como `.layer` já traz `background:#000`, o cartão é **opaco**: o texto
+`4`. Como `.layer` já traz `background: var(--stage-bg)`, o cartão é **opaco**: o texto
 manual cobre a cena inteira, que é o que se espera de uma interferência
 direta do operador.
 
@@ -3004,11 +3348,35 @@ coisa que sai de cena, porque ela **é** texto e o manual tem precedência — e
 "Independência do áudio"); pinta `main`/`sub`, aplica a classe
 `.mode-message` conforme o `mode` e revela conforme a `view`; um novo `text` já
 em cena só troca o texto (sem piscar). Enquanto `textActive`, o roteamento de
-comandos trata a Camada de Texto como paralela (igual ao YouTube): `view` só
-liga/desliga a cortina (`stage.coverIn/coverOut`); `load` de **áudio** mantém o
-texto (troca o som de fundo), `load` de **visual**/`stop`/`clear` chamam
-`hideText(false)` e seguem o fluxo; **transporte** (play/pause/seek/volume/mute)
-cai no fluxo do stage (áudio de fundo).
+comandos trata a Camada de Texto como paralela (igual ao YouTube): `load` de
+**áudio** mantém o texto (troca o som de fundo), `load` de
+**visual**/`stop`/`clear` chamam `hideText(false)` e seguem o fluxo;
+**transporte** (play/pause/seek/volume/mute) cai no fluxo do stage (áudio de
+fundo).
+
+**O `view` DELEGA a quem é dono do estado, em vez de mexer na cortina por
+fora.** Com o cartão de texto no ar, o ramo de `view` chama `ytSetView(v)` (se
+há YouTube) ou `stage.handle({type:'view', view:v})`. Ele já chamou
+`coverIn`/`coverOut` direto, e isso movia a cortina deixando `stage.view` /
+`yt.view` **congelados no valor antigo** — um estado inconsistente cujo estrago
+só aparecia **depois** do `text-hide`, o que tornava o defeito difícil de
+associar à causa:
+
+- o `view` seguinte comparava com o valor velho, concluía que nada mudara e
+  **retornava sem fazer nada**: o botão de cobrir/mostrar o telão ficava morto,
+  e o operador precisava tocá-lo duas ou três vezes;
+- na direção oposta era pior — com a cortina cobrindo e `stage.view` ainda
+  `'visual'`, o `play` seguinte reavaliava `computeCover()` e **descobria o
+  telão sozinho**, expondo a mídia que o operador tinha coberto de propósito.
+
+Delegar tem uma contrapartida a corrigir: o cartão de texto é **independente da
+mídia** — um versículo no ar sem nada carregado é o caso mais comum na pregação
+—, mas para o stage "sem mídia" (ou mídia terminada) quer dizer cortina
+fechada, e o `instantCover(computeCover())` no fim do `setViewFaded`
+reengoliria o versículo logo depois do fade. Por isso, ao voltar de um
+`view:'visual'`, o Display **reafirma a cortina aberta** — reconferindo
+`textActive`, porque o fade dura 0,6 s e nesse intervalo o texto pode ter saído
+de cena, caso em que quem manda é o `restoreSceneAfterText`.
 
 **Sair do texto devolve a cena** (`hideText(restore)` → `restoreSceneAfterText()`,
 espelhado por `hidePvText`/`restorePvSceneAfterText` na preview): vídeo, imagem e
@@ -3021,15 +3389,33 @@ começo — a música avançou enquanto o versículo estava no ar. O parâmetro
 visual, `stop`, `clear`): restaurar ali faria a cena antiga piscar antes de ser
 substituída. Como `showLyrics` retorna cedo enquanto `textActive`, trocar o
 áudio de fundo com o texto no ar também funciona: ao sair, entra a letra do
-áudio **atual**. O texto (`.text-box`) usa o mesmo redimensionamento por Container Queries da
+áudio **atual**.
+
+**E a última coisa que `restoreSceneAfterText` faz, para TODOS os tipos de
+mídia, é reconciliar a cortina** (`reconcileCover(view)`: `coverIn(false)` se a
+view é `'wallpaper'`, senão `coverOut()`). Antes só a letra era remontada e os
+demais tipos devolviam cedo — mas o `showText` mexeu na cortina por conta
+própria para o cartão aparecer, então sair de cena tem que devolvê-la ao que a
+view vigente manda. Sem isso, um versículo tirado do ar com o telão coberto
+deixava a cortina cobrindo uma mídia cuja view é `'visual'`, e o toque seguinte
+no botão de visual não fazia nada — para o stage, nada havia mudado. O helper
+existe porque a cortina é **compartilhada** (stage, YouTube e a camada de texto
+mexem nela) enquanto o estado de view é de quem é dono da cena; `coverIn`/
+`coverOut` devolvem cedo quando ela já está onde deveria, então chamá-lo à toa
+não custa nem pisca nada no telão.
+
+O texto (`.text-box`) usa o mesmo redimensionamento por Container Queries da
 letra (`container-type:size` + `cq*`), mas em prosa (caixa-baixa) e **SEM
 moldura, ocupando a tela inteira**. A moldura da letra sincronizada existe para
 dar contraste contra a imagem de fundo da estrofe; aqui o texto é sempre
 projetado sobre o preto, então a borda seria só uma caixa desenhada à toa — e,
 pior, uma caixa FIXA e menor que a tela, que apertava textos bíblicos (bem mais
 longos que uma estrofe) num espaço pequeno enquanto sobrava tela vazia em
-volta. Agora o texto ocupa o que tiver, com margens generosas
-(`padding: 7cqh 7cqw` no container) e **fonte bem maior** (`6.4cqmin`, contra
+volta. Agora o texto ocupa o que tiver: `.text-box` é `86cqw`/`86cqh` — o mesmo
+espaço útil que o antigo `padding: 7cqh 7cqw` deixava, mas escrito como **fração
+do container** em vez de padding percentual (ver "Redimensionamento por
+Container Queries": unidades de container escritas no próprio container não se
+referem a ele) — e a **fonte é bem maior** (`6.4cqmin`, contra
 `4.8cqmin` da caixa antiga; `7.4cqmin` no modo mensagem). No modo `verse` a
 **referência (`#textSub`) fica ABAIXO do texto** (ordem no DOM, `hidden` quando
 vazia — mensagens não têm referência) e conteúdos muito longos continuam sendo
@@ -3045,21 +3431,44 @@ Interface mínima: wallpaper + layer de imagem + layer de vídeo + iframe do You
 
 Escuta o BroadcastChannel e repassa os comandos para `stage.handle()` (ou para
 a ponte do YouTube). Ao inicializar, **não** recarrega nem toca a última mídia
-sozinho — `restore()` só restaura a config de fade (preferência visual) e
-envia `display-ready`; o Display abre sempre no wallpaper (ponto inicial),
-esperando um comando explícito. A inicialização do sistema precisa ser
-**controlada** (nenhuma mídia deve começar a tocar sozinha ao abrir o app) —
-quem decide se retoma o que estava tocando é o **Controle**, ao receber
-`display-ready` (com base no que ELE sabe que estava tocando, não em algo
-persistido pelo próprio Display).
+sozinho — `restore()` aplica as **preferências visuais** (fade, fundo da letra,
+preenchimento, wallpaper) e envia `display-ready`; o Display abre sempre no
+wallpaper (ponto inicial), esperando um comando explícito. A inicialização do
+sistema precisa ser **controlada** (nenhuma mídia deve começar a tocar sozinha
+ao abrir o app) — quem decide se retoma o que estava tocando é o **Controle**,
+ao receber `display-ready` (com base no que ELE sabe que estava tocando, não em
+algo persistido pelo próprio Display).
+
+**`display-ready` sai num `finally`, e as preferências ficam num `try`.**
+ANUNCIAR-SE não pode depender delas: toda a reconexão do sistema pende desse
+comando (é ele que dispara o `resendSceneToDisplay`), então se uma leitura do
+IDB rejeitasse — upgrade bloqueado, armazenamento despejado, transação
+abortada — a `Presentation` recriada depois de um blip do espelhamento ficava
+parada no wallpaper, sem nada no Controle explicando e sem outra saída além de
+reiniciar o app. Perder o fundo da letra ou o wallpaper é um defeito visível e
+recuperável; perder a reconexão, não. No `catch` o Display segue nos padrões
+(preto na letra, `contain` no fit, gradiente no fundo).
+
+**Não há service worker aqui.** Havia um bloco que registrava `sw.js` e
+recarregava a página no `controllerchange` (adiando até o telão ficar idle),
+mas o `sw.js` saiu do bundle junto com os andaimes dos dois PWAs: no navegador
+o `register` devolvia 404 e a promise era engolida pelo `.catch`; no app o
+bloco nem chegava a rodar. Código morto nos dois contextos, e ainda sugerindo
+ao próximo leitor uma atualização que não existia. Quem atualiza a base agora é
+o **OTA do shell**, aplicado no PRÓXIMO lançamento — justamente para nunca
+recarregar o WebView do telão no meio de um culto. O mesmo bloco também saiu do
+Controle, onde `swReg` ficava eternamente `null` e o ramo de "checar
+atualização ao retomar" nunca executava.
 
 **Toque único ao abrir (`#startBtn`, "Ligar Sistema") — só no navegador.**
 No app ele fica **oculto** (`window.__NATIVE__`): o WebView roda com
 `mediaPlaybackRequiresUserGesture = false`, e uma TV não recebe toque nenhum.
 No navegador a área de toque cobre a tela inteira (z-index acima de tudo,
 inclusive do wallpaper e do escudo do YouTube — qualquer toque serve) e some
-para sempre após o primeiro toque; um `.start-pill` central (fundo amarelo,
-cantos arredondados, sombra) é só a pista visual de "isto é clicável" — sem
+para sempre após o primeiro toque; um `.start-pill` central (preenchido no
+dourado da marca — `--gold` —, com o texto no escuro do app, cantos
+arredondados e halo em `--accent-glow`) é só a pista visual de "isto é
+clicável" — sem
 ele o texto flutuando no preto não parecia um botão. **Ele APENAS ativa o
 Display** (destrava o áudio de terceiros/YouTube com o gesto real): não abre o
 Controle nem redireciona pra lugar nenhum. (Chegou a existir uma chamada a
@@ -3092,15 +3501,59 @@ som sem gesto num vídeo/áudio local, ele **começa mudo** (sempre permitido �
 conteúdo aparece no telão sem toque) e a recuperação automática religa o áudio
 em retentativas de ~5 s (`setMute(false)`, detectando se o navegador pausou).
 **No app este mecanismo é desativado** (`window.__NATIVE__`): sem política de
-gesto no WebView, qualquer detecção seria falso positivo. No navegador, a
-primeira retentativa costuma resolver. **Nada é exibido no telão**: o estado vai no
-campo `audioBlocked` do `display-status`; no **Controle**, além do toast, o
+gesto no WebView, qualquer detecção seria falso positivo. **E a guarda de
+nativo fica no próprio `onBlocked`**, não só dentro do `beginAudioRecovery()`:
+o handler mutava o stage *antes* de descobrir que era falso positivo, e como o
+`beginAudioRecovery` devolve cedo no app, `audioBlocked` continuava `false` e
+nem o `tryRestoreAudio` nem o comando `audio-retry` faziam qualquer coisa. O
+telão ficava **sem som até o próximo load**, e o Controle não recebia sinal
+nenhum — o `display-status` só carrega `audioBlocked`, que ali era falso.
+No navegador, a primeira retentativa costuma resolver. **Nada é exibido no
+telão**: o estado vai no campo `audioBlocked` do `display-status`; no
+**Controle**, o
 **botão de mudo do mixer** vira indicador (estado `.blocked`, âmbar pulsante,
 ícone de volume off) e **atalho**: o clique envia `audio-retry` (retentativa
 imediata) em vez de alternar o mudo. Qualquer gesto real no Display
 (toque/tecla — `pointerdown`/`keydown` no documento) religa o áudio na hora. O
 comando `mute` do operador encerra a recuperação. **Este mecanismo não se
 aplica ao YouTube** — ver seção abaixo.
+
+### Microfone ao vivo, no lado do Display
+
+O operador segura o botão no Controle, o comando `mic` atravessa o canal e é o
+**Display** que abre o microfone e o reproduz na projeção — um `MediaStream`
+não é clonável e portanto **não atravessa o BroadcastChannel**, então quem
+reproduz tem de ser quem captura. O caminho é `getUserMedia →
+MediaStreamSource → GainNode → destination`, com rampa curta na entrada e na
+saída (cortar no meio de uma palavra estala na caixa de som). A parte nativa
+(permissão `RECORD_AUDIO`, `onPermissionRequest` do WebView) está em
+[`CLAUDE.md`](../CLAUDE.md).
+
+**A captura em voo tem um token (`micSeq`), e `micStream` não servia como
+guarda.** Ele só existe DEPOIS de o `getUserMedia` resolver, e o primeiro
+push-to-talk da sessão demora (permissão + `onPermissionRequest`). Um
+on→off→on nesse intervalo — o operador aperta, não ouve nada, solta e aperta de
+novo — disparava um **segundo** `getUserMedia` com o primeiro ainda pendente;
+quando os dois resolviam, o segundo sobrescrevia as referências e o primeiro
+ficava com as trilhas vivas e o ganho ligado ao `destination`, **sem ninguém
+para pará-lo**: microfone aberto no telão (e o indicador de gravação do Android
+aceso) até o WebView do telão ser recriado.
+
+Três consequências disso, e cada uma cobre um `await` diferente:
+
+- `stopMic()` **incrementa o token antes da saída antecipada**: com `micStream`
+  ainda nulo não há nada a derrubar, mas é preciso registrar que o operador
+  soltou o botão — senão o `getUserMedia` pendente vira um microfone aberto que
+  nenhum comando desliga.
+- `startMic()` reconfere o token **duas vezes**: depois do `getUserMedia` e
+  depois do `micCtx.resume()`. O resume é outro `await`, e um `stopMic()` ali
+  no meio passava batido — a continuação ligaria a fonte ao `destination`
+  depois de o botão já ter sido solto.
+- ao parar, o `AudioContext` é **suspenso, não fechado**: fechá-lo exigiria
+  criar outro no aperto seguinte, e é justamente esse custo (e a latência de
+  abertura) que se quer evitar num push-to-talk. Suspenso, ele para de segurar
+  a saída de áudio — e só é suspenso se ninguém tiver reaberto o microfone
+  nesse meio tempo.
 
 ### YouTube (IFrame Player API oficial)
 
@@ -3133,6 +3586,29 @@ anterior) sofria.
     mesmo aparelho que já faz o Miracast — risco maior que o ganho, já que o
     `cueVideoById()` tende a só buscar metadados (não bufferizar vídeo de
     verdade) antes do play de qualquer forma.
+  - **Não é "só um `<script>`", e isso está registrado de propósito.** Não é
+    dependência de *build* (não entra npm nenhum, e o recurso já depende de
+    rede/youtube.com para tocar o vídeo), mas ele executa **no mesmo
+    documento** em que o shell publica `__AVBridge` via
+    `addJavascriptInterface`, com acesso same-origin ao IndexedDB, ao OPFS e à
+    ponte nativa. Não há CSP em nenhuma das duas páginas, então o risco de
+    supply-chain neste endpoint é **aceito conscientemente**; a mitigação (um
+    header `Content-Security-Policy` servido pelo `WebPathHandler`, ou o player
+    dentro de um iframe de outro origin) está fora do alcance da base web e
+    ainda não foi feita.
+
+- **`loadYoutube(rec, view, muted, volume, startAt, autoplay)`** aceita os
+  mesmos dois campos do `load` do stage, pelo mesmo motivo (reconexão do
+  telão) — sem eles o vídeo recomeçava do zero **e tocando** depois de um blip
+  do dongle. Duas diferenças em relação à mídia local:
+  - a posição entra em `playerVars.start`, não num `seekTo` posterior: é o
+    único jeito de o embed **abrir já na posição** — um `seekTo` depois do
+    `onReady` aparece como salto no telão. Só aceita inteiro (segundos).
+  - `autoplay === false` vira `playerVars.autoplay: 0` **e** um `pauseVideo()`
+    no `onPlayerReady`, seguido de `ytShow()` + `ytStartTimeLoop()`: o quadro
+    precisa aparecer, mas o vídeo não pode sair andando sozinho na frente da
+    congregação. `ytWatchStart` também não corre nesse caminho — ele existe
+    para empurrar um play que não pegou, e aqui não há play a empurrar.
 
 - **`#youtube` é só um wrapper** (`<div class="layer yt-frame" hidden>`); a
   API cria o `<iframe>` real **dentro** dele a cada vídeo, via um elemento
@@ -3411,58 +3887,218 @@ http.server`, por exemplo). Sem o shell, `window.__NATIVE__` fica indefinido e
 todo o caminho nativo vira no-op — que é exatamente a regra de escrita do
 projeto.
 
+### O que o watchdog do OTA exige DESTA base (`shared/native.js`)
+
+O mecanismo do watchdog é do shell (`CLAUDE.md`, "OTA da base web"), mas o
+sinal de "o bundle subiu inteiro" é dado **daqui**, e ele impõe um contrato
+sobre o código do Controle que um refactor pode quebrar sem perceber.
+
+Até a v5.47 a única condição era `window.AVDB` no evento `load`, e o
+raciocínio registrado era sobre "um erro de sintaxe em `db.js`" — **o arquivo
+menos provável de quebrar**. A ordem dos scripts é `native.js` → `db.js` →
+`stage.js` → `louvorja.js` → `bible.js` → `controle.js`: um erro de sintaxe (ou
+um `throw` de inicialização) em qualquer um dos quatro últimos aborta **só
+aquele script**, o `load` dispara do mesmo jeito, `AVDB` continua lá — e o
+bundle quebrado era carimbado como bom e servido **para sempre**, exatamente o
+oposto do que o mecanismo existe para fazer. Como o OTA publica a cada push em
+`main` e o `controle.js` é de longe o que mais muda, esse era justamente o caso
+provável.
+
+O sinal agora é "**o app está de pé**", e cada peça cobre um trecho da cadeia
+que a anterior não cobre:
+
+1. **papel `'controle'`** — o WebView do Display carrega bem menos código (não
+   carrega `controle.js` nem `louvorja.js`), então deixá-lo confirmar validaria
+   um bundle cujo Controle nunca chegou a rodar. E o Display é o caso **normal**
+   de culto (TV conectada), ou seja, confirmaria quase sempre no lugar do
+   outro. Sem TV o Display nem existe: quem confirma é sempre o Controle, que é
+   quem precisa funcionar.
+2. **`AVDB` e `createStage`** — os dois módulos compartilhados, cada um
+   publicando seu global no fim do arquivo.
+3. **`window.__avBack`** — só existe se o `controle.js` foi parseado por
+   inteiro **e** executado até quase o fim. É a mesma função que o botão voltar
+   do Android consulta, ou seja, um contrato que já existe, não um marcador
+   inventado para o watchdog.
+4. **um `<li>` dentro de `#playlist`** — o HTML entrega esse `<ul>` **vazio**;
+   quem o preenche é `renderPlaylist()`, chamado por `load()` dentro do `init()`
+   assíncrono. É o que prova que a inicialização terminou de verdade: `init()`
+   começa por `loadCollections()` (louvorja.js) e só então monta a tela, então
+   uma quebra em `louvorja.js` ou `bible.js` derruba o `init()` antes daqui e o
+   marcador nunca aparece.
+
+**Por polling, e não por uma checagem única no `load`:** o `init()` do Controle
+é assíncrono (várias leituras de IndexedDB) e termina DEPOIS do `load`. Uma
+checagem única rejeitaria todo bundle bom — o OTA pararia de funcionar por
+inteiro, que é o defeito oposto e igualmente ruim. Não há risco de descompasso
+de versão: `native.js` viaja **dentro** do bundle que valida, então esta função
+e o `__avBack` que ela exige são sempre do mesmo commit.
+
+O erro possível aqui é o **seguro**: a confirmação chega ~1 s depois do `load`,
+então fechar o app nesse intervalo faz um bundle bom ser descartado — custo: o
+app volta ao embutido e o OTA baixa de novo na abertura seguinte. O erro do
+outro lado, carimbar um bundle quebrado, não tem volta sem publicar uma versão
+nova.
+
+> **Consequência prática:** mover `__avBack` para outro arquivo, renomear
+> `#playlist` ou adiar a primeira renderização da playlist para depois de uma
+> interação **quebra o watchdog** — o app deixa de confirmar e todo bundle OTA
+> passa a ser descartado no lançamento seguinte, silenciosamente.
+
+### Chamadas à ponte: época e prazo
+
+Duas defesas em `shared/native.js`, ambas invisíveis no navegador:
+
+- **O id de cada chamada é escopado ao CARREGAMENTO da página**, não um
+  contador puro (`EPOCH` aleatório + sequência). O renderer pode morrer no meio
+  de uma chamada em voo — é para isso que existe o `onRenderProcessGone` do
+  shell: o WebView é destruído e recriado, a página recarrega e o contador
+  volta a zero, mas o `resolve` do Kotlin aponta sempre para o WebView
+  **atual**. Com ids "1", "2", "3", a resposta atrasada de um `listFolder` da
+  página velha resolvia a promise homônima da página **nova** — uma lista de
+  arquivos chegando onde se esperava o retorno de `displays()`. Com a época, a
+  resposta velha não acha entrada no mapa e é descartada.
+- **Prazo (`CALL_TIMEOUT_MS`, 60 s) nas chamadas que NÃO dependem de gente.**
+  Se o lado nativo nunca responder, sem isso a promise fica pendente para
+  sempre e o fluxo que a aguardava para no meio — sem erro, sem nada no
+  console. É rede de segurança, não deadline de UX: generoso de propósito,
+  porque varrer uma pasta enorme do SAF leva segundos. `pickFolder` e
+  `requestMic` ficam **sem prazo**: ali quem responde é uma PESSOA (o seletor
+  do SAF, o diálogo de permissão), e um timeout resolveria `null` com o
+  operador ainda escolhendo a pasta.
+
 ---
 
-## Design System (padrões visuais / CSS)
+## Design System — a paleta "Sala Escura" (âmbar)
 
-Toda a UI segue um conjunto fixo de **tokens** (variáveis CSS em `:root`) — a
-fonte única de verdade para cor, superfície, raio e feedback de toque. **Regra:
-não usar valor literal solto na folha; sempre referenciar um token.** Isso
-existe porque o projeto acumulou muitas alterações estéticas pontuais (cores e
-medidas repetidas à mão), que foram consolidadas nestes padrões.
+Toda a UI sai de um conjunto fixo de **tokens** (variáveis CSS). **Regra: não
+usar valor literal solto na folha; sempre referenciar um token.** Isso existe
+porque o projeto acumulou muitas alterações estéticas pontuais (cores e medidas
+repetidas à mão), que foram consolidadas nestes padrões.
+
+### Por que a paleta mudou (v5.48)
+
+O app é operado **no escuro**, e a paleta anterior falhava nos dois eixos ao
+mesmo tempo:
+
+- **Emitia luz demais.** `--text` (`#f2f2f2`) saía a **88,8%** de luminância
+  relativa — hoje são 62,9% —, e o branco puro (`#fff`) aparecia **22 vezes**
+  na folha do Controle como cor de ícone e de rótulo, **sem nenhum token que o
+  nomeasse**. A tela de livros da Bíblia — 66 ladrilhos saturados preenchendo a
+  altura — emitia **7× mais luz que uma lista comum** (16,3% de luminância
+  média contra 2,3% de um painel), e é justamente a tela que o operador abre no
+  meio da pregação.
+- **Separava de menos.** `--bg` × `--bar` dava **1,19:1** e `--panel` ×
+  `--panel-2` dava **1,22:1** — os dois abaixo do piso que o próprio design
+  system declarava adotar, e ninguém percebeu (ver "Ao mexer em cor").
+
+E, acima de tudo, **a mesma cor significava coisas diferentes em telas
+diferentes**. Quatro estados eram pintados por duas famílias de cor cada:
+
+| Estado | Antes | Onde divergia |
+|---|---|---|
+| está no telão agora | `--danger` ×4 e `--success` ×2 | vermelho em `.pv-fab.live`, `.mic-btn.live`, `.misc-project.live`, `.misc-tab-live`; **verde** em `.bible-vsec.cur.live` e `.msg-item.active` |
+| selecionado / onde estou | `--accent` ×19 e `--success` ×2 | tudo accent, menos `.msg-item.active` |
+| concluído / OK | `--success` ×8 e `--accent` ×1 | tudo verde, menos `.hymnal-stat.net.ok` |
+| baixando / ocupado | `--accent` ×5 e `--danger` ×2 | o texto do progresso numa cor e o botão de cancelar em outra, na mesma linha |
+
+No sentido inverso, `--gold` acumulava **27 usos** cobrindo marca, aviso, erro,
+cancelar, destaque de busca e rótulo de estrofe — não existia um `--warn`
+separado da marca.
+
+### As três famílias
+
+A paleta tem **três matizes fazendo três trabalhos**, e nada além disso:
+
+- **âmbar** — marca IASD, navegação, seleção, progresso. Uma família só: o
+  accent **é** a marca (`--gold` e `--accent` têm o mesmo valor), então não há
+  dois amarelos disputando significado. Os dois nomes coexistem para que a
+  folha possa distinguir "isto é marca/metadado" de "isto é navegação/seleção"
+  sem inventar uma segunda matiz.
+- **vermelho** — atenção, e a **intensidade carrega o tipo**: preenchido =
+  está no ar agora; contorno = ação destrutiva; suave = aviso/erro.
+- **verde** — concluído, conectado. E **só** isso.
+
+A contrapartida conhecida: âmbar (39°) e o laranja do aviso (27,5°) ficam a
+~12° de matiz um do outro. Por isso o aviso **nunca é cor pura solta** —
+sempre fundo suave + ícone. Um aviso que se anuncia só pela matiz não sobrevive
+a um celular com brilho baixo, nem a quem não distingue as duas matizes quentes
+do app.
 
 ### Onde ficam os tokens
 
-- **`controle/controle.css`** — `:root` completo (o Controle tem toda a UI rica).
-- **`display/display.css`** — `:root` **mínimo**, só com os tokens de **marca**
-  compartilhados (o Display é só wallpaper + mídia, sem componentes de UI).
+- **`shared/tokens.css`** — **a paleta inteira**, e só ela. Carregada pelos
+  **dois** apps, antes da folha de cada um (`<link rel="stylesheet"
+  href="../shared/tokens.css">`).
+- **`controle/controle.css`** — o `:root` do que **não é cor**: raio, escala de
+  ícone, curva de toque e as duas medidas de layout que o JS também lê
+  (`--deck-pv-h`, `--fader-cap`). São decisões da UI **densa** do Controle, e o
+  Display (que não tem UI) não teria o que fazer com elas.
+- **`display/display.css`** — **nenhum token de cor**. Ele consome de
+  `tokens.css`: `--gold`, `--wallpaper`, `--lyrics-frame-bg`, os `--stage-*`,
+  `--live-text`, `--bg` e `--accent-glow`. Essa lista está no topo da folha
+  para ser conferida: se ela e um `grep var(--` divergirem, é a lista que está
+  errada.
 
-> ⚠️ **Não há CSS compartilhado entre os dois apps** (nenhuma folha comum). Os
-> tokens de marca abaixo estão **duplicados** nas duas folhas e precisam ser
-> mantidos **idênticos manualmente**. Ao mudar um deles, mudar nos dois
-> arquivos: `--gold`, `--danger`, `--wallpaper`, `--lyrics-frame-bg`.
+**Por que uma folha só.** Até a v5.47 os tokens de marca (`--gold`,
+`--wallpaper`, `--lyrics-frame-bg`, `--danger`) eram mantidos **à mão nas duas
+folhas**, e o comentário das duas admitia que "a sincronização é manual".
+Sincronização manual entre dois arquivos é uma classe de bug, não um processo:
+bastava um ajuste entrar só de um lado para o telão e a preview do Controle —
+que existe justamente para **espelhar** o telão — passarem a mostrar coisas
+diferentes. O precedente de folha compartilhada já existia
+(`../shared/material-symbols.css`).
 
 ### Tokens
 
+Os valores abaixo são de `shared/tokens.css`, que é a fonte; as razões são
+medidas (luminância relativa WCAG, com as superfícies `rgba` compostas contra o
+fundo real de cada contexto).
+
 | Token | Valor | Uso |
 |---|---|---|
-| `--bg` | `#121212` | fundo do app — cinza real, não quase-preto (ver "Escada de elevação") |
-| `--panel` / `--panel-2` | `#2a2a2a` / `#383838` | painéis / item ativo/selecionado |
-| `--bar` | `#232323` | appbar / bottombar / trilho de abas |
-| `--line` | `#454545` | **todas** as bordas/separadores (1,95:1 contra o fundo — antes 1,19:1, invisível) |
-| `--surface` | `rgba(255,255,255,.12)` | fundo padrão de botão/controle |
-| `--surface-2` | `rgba(255,255,255,.18)` | chip/campo/badge levemente mais claro |
-| `--text` / `--muted` | `#f2f2f2` / `#a3a3a3` | texto / texto secundário (o `#777` anterior dava 3,94:1 — reprovado em AA) |
-| `--accent` | `#58a6ff` | **marca primária** (azul) como **texto, ícone e borda** sobre fundo escuro (7,4:1) |
-| `--accent-fill` | `#1f6feb` | o mesmo azul como **fundo de elemento com texto branco** (4,6:1). Ver "Um azul não serve aos dois papéis" |
-| `--accent-soft` | `rgba(88,166,255,.18)` | fundo suave de estado ativo (accent) |
-| `--gold` 🔁 | `#fbc02d` | **marca secundária** (dourado "IASD"): logo, capa da letra, pill "Ligar Sistema" |
-| `--gold-soft` | `rgba(251,192,45,.18)` | fundo do estado "áudio bloqueado" (âmbar) |
-| `--gold-text` | `#ffe082` | texto do estado "áudio bloqueado" |
-| `--danger` 🔁 | `#e53935` | perigo (excluir, mudo, view bloqueada) — e, no Display, o timer estourado |
-| `--danger-soft` | `rgba(229,57,53,.22)` | fundo suave de perigo |
-| `--danger-text` | `#ffcdd2` | texto sobre fundo de perigo |
-| `--success` | `#66bb6a` | sucesso / "check do sistema" (cartão do Hinário completo offline) |
-| `--success-soft` | `rgba(102,187,106,.18)` | fundo suave de sucesso |
-| `--radius-btn` | `8px` | raio de **botões/controles** (unifica os antigos 7/8/9px) |
-| `--radius-card` | `10px` | raio de **cartões/painéis** (preview, itens de lista, popups internos, folhas) |
-| `--radius-pill` | `999px` | badges, chips, pills |
-| `--wallpaper` 🔁 | `radial-gradient(circle at 50% 35%, #14331f 0%, #0a1a10 55%, #050b07 100%)` | cortina do wallpaper (Display + preview) |
-| `--lyrics-frame-bg` 🔁 | `rgba(0,0,0,.62)` | fundo da faixa da letra (modo imagem). **Sem borda** desde a v5.42: o contorno branco desenhava um retângulo que competia com a letra, e quem separa o texto da foto é a faixa. Densidade escolhida pelo PIOR caso — uma foto branca: `.40` deixava o fundo em ~#999 (2,4:1 com o texto branco, reprovado); `.62` põe em ~#616161, **6,2:1** |
-| `--fader-cap` | `26px` | espessura do cap do fader — **dois** faders a usam (mixer e barra do modo simplificado), e a posição do número sai dela |
-| `--press` | `scale(.96)` | **feedback de toque padrão**: todo `:active` usa `transform: var(--press)` |
+| `--bg` | `#131211` | fundo do app |
+| `--bar` | `#2c2b29` | bottombar / trilho de abas |
+| `--panel` / `--panel-2` | `#343330` / `#44433f` | cartões e linhas de lista / o item ativo ou selecionado |
+| `--line` | `#5a5854` | **todas** as bordas e separadores — 2,64:1 contra o fundo |
+| `--surface` | `rgba(255,255,255,.12)` | fundo de botão/controle **sobre o fundo do app** (ver R1) |
+| `--surface-2` | `rgba(255,255,255,.18)` | chip/campo/badge **sobre o fundo do app** |
+| `--text` / `--muted` | `#d6cfc3` / `#b8b0a3` | texto (12,09:1 sobre o fundo · 8,17:1 sobre painel) / secundário (8,71:1 · 5,88:1) |
+| `--accent` | `#dba849` | âmbar como **texto, ícone e borda** sobre fundo escuro — 8,65:1 sobre o fundo, 5,84:1 sobre painel |
+| `--accent-fill` | `#7c5a17` | o âmbar como **fundo de elemento preenchido** (aba ativa, botão primário) |
+| `--on-accent` | `#f6ecd6` | o que se escreve **em cima** de `--accent-fill` — 5,37:1 |
+| `--accent-soft` | `rgba(219,168,73,.16)` | fundo suave de estado ativo |
+| `--accent-glow` | `rgba(219,168,73,.32)` | halo do botão de conectar no simplificado bloqueado. Segue a MATIZ do accent, não o `--accent-fill`: um halo na cor do preenchimento (escuro por definição) sobre o fundo escuro do app seria invisível |
+| `--gold` / `--gold-soft` / `--gold-text` | `#dba849` / `rgba(219,168,73,.16)` / `#eed9a8` | marca secundária ("IASD"): logo, capa da letra, pill "Ligar Sistema", rótulo de estrofe, destaque da busca por letra |
+| `--live` | `#b34134` | **só** preenchimento/borda de "está no ar agora" |
+| `--on-live` | `#f3e9e8` | o que se escreve sobre `--live` — 4,74:1 |
+| `--live-text` | `#f0aaa2` | texto, ícone e borda de "no ar" — 9,78:1 sobre o fundo |
+| `--live-soft` | `rgba(179,65,52,.22)` | fundo suave de "no ar" |
+| `--danger` / `--danger-text` / `--danger-soft` | mesmos valores do par `--live` | o destrutivo. `--danger` **não tem uso hoje, e isso é intencional**: pela regra R2 ação destrutiva é sempre CONTORNADA, e contorno/texto usam `--danger-text`. Ele fica para o dia em que existir uma superfície destrutiva preenchida — e para deixar explícito qual dos dois tons é o de fundo, que é a distinção que o código antigo não fazia |
+| `--warn` / `--warn-text` / `--warn-soft` | `#e5aa78` / `#eec49a` / `rgba(218,135,64,.16)` | aviso: borda/ícone (4,89:1 sobre o próprio suave), texto (6,13:1), fundo |
+| `--ok` / `--ok-soft` | `#a2be95` / `rgba(132,169,115,.18)` | concluído/conectado — 6,22:1 sobre painel, 9,21:1 sobre o fundo |
+| `--yt` / `--yt-soft` | `#ffa199` / `rgba(255,0,0,.18)` | marca de terceiro. A MATIZ é informação (identifica a origem da mídia) e por isso não pode virar accent; o tom foi clareado até passar AA como texto pequeno sobre o próprio fundo suave, inclusive com a linha selecionada (5,00:1 no pior caso) |
+| `--stage-bg` / `--stage-text` | `#000` / `#fff` | **o palco**, não a UI: o preto é preto de verdade (as barras do letterbox têm de sumir na moldura da TV) e o texto projetado é branco pleno — num telão a legibilidade vem de luminância máxima, não de um off-white calibrado para uma tela a 30 cm do rosto |
+| `--stage-text-soft` / `--stage-text-dim` | `rgba(255,255,255,.9)` / `.72` | marca sobre o wallpaper / linha auxiliar da letra |
+| `--glass-bg` / `--glass-line` | `rgba(0,0,0,.45)` / `rgba(255,255,255,.22)` | botão de vidro **sobre a mídia** (a coluna da preview). A mídia por baixo é arbitrária, então o contraste não pode vir do fundo do app: vem do próprio scrim do botão |
+| `--scrim` | `rgba(0,0,0,.6)` | cortina de modal (bottom-sheets e diálogo) |
+| `--veil` / `--veil-solid` | `rgba(19,18,17,.55)` / `.92` | cortina do bloqueio do modo simplificado. É o `--bg` com alfa, e os dois têm de andar **juntos**: senão o véu vira um retângulo mais escuro (ou mais claro) que o app inteiro, justamente na tela que abre por padrão sem TV conectada. A variante sólida cobre o caso sem `backdrop-filter` |
+| `--wallpaper` | `radial-gradient(circle at 50% 35%, #14331f 0%, #0a1a10 55%, #050b07 100%)` | cortina do wallpaper (Display + preview) |
+| `--lyrics-frame-bg` | `rgba(0,0,0,.62)` | fundo da faixa da letra (modo imagem). **Sem borda**: o contorno branco desenhava um retângulo que competia com a letra, e quem separa o texto da foto é a faixa. A densidade foi escolhida pelo PIOR caso — uma foto branca: `.40` deixava o fundo em ~`#999` (**2,85:1** com o texto branco, reprovado); `.62` põe em ~`#616161`, **6,2:1** |
+| `--b-*` / `--bt-*` | dez pares | ladrilhos da Bíblia: tinta escura + a matiz da faixa lateral. Ver "Ladrilhos da Bíblia" |
+| `--cell-chapter{,-text}` / `--cell-verse{,-text}` | `#2f3d54`/`#dbe6f5` · `#4a3f24`/`#f3e6c8` | células de número da Bíblia. Tons distintos **de propósito** — capítulo frio, versículo quente: as duas grades são iguais em forma e conteúdo (só números) e ficam uma sobre a outra na mesma tela |
 
-🔁 = token de marca, duplicado em `display.css` — manter em sync.
+Fora de `tokens.css`, no `:root` do Controle (não são cor):
+
+| Token | Valor | Uso |
+|---|---|---|
+| `--radius-btn` / `--radius-card` / `--radius-pill` | `8px` / `10px` / `999px` | botões e controles / cartões e painéis / badges, chips, pills |
+| `--radius-sheet` | `18px` | bottom-sheet — raio MAIOR que o de cartão, e só nos cantos voltados para dentro da tela. É o que lê como "folha que deslizou de fora" em vez de "cartão grande". Eram três `18px` literais, três chances de divergirem |
+| `--radius-xs` | `4px` | marcas menores que um botão (badge de 1px de padding, realce de uma linha de letra, a linha-guia de arraste). Com `--radius-btn` elas viram cápsulas; sem raio nenhum, cortes secos no meio do texto |
+| `--deck-pv-h` | `130px` | altura da faixa da preview na grade do `.deck` — é token porque a LARGURA da preview sai dela (altura × proporção do telão) |
+| `--fader-cap` | `26px` | espessura do cap do fader — **dois** faders a usam (mixer e modo simplificado), e a posição do número sai dela |
+| `--icon-sm` / `--icon-md` / `--icon-lg` | `20` / `22` / `24px` | escala dos **glifos de fonte** (`.msym`). Os SVGs inline trazem `width`/`height` no próprio HTML e nunca estiveram sob ela; o modo simplificado tem escala própria, porque ali o alvo é o polegar de quem está de pé |
+| `--press` | `scale(.96)` | feedback de toque padrão: todo `:active` usa `transform: var(--press)` |
+| `--kb` | `0px` | altura coberta pelo teclado virtual, escrita pelo JS (ver "Deslocamento com o teclado virtual") |
 
 ### Métodos/convenções visuais padronizados
 
@@ -3475,14 +4111,24 @@ medidas repetidas à mão), que foram consolidadas nestes padrões.
   preenchimento, linha de música…): como o `*` zera o tap-highlight, esses
   ficavam **totalmente mudos ao toque** no aparelho. Com a lista única, um botão
   novo entra acrescentando um nome — não copiando uma regra.
-- **Tamanho de ícone:** três degraus, e só eles — `--icon-sm` (20px, botões de
+- **Tamanho de ícone:** três degraus — `--icon-sm` (20px, botões de
   linha/cabeçalho/popup), `--icon-md` (22px, abas e transporte) e `--icon-lg`
   (24px, miniatura-ícone e dicas de deslize). Antes havia oito tamanhos
-  (19…27px), cinco deles usados uma única vez.
-- **Alvo de toque:** botão de ícone é **34px** ou mais (`.row-btn`,
-  `.popup-close`, `.back-btn`, `.add-dir-btn`), `.sel-btn` 36, `.hymnal-card-btn`
-  38, `.tab` 42. Nada abaixo disso — o `.back-btn` já teve 20×20 px sendo a
-  única saída da tela de Favoritos e da navegação da Bíblia.
+  (19…27px), cinco deles usados uma única vez. **A escala governa os GLIFOS de
+  fonte** (`.msym`, via `font-size`), que é onde ela é aplicável: os SVGs
+  inline trazem `width`/`height` no próprio HTML e nunca estiveram sob ela, e o
+  modo simplificado tem escala própria (teclas de 34px, ícone de 44px no botão
+  de conectar) porque ali o alvo é o polegar de quem está de pé. "Três degraus
+  **e só eles**" era a frase antiga, e ela é desmentida por dezenas de valores
+  no HTML.
+- **Alvo de toque:** o piso é **34px** — `.row-btn`, `.row-handle`,
+  `.popup-close`, `.back-btn`, `.add-dir-btn`, `.coll-bar-dl` e
+  `.coll-group-btn`; `.sel-btn` tem 36 e `.tab`, 38. Nada abaixo disso — o
+  `.back-btn` já teve 20×20 px sendo a única saída da tela de Favoritos e da
+  navegação da Bíblia, com o `#addDirBtn` (que abre o SAF) logo ao lado.
+  Os dois botões de baixar (`.coll-bar-dl` no card e `.coll-group-btn` no
+  cabeçalho de grupo) têm o **mesmo** 34px de propósito: alinhados na mesma
+  coluna, tamanhos diferentes fariam os centros discordarem.
 - **Receita repetida vira seletor agrupado, não cópia:** os estados de cor são
   declarados por ESTADO (`.view-blocked`/`.muted`/`.danger` num bloco,
   `.active` noutro), a coluna "nome + subtítulo" das linhas de lista é uma regra
@@ -3498,13 +4144,16 @@ medidas repetidas à mão), que foram consolidadas nestes padrões.
 - **Exceção de seleção de texto:** só `input, textarea` no Controle (o campo de
   busca precisa ser editável) — ver "Regras de desenvolvimento".
 - **Cantos:** botões/controles = `--radius-btn`; contêineres = `--radius-card`;
-  pills/badges = `--radius-pill`. Casos especiais fora do sistema (intencionais):
-  `border-radius:0` da faixa da letra ("vídeo de louvor", cantos retos), `50%`
-  do thumb do fader, `18px 18px 0 0` das bottom-sheets, `4px` do `.url-badge`.
-- **Cores fora do sistema (intencionais):** `#fff` puro em texto de botão, `#000`
-  em fundos de mídia/preview e o `box-shadow` dourado do `.start-pill`
-  (`rgba(251,192,45,.35)`, alfa próprio) — são one-offs deliberados, não
-  candidatos a token.
+  pills/badges = `--radius-pill`; bottom-sheets = `--radius-sheet`; marcas
+  menores que um botão = `--radius-xs`. Os dois últimos existem porque três
+  `18px` e vários `4px` literais eram três (e vários) chances de divergirem no
+  primeiro ajuste. Caso especial deliberado que continua fora do sistema:
+  `border-radius: 0` da faixa da letra ("vídeo de louvor", cantos retos) e
+  `50%` do thumb do fader.
+- **Cor literal fora do sistema: nenhuma.** As duas folhas não contêm `#fff`
+  nem `#000` soltos — o preto do palco é `--stage-bg`, o branco projetado é
+  `--stage-text`, e até o halo do `.start-pill` virou `--accent-glow`. É a
+  regra R3.
 
 ### O ícone mostra a AÇÃO; a cor mostra o ESTADO
 
@@ -3540,73 +4189,198 @@ Botões de **função** (fone da mesa de som, folha da leitura auxiliar) e
 regra por natureza: não alternam duas ações opostas — o ícone nomeia o recurso,
 e o `.active` / o segmento marcado dizem o resto.
 
-### Escada de elevação, e por que ela foi refeita (v5.34)
+### Escada de elevação, e a regra que faltava
 
-O que separa duas camadas não é a cor de cada uma, é o **degrau** entre elas. A
-escala até a v5.33 era quase plana e, num celular fora de quarto escuro, botão
-e fundo viravam a mesma mancha preta. Medido na tela renderizada, com composição
-alfa real (quase todo controle usa `--surface`, que é branco a 6% e só existe
-em relação ao que está atrás):
+O que separa duas camadas não é a cor de cada uma, é o **degrau** entre elas:
+no celular, com brilho baixo no salão, uma escala quase plana faz botão e fundo
+virarem a mesma mancha escura. Degraus da paleta atual:
 
-| Par | Antes | Depois |
+| Par | Razão | Piso |
 |---|---|---|
-| trilho de abas × aba inativa | 1,15:1 | **1,46:1** |
-| fundo × botão de transporte | 1,15:1 | **1,46:1** |
-| painel × campo/chip | — | **1,72:1** |
-| painel × barra do microfone | 1,09:1 | **1,31:1** |
-| borda/separador × fundo | 1,19:1 | **1,95:1** |
-| texto secundário (`--muted`) | 3,94:1 ❌ | **7,43:1** |
-| branco sobre aba ativa | 3,75:1 ❌ | **4,63:1** |
+| fundo × barra de abas | **1,32:1** | 1,30 |
+| fundo × painel | **1,48:1** | 1,30 |
+| painel × painel ativo (`--panel-2`) | 1,28:1 | 1,30 — assumido, ver abaixo |
+| fundo × `--surface` (botão sobre o fundo) | **1,38:1** | 1,30 |
+| fundo × `--line` | **2,64:1** | 1,60 |
+| painel × `--line` | **1,78:1** | 1,60 |
+| painel × `--surface` recuada (botão DENTRO do cartão) | 1,18:1 | assumido |
+| painel × `--surface-2` recuada (chip dentro do cartão) | 1,11:1 | assumido |
 
-A correção foi pelos **dois lados**: o fundo subiu para um cinza real e os
-elementos da frente subiram mais, para o degrau crescer em vez de só deslocar.
+**`--panel` × `--panel-2` fica logo abaixo do piso, e isso é assumido**: ele
+não carrega o estado sozinho em lugar nenhum. Quem diz "selecionado" é sempre a
+**borda em `--accent`** (5,84:1 sobre o painel); o degrau de fundo é reforço,
+não o sinal.
 
-- **Piso adotado: 1,25:1 entre superfícies**, 4,5:1 para texto (mínimo AA) e
-  1,7:1 para bordas. Há teste medindo isso na tela renderizada — mudar um token
-  para baixo desses valores falha.
-- **`--surface`/`--surface-2` continuam sendo branco com alfa** de propósito:
-  assim um botão mantém o mesmo degrau relativo esteja ele sobre o fundo, sobre
-  a barra ou dentro de um cartão. Três valores fixos divergiriam no primeiro
-  ajuste.
-- **O trilho de abas é separado do fundo pela BORDA**, não pelo tom (1,12:1
-  entre eles). É de propósito: uma barra clara demais competiria com os botões
-  que ela contém, que são o que precisa saltar.
+#### R1 — a superfície AFUNDA dentro de um cartão
 
-### Um azul não serve aos dois papéis
+O ponto estrutural desta versão. `--surface`/`--surface-2` são branco com alfa
+**de propósito**: um botão mantém o mesmo degrau relativo esteja ele sobre o
+fundo do app ou sobre a barra — três valores fixos divergiriam no primeiro
+ajuste. Mas alfa **EMPILHA**: 12% de branco sobre `--bg` dá `#2f2e2e`, e o
+MESMO token sobre `--panel` dá `#4c4b49` — os canais sobem 1,6× e a **luminância
+relativa mais que dobra** (2,6×), que é o que o contraste enxerga.
+Era essa a causa raiz do pior contraste do app — todo texto e ícone colorido
+dentro de um cartão reprovava AA porque a base dele era muito mais clara do que
+a folha supunha. O pior caso medido: o ícone de cancelar um download, **2,32:1**.
 
-`--accent` era um valor único usado como **cor de texto** e como **fundo com
-texto branco**. Isso é uma contradição aritmética, não uma questão de gosto:
-para ser legível como texto sobre fundo escuro o azul precisa ser claro; para
-receber branco por cima precisa ser escuro. O valor antigo (`#2f81f7`) dava
-**3,75:1** de branco sobre a aba ativa — reprovado em AA — e, depois que o fundo
-subiu, caía para **2,66:1** como cor de texto, que é pior ainda.
+**Não existe alfa que resolva.** Para o botão manter degrau ≥ 1,30:1 contra o
+fundo do app é preciso α ≥ .10; para o texto colorido passar AA dentro do
+cartão é preciso α ≤ .08. São incompatíveis, porque um único overlay não pode
+servir a duas bases.
 
-Daí os dois tokens. A regra para escolher é o **papel**, não a aparência:
+A saída é **inverter o sinal dentro do cartão** — que também é a convenção
+correta de UI escura (o cartão já está elevado, então o controle dentro dele é
+**recesso**) e ainda emite menos luz, o que importa num salão no escuro:
 
-- fundo de elemento **com texto branco** → `--accent-fill`
-- texto, ícone ou borda **sobre fundo escuro** → `--accent`
-- elemento **decorativo** sem texto por cima (barra de progresso, linha de
-  arraste, trilho de scroll) → `--accent`, que é o que os destaca
+```css
+.row-item, .lib-item, .hymnal-card, .msg-item, .bible-vsec,
+.dialog-card, .popup-sheet, .fade-row, .simple-lyrics, .simple-key {
+  --surface:   rgba(0, 0, 0, .24);
+  --surface-2: rgba(0, 0, 0, .14);
+}
+```
+
+Como custom properties **herdam**, essa regra só precisa marcar os elementos
+que de fato pintam `--panel` de fundo: toda a descendência vem junto, não há
+componente a ajustar, e um componente novo nasce coberto.
+
+**O preço, medido e assumido:** o degrau recuado contra o cartão cai para
+1,18:1 (botão) e 1,11:1 (chip). Ali, diferente do fundo do app, o degrau não é
+o que anuncia o controle — dentro de um cartão o botão tem ícone, e a linha em
+`--line` do próprio cartão já o separa do resto. O que **não** era negociável
+era o texto: nenhum par colorido dentro de cartão reprova AA depois desta
+regra, e o ícone de cancelar download vai de 2,32:1 para **7,36:1**.
+
+### Uma cor não serve aos dois papéis (accent / accent-fill / on-accent)
+
+`--accent` já foi um valor único usado como **cor de texto** e como **fundo com
+texto por cima**. Isso é contradição aritmética, não questão de gosto: para ser
+legível COMO TEXTO sobre fundo escuro a cor precisa ser clara; para RECEBER
+texto por cima precisa ser escura. Daí três tokens, um por papel:
+
+- **`--accent-fill`** — fundo de elemento preenchido (aba ativa, botão
+  primário). É o par **fundo/texto** que reprovava na paleta anterior, e não a
+  cor como texto: o azul preenchido com branco por cima passava raspando
+  (**4,63:1**), mas o mesmo desenho aplicado ao vermelho — o botão "no ar",
+  `--danger` cheio com `#fff` — ficava em **4,23:1**, abaixo dos 4,5 exigidos.
+  Separar o papel de fundo do papel de traço é o que torna esse par uma decisão
+  em vez de um acidente.
+- **`--on-accent`** — o que se escreve em cima de `--accent-fill`. Hoje
+  **5,37:1**.
+- **`--accent`** — texto, ícone e borda sobre fundo escuro: 8,65:1 sobre o
+  fundo, 5,84:1 sobre painel. Elemento **decorativo** sem texto por cima (barra
+  de progresso, linha de arraste, trilho de scroll) também usa este, que é o
+  que os destaca.
+
+> O texto normativo anterior citava um contraste de **2,66:1 para o azul como
+> TEXTO**, e esse número não correspondia a medição nenhuma — o azul antigo
+> (`#58a6ff`) dava 7,42:1 sobre o fundo. Ele fazia a régua da decisão parecer
+> outra: sugeria que o problema estava no azul como texto, quando estava no
+> par fundo/branco. Registrado aqui porque foi essa leitura errada que
+> sobreviveu em três lugares da documentação.
+
+### Regras do sistema
+
+- **R1 — a superfície afunda dentro do cartão.** Acima.
+- **R2 — `--live`/`--danger` NUNCA são cor de texto, ícone ou borda.** São
+  escuros por construção: existem para receber `--on-live` por cima. Texto,
+  ícone e borda de "no ar" ou de destrutivo usam `--live-text`/`--danger-text`.
+  Usá-los como cor de traço é literalmente o defeito que produzia o 2,32:1.
+- **R3 — branco literal não existe.** Sobre `--accent-fill` use `--on-accent`;
+  sobre `--live` use `--on-live`; no resto, `--text`. Nenhuma das duas folhas
+  contém `#fff` nem um `rgb(255,255,255)` opaco — as únicas ocorrências de
+  branco são os `rgba` nomeados em `tokens.css` (`--surface`, `--glass-line`,
+  `--stage-text*`).
+- **R4 — um estado, uma cor.** A tabela de colisões acima é normativa: no ar =
+  vermelho preenchido; selecionado = âmbar; concluído = verde; aviso = laranja
+  suave + ícone.
+- **R5 — os tokens de cor moram em `shared/tokens.css`**, carregado pelos dois
+  apps. Não há mais o que dessincronizar.
+
+### Contraste — o que foi medido
+
+Todo par foi recalculado pelo algoritmo de luminância relativa da WCAG, com as
+superfícies `rgba` **compostas contra o fundo real de cada contexto** — que é
+justamente o passo que faltava antes. Pisos adotados: **4,5:1** para texto
+pequeno, **3:1** para ícone/borda que carrega informação, **~1,30:1** para o
+degrau entre duas superfícies grandes.
+
+| Par | Antes | Agora |
+|---|---|---|
+| fundo × barra de abas | 1,19 ✕ | 1,32 |
+| fundo × painel | 1,31 | 1,48 |
+| painel × painel ativo | 1,22 ✕ | 1,28 (assumido) |
+| fundo × borda | 1,95 | 2,64 |
+| texto × fundo | 16,73 | 12,09 |
+| rótulo apagado (`--muted`) sobre chip (`--surface-2`) no fundo do app | 4,31 ✕ | 5,06 |
+| ícone de cancelar download (dentro do cartão) | 2,32 ✕ | 7,36 |
+| rótulo sobre bloco de accent | 4,63 | 5,37 |
+| rótulo sobre botão "no ar" | 4,23 ✕ | 4,74 |
+| pior ladrilho da Bíblia | 3,94 ✕ | 8,66 |
+
+Todas as combinações de **texto colorido contra todos os fundos do app** passam
+AA, incluindo os oito fundos possíveis (fundo do app, cartão, cartão ativo,
+botão e chip sobre o fundo, botão e chip dentro do cartão, botão no cartão
+ativo).
+
+### Ladrilhos da Bíblia
+
+Deixaram de ser dez blocos saturados e passaram a ser **tinta escura + faixa
+lateral de 3px com a matiz do grupo** (`--b-<grupo>` e `--bt-<grupo>`). Três
+razões, e a primeira é a que motivou tudo:
+
+- **Luz.** É a única tela do app que preenche o visor inteiro de cor, e é
+  justamente a que o operador abre NO ESCURO no meio da pregação. Medida, ela
+  emitia **16,3% de luminância média** contra 2,3% de um painel comum — 7×
+  mais. Com a tinta são **2,8%**, ou seja **5,8× menos luz**.
+- **Contraste.** Cinco dos dez grupos tinham o rótulo abaixo de AA, o pior em
+  **3,94:1**. Com a tinta o pior rótulo vai a **8,66:1**, e a faixa mantém
+  3,2:1 contra a própria tinta — suficiente para ela carregar a informação de
+  agrupamento.
+- **As matizes se sobrepunham.** `.bg-lei` e `.bg-evangelhos` ficavam a **1,4°
+  de matiz** uma da outra: indistinguíveis. As novas foram redistribuídas com
+  **18° de separação mínima**.
 
 ### Ao adicionar/alterar estilo
 
-1. Existe token pro valor? Use-o. Não existe e o valor se repete? **Crie um token**.
-2. Cor/medida de marca nova → adicionar **nos dois** `:root` (Controle + Display) e marcar 🔁 nesta tabela.
-3. Botão novo → acrescentar o seletor à lista `:is(...)` do feedback de toque; nada de tap-highlight nem de `:active` próprio.
-3b. Fundo em accent? Escolha o token pelo PAPEL (ver acima): `--accent-fill`
-   se houver texto branco por cima, `--accent` se for texto/ícone/borda ou
-   decoração. E respeite os pisos de contraste (1,25:1 superfícies, 4,5:1
-   texto, 1,7:1 bordas).
-4. Botão que alterna → ícone = ação, cor = estado (ver acima).
-5. Atualizar esta tabela e bumpar a versão visual + caches dos SW.
+1. Existe token pro valor? Use-o. Não existe e o valor se repete? **Crie um
+   token** — cor em `shared/tokens.css`, o resto no `:root` do Controle.
+2. Fundo em accent? Escolha pelo **papel**: `--accent-fill` se houver texto por
+   cima (e aí o texto é `--on-accent`), `--accent` se for texto/ícone/borda ou
+   decoração.
+3. Está pintando "no ar" ou "destrutivo"? R2: o traço é `--live-text` /
+   `--danger-text`, nunca `--live` / `--danger`.
+4. Botão novo → acrescentar o seletor à lista `:is(...)` do feedback de toque;
+   nada de tap-highlight nem de `:active` próprio.
+5. Botão que alterna → ícone = ação, cor = estado (ver acima).
+6. Atualizar esta seção e incrementar a versão (os três lugares — ver "Regras
+   de desenvolvimento").
+
+### Ao mexer em cor: NÃO há teste automatizado
+
+**Não existe teste medindo contraste neste repositório** — não há suíte de
+testes nenhuma. O CI (`.github/workflows/apk.yml`) faz um `node --check` em
+cada `.js` do bundle, valida o `version.json`, empacota a base web e compila/
+assina o APK; nada ali mede cor, layout ou comportamento. A documentação
+anterior afirmava que existia ("há teste medindo isso na
+tela renderizada — mudar um token para baixo desses valores falha"), e essa
+frase é exatamente o motivo pelo qual dois pares (`--bg`×`--bar` em 1,19 e
+`--panel`×`--panel-2` em 1,22) ficaram abaixo do piso declarado sem ninguém
+notar: quem confia no doc conclui que uma regressão seria barrada no CI e
+ajusta um token sem medir.
+
+Enquanto não houver o teste, **meça à mão** antes de mudar um token: luminância
+relativa WCAG, com as superfícies `rgba` compostas contra o fundo real do
+contexto — **inclusive o caso "dentro de um cartão"**, que é onde as regressões
+aparecem (R1).
 
 ---
 
 ## Fonte de ícones (Material Symbols)
 
-Versão subconjuntada (~3.2 KB woff2): peso 400, 30 glifos no subset (26
-efetivamente usados na UI — referenciados por codepoint via o mapa `ICON` em
-`controle.js` **ou** direto como entidade HTML `&#x…;` no `controle/index.html`).
+Versão subconjuntada (~3.2 KB woff2): peso 400, **30 glifos no subset, 28
+efetivamente usados** na UI — referenciados por codepoint via o mapa `ICON` em
+`controle.js` **ou** direto como entidade HTML `&#x…;` no `controle/index.html`.
 **Só o Controle carrega a fonte** — o Display é só wallpaper + mídia, sem
 nenhum glifo (por isso `display/index.html` não inclui
 `material-symbols.css`/`.woff2`).
@@ -3618,10 +4392,11 @@ E04F E050 E14C E150 E251 E2C7 E2C8 E2CC E3A1 E3AD
 E413 E5C4 E5CF E838 E86C E872 E8F5 E945 EB80 F116
 ```
 
-`E838` (star) **voltou a ter uso**: é o ícone dos atalhos de **Favoritos**
-(`ICON.star`, ver "Favoritos"). `E5CF` (expand_more), `E8F5` (visibility_off) e
-`E86C` (check_circle — antigo ícone de seleção múltipla, agora só highlight
-azul) continuam no woff2 sem referência (glifos reservados) — podem sair num
+Dois deles **voltaram a ter uso** e não são mais reservados: `E838` (star) é o
+ícone dos atalhos de **Favoritos** (`ICON.star`) e `E5CF` (expand_more) é a
+seta de acordeão do card de coleção (`.coll-bar-chev`). Continuam no woff2 sem
+nenhuma referência apenas `E8F5` (visibility_off) e `E86C` (check_circle — o
+antigo ícone de seleção múltipla, hoje só o realce da linha) — podem sair num
 próximo re-subset.
 
 Para adicionar ícone: obter codepoint em `fonts.google.com/icons?icon.style=Rounded`
@@ -3640,16 +4415,18 @@ Cronograma (`.import-btn`), que diferencia importar ARQUIVOS de abrir os
 FAVORITOS (estrela, no botão ao lado — e a mesma estrela no "Novo atalho"),
 os três botões flutuantes da preview (**engrenagem**, **cast** e
 **expandir** — `#pvSettingsBtn`/`#pvCastBtn`/`#pvFullBtn`),
-e nos **cards de coleção** as **setas circulares** de sincronizar
-(`syncIconSvg`), o **check** verde de "completo offline" (`checkIconSvg`) e o
-ícone de **lista** do botão "Ver músicas" (`listIconSvg`) e a **engrenagem** de
-opções da coleção (`gearIconSvg`); e nos
-resultados da busca os botões de tocar **voz/microfone** (Cantado, `voiceIconSvg`)
-e **nota musical** (Playback, `noteIconSvg`); e o **livro com uma cruz** da aba
-**Bíblia** (`.tab[data-tab="bible"]`).
+e nos **cards de coleção** a **seta de baixar** (`downloadAllIconSvg`), o **✕**
+de cancelar (`closeIconSvg`), as **setas circulares** de sincronizar
+(`syncIconSvg`), o **check** de "completo offline" (`checkIconSvg`), a
+**engrenagem** de opções (`gearIconSvg`) e o ícone de **lista**
+(`listIconSvg`); e nos resultados da busca os botões de tocar
+**voz/microfone** (Cantado, `voiceIconSvg`) e **nota musical** (Playback,
+`noteIconSvg`); e o **livro com uma cruz** da aba **Bíblia**
+(`.tab[data-tab="bible"]`), mais a **grade de módulos** da aba **Diversos** —
+que substituiu o microfone quando a aba deixou de ter uma ferramenta só.
 
-> **Borda nativa dos `<button>`**: `.tab-add`, `.pv-fab` (e os botões do cartão do Hinário)
-> zeram `border`/`appearance` explicitamente — sem isso, um `<button>` (ex.:
+> **Borda nativa dos `<button>`**: `.tab-add` e `.pv-fab` zeram
+> `border`/`appearance` explicitamente — sem isso, um `<button>` (ex.:
 > `#hymnSearchBtn`) herda a **borda 3D bicolor (bevel)** do sistema, fora do
 > padrão do app. O mesmo motivo do `appearance:none` no `.lib-search`
 > (`type="search"`).

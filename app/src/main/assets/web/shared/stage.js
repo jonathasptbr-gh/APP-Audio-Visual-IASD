@@ -424,7 +424,16 @@
       _revokeUrl();
     }
 
-    async function load(id, v, m, vol) {
+    // `startAt`/`autoplay` existem para a RECONEXÃO do telão. Quando o dongle
+    // cai e volta, o Controle reenvia a cena — e até a v5.47 ele mandava só o
+    // `load`, então a mídia recomeçava do ZERO e no estado "tocando". Um hino
+    // aos 3:20 voltava do início na frente da congregação, e um louvor que
+    // estava PAUSADO para a oração voltava tocando.
+    // Vêm no PRÓPRIO comando de load, e não como um `seek`/`pause` enviado logo
+    // depois, porque `onCommand` no Display não serializa: o load é assíncrono
+    // (getMedia → opfsGetFile → mediaReady) e um comando seguinte chegaria a
+    // tempo de agir sobre o <video> ANTERIOR, antes de a fonte nova entrar.
+    async function load(id, v, m, vol, startAt, autoplay) {
       if (v !== undefined) view = v;
       if (m !== undefined) muted = m;
       if (typeof vol === 'number') volume = vol;
@@ -504,7 +513,20 @@
         video.src = url;
         video.muted = forceMuted ? true : muted;
         if (!forceMuted) video.volume = volume;
-        play();
+        // A posição só "gruda" depois que a duração é conhecida — escrever
+        // currentTime junto com o src é perdido em silêncio. `once` porque
+        // isto vale para ESTA fonte; a próxima traz o seu próprio pedido.
+        if (typeof startAt === 'number' && startAt > 0) {
+          video.addEventListener('loadedmetadata', () => {
+            if (seq !== loadSeq) return;   // outro load assumiu durante a espera
+            if (isFinite(startAt)) video.currentTime = startAt;
+          }, { once: true });
+        }
+        // `autoplay === false` é a cena que voltou PAUSADA. `undefined` mantém
+        // o comportamento de sempre (todo load normal toca), então nenhum outro
+        // chamador precisou mudar. Sem `play()` aqui, quem revela a mídia é o
+        // `applyMedia()` + a cortina no fim deste mesmo load.
+        if (autoplay !== false) play();
         // ENTRADA COM RAMPA, espelhando a saída. Isto não existia: o volume
         // era escrito direto no alvo e a mídia entrava no talo enquanto o
         // visual ainda esmaecia — a saída tinha rampa, a entrada não, e a
@@ -572,7 +594,7 @@
     // (YouTube) antes de decidir o que mostrar enquanto o vídeo carrega.
     function handle(cmd) {
       switch (cmd.type) {
-        case 'load': return load(cmd.mediaId, cmd.view, cmd.muted, cmd.volume);
+        case 'load': return load(cmd.mediaId, cmd.view, cmd.muted, cmd.volume, cmd.time, cmd.playing);
         case 'view': return setViewFaded(cmd.view);
         case 'mute': setMute(cmd.muted); break;
         case 'volume': if (typeof cmd.volume === 'number') setVolume(cmd.volume); break;

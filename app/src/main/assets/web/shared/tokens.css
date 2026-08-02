@@ -1,0 +1,201 @@
+/* ---------- Paleta do app — FONTE ÚNICA, compartilhada pelos dois apps ----------
+   Até a v5.47 os tokens de marca (--gold, --wallpaper, --lyrics-frame-bg,
+   --danger) eram mantidos À MÃO em DUAS folhas (controle.css e display.css), e o
+   comentário das duas admitia que "a sincronização é manual". Sincronização
+   manual entre dois arquivos é uma classe de bug, não um processo: basta um
+   ajuste de cor entrar só num lado para o telão e a preview do Controle — que
+   existe justamente para ESPELHAR o telão — passarem a mostrar coisas
+   diferentes. Este arquivo elimina a duplicação: quem carrega a folha carrega a
+   paleta. O precedente já existia (os dois apps carregam
+   ../shared/material-symbols.css).
+
+   Precisa ser linkado ANTES da folha do app:
+     <link rel="stylesheet" href="../shared/tokens.css">
+
+   AQUI SÓ ENTRA COR. Raio, escala de ícone, curva de toque e medidas de layout
+   continuam no :root de controle.css: são decisões da UI DENSA do Controle, e o
+   Display (que não tem UI) não teria o que fazer com elas.
+
+   Todos os pares abaixo foram MEDIDOS (razão de contraste WCAG) contra os
+   fundos em que de fato aparecem — os números nos comentários são medições, não
+   estimativas. Piso adotado: 4,5:1 para texto pequeno, 3:1 para ícone/borda que
+   carrega informação, ~1,3:1 para o degrau entre duas superfícies grandes. */
+:root {
+  /* ---------- Superfícies: uma ESCADA de elevação ----------
+     O que importa aqui não é cada cor isolada, é o DEGRAU entre elas: no
+     celular, com brilho baixo no salão, uma escala quase plana faz botão e
+     fundo virarem a mesma mancha escura.
+     Medido nesta paleta: fundo × barra 1,32:1, fundo × painel 1,48:1,
+     painel × painel-2 1,28:1, fundo × linha 2,64:1, painel × linha 1,78:1.
+     O par painel × painel-2 fica logo abaixo do piso de 1,3:1 — e é assumido:
+     ele não carrega o estado sozinho em lugar nenhum. Quem diz "selecionado"
+     é sempre a BORDA em --accent (5,84:1 sobre o painel); o degrau de fundo é
+     reforço, não o sinal.
+
+     `--surface`/`--surface-2` são branco com alfa de propósito: um botão
+     mantém o mesmo degrau relativo esteja ele sobre o fundo do app ou sobre a
+     barra — três valores fixos divergiriam no primeiro ajuste. Dentro de um
+     CARTÃO essa mesma regra se INVERTE (o overlay passa a ser preto, e o
+     controle afunda em vez de flutuar), porque branco com alfa EMPILHA: sobre
+     `--panel` ele produzia uma base clara demais para qualquer texto colorido.
+     A regra e as medições estão em "superfície que afunda", no topo de
+     controle.css — quem mexer nestes dois valores precisa reler aquilo. */
+  --bg: #131211;
+  --bar: #2c2b29;
+  --panel: #343330;
+  --panel-2: #44433f;
+  --line: #5a5854;                       /* separadores/bordas — 2,64:1 contra o fundo */
+  --surface: rgba(255, 255, 255, .12);   /* botão SOBRE o fundo do app */
+  --surface-2: rgba(255, 255, 255, .18); /* chip/campo/badge SOBRE o fundo do app */
+
+  /* texto */
+  --text: #d6cfc3;                       /* 12,09:1 sobre o fundo · 8,17:1 sobre painel */
+  --muted: #b8b0a3;                      /* 8,71:1 sobre o fundo · 5,88:1 sobre painel */
+
+  /* ---------- ÂMBAR: a marca IASD E o accent, numa família só ----------
+     Uma cor só não serve aos dois papéis, e isso é aritmética, não gosto: para
+     ser legível COMO TEXTO sobre o fundo escuro ela precisa ser clara; para
+     receber TEXTO por cima precisa ser escura. Daí três tokens, um por papel:
+
+     `--accent`      → texto, ícone e borda sobre fundo escuro (5,84:1 sobre o
+                       painel; 8,65:1 sobre o fundo)
+     `--accent-fill` → FUNDO de elemento preenchido (aba ativa, botão primário)
+     `--on-accent`   → o que se escreve EM CIMA de --accent-fill (5,37:1)
+
+     Era esse par fundo/texto que reprovava na paleta azul anterior, e não o
+     azul como texto: o valor único servia de fundo com branco por cima e essa
+     combinação é que ficava abaixo do mínimo. O texto normativo antigo citava
+     um contraste de 2,66:1 para o azul como TEXTO — número que não corresponde
+     a medição nenhuma e que fazia a régua da decisão parecer outra.
+
+     Marca e accent têm o MESMO valor (`--gold` = `--accent`): o dourado da
+     IASD é a cor de destaque do app, e manter dois nomes com o mesmo valor é o
+     que permite distinguir, na folha, "isto é marca/metadado" de "isto é
+     navegação/seleção" sem inventar uma segunda matiz. */
+  --accent: #dba849;
+  --accent-fill: #7c5a17;
+  --accent-soft: rgba(219, 168, 73, .16);
+  --on-accent: #f6ecd6;
+  /* Halo do botão de conectar no modo simplificado bloqueado. Segue a MATIZ do
+     accent, não o --accent-fill: um halo na cor do preenchimento (escuro por
+     definição) sobre o fundo escuro do app seria invisível — a sombra existe
+     para separar o botão do teclado embaçado atrás dele. */
+  --accent-glow: rgba(219, 168, 73, .32);
+
+  /* marca secundária (dourado "IASD") — mesmo valor do accent, ver acima */
+  --gold: #dba849;
+  --gold-soft: rgba(219, 168, 73, .16);
+  --gold-text: #eed9a8;
+
+  /* ---------- VERMELHO: atenção, em dois papéis que NÃO se misturam ----------
+     `--live`/`--danger` são ESCUROS de propósito — existem para ser fundo, com
+     --on-live por cima. Usá-los como cor de texto/ícone/borda é o defeito que
+     produzia o pior contraste do app (o ícone de cancelar download media
+     2,32:1). Texto, ícone e borda usam sempre --live-text / --danger-text.
+
+     PREENCHIDO = "está no ar agora" (microfone aberto, ponto de projetando).
+     CONTORNADO = ação destrutiva (excluir, cancelar) — nunca preenchida, para
+     não competir com o que está de fato no telão. */
+  --live: #b34134;                       /* só preenchimento/borda de preenchido */
+  --on-live: #f3e9e8;                    /* 4,74:1 sobre --live */
+  --live-text: #f0aaa2;                  /* 9,78:1 sobre o fundo · 5,74:1 sobre --live-soft */
+  --live-soft: rgba(179, 65, 52, .22);
+  /* `--danger` é o par ESCURO do destrutivo — mesmo valor de `--live`, token
+     próprio porque os dois papéis podem divergir um dia. Hoje ele não tem
+     nenhum uso na folha, e isso é intencional, não esquecimento: pela regra
+     acima, ação destrutiva é sempre CONTORNADA, e contorno/texto usam
+     `--danger-text`. Ele fica para o caso de um dia existir uma superfície
+     destrutiva preenchida — e para deixar explícito qual dos dois tons é o de
+     fundo, que é justamente a distinção que o código antigo não fazia. */
+  --danger: #b34134;
+  --danger-text: #f0aaa2;
+  --danger-soft: rgba(179, 65, 52, .22);
+
+  /* ---------- LARANJA: aviso ----------
+     Sempre com fundo suave + ícone, nunca cor pura solta: um aviso que se
+     anuncia só pela matiz não sobrevive a um celular com brilho baixo nem a
+     quem não distingue as duas matizes quentes do app. */
+  --warn: #e5aa78;                       /* borda/ícone — 4,89:1 sobre --warn-soft */
+  --warn-text: #eec49a;                  /* texto — 6,13:1 sobre --warn-soft */
+  --warn-soft: rgba(218, 135, 64, .16);
+
+  /* ---------- VERDE: concluído / conectado ----------
+     E SÓ isso. Até a v5.47 o verde também dizia "está no ar" em dois lugares
+     (.msg-item.active e .bible-vsec.cur.live) enquanto outros quatro diziam a
+     mesma coisa em vermelho: duas cores opostas para a mesma mensagem, na mesma
+     tela, sem regra que o operador pudesse aprender. */
+  --ok: #a2be95;                         /* 6,22:1 sobre painel · 9,21:1 sobre o fundo */
+  --ok-soft: rgba(132, 169, 115, .18);
+
+  /* ---------- Cores de MARCA DE TERCEIRO ----------
+     O vermelho do YouTube identifica a origem da mídia, então a MATIZ é
+     informação e não pode virar accent. O tom foi clareado até passar AA como
+     texto pequeno sobre o próprio fundo suave, inclusive quando a linha está
+     selecionada e o fundo sobe para --panel-2 (5,02:1 no pior caso). */
+  --yt: #ffa199;
+  --yt-soft: rgba(255, 0, 0, .18);
+
+  /* ---------- O PALCO (projeção) ----------
+     Não é UI: é o que a TV mostra. O preto aqui é preto de verdade (as barras
+     do letterbox têm de sumir na moldura da TV) e o texto projetado é branco
+     pleno — num telão a legibilidade vem de luminância máxima, não de um
+     off-white calibrado para uma tela a 30 cm do rosto. Os mesmos tokens valem
+     na preview do Controle: ela existe para ESPELHAR o telão, e uma preview
+     com outra cor de letra deixaria de cumprir esse papel. */
+  --stage-bg: #000;
+  --stage-text: #fff;                    /* letra/versículo projetado */
+  --stage-text-soft: rgba(255, 255, 255, .9);  /* marca sobre o wallpaper */
+  --stage-text-dim: rgba(255, 255, 255, .72);  /* linha auxiliar da letra */
+
+  /* Botão de vidro SOBRE a mídia (a coluna de botões da preview). A mídia por
+     baixo é arbitrária — foto clara, vídeo, preto —, então o contraste não pode
+     vir do fundo do app: vem do próprio scrim escuro do botão. */
+  --glass-bg: rgba(0, 0, 0, .45);
+  --glass-line: rgba(255, 255, 255, .22);
+  /* Cortina de modal (bottom-sheets e diálogo): escurece a tela ATRÁS. */
+  --scrim: rgba(0, 0, 0, .6);
+  /* Cortina do bloqueio do modo simplificado. É o --bg com alfa; os dois têm de
+     andar JUNTOS, senão o véu vira um retângulo mais escuro (ou mais claro) que
+     o app inteiro justamente na tela que abre por padrão sem TV conectada. A
+     variante sólida cobre o caso sem `backdrop-filter`. */
+  --veil: rgba(19, 18, 17, .55);
+  --veil-solid: rgba(19, 18, 17, .92);
+
+  /* wallpaper (cortina do telão) — a identidade visual do Display */
+  --wallpaper: radial-gradient(circle at 50% 35%, #14331f 0%, #0a1a10 55%, #050b07 100%);
+
+  /* Moldura da letra sincronizada (modo imagem). Sem linha de borda: a faixa
+     escura já separa o texto da foto, e o contorno branco competia com a letra
+     em vez de ajudá-la a ser lida. Em troca ela ficou mais densa — .40 deixava
+     um branco de foto em ~#999 (2,85:1 com o texto branco, longe do mínimo);
+     .62 põe o pior caso em ~#616161, que dá 6,2:1. */
+  --lyrics-frame-bg: rgba(0, 0, 0, .62);
+
+  /* ---------- Bíblia: ladrilhos dos 66 livros ----------
+     TINTA ESCURA + faixa lateral com a matiz do grupo, não o bloco saturado de
+     antes. A tela de livros é a única do app que preenche o visor inteiro de
+     cor, e é justamente a que o operador abre NO ESCURO no meio da pregação:
+     medida, ela emitia 7x mais luz que uma lista comum, e cinco dos dez grupos
+     tinham o rótulo abaixo de AA. Com a tinta, o pior rótulo vai a 8,66:1 e a
+     faixa mantém 3,2:1 contra a própria tinta.
+     As matizes foram REDISTRIBUÍDAS: Lei e Evangelhos ficavam a um grau de
+     matiz um do outro (indistinguíveis); aqui a separação mínima é de 18°. */
+  --b-lei:#1e3044;        --bt-lei:#417ec3;
+  --b-historicos:#3d2b1b; --bt-historicos:#ac6d36;
+  --b-poeticos:#173330;   --bt-poeticos:#2b897d;
+  --b-pmaiores:#3a2552;   --bt-pmaiores:#9564ce;
+  --b-pmenores:#472045;   --bt-pmenores:#c547bc;
+  --b-evangelhos:#252c53; --bt-evangelhos:#6775cf;
+  --b-atos:#193237;       --bt-atos:#308698;
+  --b-paulinas:#18351f;   --bt-paulinas:#2c8d46;
+  --b-gerais:#283217;     --bt-gerais:#64862a;
+  --b-apocalipse:#352e18; --bt-apocalipse:#917a2e;
+
+  /* Células de número da Bíblia (capítulo × versículo). Tons DISTINTOS por tela
+     — capítulo em tom frio, versículo em tom quente — porque as duas grades são
+     iguais em forma e conteúdo (só números) e ficam uma sobre a outra na mesma
+     tela: sem a diferença de temperatura, o operador perde de vista em qual das
+     duas metades está tocando. */
+  --cell-chapter: #2f3d54;      --cell-chapter-text: #dbe6f5;
+  --cell-verse: #4a3f24;        --cell-verse-text: #f3e6c8;
+}

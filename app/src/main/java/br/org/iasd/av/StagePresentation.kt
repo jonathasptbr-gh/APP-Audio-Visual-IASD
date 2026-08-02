@@ -73,7 +73,11 @@ class StagePresentation(
      */
     private fun buildWebView(root: FrameLayout) {
         if (released) return
-        val loader = WebViewFactory.assetLoader(context)
+        // Sem o handler `/saf/`: o telão nunca busca arquivo do dispositivo —
+        // `importShare` e `syncDeviceFolder` (os dois consumidores) rodam no
+        // Controle e copiam tudo para o OPFS antes de o telão ver qualquer
+        // coisa. Ver [WebViewFactory.assetLoader].
+        val loader = WebViewFactory.assetLoader(context, withSaf = false)
         val w = WebViewFactory.create(context, loader) {
             web = null
             root.post { buildWebView(root) }
