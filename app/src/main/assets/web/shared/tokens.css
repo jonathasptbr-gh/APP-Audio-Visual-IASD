@@ -147,11 +147,10 @@
   --stage-text-soft: rgba(255, 255, 255, .9);  /* marca sobre o wallpaper */
   --stage-text-dim: rgba(255, 255, 255, .72);  /* linha auxiliar da letra */
 
-  /* Botão de vidro SOBRE a mídia (a coluna de botões da preview). A mídia por
-     baixo é arbitrária — foto clara, vídeo, preto —, então o contraste não pode
-     vir do fundo do app: vem do próprio scrim escuro do botão. */
-  --glass-bg: rgba(0, 0, 0, .45);
-  --glass-line: rgba(255, 255, 255, .22);
+  /* (Os tokens `--glass-bg`/`--glass-line` saíram na v5.67, com a moldura dos
+     botões da preview: eles são só ícones agora, e o contraste sobre uma mídia
+     arbitrária — foto clara, vídeo, preto — vem de uma `drop-shadow` no próprio
+     traço do SVG, não de um scrim atrás dele. Ver `.pv-fab` em controle.css.) */
   /* Cortina de modal (bottom-sheets e diálogo): escurece a tela ATRÁS. */
   --scrim: rgba(0, 0, 0, .6);
   /* Cortina do bloqueio do modo simplificado. É o --bg com alfa; os dois têm de

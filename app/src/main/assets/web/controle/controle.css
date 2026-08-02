@@ -95,8 +95,8 @@ input, textarea { user-select: text !important; -webkit-user-select: text !impor
      26, 28, 30 e 44 px espalhados por dois arquivos, e a própria folha admitia
      que "três degraus e só eles" era desmentido por dezenas de valores. Duas
      exceções seguem fora da escala, e as duas têm motivo dito no lugar em que
-     moram: os botões de vidro da preview (`.pv-fab`, 17px — a altura é fração
-     da preview) e o modo simplificado (teclas de 28px, 44px no botão de
+     moram: os ícones nos cantos da preview (`.pv-fab`, 20px — sem moldura, o
+     ícone É o botão) e o modo simplificado (teclas de 28px, 44px no botão de
      conectar), onde o alvo é o polegar de quem está de pé. */
   --icon-sm: 20px;   /* botões de linha, cabeçalho, popups */
   --icon-md: 22px;   /* abas e transporte (alvos maiores) */
@@ -338,50 +338,55 @@ body {
      interpretar como rolagem/zoom (ver setupPreviewGestures em controle.js) */
   touch-action: none;
 }
-/* ---------- Botões sobre a preview ---------- */
-/* Uma COLUNA colada à direita: configurações · cast · tela cheia, de cima para
-   baixo. Deitados na base sobravam vazios dos dois lados; em pé eles usam a
-   altura inteira da preview, que é a dimensão apertada aqui (a linha do deck
-   tem `--deck-pv-h`). Cada botão é `flex:1`, então a coluna se reparte sozinha —
-   inclusive quando o de cast não existe (navegador), onde os DOIS restantes
-   simplesmente ficam mais altos.
+/* ---------- Os controles nos CANTOS da preview (v5.67) ----------
+   Layout de player: cast no canto SUPERIOR direito, tela cheia no INFERIOR
+   direito, sem moldura de botão. Eram dois retângulos de vidro empilhados e
+   distribuídos numa coluna à direita — desenho de barra de ferramentas, que
+   compete com a miniatura justamente onde ela é pequena. Nos cantos eles saem
+   do caminho da imagem e o olho os encontra onde todo player os põe.
+   A caixa continua sendo `--hit` (o piso de alvo de toque do app): o que sumiu
+   foi a moldura, não o alvo.
    Substituíram os gestos invisíveis que existiam antes (toque = tela cheia,
-   toque longo = popup), que nada na tela anunciava. Agora o toque na preview
-   só mostra/esconde a coluna; a ação é de quem tocar no botão.
+   toque longo = popup), que nada na tela anunciava. Fora da tela cheia a
+   preview não tem mais ação própria: a ação é de quem tocar num ícone.
    `.pv-fabs` não intercepta toques fora dos botões (pointer-events:none),
    senão a coluna cobriria uma faixa da preview e o toque nunca chegaria ao
-   reconhecedor de gestos. */
+   reconhecedor de gestos (que, dentro da tela cheia, é o transporte inteiro). */
 .pv-fabs {
-  position: absolute; top: 4px; bottom: 4px; right: 4px;
+  position: absolute; top: 2px; bottom: 2px; right: 2px;
   z-index: 5; pointer-events: none;
-  display: flex; flex-direction: column; gap: 4px;
-  transition: opacity .18s ease;
+  display: flex; flex-direction: column;
 }
-/* Escondidos: `display` continua flex (senão não há o que transicionar) e a
-   saída é por opacidade; `visibility` garante que não recebam foco nem toque.
-   O `!important` NÃO é enfeite: `[hidden] { display: none !important }` (linha
-   16) é declaração de autor com `!important` e vence qualquer regra normal
-   desta folha, por mais específica que seja. Sem ele a coluna sumia SECA —
-   `display:none` imediato —, a `transition: opacity .18s` nunca rodava e o
-   comentário acima descrevia um fade que o próprio arquivo impedia. */
-.pv-fabs[hidden] { display: flex !important; opacity: 0; visibility: hidden; }
+/* A tela cheia é a ÚLTIMA da coluna e vai para o rodapé por `margin-top: auto`,
+   não por `justify-content: space-between`: no navegador o cast nem existe
+   (`[hidden]`), e com um item só o `space-between` o jogaria de volta para o
+   topo — o botão trocaria de canto conforme o contexto. */
+#pvFullBtn { margin-top: auto; }
 .pv-fab {
   pointer-events: auto;
-  /* `--hit` é o piso de alvo de toque do app (o mesmo do `.row-btn` e do
-     `.popup-close`). Em 30px estes eram os menores alvos acionáveis da tela —
-     e errar por 2px não é um no-op: o toque cai no reconhecedor de gestos da
-     preview, que ESCONDE a coluna inteira, obrigando a tocar de novo só para
-     trazê-la de volta. O ícone de 17px continua folgado. */
-  flex: 1; min-height: 0; width: var(--hit); padding: 0;
-  border: 1px solid var(--glass-line); border-radius: var(--radius-btn);
-  background: var(--glass-bg); color: var(--stage-text);
-  backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px);
+  width: var(--hit); height: var(--hit); flex: none; padding: 0;
+  border: none; background: none; color: var(--stage-text);
   display: flex; align-items: center; justify-content: center; cursor: pointer;
   appearance: none; -webkit-appearance: none;
 }
-/* O tamanho do ícone vem daqui, não do atributo do <svg>: a altura de cada
-   botão agora é fração da preview, e um ícone de 20px estouraria a caixa. */
-.pv-fab svg { display: block; width: 17px; height: 17px; }
+/* SEM moldura, a legibilidade passa a ser problema do ÍCONE: ele fica sobre o
+   que estiver projetado — um wallpaper claro, um slide branco, um vídeo. A
+   `drop-shadow` acompanha o TRAÇO do SVG (ao contrário de `box-shadow`, que
+   sombrearia a caixa vazia do botão), e são TRÊS, com papéis diferentes:
+   as duas primeiras, coladas e quase opacas, empilham-se num CONTORNO escuro em
+   volta do traço branco — é o que salva o ícone sobre um slide branco, onde
+   branco-sobre-branco não tem contraste nenhum; a terceira, larga e difusa,
+   descola o ícone de uma textura movimentada.
+   Contorno por sombra, e não `paint-order: stroke`: estes SVGs são desenhados a
+   traço (`fill: none`), então não há preenchimento em volta do qual pintar um
+   contorno. */
+.pv-fab svg {
+  display: block; width: 20px; height: 20px;
+  filter:
+    drop-shadow(0 0 1px rgba(0, 0, 0, .95))
+    drop-shadow(0 0 2px rgba(0, 0, 0, .9))
+    drop-shadow(0 1px 5px rgba(0, 0, 0, .65));
+}
 /* Em tela cheia a preview É a projeção (quando não há TV conectada): nada de
    UI por cima, ou o botão iria junto para o telão. */
 .preview:fullscreen .pv-fabs,
@@ -399,10 +404,11 @@ body {
 .pv-busy {
   position: absolute; inset: 0; z-index: 4;
   display: flex; align-items: center; justify-content: center;
-  /* A folga da direita é a largura da coluna de `.pv-fabs`: eles ficam ACIMA
-     (z-index 5) e continuam alcançáveis durante o download, então o cartão não
-     pode passar por baixo deles. */
-  padding: .5rem 42px .5rem .5rem;
+  /* A folga da direita é a largura dos `.pv-fab`: eles ficam ACIMA (z-index 5)
+     e continuam alcançáveis durante o download, então o cartão não pode passar
+     por baixo deles. Desde a v5.67 eles moram nos CANTOS e o cartão é centrado,
+     então a folga só precisa cobrir o alvo, não a coluna inteira com margem. */
+  padding: .5rem 38px .5rem .5rem;
   pointer-events: none;
   opacity: 0; visibility: hidden;
   transition: opacity .18s ease, visibility .18s;
