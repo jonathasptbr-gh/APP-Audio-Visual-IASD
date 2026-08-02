@@ -233,7 +233,7 @@ Além disso, `native.js` publica **quatro globais** lidas direto (sem Promise):
 o `versionName` do APK, que é o **índice de versão do shell exibido ao
 operador**. Ele não se confunde com `__SHELL_VERSION__`: base web e shell
 atualizam por caminhos independentes (OTA × instalar APK), então o rodapé de
-**Configurações** mostra os dois (`Web v5.49 · Shell v<versionName do APK>`,
+**Configurações** mostra os dois (`Web v5.50 · Shell v<versionName do APK>`,
 montado em `renderVersionLabel`; até a v5.48 ficava no cabeçalho do Cronograma —
 saiu de lá porque metadado de diagnóstico pertence à mesma tela do estado do
 telão, não a uma faixa de navegação). Num shell antigo (sem
@@ -580,11 +580,14 @@ Dois ganhos, e o segundo é o menos óbvio:
   riscada, e o que havia até a v1.18 (`ic_menu_view`) é um OLHO — sugere
   "esconder a vista", quando o que sai do telão é a MÍDIA. São os mesmos dois
   símbolos que o botão do app já usa nesse par de estados.
-- **O ícone da cortina segue a AÇÃO, não o estado** — e essa é a regra de TODO
-  botão de alternância do projeto, na notificação e na tela (ver "O ícone mostra
-  a AÇÃO; a cor mostra o ESTADO" em `docs/ARQUITETURA-WEB.md`). Com a mídia no
-  ar o ícone é a imagem riscada, porque é isso que o toque vai fazer; o rótulo
-  ("Cobrir telão"/"Mostrar mídia") já dizia o mesmo.
+- **O ícone da cortina mostra o ESTADO; o rótulo, a ação** (v5.50 — a regra
+  virou "o riscado é o corte", ver `docs/ARQUITETURA-WEB.md`). Telão coberto =
+  imagem riscada; mídia no ar = imagem inteira. O rótulo ("Cobrir telão" /
+  "Mostrar mídia") continua nomeando o que o toque faz, e é ele que a
+  notificação tem de sobra em relação à tela — onde quem carrega o estado é a
+  cor. Até a v5.49 o ícone daqui era a AÇÃO, junto com a tela; a base web
+  inverteu, e deixar a notificação para trás faria o MESMO símbolo significar
+  coisas opostas nos dois lugares.
 - **A partir do Android 13 quem desenha os botões é o `PlaybackState`, não a
   notificação.** As `Notification.Action` viram decoração nessas versões: os
   controles saem das *actions* do estado (play/pause, ⏮/⏭) e os extras, de
@@ -1200,7 +1203,7 @@ aparelho nenhum.
 O `versionCode`/`versionName` do APK vêm do CI (ver "Build") e não se tocam à
 mão.
 
-**Versão atual: v5.49** (base web) · `SHELL_VERSION` **14**, e o bundle segue com
+**Versão atual: v5.50** (base web) · `SHELL_VERSION` **14**, e o bundle segue com
 `minShell: 2` — ele funciona igual num shell antigo, só sem os recursos que são
 nativos por construção (a escada do voltar, os botões de volume, a notificação de
 controles), que **só chegam instalando o APK novo**, não pelo OTA.

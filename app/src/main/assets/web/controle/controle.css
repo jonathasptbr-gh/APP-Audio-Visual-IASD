@@ -147,7 +147,7 @@ input, textarea { user-select: text !important; -webkit-user-select: text !impor
    feedback próprio (vira vermelho pulsante no pointerdown, e um `transform`
    junto brigaria com a animação) e o indicador do telão é `disabled` no app. */
 :is(
-  .ctl-btn, .t-btn, .pv-fab,
+  .ctl-btn, .t-btn, .pv-fab, .settings-btn,
   .tab, .tab-add, .import-btn, .add-dir-btn, .back-btn, .sel-btn,
   .row-btn, .row-handle, .popup-close, .coll-open-cfg, .new-folder-btn, .folder-pick-btn,
   .coll-pill, .coll-bar, .coll-bar-dl, .coll-group-btn,
@@ -177,7 +177,7 @@ input, textarea { user-select: text !important; -webkit-user-select: text !impor
   .coll-bar-dl, .coll-group-btn, .coll-open-cfg, .new-folder-btn,
   .import-btn, .folder-pick-btn, .hymn-play, .hymn-add, .mode-switch
 ) svg { display: block; width: var(--icon-sm); height: var(--icon-sm); }
-:is(.tab, .tab-add, .t-btn, .ctl-btn, .misc-tab) svg {
+:is(.tab, .tab-add, .t-btn, .ctl-btn, .misc-tab, .settings-btn) svg {
   display: block; width: var(--icon-md); height: var(--icon-md);
 }
 /* Barras largas de ação (microfone, projetar): o ícone acompanha o alvo. */
@@ -670,6 +670,19 @@ body {
   box-shadow: 0 1px 4px rgba(0, 0, 0, .5);
   cursor: pointer;
 }
+/* Configurações: ÍCONE SOLTO, sem caixa. Não é `.ctl-btn` de propósito — a
+   fatia do topo é a mais baixa da coluna (acompanha a altura de `.nowplaying`,
+   não os 150px da preview), e um bloco achatado ao lado de quatro botões de
+   altura cheia lê como um botão mal encaixado. Sem a caixa ele deixa de
+   competir com o grupo que opera o culto, que é o que ele não é. Mesmo
+   tratamento do `#backBtn`: navegação/acesso é chapado, operação é botão. */
+.settings-btn {
+  flex: 1; min-height: 0; width: 100%; padding: 0;
+  border: none; background: none; color: var(--muted);
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; appearance: none; -webkit-appearance: none;
+}
+
 .ctl-btn {
   border: 2px solid transparent; border-radius: var(--radius-btn); background: var(--surface);
   color: var(--text); cursor: pointer; display: flex; align-items: center; justify-content: center;
@@ -760,20 +773,22 @@ main {
    de importar NÃO mora mais aqui: desceu para o fim da lista do Cronograma,
    junto de "Pastas" (ver `.import-row`). Quem contar filhos por posição
    (`:first-child`, `order`) precisa saber disso. */
-/* SEM TRILHO (v5.49). A faixa teve fundo próprio (`--bar` + borda) desde a
-   v5.31, para resolver um problema real: com ela transparente E as abas sem
-   fundo, um botão inativo era indistinguível do vazio ao redor. Só que a
-   solução resolveu duas vezes o mesmo problema — hoje CADA aba tem o próprio
-   fundo (`--surface`), que já anuncia o alvo, e o trilho por cima cobrava
-   1px de borda + .25rem de padding dos dois lados numa tela onde a lista
-   disputa cada pixel de altura, além de desenhar um cartão em volta de algo
-   que é navegação, não conteúdo.
-   O que sustenta a decisão é o degrau, e ele foi MEDIDO nos dois cenários:
-   uma aba sobre o trilho dava 1,46:1 e sobre o fundo do app dá 1,38:1 — os
-   dois acima do piso de 1,30:1 das superfícies grandes. O alvo continua
-   visível antes do toque; o que sumiu foi a moldura em volta dele. */
+/* SEGMENTADO, não fileira de botões (v5.50). A faixa passou por três formas:
+   trilho de CARTÃO (`--bar` + borda 1px, v5.31), nenhuma moldura com cada aba
+   virando um botão de fundo próprio (v5.49) e agora a MESMA receita do seletor
+   de ferramentas da aba Diversos (`.misc-switch`): um trilho raso em
+   `--surface`, sem borda, e as abas TRANSPARENTES dentro dele.
+   O que a v5.49 corrigiu foi o desperdício do cartão; o que ela não resolveu é
+   que quatro retângulos com fundo próprio, lado a lado, se leem como quatro
+   BOTÕES — quatro ações — e não como "escolha uma destas telas". Num
+   segmentado o fundo é do TRILHO e o que se destaca é o segmento escolhido:
+   é a diferença entre uma barra de ferramentas e uma navegação, e o app já
+   tinha a forma certa a duas telas de distância.
+   O trilho custa .25rem de padding (8px na altura) — o cartão da v5.31 cobrava
+   isso MAIS 2px de borda e desenhava uma moldura fechada em volta. */
 .tabs {
-  display: flex; gap: .3rem; align-items: center; flex-shrink: 0;
+  display: flex; gap: .25rem; align-items: center; flex-shrink: 0;
+  background: var(--surface); border-radius: var(--radius-btn); padding: .25rem;
 }
 
 /* Botão de playlist: mora na linha de transporte (.transport), à direita dos
@@ -799,11 +814,12 @@ main {
 /* Aba e botão do acervo dividem a MESMA caixa: `flex:1`, `--hit-nav` de altura,
    mesmo raio. Eram duas receitas (a aba em `flex:1`, o acervo fixo em 42×38 com
    margem própria), e a diferença não dizia nada — o acervo é o quarto alvo da
-   mesma fileira e se lia como um apêndice colado nela. */
+   mesma fileira e se lia como um apêndice colado nela.
+   Fundo TRANSPARENTE: quem tem fundo é o trilho (ver `.tabs`). */
 .tab, .tab-add {
   flex: 1; min-width: 0; height: var(--hit-nav);
-  border: 1px solid transparent; border-radius: var(--radius-btn);
-  background: var(--surface); color: var(--muted); cursor: pointer;
+  border: none; border-radius: var(--radius-btn);
+  background: none; color: var(--muted); cursor: pointer;
   display: flex; align-items: center; justify-content: center;
   appearance: none; -webkit-appearance: none;
 }
@@ -821,9 +837,10 @@ main {
    com a seleção preenchida, e isso não é incoerência: lá não há ação nenhuma
    competindo pela mesma faixa — a escolha É a única coisa que aquele trilho
    comunica. */
-.tab.active {
-  background: var(--accent-soft); border-color: var(--accent); color: var(--accent);
-}
+/* O segmento escolhido: tinta suave do accent, SEM contorno. Dentro de um
+   trilho o realce do fundo já é o sinal — a borda vinha da forma anterior, em
+   que a aba flutuava sobre o fundo do app e precisava de um limite próprio. */
+.tab.active { background: var(--accent-soft); color: var(--accent); }
 
 /* Fim da lista do Cronograma: "Importar arquivos" e "Pastas" lado a lado — as
    duas respondem à mesma pergunta ("de onde vem a mídia?") e ficam onde o
@@ -857,12 +874,10 @@ main {
 
 /* Buscar no acervo (único .tab-add que restou — o de importar desceu para o
    fim do Cronograma). A caixa vem da regra compartilhada com `.tab`, acima;
-   aqui fica só o que o distingue: ele é a AÇÃO da faixa, então é o SÓLIDO.
-   `border-color` explícito para o preenchimento não ficar 1px menor que o das
-   abas (a borda transparente da caixa comum ocupa lugar). */
-.tab-add {
-  background: var(--accent-fill); border-color: var(--accent-fill); color: var(--on-accent);
-}
+   aqui fica só o que o distingue: ele é a AÇÃO da faixa, então é o SÓLIDO —
+   dentro de um trilho de segmentos transparentes, o bloco cheio é o único que
+   não se parece com "uma das telas", que é exatamente o que ele não é. */
+.tab-add { background: var(--accent-fill); color: var(--on-accent); }
 
 /* barra de seleção */
 .selbar { flex-shrink: 0; display: flex; align-items: center; gap: .6rem; background: var(--accent-soft); border: 1px solid var(--accent); border-radius: var(--radius-card); padding: .35rem .6rem; }
@@ -874,6 +889,16 @@ main {
 .sel-btn .msym { font-size: var(--icon-sm); }
 
 /* ---------- Itens (biblioteca) ---------- */
+/* `touch-action: pan-y` na lista que NÃO é a de Diversos: ela só rola na
+   vertical, então declarar isso entrega o eixo horizontal ao app — sem a
+   declaração o navegador ainda considera o gesto seu (`manipulation`, do `*`
+   no topo da folha) e pode engolir o deslize do carrossel de abas com um
+   `pointercancel`, que é a falha mais difícil de diagnosticar porque depende
+   do aparelho. Fica de fora `.lib-misc` (Diversos), que tem trilhos rolando na
+   HORIZONTAL dentro dela (o histórico do sorteio): `touch-action` de um
+   ancestral se INTERSECTA com o do alvo, então um `pan-y` aqui tiraria o
+   `pan-x` de lá. */
+.lib-list:not(.lib-misc) { touch-action: pan-y; }
 .lib-list {
   flex: 1; min-height: 0; overflow-y: auto;
   position: relative; list-style: none; display: flex; flex-direction: column; gap: .4rem;
@@ -1635,12 +1660,9 @@ main {
 }
 .pv-text-sub:empty { display: none; }
 
-/* fundo de ação do swipe */
-.swipe-bg { position: absolute; inset: 0; z-index: 0; display: flex; align-items: center; justify-content: space-between; padding: 0 18px; }
-.swipe-hint { opacity: .22; }
-.swipe-hint .msym { font-size: var(--icon-lg); }
-.swipe-hint.right { color: var(--accent); }
-.lib-item.show-left .swipe-hint.right { opacity: 1; }
+/* (O fundo de ação do deslize — `.swipe-bg`/`.swipe-hint` — saiu na v5.50 com
+   o próprio gesto: ver "gestos da biblioteca" em controle.js. O eixo horizontal
+   da lista pertence agora ao carrossel de abas.) */
 
 /* Linha-guia de reordenação, no accent (o comentário dizia "azul" — cor da
    paleta anterior; quem manda é `--accent`). */

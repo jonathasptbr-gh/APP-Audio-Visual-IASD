@@ -90,7 +90,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.49';
+const WEB_VERSION = '5.50';
 
 // Escrita UMA vez, na carga: o indicador mora no rodapé de Configurações desde
 // a v5.49 e não depende mais de qual aba está aberta (no cabeçalho ele
@@ -114,6 +114,7 @@ renderVersionLabel();
 const selbarEl = document.getElementById('selbar');
 const selCountEl = document.getElementById('selCount');
 const selCancelEl = document.getElementById('selCancel');
+const selPlaylistEl = document.getElementById('selPlaylist');
 const selFolderEl = document.getElementById('selFolder');
 const selRenameEl = document.getElementById('selRename');
 const selDeleteEl = document.getElementById('selDelete');
@@ -1474,24 +1475,32 @@ function rememberScroll() {
   scrollPos[scrollKey()] = libraryEl.scrollTop;
 }
 
-// CONVENÇÃO: o ícone mostra a AÇÃO que o toque executa, nunca o estado atual.
-// O estado fica por conta da COR/BORDA (`.view-blocked`, `.muted`, `.blocked`,
-// `.active`), que já existia. Antes os dois papéis estavam misturados — o ▶/⏸
-// já era ação, enquanto cortina e mudo eram estado —, então o mesmo botão
-// significava coisas opostas dependendo de qual fosse.
+// CONVENÇÃO (v5.50): o ÍCONE RISCADO mostra o CORTE — o estado em que a coisa
+// está desligada —, e a cor/borda confirma. Vale para os dois cortes do app: o
+// som (alto-falante riscado = mudo) e a imagem (imagem riscada = telão coberto).
 //
-// Num par binário nada se perde: se o ícone é a ação, o estado é o inverso
-// dele, e a cor confirma. (`renderRepeat` é a exceção justificada — ver lá.)
+// A v5.47 tinha adotado o oposto ("o ícone mostra a AÇÃO que o toque executa"),
+// e a razão declarada era que estado e ação conviviam misturados na tela. O
+// problema era real, mas a solução escolhida gastava o riscado — o símbolo
+// universal de "cortado" — para dizer justamente que NÃO está cortado. Nada se
+// perde invertendo: a COR já carrega o estado sozinha (`.view-blocked`,
+// `.muted`, `.blocked` pintam o botão inteiro), o `title` continua nomeando a
+// ação, e o ícone volta a ser lido como todo mundo lê um alto-falante riscado.
+//
+// O ▶/⏸ segue sendo AÇÃO — ali a convenção é de plataforma (todo player do
+// mundo mostra ▶ quando está pausado) e o botão não tem cor de estado.
+// `renderRepeat` também segue mostrando o modo atual (ver lá).
 function renderControls() {
-  // Mídia no ar → o toque COBRE (imagem riscada); coberto → o toque MOSTRA.
-  viewToggleEl.querySelector('.msym').textContent = view === 'visual' ? ICON.imageOff : ICON.image;
+  // Coberto → imagem RISCADA; mídia no ar → imagem inteira.
+  viewToggleEl.querySelector('.msym').textContent = view === 'wallpaper' ? ICON.imageOff : ICON.image;
   viewToggleEl.classList.toggle('view-blocked', view === 'wallpaper');
   viewToggleEl.title = view === 'visual' ? 'Cobrir o telão' : 'Mostrar a mídia no telão';
   // 3 estados do botão de mudo: normal | mudo (operador) | sem áudio no
   // Display (navegador bloqueou — tocando mudo; clique tenta liberar). Nos dois
-  // últimos o toque DEVOLVE o som, então o ícone é o de volume ligado.
+  // últimos NÃO SAI SOM, e é isso que o riscado diz; o que os distingue é a
+  // cor (vermelho de mudo × âmbar pulsante de bloqueado).
   const blocked = displayAudioBlocked && !muted;
-  muteToggleEl.querySelector('.msym').textContent = (muted || blocked) ? ICON.volOn : ICON.volOff;
+  muteToggleEl.querySelector('.msym').textContent = (muted || blocked) ? ICON.volOff : ICON.volOn;
   muteToggleEl.classList.toggle('muted', muted);
   muteToggleEl.classList.toggle('blocked', blocked);
   muteToggleEl.title = blocked
@@ -1743,8 +1752,11 @@ function renderListTitle() {
     backBtnEl.hidden = bibleScreen === 'books';
     addDirBtnEl.hidden = true;
     libSearchEl.hidden = true; libSearchEl.value = '';
-    // Sem título na aba Bíblia — libera espaço (a grade/leitura falam por si).
-    listTitleEl.hidden = true; listTitleEl.textContent = '';
+    // A aba Bíblia era a ÚNICA sem título: ele saíra para liberar espaço numa
+    // faixa que também carregava o indicador de versão. A versão desceu para
+    // Configurações (v5.49) e a faixa passou a sobrar — e uma tela sem nome é
+    // a única do app em que "onde eu estou" depende de reconhecer a grade.
+    listTitleEl.hidden = false; listTitleEl.textContent = 'Bíblia';
     return;
   }
   const inFolder = activeTab === 'folders' && currentFolder !== null;
@@ -3642,13 +3654,6 @@ function renderLibrary() {
     li.className = 'lib-item' + (isActive ? ' active' : '') + (selected.has(item.id) ? ' selected' : '');
     li.dataset.id = item.id;
 
-    if (activeTab !== 'folders') {
-      const bg = document.createElement('div'); bg.className = 'swipe-bg';
-      const right = document.createElement('div'); right.className = 'swipe-hint right'; right.appendChild(msym(ICON.plAdd));
-      bg.appendChild(right);
-      li.appendChild(bg);
-    }
-
     const row = document.createElement('div'); row.className = 'row';
 
     // A miniatura é o primeiro elemento (flush à esquerda). A seleção múltipla
@@ -4945,45 +4950,46 @@ async function stopClear() {
 
 
 // ===== gestos da biblioteca =====
-const SWIPE = 72, MOVE = 10, LONGPRESS = 450;
+// **O deslize lateral da linha SAIU na v5.50.** Ele adicionava o item à
+// playlist (`dx <= -SWIPE`), e a pista disso era um ícone a 22% de opacidade
+// atrás da linha — um atalho que praticamente ninguém descobria e que, ainda
+// assim, reservava para si o eixo horizontal da maior parte da tela. Era ele
+// que impedia o carrossel de abas de funcionar onde o operador de fato desliza:
+// sobre a lista. Trocar um atalho invisível por uma navegação que todo aparelho
+// Android tem é a troca certa — e a playlist continua a UM toque, pelo botão
+// `+` de cada resultado do acervo e pelo popup da playlist.
+//
+// O que fica: toque (troca a cena) e toque longo (entra na seleção múltipla).
+// O movimento agora só CANCELA o gesto da linha, em qualquer direção: quem
+// estiver deslizando está falando com o carrossel ou com a rolagem, não com o
+// item.
+const MOVE = 10, LONGPRESS = 450;
 
 function attachRowGestures(row, item) {
-  let startX = 0, startY = 0, startT = 0, dx = 0, mode = null, lp = null, pid = null;
-  const li = row.closest('li') || row.parentElement;
+  let startX = 0, startY = 0, startT = 0, longFired = false, lp = null, pid = null;
 
   row.addEventListener('pointerdown', (e) => {
     if (e.target.closest('.row-handle') || e.target.closest('.row-btn')) return;
-    pid = e.pointerId; startX = e.clientX; startY = e.clientY; startT = Date.now(); dx = 0; mode = null;
-    lp = setTimeout(() => { mode = 'long'; enterSelection(item.id); }, LONGPRESS);
+    pid = e.pointerId; startX = e.clientX; startY = e.clientY; startT = Date.now(); longFired = false;
+    lp = setTimeout(() => { longFired = true; enterSelection(item.id); }, LONGPRESS);
   });
   row.addEventListener('pointermove', (e) => {
     if (pid === null) return;
-    const ddx = e.clientX - startX, ddy = e.clientY - startY;
-    if (mode === null) {
-      if (Math.abs(ddx) > MOVE && Math.abs(ddx) > Math.abs(ddy)) { mode = 'swipe'; clearTimeout(lp); try { row.setPointerCapture(pid); } catch (_) {} }
-      else if (Math.abs(ddy) > MOVE) { clearTimeout(lp); pid = null; return; }
-    }
-    if (mode === 'swipe') {
-      dx = ddx; row.style.transform = `translateX(${dx}px)`;
-      li.classList.toggle('show-left', dx < 0);
+    // Saiu do lugar? O toque deixou de ser um toque. `pid = null` encerra o
+    // gesto DESTA linha sem tocar no evento — ele segue subindo para o
+    // carrossel de abas e para a rolagem da lista, que são de quem o dedo está
+    // falando agora.
+    if (Math.abs(e.clientX - startX) > MOVE || Math.abs(e.clientY - startY) > MOVE) {
+      clearTimeout(lp); pid = null;
     }
   });
-  function finish(e) {
+  row.addEventListener('pointerup', (e) => {
     if (pid === null) return;
     clearTimeout(lp);
-    const dt = Date.now() - startT;
-    if (mode === 'swipe') {
-      row.style.transform = '';
-      li.classList.remove('show-left');
-      if (dx <= -SWIPE) addToPlaylist(item);
-    } else if (mode !== 'long') {
-      const moved = Math.abs((e.clientX || startX) - startX) > MOVE || Math.abs((e.clientY || startY) - startY) > MOVE;
-      if (!moved && dt < LONGPRESS) onTap(item);
-    }
-    pid = null; mode = null;
-  }
-  row.addEventListener('pointerup', finish);
-  row.addEventListener('pointercancel', () => { clearTimeout(lp); row.style.transform = ''; li.classList.remove('show-left'); pid = null; mode = null; });
+    if (!longFired && Date.now() - startT < LONGPRESS) onTap(item);
+    pid = null;
+  });
+  row.addEventListener('pointercancel', () => { clearTimeout(lp); pid = null; });
 }
 
 // Trocar de música do zero: a playlist passa a ser SÓ este item.
@@ -5007,16 +5013,23 @@ async function replacePlaylistWith(rec) {
 async function onTap(item) {
   if (selectionMode) { toggleSelect(item.id); return; }
   // Toque direto na biblioteca: define a playlist como este item apenas.
-  // Swipe para esquerda continua ADICIONANDO à playlist.
+  // ACRESCENTAR à fila (sem substituir) é outra coisa: o `+` dos resultados do
+  // acervo (`addSongToPlaylist`) e, para itens da biblioteca, o botão de
+  // playlist da barra de seleção (`addSelectedToPlaylist`) — que substituiu o
+  // deslize à esquerda na v5.50.
   await replacePlaylistWith(item);
   send(item.id);
 }
 
-// Deslize à esquerda: adiciona (sem substituir) à playlist.
-async function addToPlaylist(item) {
-  const had = await AVDB.listHas('playlist', item.id);
-  await AVDB.listAdd('playlist', item.id);
-  flash(had ? 'Já na playlist' : 'Adicionado à playlist');
+// Acrescenta os SELECIONADOS à playlist, sem substituir a fila. É o que o
+// deslize à esquerda na linha fazia até a v5.50, agora num botão da barra de
+// seleção: visível, e para vários itens de uma vez. Sem isto a única coisa que
+// um item da biblioteca sabia fazer era SUBSTITUIR a fila (o toque simples) —
+// montar uma sequência de culto dependeria de um gesto que a tela não anuncia.
+async function addSelectedToPlaylist() {
+  if (!selected.size) return;
+  for (const id of selected) await AVDB.listAdd('playlist', id);
+  exitSelection();
   load();
 }
 
@@ -7950,13 +7963,14 @@ tabsEl.addEventListener('click', (e) => {
 // Favoritos, que não têm botão na faixa — deslizar até uma tela que não aparece
 // na navegação deixaria o operador num lugar sem indicação de onde ele está.
 //
-// **Não vale começando numa linha da biblioteca.** A `.row` já tem gesto
-// horizontal próprio (deslizar para a esquerda adiciona à playlist), e dois
-// gestos idênticos nos mesmos pixels não podem ambos ganhar. Sobra tudo o mais:
-// o cabeçalho, a própria faixa de abas, os vazios da lista, a grade da Bíblia e
-// os painéis de Diversos — que é justamente onde não há linha nenhuma.
+// **Vale SOBRE A LISTA, inclusive sobre as linhas** — e é isso que faz o
+// carrossel existir de verdade. Na v5.49 ele ignorava gestos que começassem
+// numa `.row`, porque a linha tinha deslize próprio (adicionar à playlist): na
+// prática o Cronograma inteiro é feito de linhas, então o gesto não funcionava
+// justamente na aba em que o operador mais tenta usá-lo. O deslize da linha
+// saiu (ver "gestos da biblioteca") e o eixo horizontal ficou livre.
 //
-// As outras guardas existem para não roubar gestos que já significam algo:
+// As guardas restantes existem para não roubar gestos que já significam algo:
 // campos de texto, trilhos que rolam na horizontal (as pílulas de categoria, o
 // histórico do sorteio) e qualquer SUB-TELA (pasta aberta, capítulo/leitura da
 // Bíblia — reconhecidas pelo botão voltar visível), onde o eixo horizontal
@@ -7974,7 +7988,6 @@ const TAB_SWIPE_RATIO = 1.5;  // quanto o eixo X precisa dominar o Y
     if (!backBtnEl.hidden) return false;                 // sub-tela: o voltar manda ali
     if (SWIPE_TABS.indexOf(activeTab) < 0) return false;
     if (!target || !target.closest) return false;
-    if (target.closest('.row')) return false;            // gesto da linha (playlist)
     if (target.closest('input, textarea, .coll-filters, .draw-hist, .bible-half')) return false;
     return true;
   }
@@ -8028,6 +8041,7 @@ const TAB_SWIPE_RATIO = 1.5;  // quanto o eixo X precisa dominar o Y
 })();
 
 selCancelEl.addEventListener('click', exitSelection);
+selPlaylistEl.addEventListener('click', addSelectedToPlaylist);
 selFolderEl.addEventListener('click', openFolderPicker);
 selDeleteEl.addEventListener('click', deleteSelected);
 selRenameEl.addEventListener('click', renameSelected);

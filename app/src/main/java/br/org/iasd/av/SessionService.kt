@@ -201,11 +201,18 @@ class SessionService : Service() {
                         PlaybackState.CustomAction.Builder(
                             SessionRemote.VIEW,
                             if (s.wallpaper) "Mostrar mídia" else "Cobrir telão",
-                            // O ícone diz o que a ação FAZ, como o rótulo: com a
-                            // mídia no ar, ela a tira (imagem riscada). Até a
-                            // v1.18 era um olho de sistema, que sugere "esconder
-                            // a vista" — e o que sai do telão é a mídia.
-                            if (s.wallpaper) R.drawable.ic_image else R.drawable.ic_image_off,
+                            // O ÍCONE diz o ESTADO (telão coberto = imagem
+                            // riscada) e o RÓTULO diz a ação — a mesma divisão
+                            // que a base web adotou na v5.50. Até lá o ícone
+                            // também era a ação, e a inversão do lado web
+                            // deixaria o MESMO símbolo significando coisas
+                            // opostas na tela e na notificação, que é
+                            // exatamente o defeito que a convenção existe para
+                            // evitar. Na tela quem carrega o estado é a cor;
+                            // aqui, onde não há cor de estado, é o ícone —
+                            // e o rótulo, que a notificação tem e a tela não,
+                            // continua nomeando o que o toque faz.
+                            if (s.wallpaper) R.drawable.ic_image_off else R.drawable.ic_image,
                         ).build(),
                     )
                     .addCustomAction(
@@ -457,7 +464,10 @@ class SessionService : Service() {
                 .addAction(
                     acao(
                         ctx,
-                        if (s.wallpaper) R.drawable.ic_image else R.drawable.ic_image_off,
+                        // Ícone = estado, rótulo = ação (ver a custom action
+                        // acima). Estes `Notification.Action` são decoração a
+                        // partir do Android 13, mas precisam concordar com ela.
+                        if (s.wallpaper) R.drawable.ic_image_off else R.drawable.ic_image,
                         if (s.wallpaper) "Mostrar mídia" else "Cobrir telão",
                         SessionRemote.VIEW,
                     ),
