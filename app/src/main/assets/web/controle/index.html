@@ -33,9 +33,20 @@
        são os mesmos botões do modo completo acionados por `.click()` (ver
        controle.js) — nenhuma regra de transporte é reescrita aqui. -->
   <div id="simpleMode" class="simple open">
+    <!-- A troca de modo é um PAR: este botão e o `#fullSimpleBtn` do cabeçalho
+         do modo avançado são o mesmo componente (`.mode-switch`), no mesmo
+         canto da tela, com a seta apontando para o lado em que o operador vai
+         cair. Até a v5.48 só existia a ida: quem tocasse aqui por curiosidade
+         caía na mesa de som completa e a única saída era o popup de Exibição —
+         um caminho que ninguém adivinha. -->
     <div class="simple-head">
       <span class="simple-brand">Audio Visual <b>IASD</b></span>
-      <button type="button" id="simpleFullBtn" class="simple-switch">Modo avançado</button>
+      <button type="button" id="simpleFullBtn" class="mode-switch" title="Ir para o modo avançado">
+        <span>Modo avançado</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M5 12h13"/><path d="M13 6l6 6-6 6"/>
+        </svg>
+      </button>
     </div>
 
     <!-- As duas ações no alto, lado a lado: teclas grandes de ícone + rótulo.
@@ -133,12 +144,26 @@
            nome acessível e nem toda combinação de leitor/navegador o usa. -->
       <button id="backBtn" class="back-btn" title="Voltar" aria-label="Voltar" hidden><span class="msym" aria-hidden="true">&#xe5c4;</span></button>
       <span class="list-title" id="listTitle">Cronograma</span>
-      <span id="appVersion" class="app-version">Controle v5.48</span>
       <input id="libSearch" class="lib-search" type="search" placeholder="Buscar na pasta…" hidden>
       <!-- Setas circulares = "sincronizar" (o mesmo desenho dos cards de coleção
            e do botão de re-sync na linha da pasta). folder_open fica reservado
            à IDENTIDADE de pasta, nunca à ação. -->
       <button id="addDirBtn" class="add-dir-btn" hidden title="Sincronizar pasta do dispositivo"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></button>
+      <!-- A volta para o modo simplificado. Mesmo componente, mesmo canto e a
+           seta invertida do botão que traz o operador para cá (ver a
+           `.simple-head`). Está no CABEÇALHO, e não numa configuração, porque
+           entrar no avançado é o toque de curiosidade que qualquer um dá — e
+           sair precisa custar o mesmo tanto que entrar.
+           O indicador de versão saiu daqui e foi para o rodapé de
+           Configurações: ele é METADADO, o cabeçalho é navegação, e a faixa
+           não comportava os dois (o texto completo — "Web vX · Shell vY" —
+           come quase metade da largura de um celular). -->
+      <button id="fullSimpleBtn" class="mode-switch" title="Voltar ao modo simplificado">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M19 12H6"/><path d="M11 6l-6 6 6 6"/>
+        </svg>
+        <span>Simplificado</span>
+      </button>
     </div>
 
     <ul id="library" class="lib-list"></ul>
@@ -217,8 +242,15 @@
           <span id="durTime" class="np-time">0:00</span>
         </div>
       </div>
+      <!-- A linha da preview é só a preview desde a v5.49. Os dois botões de
+           estrofe (`#slidePrevBtn`/`#slideNextBtn`) que a flanqueavam saíram da
+           TELA, não do sistema: continuam no DOM, ocultos, logo abaixo — são o
+           ponto único onde "passar estrofe" é decidido (habilitado/desabilitado
+           por `renderSlideNav`), e agora quem os aciona é o toque curto em ⏮/⏭,
+           o gesto na tela cheia e a notificação nativa, todos por `.click()`. É
+           o mesmo padrão do modo simplificado, que nunca teve controles
+           próprios. Ver "Um par de botões, dois eixos" em controle.js. -->
       <div class="preview-row">
-        <button id="slidePrevBtn" class="slide-nav-btn" title="Estrofe anterior" disabled><span class="msym" aria-hidden="true">&#xe045;</span></button>
         <div class="preview" id="preview">
           <div class="pv-wall" id="pvWall"><span class="pv-brand">Audio Visual <b>IASD</b></span></div>
           <img id="pvImg" class="pv-layer" alt="" hidden>
@@ -259,13 +291,12 @@
                Ficam SEMPRE ocultos em tela cheia: é a tela cheia que vai ao
                telão quando não há TV conectada, e um botão sobreposto seria
                projetado junto. -->
+          <!-- DOIS botões desde a v5.49: cast e tela cheia. A engrenagem saiu
+               daqui porque Configurações ganhou um botão fixo no topo da coluna
+               do mixer — e duas portas para a mesma tela, uma delas escondível
+               por um toque na preview, é espaço gasto sem informação nova (o
+               mesmo argumento que aposentou a aba de Álbuns na v5.44). -->
           <div class="pv-fabs" id="pvFabs">
-<button id="pvSettingsBtn" class="pv-fab" title="Configurações de exibição">
-              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <circle cx="12" cy="12" r="3.2"/>
-                <path d="M19.4 14.2a1.6 1.6 0 0 0 .32 1.77l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.6 1.6 0 0 0-1.77-.32 1.6 1.6 0 0 0-.97 1.47V20a2 2 0 1 1-4 0v-.11a1.6 1.6 0 0 0-1.05-1.46 1.6 1.6 0 0 0-1.77.32l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.6 1.6 0 0 0 .32-1.77 1.6 1.6 0 0 0-1.47-.97H4a2 2 0 1 1 0-4h.11a1.6 1.6 0 0 0 1.46-1.05 1.6 1.6 0 0 0-.32-1.77l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.6 1.6 0 0 0 1.77.32H9.9a1.6 1.6 0 0 0 .97-1.47V4a2 2 0 1 1 4 0v.11a1.6 1.6 0 0 0 .97 1.47 1.6 1.6 0 0 0 1.77-.32l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.6 1.6 0 0 0-.32 1.77v.08a1.6 1.6 0 0 0 1.47.97H20a2 2 0 1 1 0 4h-.11a1.6 1.6 0 0 0-1.47.97z"/>
-              </svg>
-            </button>
 <button id="pvCastBtn" class="pv-fab" title="Espelhar na TV" hidden>
               <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <path d="M3 19a2 2 0 0 1 2 2"/>
@@ -284,7 +315,8 @@
             </button>
           </div>
         </div>
-        <button id="slideNextBtn" class="slide-nav-btn" title="Próxima estrofe" disabled><span class="msym" aria-hidden="true">&#xe044;</span></button>
+        <button id="slidePrevBtn" class="slide-anchor" title="Estrofe anterior" disabled hidden></button>
+        <button id="slideNextBtn" class="slide-anchor" title="Próxima estrofe" disabled hidden></button>
       </div>
       <!-- CONVENÇÃO de todo botão só-de-ícone do app: o `<span class="msym">`
            leva `aria-hidden="true"`, exatamente como os `<svg>` já levavam. O
@@ -295,10 +327,15 @@
            que faz o title voltar a valer como nome. -->
       <div class="transport">
         <button id="repeat" class="t-btn" title="Repetição"><span class="msym" aria-hidden="true">&#xe040;</span></button>
-        <button id="prev" class="t-btn" title="Anterior"><span class="msym" aria-hidden="true">&#xe045;</span></button>
+        <!-- ⏮/⏭ atendem os DOIS eixos desde a v5.49: toque curto passa estrofe
+             (quando há uma no ar) e toque longo passa de mídia — os títulos
+             abaixo são só o estado inicial, "nada em cena"; quem os reescreve a
+             cada mudança é `renderTransportAxis`, junto com o contorno em
+             accent que anuncia o modo. -->
+        <button id="prev" class="t-btn" title="Mídia anterior"><span class="msym" aria-hidden="true">&#xe045;</span></button>
         <button id="playpause" class="t-btn" title="Play/Pause"><span class="msym" aria-hidden="true">&#xe037;</span></button>
         <button id="stop" class="t-btn" title="Parar e limpar"><span class="msym" aria-hidden="true">&#xe047;</span></button>
-        <button id="next" class="t-btn" title="Seguinte"><span class="msym" aria-hidden="true">&#xe044;</span></button>
+        <button id="next" class="t-btn" title="Próxima mídia"><span class="msym" aria-hidden="true">&#xe044;</span></button>
         <!-- Único botão do transporte com `aria-label`: o selo #plCount é
              texto de verdade, então esconder só o glifo faria o nome acessível
              virar o NÚMERO ("3"), sem dizer de quê. O aria-label nomeia o
@@ -311,29 +348,44 @@
       </div>
 
       <!-- mixer: 3 "fatias" da grade (top/mid/bottom), sem card de fundo —
-           os botões ficam livres, só alinhados pela grade. mid agrupa os 3
-           botões do meio, nesta ordem no DOM: letra completa (#lyricsViewBtn),
-           mesa de som e mudo — o antigo botão de FUNDO da letra virou o
-           segmento #lyricsBgSeg do popup de Exibição, como diz o comentário
-           dele logo abaixo; bottom guarda o volume recolhível (vira fader ao
-           abrir, ocupando top+mid). -->
+           os botões ficam livres, só alinhados pela grade. top é
+           CONFIGURAÇÕES; mid agrupa os 3 botões do meio, nesta ordem no DOM:
+           cortina do telão (#viewToggle), letra completa (#lyricsViewBtn) e
+           mudo; bottom guarda o volume recolhível (vira fader ao abrir,
+           ocupando top+mid).
+           A "mesa de som" tinha um botão aqui e virou uma linha de
+           Configurações (#standaloneSeg): é uma decisão de ROTEAMENTO DE ÁUDIO
+           que se toma uma vez ao montar o culto — "o celular está ligado na
+           caixa de som?" —, não um controle que se opera no meio dele, que é
+           justamente o critério que já mandou para o popup as imagens dos
+           slides e o preenchimento da mídia. O botão que ela deixou vago virou
+           a porta de Configurações, e ela subiu para o TOPO da coluna: é o
+           único botão daqui que não opera o culto, então fica fora do
+           agrupamento de operação (cortina/letra/mudo/volume) em vez de no meio
+           dele. -->
       <div class="mixer" id="mixer">
         <div class="mixer-slot mixer-top">
+          <div class="mixer-stack">
+            <button id="settingsBtn" class="ctl-btn settings-btn" title="Configurações">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="3.2"/>
+                <path d="M19.4 14.2a1.6 1.6 0 0 0 .32 1.77l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.6 1.6 0 0 0-1.77-.32 1.6 1.6 0 0 0-.97 1.47V20a2 2 0 1 1-4 0v-.11a1.6 1.6 0 0 0-1.05-1.46 1.6 1.6 0 0 0-1.77.32l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.6 1.6 0 0 0 .32-1.77 1.6 1.6 0 0 0-1.47-.97H4a2 2 0 1 1 0-4h.11a1.6 1.6 0 0 0 1.46-1.05 1.6 1.6 0 0 0-.32-1.77l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.6 1.6 0 0 0 1.77.32H9.9a1.6 1.6 0 0 0 .97-1.47V4a2 2 0 1 1 4 0v.11a1.6 1.6 0 0 0 .97 1.47 1.6 1.6 0 0 0 1.77-.32l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.6 1.6 0 0 0-.32 1.77v.08a1.6 1.6 0 0 0 1.47.97H20a2 2 0 1 1 0 4h-.11a1.6 1.6 0 0 0-1.47.97z"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+        <div class="mixer-slot mixer-mid">
           <div class="mixer-stack">
             <!-- Glifo e title do ESTADO INICIAL (`view = 'visual'`), iguais ao
                  que `renderControls()` escreve: imagem RISCADA, porque o toque
                  vai COBRIR o telão. Nascer com `image` dizia o contrário — que
                  a mídia já estava coberta. Mesmo caso do #simpleMute acima. -->
-            <button id="viewToggle" class="ctl-btn view-btn fill-btn" title="Cobrir o telão"><span class="msym" aria-hidden="true">&#xf116;</span></button>
-          </div>
-        </div>
-        <div class="mixer-slot mixer-mid">
-          <div class="mixer-stack">
+            <button id="viewToggle" class="ctl-btn view-btn" title="Cobrir o telão"><span class="msym" aria-hidden="true">&#xf116;</span></button>
             <!-- Leitura auxiliar: a letra INTEIRA da música em cena ou o
                  capítulo INTEIRO da Bíblia em leitura, num popup com scroll.
                  Ocupa o lugar do antigo botão de fundo da letra, que virou uma
                  opção do popup de Exibição (é configuração, não operação). -->
-            <button id="lyricsViewBtn" class="ctl-btn lyricsview-btn fill-btn" title="Ver a letra / o texto completo">
+            <button id="lyricsViewBtn" class="ctl-btn lyricsview-btn" title="Ver a letra / o texto completo">
               <!-- Ícone de "texto corrido" (SVG inline, fora do subset da
                    fonte): folha com linhas de texto de comprimentos desiguais —
                    letra de música ou capítulo, o mesmo conceito nos dois. -->
@@ -344,21 +396,11 @@
                 <line x1="7.2" y1="16" x2="12.8" y2="16"/>
               </svg>
             </button>
-            <button id="standaloneToggle" class="ctl-btn standalone-btn fill-btn" title="Ouvir o áudio aqui / mesa de som (áudio independente do Display)">
-              <!-- Ícone de fone de ouvido (SVG inline, fora do subset da fonte):
-                   deixa claro que este botão faz o áudio sair no próprio aparelho
-                   (ouvir/mesa de som), distinto do ícone de nota musical. -->
-              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <path d="M4 13v-1a8 8 0 0 1 16 0v1"/>
-                <path d="M4 15a2 2 0 0 1 2-2h1v6H6a2 2 0 0 1-2-2z"/>
-                <path d="M20 15a2 2 0 0 0-2-2h-1v6h1a2 2 0 0 0 2-2z"/>
-              </svg>
-            </button>
             <!-- Idem: `muted = false` no boot → o toque MUTA, então volume_off
                  e o mesmo title que `renderControls()` escreve. É este botão
                  que #simpleMute copia, e era daqui que a inversão se
                  propagava para a tecla grande do modo simplificado. -->
-            <button id="muteToggle" class="ctl-btn mute-btn fill-btn" title="Mutar"><span class="msym" aria-hidden="true">&#xe04f;</span></button>
+            <button id="muteToggle" class="ctl-btn mute-btn" title="Mutar"><span class="msym" aria-hidden="true">&#xe04f;</span></button>
           </div>
         </div>
         <!-- estado aberto: fader ocupa o lugar de top+mid (mesma posição/altura) -->
@@ -404,22 +446,46 @@
     </div>
   </div>
 
-  <!-- popup de configurações rápidas de exibição (bottom sheet) -->
+  <!-- CONFIGURAÇÕES (bottom sheet). Era "Exibição" e guardava só como o telão
+       se PARECE; com a mesa de som vinda do mixer, o que reúne as linhas passou
+       a ser "o que se decide uma vez, ao montar o culto" — aparência do telão E
+       roteamento do áudio. O id segue `fadePopup` por herança (os controles de
+       fade que lhe deram nome saíram há versões): renomeá-lo tocaria em dezenas
+       de referências sem mudar nada visível. -->
   <div id="fadePopup" class="popup-backdrop">
     <div class="popup-sheet">
       <div class="popup-header">
-        <span class="msym popup-header-icon" aria-hidden="true">&#xe251;</span>
-        <span class="popup-title">Exibição</span>
+        <span class="popup-header-icon">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="3.2"/>
+            <path d="M19.4 14.2a1.6 1.6 0 0 0 .32 1.77l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.6 1.6 0 0 0-1.77-.32 1.6 1.6 0 0 0-.97 1.47V20a2 2 0 1 1-4 0v-.11a1.6 1.6 0 0 0-1.05-1.46 1.6 1.6 0 0 0-1.77.32l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.6 1.6 0 0 0 .32-1.77 1.6 1.6 0 0 0-1.47-.97H4a2 2 0 1 1 0-4h.11a1.6 1.6 0 0 0 1.46-1.05 1.6 1.6 0 0 0-.32-1.77l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.6 1.6 0 0 0 1.77.32H9.9a1.6 1.6 0 0 0 .97-1.47V4a2 2 0 1 1 4 0v.11a1.6 1.6 0 0 0 .97 1.47 1.6 1.6 0 0 0 1.77-.32l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.6 1.6 0 0 0-.32 1.77v.08a1.6 1.6 0 0 0 1.47.97H20a2 2 0 1 1 0 4h-.11a1.6 1.6 0 0 0-1.47.97z"/>
+          </svg>
+        </span>
+        <span class="popup-title">Configurações</span>
         <button id="fadePopupClose" class="popup-close" title="Fechar"><span class="msym" aria-hidden="true">&#xe14c;</span></button>
       </div>
       <div class="fade-opts">
         <!-- Modo de uso: a mesma escolha da abertura, para trocar sem fechar o
-             app. No simplificado o caminho de volta é o botão do cabeçalho. -->
+             app. Nos dois modos o caminho curto é o botão do cabeçalho
+             (`.mode-switch`); esta linha é o mesmo destino, junto das demais
+             preferências. -->
         <div class="fade-row fade-row--fit">
           <span>Modo do app</span>
           <div class="fit-seg" id="appModeSeg">
             <button type="button" class="fit-opt" data-mode="simple">Simplificado</button>
             <button type="button" class="fit-opt" data-mode="full">Avançado</button>
+          </div>
+        </div>
+        <!-- Mesa de som: a saída de áudio do próprio celular (a preview deixa
+             de ser sempre muda). Era o botão #standaloneToggle no mixer — ver o
+             comentário do mixer para o porquê da mudança. Não é persistido:
+             cada abertura começa desligada, para nenhuma sessão nova soltar som
+             no aparelho sem alguém ter pedido. -->
+        <div class="fade-row fade-row--fit">
+          <span>Mesa de som (áudio no celular)</span>
+          <div class="fit-seg" id="standaloneSeg">
+            <button type="button" class="fit-opt" data-standalone="off">Desligado</button>
+            <button type="button" class="fit-opt" data-standalone="on">Ligado</button>
           </div>
         </div>
         <div class="fade-row fade-row--fit">
@@ -465,6 +531,12 @@
              espelhamento variam por fabricante e não são API documentada —
              melhor o operador ver antes de tocar. Vazio no navegador. -->
         <span id="castTargetLine" class="cast-target" hidden></span>
+        <!-- Versão da base web (e do shell, no app). Morava no cabeçalho da
+             lista, ao lado do título do Cronograma; veio para cá porque é
+             METADADO de diagnóstico e o lugar onde se procura diagnóstico é
+             junto do estado do telão e do alvo de espelhamento, não numa faixa
+             de navegação. Preenchido por `renderVersionLabel`. -->
+        <span id="appVersion" class="app-version">Controle v5.49</span>
       </div>
     </div>
   </div>

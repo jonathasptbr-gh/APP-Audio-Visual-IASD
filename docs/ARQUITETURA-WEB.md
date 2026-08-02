@@ -80,8 +80,8 @@ git push origin main
   1. `version` em `assets/web/version.json` — **a fonte da verdade**. É este
      valor que o `WebUpdater` compara e que dispara (ou não) a atualização por
      OTA nos aparelhos.
-  2. a constante `WEB_VERSION` em `controle/controle.js` — é ela que o
-     cabeçalho renderiza (`renderVersionLabel()`). Esquecê-la é o erro mais
+  2. a constante `WEB_VERSION` em `controle/controle.js` — é ela que o rodapé
+     de Configurações renderiza (`renderVersionLabel()`). Esquecê-la é o erro mais
      traiçoeiro dos três: o OTA entrega o bundle novo e o aparelho continua
      **exibindo a versão antiga**, que é exatamente a leitura que o indicador
      existe para dar.
@@ -94,9 +94,13 @@ git push origin main
   MENOR que o já publicado — caso em que `WebUpdater.compareVersions` ignora o
   bundle em silêncio. Para saber onde a base está, leia `version.json`.
 
-  No app nativo o rótulo mostra os **dois índices** — `Web v5.48 · Shell v1.22`
+  No app nativo o rótulo mostra os **dois índices** — `Web v5.49 · Shell v1.22`
   —, porque base web e shell atualizam por caminhos independentes (OTA ×
-  instalar APK); no navegador sai só `Controle v<versão>`.
+  instalar APK); no navegador sai só `Controle v<versão>`. **Ele mora no rodapé
+  do popup de Configurações** desde a v5.49 (antes ficava no cabeçalho da lista,
+  visível só na aba Cronograma): versão é metadado de diagnóstico, e o lugar
+  onde se procura diagnóstico é junto do estado do telão e do alvo de
+  espelhamento.
 
 ---
 
@@ -676,13 +680,16 @@ centrada quando ela fica mais baixa que a faixa. A altura da faixa é o token
 `--deck-pv-h`, usado tanto no `grid-template-rows` do `.deck` quanto neste
 cálculo — se os dois divergirem, a conta da largura passa a estar errada.
 
-O valor é limitado a `[PV_AR_MIN, PV_AR_MAX]` = `[1.2, 2.4]`: a preview divide
-a linha com os dois botões de estrofe, que precisam continuar sendo alvos de
-toque (`.slide-nav-btn` tem `min-width: 40px`). Telas reais de projeção ficam
-entre 4:3 e ~2,2:1, bem dentro da faixa; um painel 32:9 bate no teto e deixa de
-ser proporcional — troca deliberada. Verificado em 24 combinações (6 larguras de
-celular × 4 proporções de telão): nada transborda a linha nem invade o mixer, e
-os dois botões de estrofe continuam acionáveis em todas.
+O valor é limitado a `[PV_AR_MIN, PV_AR_MAX]` = `[1.2, 2.4]`: acima disso a
+largura calculada estoura a coluna e a preview passa a ser encolhida pelo
+`max-width: 100%`, deixando a faixa com folga vertical em vez de ficar
+proporcional. Telas reais de projeção ficam entre 4:3 e ~2,2:1, bem dentro da
+faixa; um painel 32:9 bate no teto e deixa de ser proporcional — troca
+deliberada. Verificado em 24 combinações (6 larguras de celular × 4 proporções
+de telão): nada transborda a linha nem invade o mixer. (Até a v5.48 o limite
+também protegia os dois botões de estrofe que dividiam a linha com a preview;
+eles saíram na v5.49 — ver "Um par de botões, dois eixos" —, e a faixa subiu de
+130px para 150px justamente porque a largura sobrando virou espaço morto.)
 
 Duas consequências que valem registrar:
 
@@ -798,9 +805,19 @@ A classe `mode-simple` **já vem no `<body>` do HTML** (e `.open` no
 mesmo motivo pelo qual o seletor nascia visível no documento.
 
 O **modo avançado** fica a um toque, no botão do cabeçalho ("Modo avançado"), e
-o caminho de volta é o segmento **Modo do app** no popup de Exibição
-(`#appModeSeg`). A escolha vale só para a sessão: cada abertura recomeça no
-simplificado — quem abre o app hoje pode não ser quem abre no próximo culto.
+**a volta é o mesmo botão ao contrário**: `#fullSimpleBtn` ("Simplificado"), no
+mesmo canto do cabeçalho da lista, mesmo componente (`.mode-switch`), seta
+apontando para o outro lado. Até a v5.48 a volta só existia no segmento **Modo
+do app** do popup de Exibição — hoje **Configurações** — (`#appModeSeg`, que
+continua lá): quem tocasse em
+"Modo avançado" por curiosidade caía na mesa de som completa e a saída estava
+atrás de uma engrenagem sobre a preview — um caminho que ninguém adivinha. Sair
+tem de custar o mesmo tanto que entrar. A escolha vale só para a sessão: cada
+abertura recomeça no simplificado — quem abre o app hoje pode não ser quem abre
+no próximo culto.
+
+**A seta não é enfeite**: o rótulo sozinho nomeia um destino sem dizer que o
+toque TROCA de tela. Com ela o par se lê como ida e volta, que é o que ele é.
 
 **O simplificado NÃO é uma segunda implementação.** A tela avançada continua
 no DOM, só oculta (`body.mode-simple`), e os controles do modo simples
@@ -823,7 +840,7 @@ mirar um alvo fino ali é o pior formato possível.
 | **Letra** (`#simpleLyrics`) | a letra INTEIRA da música em cena, com o mesmo destaque e o mesmo acompanhamento da leitura auxiliar do modo avançado |
 | **Play/pause e mudo** | `.click()` em `#playpause` / `#muteToggle` |
 | **Volume** (`#simpleVolDown` / `#simpleVolUp`) | teclas **−** e **+** com o número no meio (`.simple-vol-read`), não um slider |
-| **Modo avançado** (`#simpleFullBtn`, `.simple-switch`) | `setAppMode('full')` — a tela completa de sempre. Era texto `--muted` sobre `--surface`: dentro do mínimo de contraste, mas lido como **legenda**, não como botão. Desde a v5.40 é texto pleno (`--text`) sobre `--surface-2` com borda de `--accent` — **7,03:1** na paleta atual, e agora se anuncia como controle sem virar a ação principal de ninguém |
+| **Modo avançado** (`#simpleFullBtn`, `.mode-switch`) | `setAppMode('full')` — a tela completa de sempre. Era texto `--muted` sobre `--surface`: dentro do mínimo de contraste, mas lido como **legenda**, não como botão. Desde a v5.40 é texto pleno (`--text`) sobre `--surface-2` com borda de `--accent` — **7,03:1** na paleta atual — e desde a v5.49 leva a **seta** e divide a classe `.mode-switch` com o gêmeo do modo avançado (`#fullSimpleBtn`) |
 
 **Sem escolha de variante.** No simplificado o toque na linha da busca chama
 `simplePlaySong()`, que toca o **Cantado** e pronto: abrir o acordeão com
@@ -902,6 +919,34 @@ botão abre (`openWebDisplay`), e fechá-la equivale a desconectar. Como não h�
 evento de "janela fechada", um relógio de 1 s olha o `closed` — e ele só existe
 enquanto a janela existe.
 
+#### Liberação de TESTE: segurar 5 s o botão de conectar (v5.49)
+
+Sem telão à mão **não há como olhar esta tela destravada** — e ela é a tela que
+o app abre, ou seja, a que mais precisa ser vista enquanto se mexe no desenho
+dela. Segurar `#simpleCastBtn` por **5 s** (`CAST_HOLD_MS`) destrava como se
+houvesse tela conectada; segurar de novo tranca.
+
+- **`castTestUnlocked` entra por `simpleDisplay()`**, que passa a devolver um
+  descritor marcado (`{ name: 'Modo de teste', test: true }`). Um ponto só, e é
+  o mesmo que a cortina, o rótulo do botão e o modo simplificado inteiro já
+  consultavam — nada mais no app precisou saber que existe um modo de teste.
+- **Não finge conexão.** O botão fica em `--warn` (`.simple-action.testing`),
+  **nunca** no verde de `.connected`, e o subtítulo diz "Liberado para teste"
+  (o subtítulo é de UMA linha e corta com reticências, então cabe o estado; a
+  instrução de sair vai no `title`).
+  Verde ali significaria uma TV recebendo a projeção, e não há nenhuma: quem
+  pegar o aparelho nesse estado lê na tela o que está acontecendo em vez de
+  procurar a tela que "conectou" sozinha.
+- **A espera tem sinal.** 5 s sem resposta nenhuma é indistinguível de um toque
+  que não pegou, então uma barra corre no pé do botão enquanto o dedo estiver
+  lá (`.simple-key--holding::after`, `animation-fill-mode: forwards` — quem
+  completou vê a barra cheia no instante em que a tela destrava).
+- **5 s é longo de propósito**: o botão é a ÚNICA ação da tela bloqueada, e um
+  limiar curto faria um toque hesitante virar um destravamento que ninguém
+  pediu. O `holdFired` impede que o `click` seguinte abra o seletor de
+  espelhamento por cima da tela recém-destravada.
+- **Não é persistido**: cada abertura do app volta ao comportamento normal.
+
 Dois detalhes que só aparecem em uso:
 
 - **A busca aberta é fechada pelo bloqueio.** Perder a tela com o popup no ar
@@ -917,18 +962,18 @@ Dois detalhes que só aparecem em uso:
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│  [←] Cronograma      Web v5.48 · Shell v1.22  [busca][sync] │ ← .list-header (topo; sem appbar)
+│  [←] Cronograma        [busca][sync]  [← Simplificado]  │ ← .list-header (topo; sem appbar)
 │  ┌───────────────────────────────────────────────────┐  │
 │  │  item 1                                           │  │  ← .lib-list
 │  │  item 2                                           │  │     (área scrollável)
 │  └───────────────────────────────────────────────────┘  │
 │  [+ Importar] [★ Favoritos]  ← última linha do Cronograma │
-│  Cronograma   Bíblia   Diversos                     🔍   │  ← .tabs (trilho próprio)
+│  [Cronograma] [Bíblia] [Diversos] [🔍]                  │  ← .tabs (sem trilho; 4 alvos iguais)
 ├─────────────────────────────────────────────────────────┤
 │  ┌─────────────────────────────────────┬──────┐         │  ← .bottombar (base fixa)
-│  │  Nome da mídia atual  [seek bar]    │ Wall │         │
-│  │─────────────────────────────────────│ Letra│         │
-│  │  ⏮ Preview (proporção do telão) ⏭   │ Mesa │         │
+│  │  Nome da mídia atual  [seek bar]    │ Cfg  │         │
+│  │─────────────────────────────────────│ Wall │         │
+│  │    Preview (proporção do telão)     │ Letra│         │
 │  │─────────────────────────────────────│ Mudo │         │
 │  │  🔁  ⏮  ▶/⏸  ⏹  ⏭  [Playlist]    │ Vol  │         │
 │  └─────────────────────────────────────┴──────┘         │
@@ -940,11 +985,16 @@ Dois detalhes que só aparecem em uso:
 lista. `main` ganhou `padding-top` com `env(safe-area-inset-top)` (a antiga
 appbar cuidava do notch/status bar).
 
-**Cabeçalho da lista (`.list-header`):** botão voltar (dentro de pasta), título da
-aba/pasta, o **indicador de versão** (`#appVersion` — só aparece ao lado do
-título da aba **Cronograma**, `activeTab==='imports'`), campo de busca (dentro de
-pasta OPFS) e botão de sincronizar pasta do dispositivo (só na raiz dos
-**Favoritos**). Na aba Bíblia o título fica oculto (libera espaço — ver "Bíblia").
+**Cabeçalho da lista (`.list-header`):** botão voltar (dentro de pasta), título
+da aba/pasta, campo de busca (dentro de pasta OPFS), botão de sincronizar pasta
+do dispositivo (só na raiz dos **Favoritos**) e, sempre no canto direito, a
+**volta para o modo simplificado** (`#fullSimpleBtn`, `margin-left: auto` — na
+aba Bíblia o título fica oculto e, sem o `auto`, o botão escorregaria para a
+esquerda; o par de troca de modo tem de estar sempre no mesmo canto). O
+**indicador de versão** morava aqui e foi para o rodapé de Configurações na
+v5.49: o cabeçalho é navegação, o texto completo (`Web vX · Shell vY`) comia
+quase metade da largura de um celular, e ele só aparecia numa das abas — o mesmo
+metadado existindo ou não conforme a tela.
 
 **Controles (`.bottombar`):** fixados na base da tela. O padding inferior usa
 `max(env(safe-area-inset-bottom), 12px)` para garantir margem segura contra
@@ -995,19 +1045,19 @@ linha da grade:
 
 | Fatia | Linha da grade | Conteúdo |
 |---|---|---|
-| `.mixer-top` | 1 (mesma de `.nowplaying`) | **visual on/off** (`#viewToggle`) |
-| `.mixer-mid` | 2 (mesma de `.preview-row`, 130px) | **letra/texto completo** (`#lyricsViewBtn`, ícone de **folha com linhas** — SVG inline; abre a leitura auxiliar), **mesa de som** (`#standaloneToggle`, ícone de **fone de ouvido** — SVG inline), **mudo** (`#muteToggle`) — empilhados, cada um com `flex:1` |
+| `.mixer-top` | 1 (mesma de `.nowplaying`) | **Configurações** (`#settingsBtn`, engrenagem — `openFadePopup`) |
+| `.mixer-mid` | 2 (mesma de `.preview-row`, `--deck-pv-h`) | **cortina do telão** (`#viewToggle`), **letra/texto completo** (`#lyricsViewBtn`, ícone de **folha com linhas** — SVG inline; abre a leitura auxiliar), **mudo** (`#muteToggle`) — empilhados, cada um com `flex:1` |
 | `.mixer-bottom` | 3 (mesma de `.transport`) | **volume** (`#volToggle`/`#volClose`, recolhível) |
 
-Essa ordem (wallpaper no topo, depois letra/mesa de som/mudo no meio, volume
-na base) agrupa os controles de **áudio** (mesa de som + mudo) perto do
-volume, na base, e o de **visual** perto do wallpaper, no topo. A fatia do
-meio começa com a **leitura auxiliar** (ver seção própria): ali morava o
-antigo botão de fundo da letra, que virou uma opção do popup de Exibição —
-é preferência de aparência, escolhida uma vez, não algo que se opera durante
-o culto. Cada botão tem `flex:1` dentro da própria fatia — top
-(1 botão) e bottom (1 de cada vez) preenchem a fatia inteira; mid (3
-botões) a divide em partes iguais.
+A coluna foi reorganizada na v5.49, quando a **mesa de som** deixou de ter botão
+aqui (virou uma linha de Configurações — ver a seção dela) e o lugar vago virou
+a porta de **Configurações**. A ordem que sobrou separa o que NÃO opera o culto
+do que opera: a engrenagem no topo, sozinha, e abaixo dela o bloco de operação
+(cortina → letra → mudo → volume), que é o que o polegar procura sem olhar.
+Antes a mesa de som ficava no MEIO desse bloco, entre a leitura da letra e o
+mudo, sendo a única ali que se decide uma vez e não se toca mais.
+Cada botão tem `flex:1` dentro da própria fatia — top (1 botão) e bottom (1 de
+cada vez) preenchem a fatia inteira; mid (3 botões) a divide em partes iguais.
 
 **Fonte única do volume (`applyVolume`)**: o fader, o arrasto vertical no
 terço direito da preview em tela cheia e os **botões físicos de volume** (no
@@ -1093,17 +1143,54 @@ assim o número nunca se descola do cap. `pointer-events: none`: quem recebe o
 arrasto continua sendo o input por baixo. O cap subiu de 16px para 26px para
 "100" caber com folga.
 
-**Grade também alinha a preview e o transporte:** os dois botões de
-navegação de estrofe (`#slidePrevBtn`/`#slideNextBtn`, ver "Letra
-sincronizada" abaixo) flanqueiam a preview dentro de `.preview-row` — como
-essa linha inteira compartilha a mesma faixa de 130px da grade que
-`.mixer-mid`, os três (slide-nav esquerdo, os 3 botões do meio do mixer,
-slide-nav direito) ficam com o topo/base exatamente alinhados. O botão de
-**repetir** (`#repeat`) é o **primeiro** botão de `.transport` (à esquerda de
-⏮ ▶/⏸ ⏹ ⏭, com o de playlist por último à direita) — sendo o primeiro
-elemento da linha, seu início (borda esquerda) cai exatamente sob
-`#slidePrevBtn` da linha de cima, já que ambas as linhas (`.preview-row` e
-`.transport`) começam na mesma coluna da grade.
+**A linha da preview é só a preview** desde a v5.49: os dois botões de estrofe
+que a flanqueavam (`#slidePrevBtn`/`#slideNextBtn`) saíram da tela e viraram o
+toque curto em ⏮/⏭ — ver "Um par de botões, dois eixos" logo abaixo. Com a linha
+livre, `--deck-pv-h` subiu de 130px para 150px: a preview é dimensionada pela
+ALTURA (altura × `--pv-ar`), então a largura que os botões ocupavam teria virado
+espaço morto dos dois lados dela. Em 150px o 16:9 dá ~267px numa coluna de
+~291px, e a janela do operador para a projeção cresce junto. O botão de
+**repetir** (`#repeat`) é o **primeiro** de `.transport` (à esquerda de ⏮ ▶/⏸ ⏹
+⏭, com o de playlist por último à direita).
+
+#### Um par de botões, dois eixos (⏮/⏭, v5.49)
+
+Até a v5.48 a tela tinha **quatro** botões para duas ações vizinhas: estrofe
+(flanqueando a preview) e mídia (no transporte). Quatro alvos disputando a mesma
+faixa estreita — e os de estrofe passavam a maior parte do culto **desabilitados**,
+porque sem letra, versículo ou mensagem no ar eles não fazem nada.
+
+Agora é **um par**, com os eixos separados pelo TEMPO do toque
+(`attachTransportStep`):
+
+| Toque | O que faz |
+|---|---|
+| **curto** | o eixo da CENA: passa estrofe quando há estrofe a passar (letra, versículo ou mensagem no ar); passa de mídia quando não há |
+| **longo** (`LONGPRESS`, 450 ms) | **sempre** mídia — a saída para trocar de música com uma letra em cena |
+
+- **Quem decide o eixo é `slideTarget()`**, a MESMA função que a notificação
+  nativa consulta (`slideMode` em `pushNowPlaying`) e que os gestos da tela
+  cheia já usavam. A regra existia em um lugar só e continua assim.
+- **Quem executa continua sendo `#slidePrevBtn`/`#slideNextBtn`**, agora ocultos
+  no DOM (`.slide-anchor`): é neles que `applySlideLimits` guarda "dá para
+  passar estrofe agora?", e um botão `disabled` é um no-op natural. O gesto da
+  tela cheia e a notificação seguem chamando `.click()` neles, sem saber de
+  nada. Tirá-los do DOM obrigaria a espalhar essa regra por quatro chamadores.
+- **O limiar é o mesmo `LONGPRESS` dos itens da biblioteca**: dois tempos
+  diferentes para "segurar" no mesmo app seriam duas coisas para o dedo
+  aprender. O toque longo age **ao vencer o prazo**, não ao soltar — segurar e
+  ver a música trocar é a resposta que o dedo espera —, e o `click` seguinte é
+  descartado por uma flag, para a ação não sair duas vezes.
+- **O botão diz em que eixo está** (`renderTransportAxis`): contorno em
+  `--accent` (`.slide-mode`) e o `title` nomeando estrofe/versículo/mensagem. Na
+  notificação esse papel é do rótulo; aqui não cabe rótulo, e sem sinal nenhum o
+  eixo só se descobriria depois de tocar — errar isso no meio de um louvor custa
+  a música inteira.
+- **E diz quando o eixo ACABOU** (`.axis-end`, opacidade .55): na última estrofe
+  o toque curto não tem para onde ir. Antes isso era óbvio, o botão de estrofe
+  ficava cinza; como o mesmo botão ainda serve à mídia no toque longo, ele não
+  pode ser `disabled` — esmaecer entrega a mesma leitura sem tirar a outra
+  metade do ar.
 
 **Título rolante (now-playing):** o nome da mídia em exibição (`#npName`) tem
 um span interno (`#npNameInner`); quando o texto não cabe na largura
@@ -1121,10 +1208,10 @@ YouTube, `cmd()` também dirige um segundo `YT.Player` próprio da preview (mudo
 qualidade mínima) — ver seção do YouTube no Display para os detalhes.
 
 **Coluna de botões sobre a preview** (`#pvFabs`, `setupPreviewGestures`):
-**três** botões semitransparentes numa **coluna colada à direita**, de cima
+**dois** botões semitransparentes numa **coluna colada à direita**, de cima
 para baixo, **visíveis por padrão**. Cada um é `flex:1`, então a coluna se
 reparte sozinha pela altura da preview — inclusive quando o de cast não existe
-(navegador), onde os **dois** restantes ficam mais altos. O tamanho do ícone
+(navegador), onde o **restante** fica com a altura toda. O tamanho do ícone
 vem do CSS (`17px`), não do atributo do `<svg>`: a altura de cada botão é
 fração da preview, e um ícone de 20px estouraria a caixa.
 
@@ -1138,9 +1225,15 @@ deck é `--deck-pv-h`, 130px).
 
 | Ordem (de cima) | Botão | Ação |
 |---|---|---|
-| 1 | `#pvSettingsBtn` (engrenagem) | popup de **Exibição** (`openFadePopup`) |
-| 2 | `#pvCastBtn` (cast) | seletor de espelhamento do Android (`AVNative.openCast()`) — **só no app nativo**; oculto no navegador |
-| 3 | `#pvFullBtn` (expandir) | **tela cheia** da preview (`requestFullscreen` + trava de paisagem) |
+| 1 | `#pvCastBtn` (cast) | seletor de espelhamento do Android (`AVNative.openCast()`) — **só no app nativo**; oculto no navegador |
+| 2 | `#pvFullBtn` (expandir) | **tela cheia** da preview (`requestFullscreen` + trava de paisagem) |
+
+> Eram **três**: a engrenagem (`#pvSettingsBtn`) abria o popup de Exibição.
+> Saiu na v5.49, quando Configurações ganhou um botão fixo no topo do mixer —
+> duas portas para a mesma tela, uma delas escondível por um toque na preview,
+> é espaço gasto sem informação nova (o mesmo argumento que aposentou a aba de
+> Álbuns na v5.44). E uma **configuração** que some com um toque acidental na
+> miniatura é a que ninguém acha.
 
 > Havia um quarto (`#pvMsgBtn`, mensagem na tela). Ele saiu na v5.31: Mensagens
 > virou uma seção da aba **Diversos**. Enquanto era a única ferramenta avulsa o
@@ -1166,14 +1259,21 @@ A **tela cheia** (`requestFullscreen` no `#preview` + `screen.orientation.lock
 destravada no `fullscreenchange`) é a **projeção quando não há telão
 conectado**. CSS: `.preview:fullscreen` preenche a tela (cantos retos, sem
 borda, `touch-action:none`; as camadas internas já são `inset:0` +
-`object-fit`). O popup de Exibição guarda o seletor de **preenchimento da
-mídia** (`#fitSeg` — Ajustar/Preencher/Esticar, ver `stage.setFit()`), as
-**imagens dos slides** das músicas (`#lyricsBgSeg` — Mostrar/Remover, ver
-"Fundo preto vs. imagens dos slides"), o **wallpaper do telão** e o **estado
-do telão** no rodapé. As três primeiras são a mesma pergunta — como o telão se
-parece —, respondida uma vez e não durante o culto; por isso as imagens dos
-slides deixaram o mixer e vieram para cá. As transições (fade) **não têm
-controle ali** — são inerentes ao sistema (ver o state `fade`).
+`object-fit`). O popup de **Configurações** (`#fadePopup`, aberto pelo
+`#settingsBtn` no topo do mixer) guarda o **modo do app** (`#appModeSeg`), a
+**mesa de som** (`#standaloneSeg`), o seletor de **preenchimento da mídia**
+(`#fitSeg` — Ajustar/Preencher/Esticar, ver `stage.setFit()`), as **imagens dos
+slides** das músicas (`#lyricsBgSeg` — Mostrar/Remover, ver "Fundo preto vs.
+imagens dos slides"), o **wallpaper do telão** e, no rodapé, o **estado do
+telão**, o alvo de espelhamento e a **versão**. Chamava-se "Exibição" enquanto
+guardava só como o telão se PARECE; com a mesa de som vinda do mixer, o que
+reúne as linhas passou a ser "o que se decide uma vez, ao montar o culto" —
+aparência do telão E roteamento do áudio. Nenhuma delas se opera durante o
+culto, que é o critério de estar aqui e não na coluna do mixer. O `id` segue
+`fadePopup` por herança (os controles de fade que lhe deram o nome saíram há
+versões): renomeá-lo tocaria dezenas de referências sem mudar nada visível. As
+transições (fade) **não têm controle ali** — são inerentes ao sistema (ver o
+state `fade`).
 
 **Controle por gestos invisíveis DENTRO do fullscreen:** a tela inteira vira uma
 superfície de controle **sem desenhar nada no telão** (o operador espelha a tela
@@ -1206,8 +1306,8 @@ comando (ver a chave legada `fade`).
 ### Wallpaper personalizado
 
 A cortina do telão aceita uma **imagem escolhida pelo operador** no lugar do
-gradiente padrão — em "Exibição" (pressionar longo na preview): *Escolher
-imagem* / *Padrão*.
+gradiente padrão — em **Configurações** (engrenagem no topo do mixer):
+*Escolher imagem* / *Padrão*.
 
 - O blob mora no **state `wallpaper`**, que Controle e Display compartilham,
   então o comando `wallpaper` **não carrega payload**: só avisa que mudou, e
@@ -1280,8 +1380,8 @@ está fechado), a conta dá ~0 e nada muda — os dois mecanismos convivem.
 
 ### Modo "mesa de som" (saída de áudio local)
 
-Botão `#standaloneToggle` no mixer (ícone de **fone de ouvido** — SVG inline,
-fora do subset da fonte — reforçando "ouvir o áudio aqui"): liga um modo em que
+Linha **"Mesa de som (áudio no celular)"** no popup de **Configurações**
+(`#standaloneSeg`, segmentado Desligado/Ligado): liga um modo em que
 a **preview do Controle passa a tocar o áudio de verdade pelo próprio
 aparelho**, em vez de sempre muda — para quando não há intenção de exibir vídeo,
 só tocar música
@@ -1313,7 +1413,17 @@ igreja, sem precisar nem abrir o Display).
   `forceMuted` já ligado); ao **ativar**, respeita o mudo do operador. Sem mídia
   tocando, aplica na hora (sem rampa, nada a esmaecer).
 - **Não é persistido** — cada abertura do app começa em modo normal (preview
-  muda), evitando som inesperado saindo do celular numa sessão nova.
+  muda), evitando som inesperado saindo do celular numa sessão nova. Por isso
+  `renderStandaloneSeg()` também roda na carga: sem ela o segmento abriria com
+  os dois botões apagados, sem nenhuma escolha marcada.
+- **Era um botão do mixer** (`#standaloneToggle`, ícone de fone de ouvido) até a
+  v5.48. Virou linha de Configurações na v5.49 pelo mesmo critério que já havia
+  mandado para lá as imagens dos slides e o preenchimento da mídia: é uma
+  decisão de **roteamento de áudio** que se toma uma vez ao montar o culto — "o
+  celular está ligado na caixa de som?" —, não um controle que se opera no meio
+  dele. Na coluna do mixer ela ocupava o meio do bloco de operação (entre a
+  leitura da letra e o mudo) sendo a única ali que não se toca mais depois de
+  decidida. O lugar que ela deixou virou a porta de Configurações.
 
 ### Leitura auxiliar (letra completa / capítulo inteiro)
 
@@ -1363,7 +1473,7 @@ O Display **não é mais um app que se abre**. No aparelho ele é a
 `android.app.Presentation` que o shell nativo cria sozinho na TV assim que uma
 tela de apresentação aparece — e recria quando o dongle cai e volta (o WebView
 recarrega `/display/`, dispara `display-ready` e o Controle reenvia o estado
-atual). Por isso o rodapé do popup de Exibição (`#openDisplayBtn`) é um
+atual). Por isso o rodapé do popup de Configurações (`#openDisplayBtn`) é um
 **indicador de estado**, alimentado ao vivo por `AVNative.displays()` +
 `onDisplayChange`: "Telão conectado: <nome> (<w>×<h>)" ou "Nenhum telão
 conectado".
@@ -1379,18 +1489,36 @@ janela à parte — útil para desenvolver a base web fora do app, e nada mais.
 
 ### Abas e biblioteca
 
-As abas ficam na **base da seção de listas** (ícones), num **trilho com fundo
-próprio** (`--bar` + borda `--line`). Até a v5.31 a faixa era transparente
-("mesclada ao fundo do app") e um botão inativo era indistinguível do vazio ao
-redor: a única pista de que ali havia alvos de toque era o ícone. Hoje cada aba
-tem fundo (`--surface`) e a **ativa é preenchida em accent** — o sublinhado de
-2 px de antes era o elemento de menor contraste da tela justamente no que
-precisa ser mais óbvio, "onde eu estou". O **botão do acervo** (`.tab-add`)
-passou a ser **contornado** em vez de preenchido: encostado numa aba ativa
-sólida, dois blocos cheios da mesma cor diriam a mesma coisa para naturezas
-diferentes — um é onde eu estou, o outro é uma ação. São **três abas**:
-**Cronograma** · **Bíblia** · **Diversos** (as `.tab`, `flex:1`), mais o
-**acervo** (`#hymnSearchBtn`, `.tab-add`, à direita, fora do `flex:1`):
+As abas ficam na **base da seção de listas** (ícones), **sem trilho** e
+**mescladas ao fundo do app** (v5.49). São **quatro alvos idênticos** em
+`flex: 1` — **Cronograma** · **Bíblia** · **Diversos** (as `.tab`) e o
+**acervo** (`#hymnSearchBtn`, `.tab-add`) —, todos com `--hit-nav` de altura,
+o mesmo raio e o mesmo fundo (`--surface`).
+
+Três decisões, e as três foram invertidas em relação ao que a v5.31 tinha:
+
+- **O trilho saiu.** Ele existia para resolver um problema real: com a faixa
+  transparente E as abas sem fundo, um botão inativo era indistinguível do vazio
+  ao redor. Só que a solução resolveu o problema duas vezes — hoje cada aba tem
+  o próprio fundo, que já anuncia o alvo, e o trilho por cima cobrava 1px de
+  borda mais `.25rem` de padding dos dois lados numa tela onde a lista disputa
+  cada pixel de altura, além de desenhar um cartão em volta de algo que é
+  navegação, não conteúdo. O degrau foi MEDIDO nos dois cenários: uma aba sobre
+  o trilho dava **1,46:1** e sobre o fundo do app dá **1,38:1** — os dois acima
+  do piso de 1,30:1 das superfícies grandes.
+- **O acervo tem o mesmo tamanho das abas.** Era 42×38 com margem própria, e a
+  diferença não dizia nada: ele é o quarto alvo da mesma fileira e se lia como
+  um apêndice colado nela.
+- **O preenchimento trocou de lado.** A aba ativa é **contornada** (borda
+  `--accent` + `--accent-soft`) e o acervo é **sólido** (`--accent-fill`). Na
+  faixa convivem um ESTADO ("estou no Cronograma") e uma AÇÃO ("abrir o
+  acervo"), e sólido é o que o app já usa para "toque aqui e algo acontece"
+  (`.misc-project`, `.dialog-btn.primary`, `#volToggle`). Marcar posição não é
+  agir: para isso basta o contorno em accent, o mesmo recurso de
+  `.lib-item.active` e `.hymnal-card.expanded`. Os segmentados de
+  CONFIGURAÇÃO (`.fit-opt`, `.misc-tab`, `.coll-pill`) seguem com a seleção
+  preenchida, e isso não é incoerência: lá não há ação competindo pela mesma
+  faixa — a escolha é a única coisa que aquele trilho comunica.
 
 - **Cronograma** (`imports`) — itens importados; ficam até serem excluídos.
 - **Bíblia** (`bible`) — seleção e projeção de textos bíblicos. Não é uma lista
@@ -1442,6 +1570,39 @@ busca — voltar para os Favoritos retorna exatamente onde estava. A posição d
 e restaurada ao fim de cada `load()`; `rememberScroll()` é chamado antes de
 trocar de aba, abrir pasta ou voltar. (Memória por sessão, em RAM.)
 
+**Deslizar troca de aba (carrossel, v5.49).** As três abas já eram um carrossel
+na cabeça de quem usa Android — a animação de troca sempre desenhou a lista
+ENTRANDO pelo lado —, mas o gesto que produz esse movimento em qualquer outro
+app não existia aqui: só o toque no ícone. `setupTabCarousel` escuta o
+`pointerdown`/`pointermove` no `<main>` e troca de aba quando o dedo anda
+`TAB_SWIPE_MIN` (60px) na horizontal com o eixo X dominando o Y em 1,5×.
+
+- **A ordem é a da FAIXA** (`SWIPE_TABS = ['imports','bible','mic']`), não a do
+  `TAB_ORDER`: este inclui os Favoritos, que não têm botão na faixa — deslizar
+  até uma tela que não aparece na navegação deixaria o operador num lugar sem
+  indicação de onde ele está.
+- **Age no meio do gesto**, não ao soltar: a aba nova entra deslizando enquanto
+  o dedo ainda se move, que é o que faz o gesto parecer arrastar a tela.
+- **Não vale começando numa `.row`.** A linha da biblioteca já tem gesto
+  horizontal próprio (deslizar para a esquerda adiciona à playlist), e dois
+  gestos idênticos nos mesmos pixels não podem ambos ganhar. Sobra tudo o mais:
+  o cabeçalho, a própria faixa de abas, os vazios da lista, a grade de livros da
+  Bíblia e os painéis de Diversos — que é justamente onde não há linha nenhuma.
+- **Nem em sub-tela** (pasta aberta, capítulo/leitura da Bíblia), reconhecida
+  pelo `#backBtn` visível: ali o eixo horizontal pertence à navegação de dentro.
+  Também ficam de fora campos de texto e trilhos que rolam na horizontal (as
+  pílulas de categoria, o histórico do sorteio) e o modo de seleção múltipla.
+- **O `click` do fim do gesto é engolido** por um listener de CAPTURA no
+  `<main>`, senão deslizar sobre a grade de livros trocava de aba **e** abria um
+  livro; sobre a faixa, trocava de aba e voltava para a do ícone que o dedo
+  cruzou; e na ponta do carrossel (deslizar além da última aba, onde não há
+  troca) um deslize sobre "+ Nova mensagem" abria o diálogo de mensagem nova —
+  um gesto de navegação virando ação de conteúdo. A trava é uma **flag desarmada
+  no `pointerdown` seguinte**, e não um listener com prazo: o prazo de 350 ms
+  que havia primeiro mede o tempo errado — numa página em segundo plano o resto
+  do gesto leva mais que isso e a trava expirava justamente antes do clique
+  chegar (observado com a janela do Display aberta ao lado, no navegador).
+
 **Animação de troca de aba** (`animateTabSwitch`): ao trocar de aba, a lista
 `#library` entra com um leve **deslize direcional + fade** (Web Animations API
 na própria lista, ~220 ms). A direção vem da ordem das abas (`TAB_ORDER =
@@ -1474,6 +1635,10 @@ Itens sem blob local exibem badge `URL` ou `YT`.
 | Deslize à esquerda | **Adiciona** à playlist (sem substituir) |
 | Segurar e arrastar (⠿) | Reordena o item na lista |
 | Pressionar e segurar | Entra no modo de seleção múltipla |
+
+> O deslize horizontal da linha é o motivo de o **carrossel de abas** ignorar
+> gestos que começam numa `.row` (ver "Abas e biblioteca"): os dois são o mesmo
+> movimento nos mesmos pixels, e só um pode ganhar.
 
 **O arrasto mede a lista UMA vez** (`measureDrag`, no `pointerdown`; um listener
 de `scroll` remede se a lista rolar, e `endDrag` limpa tudo no fim). Antes, cada
@@ -2257,13 +2422,10 @@ do tratamento de comando do Display) e `previewTick()` (em vez do
 mostra a composição real (fundo + posição do texto), tornando a legenda
 redundante.
 
-**Controle**: dois botões de navegação manual de estrofe (`#slidePrevBtn`/
-`#slideNextBtn`) flanqueiam a preview (`.preview-row`, preview na **proporção
-do telão** — `--pv-ar`, ver a seção própria —, botões ocupam o espaço
-horizontal que sobra e a preview ENCOLHE antes de expulsá-los da linha; por
-compartilharem a mesma faixa `--deck-pv-h` da grade do `.deck`, ficam com a
-mesma altura da fatia `.mixer-mid`, ver seção do Mixer). `stepSlide(delta)`
-reaproveita o
+**Controle**: a navegação manual de estrofe é o **toque curto em ⏮/⏭** do
+transporte (ver "Um par de botões, dois eixos"); as âncoras
+`#slidePrevBtn`/`#slideNextBtn` continuam existindo, ocultas, como o ponto único
+de estado e execução. `stepSlide(delta)` reaproveita o
 **comando `seek` já existente** (sem novo tipo no protocolo) — pula pro
 `time` do slide vizinho, e tanto o Display quanto a própria preview
 sincronizam a letra sozinhos ao reagir ao novo tempo.
@@ -3280,7 +3442,8 @@ de **tamanho fixo**, tanto no **Display** (`#text` layer, ver abaixo) quanto na
 **preview** do Controle (`#pvText`, `showPvText`) — a preview sempre espelha o
 telão. `projectBibleVerse` monta esse comando via `cmd()`.
 
-Os **controles de slide** (`#slidePrevBtn`/`#slideNextBtn`, e os gestos
+Os **controles de slide** (o toque curto em ⏮/⏭, que aciona as âncoras
+`#slidePrevBtn`/`#slideNextBtn`, e os gestos
 invisíveis da preview em tela cheia) **passam/voltam versículos** quando há
 sessão ativa: `stepSlide` e `renderSlideNav` checam `bibleSession` antes da letra
 sincronizada, chamando `bibleStep`. **No fim do último versículo do capítulo,
@@ -4113,27 +4276,40 @@ Fora de `tokens.css`, no `:root` do Controle (não são cor):
   novo entra acrescentando um nome — não copiando uma regra.
 - **Tamanho de ícone:** três degraus — `--icon-sm` (20px, botões de
   linha/cabeçalho/popup), `--icon-md` (22px, abas e transporte) e `--icon-lg`
-  (24px, miniatura-ícone e dicas de deslize). Antes havia oito tamanhos
-  (19…27px), cinco deles usados uma única vez. **A escala governa os GLIFOS de
-  fonte** (`.msym`, via `font-size`), que é onde ela é aplicável: os SVGs
-  inline trazem `width`/`height` no próprio HTML e nunca estiveram sob ela, e o
-  modo simplificado tem escala própria (teclas de 34px, ícone de 44px no botão
-  de conectar) porque ali o alvo é o polegar de quem está de pé. "Três degraus
-  **e só eles**" era a frase antiga, e ela é desmentida por dezenas de valores
-  no HTML.
-- **Alvo de toque:** o piso é **34px** — `.row-btn`, `.row-handle`,
-  `.popup-close`, `.back-btn`, `.add-dir-btn`, `.coll-bar-dl` e
-  `.coll-group-btn`; `.sel-btn` tem 36 e `.tab`, 38. Nada abaixo disso — o
-  `.back-btn` já teve 20×20 px sendo a única saída da tela de Favoritos e da
-  navegação da Bíblia, com o `#addDirBtn` (que abre o SAF) logo ao lado.
-  Os dois botões de baixar (`.coll-bar-dl` no card e `.coll-group-btn` no
-  cabeçalho de grupo) têm o **mesmo** 34px de propósito: alinhados na mesma
-  coluna, tamanhos diferentes fariam os centros discordarem.
+  (24px, miniatura-ícone, dicas de deslize e barras largas de ação). Antes havia
+  oito tamanhos (19…27px), cinco deles usados uma única vez. **Desde a v5.49 a
+  escala governa também os SVGs inline**, por dois `:is(...)` logo depois do
+  bloco de feedback de toque: até ali ela valia só para os GLIFOS de fonte
+  (`.msym`, via `font-size`), e os SVGs traziam `width`/`height` escritos no
+  HTML e no JS — 14, 16, 17, 19, 20, 22, 26, 28, 30 e 44 px espalhados por dois
+  arquivos. O efeito não era teórico: o `#addDirBtn` (19px, SVG) e o `#backBtn`
+  (20px, glifo) são vizinhos no mesmo cabeçalho, com a mesma caixa de 34px, e o
+  ícone de um saía menor que o do outro sem que nada na folha dissesse por quê.
+  O atributo do elemento continua no HTML como valor de partida (vale antes de
+  o CSS carregar), mas quem manda é a regra. **Duas exceções**, cada uma dita
+  no lugar onde mora: os botões de vidro da preview (`.pv-fab`, 17px — a altura
+  é fração da preview) e o modo simplificado (28px nas teclas, 44px no botão de
+  conectar), onde o alvo é o polegar de quem está de pé. "Três degraus **e só
+  eles**" era a frase antiga, e ela era desmentida por dezenas de valores no
+  HTML; agora ela é verificável.
+- **Alvo de toque:** dois degraus, e desde a v5.49 são **tokens** — `--hit`
+  (34px) e `--hit-nav` (38px, a faixa de navegação: `.tab` e `.tab-add`). O piso
+  de 34px vale para `.row-btn`, `.row-handle`, `.popup-close`, `.back-btn`,
+  `.add-dir-btn`, `.sel-btn`, `.coll-bar-dl`, `.coll-group-btn` e `.pv-fab`.
+  Nada abaixo disso — o `.back-btn` já teve 20×20 px sendo a única saída da tela
+  de Favoritos e da navegação da Bíblia, com o `#addDirBtn` (que abre o SAF)
+  logo ao lado. Antes o 34 estava escrito literal em sete regras e, ainda assim,
+  dois controles ficavam fora da escala por descuido: `.sel-btn` com 36px e o
+  botão do acervo com 42×38 — sete literais é o que faz uma escala de duas
+  medidas render quatro tamanhos na mesma tela. Os dois botões de baixar
+  (`.coll-bar-dl` no card e `.coll-group-btn` no cabeçalho de grupo) têm o
+  **mesmo** alvo de propósito: alinhados na mesma coluna, tamanhos diferentes
+  fariam os centros discordarem.
 - **Receita repetida vira seletor agrupado, não cópia:** os estados de cor são
   declarados por ESTADO (`.view-blocked`/`.muted`/`.danger` num bloco,
   `.active` noutro), a coluna "nome + subtítulo" das linhas de lista é uma regra
-  para `.coll-bar-info, .bible-ver-main, .hymn-info`, e `.slide-nav-btn` divide
-  a receita de `.t-btn` em vez de reescrevê-la.
+  para `.coll-bar-info, .bible-ver-main, .hymn-info`, e `.tab-add` divide a
+  caixa de `.tab` (`flex:1`, `--hit-nav`, mesmo raio) em vez de reescrevê-la.
 - **Ordem importa quando a especificidade empata:** `.pv-text { z-index: 2 }`
   precisa vir DEPOIS de `.pv-layer { z-index: 1 }` (o elemento tem as duas
   classes). Já esteve antes, e o cartão de texto só ficava acima do iframe do
@@ -4147,9 +4323,17 @@ Fora de `tokens.css`, no `:root` do Controle (não são cor):
   pills/badges = `--radius-pill`; bottom-sheets = `--radius-sheet`; marcas
   menores que um botão = `--radius-xs`. Os dois últimos existem porque três
   `18px` e vários `4px` literais eram três (e vários) chances de divergirem no
-  primeiro ajuste. Caso especial deliberado que continua fora do sistema:
-  `border-radius: 0` da faixa da letra ("vídeo de louvor", cantos retos) e
-  `50%` do thumb do fader.
+  primeiro ajuste. **Quatro botões largos violavam a primeira metade da regra**
+  e foram corrigidos na v5.49 (`.import-btn`, `.msg-add-btn`, `.new-folder-btn`
+  e `.folder-pick-btn` usavam `--radius-card`): a maioria dos botões largos do
+  app — `.misc-project`, `.mic-btn`, `.chrono-btn`, `.coll-open-cfg`, `.draw-go`
+  — sempre usou `--radius-btn`, então eram esses quatro que destoavam, e dois
+  deles ("Importar arquivos" e "+ Nova mensagem") são o mesmo tipo de botão
+  tracejado em telas diferentes. Na mesma passada o tracejado de `.msg-add-btn`
+  virou `--accent` como o de `.import-btn`: dois botões de "acrescentar" com
+  bordas de cores diferentes. Casos especiais deliberados que continuam fora do
+  sistema: `border-radius: 0` da faixa da letra ("vídeo de louvor", cantos
+  retos) e `50%` do thumb do fader.
 - **Cor literal fora do sistema: nenhuma.** As duas folhas não contêm `#fff`
   nem `#000` soltos — o preto do palco é `--stage-bg`, o branco projetado é
   `--stage-text`, e até o halo do `.start-pill` virou `--accent-glow`. É a
@@ -4184,10 +4368,15 @@ cabe um, e mostrar o próximo apagaria da tela qual está valendo — a cor
 distingue ligado de desligado, não qual dos três. Ali o ícone segue sendo o
 modo atual, que é a informação que se perderia.
 
-Botões de **função** (fone da mesa de som, folha da leitura auxiliar) e
-**segmentados** (preenchimento, imagens dos slides, wallpaper) ficam fora da
-regra por natureza: não alternam duas ações opostas — o ícone nomeia o recurso,
-e o `.active` / o segmento marcado dizem o resto.
+Botões de **função** (engrenagem de Configurações, folha da leitura auxiliar) e
+**segmentados** (modo do app, mesa de som, preenchimento, imagens dos slides,
+wallpaper) ficam fora da regra por natureza: não alternam duas ações opostas — o
+ícone nomeia o recurso, e o segmento marcado diz o resto.
+
+**⏮/⏭ são um terceiro caso**, e o único em que a cor não diz um estado do
+sistema e sim o EIXO do botão: `.slide-mode` (contorno em accent) significa "o
+toque curto passa estrofe", e `.axis-end` (esmaecido) significa "esse caminho
+acabou; o toque longo ainda troca de mídia". Ver "Um par de botões, dois eixos".
 
 ### Escada de elevação, e a regra que faltava
 
@@ -4408,13 +4597,15 @@ usa-se um `<svg>` inline direto no HTML, com `fill/stroke: currentColor` (herda
 a cor do botão). Hoje: o botão de **volume** do mixer (`#volToggle`, ícone de
 faders/mixer), a **lupa** da busca do acervo (`#hymnSearchBtn`), a antena de
 **Wi-Fi** dos cards de coleção (`wifiIconEl`), o **fone de ouvido** da mesa de
-som (`#standaloneToggle`), a **folha com linhas** da leitura auxiliar
-(`#lyricsViewBtn`, que substituiu a flor do antigo botão de fundo da letra), o
+som (`#standaloneSeg`, hoje em Configurações), a **folha com linhas** da leitura
+auxiliar (`#lyricsViewBtn`, que substituiu a flor do antigo botão de fundo da
+letra), a **engrenagem** de Configurações (`#settingsBtn`, no topo do mixer), as
+**setas** do par de troca de modo (`.mode-switch`), o
 ícone **"arquivos+"** (documento com `+`) do botão de importar no fim do
 Cronograma (`.import-btn`), que diferencia importar ARQUIVOS de abrir os
 FAVORITOS (estrela, no botão ao lado — e a mesma estrela no "Novo atalho"),
-os três botões flutuantes da preview (**engrenagem**, **cast** e
-**expandir** — `#pvSettingsBtn`/`#pvCastBtn`/`#pvFullBtn`),
+os dois botões flutuantes da preview (**cast** e
+**expandir** — `#pvCastBtn`/`#pvFullBtn`),
 e nos **cards de coleção** a **seta de baixar** (`downloadAllIconSvg`), o **✕**
 de cancelar (`closeIconSvg`), as **setas circulares** de sincronizar
 (`syncIconSvg`), o **check** de "completo offline" (`checkIconSvg`), a

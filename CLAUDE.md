@@ -232,9 +232,11 @@ Além disso, `native.js` publica **quatro globais** lidas direto (sem Promise):
 `__SHELL_VERSION__` (o inteiro do contrato, ver abaixo) e **`__SHELL_NAME__`** —
 o `versionName` do APK, que é o **índice de versão do shell exibido ao
 operador**. Ele não se confunde com `__SHELL_VERSION__`: base web e shell
-atualizam por caminhos independentes (OTA × instalar APK), então o cabeçalho do
-Cronograma mostra os dois (`Web v5.48 · Shell v<versionName do APK>`, montado em
-`renderVersionLabel`). Num shell antigo (sem
+atualizam por caminhos independentes (OTA × instalar APK), então o rodapé de
+**Configurações** mostra os dois (`Web v5.49 · Shell v<versionName do APK>`,
+montado em `renderVersionLabel`; até a v5.48 ficava no cabeçalho do Cronograma —
+saiu de lá porque metadado de diagnóstico pertence à mesma tela do estado do
+telão, não a uma faixa de navegação). Num shell antigo (sem
 `appVersion()`) a string vem vazia e a UI cai em só a versão web — mesma
 degradação do navegador.
 
@@ -514,11 +516,15 @@ Dois ganhos, e o segundo é o menos óbvio:
 - **Por isso nenhuma ação é desabilitada no lado nativo.** Quem sabe se
   "estrofe anterior" faz sentido agora é o web; desabilitar nos dois lugares
   duplicaria a regra, e a cópia em Kotlin envelheceria.
-- **⏮/⏭ mudam de eixo conforme a cena.** Na tela os dois eixos têm botões
-  próprios (mídia no transporte, estrofe ao lado da preview), mas na notificação
-  só cabem três no modo compacto — e com letra, versículo ou mensagem em cena é
-  a estrofe que o operador está passando. `slideMode` (de `slideTarget()`)
-  decide, e o rótulo do botão diz qual é o modo para não virar adivinhação.
+- **⏮/⏭ mudam de eixo conforme a cena.** Na notificação só cabem três botões no
+  modo compacto — e com letra, versículo ou mensagem em cena é a estrofe que o
+  operador está passando. `slideMode` (de `slideTarget()`) decide, e o rótulo do
+  botão diz qual é o modo para não virar adivinhação. **Desde a v5.49 a TELA
+  segue a mesma regra**: os botões de estrofe que flanqueavam a preview saíram,
+  e o par ⏮/⏭ do transporte passa estrofe no toque curto e mídia no toque longo
+  (ver `attachTransportStep` em `controle.js`). O que a notificação já fazia por
+  falta de espaço virou a convenção dos dois lados — e o `slideMode` que ela
+  envia deixou de ser a única leitura dessa regra na tela.
 - **`play`/`pause` e `playpause` são coisas diferentes.** Tela de bloqueio, fone
   e Android Auto sabem o que querem e mandam intenção explícita; o botão da
   notificação é alternador. Tratar tudo como alternador faria um `onPlay`
@@ -811,7 +817,7 @@ contextos.
 | Recuperação de áudio bloqueado | segue tocando mudo + retentativas | **desativada já no `onBlocked`** — sem política de gesto, qualquer `NotAllowedError` só pode ser falso positivo, e mutar antes de descobrir isso deixava o telão sem som sem armar recuperação nenhuma |
 | Pastas do dispositivo | `showDirectoryPicker()` | **SAF** — a File System Access API **não existe no Android**; este recurso era letra morta no celular e passa a funcionar |
 | Compartilhamento | **não existe mais** — vinha do `share_target` do manifest com o POST interceptado pelo SW, e os dois saíram do bundle; sobra a leitura do estado `pending-share`, que hoje ninguém escreve | **`intent-filter` nativo** (`ShareIntake.kt`), que só aceita `content://` de outro app (ver abaixo) |
-| Estado do telão (rodapé de Exibição) | atalho `window.open('../display/')`, útil só para desenvolver | **indicador ao vivo** (desabilitado como botão) — a Presentation é criada sozinha |
+| Estado do telão (rodapé de Configurações) | atalho `window.open('../display/')`, útil só para desenvolver | **indicador ao vivo** (desabilitado como botão) — a Presentation é criada sozinha |
 | Botão de cast da preview | oculto | `AVNative.openCast()` → seletor de **espelhamento de tela** (ver abaixo) |
 | "Conectar a tela" (modo simplificado) | abre a tela do Display (`window.open`) — e é ela que conta como "conectado" | mesmo `AVNative.openCast()`, com o nome da tela conectada no subtítulo |
 | Simplificado sem tela conectada | mesmo bloqueio, com a janela do Display no lugar da `Presentation` | **modo bloqueado**: cortina embaçada sobre tudo, só o botão de conectar — preenchido no accent, no centro da tela — e a saída para o avançado na frente |
@@ -1003,7 +1009,7 @@ E o fallback abre a tela de **Tela** antes da de **Cast**, justamente porque o
 Google Cast é o que não se quer aqui.
 
 Como isso é território de fabricante, `describeCastTarget()` devolve o rótulo
-do alvo escolhido **com o componente real** e o **popup de Exibição mostra
+do alvo escolhido **com o componente real** e o **popup de Configurações mostra
 "Espelhar abre: …"**. O operador vê o que o aparelho ofereceu antes de tocar —
 e, quando o botão abre a tela errada, essa string é o que diz qual candidato
 pegou, sem depender de logcat.
@@ -1182,7 +1188,7 @@ Rodar local: `./gradlew assembleDebug` (exige Android SDK instalado).
 | Onde | O quê | Para quê |
 |---|---|---|
 | `assets/web/version.json` | `"version"` | **é o que faz a atualização chegar aos aparelhos**: o OTA compara este campo (`compareVersions`) e ignora, em silêncio, um bundle cuja versão não for maior que a instalada |
-| `assets/web/controle/controle.js` | `WEB_VERSION` | **é o que a UI de fato mostra**: `renderVersionLabel()` sobrescreve o span no primeiro render do Cronograma |
+| `assets/web/controle/controle.js` | `WEB_VERSION` | **é o que a UI de fato mostra**: `renderVersionLabel()` sobrescreve o span do rodapé de Configurações na carga |
 | `assets/web/controle/index.html` | o texto do `<span id="appVersion">` | o que aparece antes do primeiro render — e a única versão visível num shell sem `appVersion()` |
 
 Esquecer o `WEB_VERSION` é o erro silencioso: o OTA distribui o bundle novo, mas
@@ -1194,7 +1200,7 @@ aparelho nenhum.
 O `versionCode`/`versionName` do APK vêm do CI (ver "Build") e não se tocam à
 mão.
 
-**Versão atual: v5.48** (base web) · `SHELL_VERSION` **14**, e o bundle segue com
+**Versão atual: v5.49** (base web) · `SHELL_VERSION` **14**, e o bundle segue com
 `minShell: 2` — ele funciona igual num shell antigo, só sem os recursos que são
 nativos por construção (a escada do voltar, os botões de volume, a notificação de
 controles), que **só chegam instalando o APK novo**, não pelo OTA.

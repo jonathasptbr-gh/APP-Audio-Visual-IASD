@@ -23,6 +23,7 @@ const faderWrapEl = document.querySelector('.fader-wrap');
 const appModeSegEl = document.getElementById('appModeSeg');
 const simpleModeEl = document.getElementById('simpleMode');
 const simpleFullBtnEl = document.getElementById('simpleFullBtn');
+const fullSimpleBtnEl = document.getElementById('fullSimpleBtn');
 const simpleCastBtnEl = document.getElementById('simpleCastBtn');
 const simpleCastLabelEl = document.getElementById('simpleCastLabel');
 const simpleCastStatusEl = document.getElementById('simpleCastStatus');
@@ -43,7 +44,8 @@ const simpleVolValueEl = document.getElementById('simpleVolValue');
 const mixerEl = document.getElementById('mixer');
 const volToggleEl = document.getElementById('volToggle');
 const volCloseEl = document.getElementById('volClose');
-const standaloneToggleEl = document.getElementById('standaloneToggle');
+const settingsBtnEl = document.getElementById('settingsBtn');
+const standaloneSegEl = document.getElementById('standaloneSeg');
 const lyricsViewBtnEl = document.getElementById('lyricsViewBtn');
 const lyricsPopupEl = document.getElementById('lyricsPopup');
 const lyricsPopupTitleEl = document.getElementById('lyricsPopupTitle');
@@ -88,8 +90,13 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.48';
+const WEB_VERSION = '5.49';
 
+// Escrita UMA vez, na carga: o indicador mora no rodapé de Configurações desde
+// a v5.49 e não depende mais de qual aba está aberta (no cabeçalho ele
+// aparecia só no Cronograma, o que era em si uma inconsistência — o mesmo
+// metadado existindo ou não conforme a tela). `__SHELL_NAME__` é publicada por
+// `native.js`, que roda antes deste arquivo.
 function renderVersionLabel() {
   // __SHELL_NAME__ = versionName do APK (ver native.js). Vazio no navegador e
   // em shells anteriores ao `appVersion()` — aí sai só a versão da base web.
@@ -101,6 +108,8 @@ function renderVersionLabel() {
     ? 'Base web v' + WEB_VERSION + ' (atualiza por OTA) · shell nativo v' + shell + ' (atualiza instalando o APK)'
     : 'Base web v' + WEB_VERSION;
 }
+
+renderVersionLabel();
 
 const selbarEl = document.getElementById('selbar');
 const selCountEl = document.getElementById('selCount');
@@ -634,7 +643,7 @@ function dropYtPreview() {
   pvYoutubeEl.innerHTML = '';
 }
 
-// Pede a menor qualidade disponível: a preview já é minúscula (~130px de
+// Pede a menor qualidade disponível: a preview já é minúscula (~150px de
 // altura), então isso só reforça o que o YouTube tende a escolher sozinho
 // pelo tamanho do player — evita puxar HD à toa num player que ninguém vê em
 // tamanho real. Reforçado também por polling (abaixo, não só onReady/
@@ -881,7 +890,18 @@ async function setStandalone(v) {
       }, MUTE_RAMP_TIME * 1000);
     }
   }
-  standaloneToggleEl.classList.toggle('active', standalone);
+  renderStandaloneSeg();
+}
+
+// O estado da mesa de som vive num SEGMENTADO de Configurações desde a v5.49
+// (era o botão `#standaloneToggle` do mixer). Um render próprio, e não um
+// `classList.toggle` solto: o segmento também precisa nascer certo quando o
+// popup abre pela primeira vez.
+function renderStandaloneSeg() {
+  const want = standalone ? 'on' : 'off';
+  standaloneSegEl.querySelectorAll('.fit-opt').forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.standalone === want);
+  });
 }
 
 // Fundo da letra sincronizada (Hinário 2022): 'black' (padrão) ignora as
@@ -1714,9 +1734,6 @@ function renderTabs() {
 }
 
 function renderListTitle() {
-  // Indicador de versão: só ao lado do título da aba Cronograma.
-  appVersionEl.hidden = activeTab !== 'imports';
-  if (!appVersionEl.hidden) renderVersionLabel();
   if (activeTab === 'mic') {
     backBtnEl.hidden = true; addDirBtnEl.hidden = true; libSearchEl.hidden = true; libSearchEl.value = '';
     listTitleEl.hidden = false; listTitleEl.textContent = 'Diversos';
@@ -4548,6 +4565,17 @@ function renderSlideNav() {
   refreshSimpleLyrics();
   renderSimpleTime();
   const who = slideTarget(); // o que está NO AR — ver slideTarget()
+  applySlideLimits(who);
+  // O eixo do transporte é escrito DEPOIS dos limites: ele lê o `disabled` das
+  // âncoras para dizer quando o toque curto não tem para onde ir.
+  renderTransportAxis(who);
+}
+
+// Onde as âncoras de estrofe podem ir a partir daqui (é isso que `disabled`
+// significa nelas). Saiu de dentro de `renderSlideNav` para o eixo do
+// transporte poder ser desenhado depois — os `return` intermediários não
+// deixavam.
+function applySlideLimits(who) {
   // Mensagens: passa/volta entre as mensagens salvas (nos extremos desabilita).
   if (who === 'message') {
     slidePrevBtnEl.disabled = msgSession.idx <= 0;
@@ -4573,6 +4601,32 @@ function renderSlideNav() {
   const idx = findSlideIndex(lyrics, authoritativeTime());
   slidePrevBtnEl.disabled = idx <= 0;
   slideNextBtnEl.disabled = idx >= lyrics.length - 1;
+}
+
+// Em que eixo ⏮/⏭ estão agora (ver "Um par de botões, dois eixos"). Na
+// notificação nativa o rótulo do botão diz o modo; na tela não cabe rótulo,
+// então dizem a COR (contorno em accent) e o `title`. Sem esse sinal o eixo só
+// se descobriria depois de tocar — e descobrir errado, no meio de um louvor,
+// custa a música inteira.
+//
+// E o botão precisa dizer também quando o toque curto NÃO tem para onde ir (a
+// última estrofe do hino, a última mensagem). Antes isso era óbvio: o botão de
+// estrofe ficava CINZA. Agora o mesmo botão ainda serve à mídia no toque longo,
+// então ele não pode ser `disabled` — o que ele faz é esmaecer (`.axis-end`),
+// que é a mesma leitura de "este caminho acabou" sem tirar o outro do ar.
+const SLIDE_AXIS_NAME = { lyrics: 'estrofe', bible: 'versículo', message: 'mensagem' };
+const SLIDE_AXIS_PREV = { lyrics: 'Estrofe anterior', bible: 'Versículo anterior', message: 'Mensagem anterior' };
+const SLIDE_AXIS_NEXT = { lyrics: 'Próxima estrofe', bible: 'Próximo versículo', message: 'Próxima mensagem' };
+function renderTransportAxis(who) {
+  const par = [[prevEl, slidePrevBtnEl, SLIDE_AXIS_PREV[who], 'Mídia anterior', 'segure para a mídia anterior'],
+    [nextEl, slideNextBtnEl, SLIDE_AXIS_NEXT[who], 'Próxima mídia', 'segure para a próxima mídia']];
+  for (const [btn, ancora, rotulo, soMidia, dica] of par) {
+    btn.classList.toggle('slide-mode', !!who);
+    btn.classList.toggle('axis-end', !!who && ancora.disabled);
+    btn.title = who
+      ? rotulo + (ancora.disabled ? ' (fim) · ' : ' · ') + dica
+      : soMidia;
+  }
 }
 
 // ===== Leitura auxiliar: letra completa / capítulo inteiro =====
@@ -6638,6 +6692,7 @@ async function addSongToPlaylist(coll, s, variant) {
 // ===== transições (fade in/out) =====
 function openFadePopup() {
   renderAppModeSeg();
+  renderStandaloneSeg();
   renderFitSeg();
   renderLyricsBgSeg();
   renderWallSeg();
@@ -7297,10 +7352,51 @@ playPauseEl.addEventListener('click', () => {
   else if (currentId) { send(currentId); } // após stop: recarrega e inicia do início
 });
 stopEl.addEventListener('click', stopClear);
-prevEl.addEventListener('click', () => step(-1));
-nextEl.addEventListener('click', () => step(1));
 slidePrevBtnEl.addEventListener('click', () => stepSlide(-1));
 slideNextBtnEl.addEventListener('click', () => stepSlide(1));
+
+// ===== Um par de botões, dois eixos (⏮/⏭) =====
+// Até a v5.48 a tela tinha QUATRO botões para duas ações vizinhas: estrofe
+// (flanqueando a preview) e mídia (no transporte). Eram quatro alvos disputando
+// a mesma faixa estreita, e os de estrofe passavam a maior parte do culto
+// desabilitados — sem letra, sem versículo e sem mensagem eles não fazem nada.
+//
+// Agora é UM par, com os dois eixos separados pelo TEMPO do toque:
+//   • toque curto → o eixo da CENA: passa estrofe quando há estrofe a passar
+//     (letra, versículo ou mensagem no ar), e passa de mídia quando não há;
+//   • toque longo → SEMPRE mídia. É a saída para quando a cena tem estrofes e
+//     mesmo assim se quer trocar de música.
+//
+// A regra de qual eixo está valendo é `slideTarget()`, a MESMA que a notificação
+// nativa consulta (`slideMode` em `pushNowPlaying`) e a mesma que o gesto da
+// tela cheia usa. E quem executa continua sendo `#slidePrevBtn`/`#slideNextBtn`
+// por `.click()`: eles saíram da tela, não do sistema — é neles que
+// `applySlideLimits` guarda "dá para passar estrofe agora?", e um botão
+// `disabled` é um no-op natural.
+//
+// O limiar é o mesmo `LONGPRESS` (450 ms) dos itens da biblioteca: dois tempos
+// diferentes para "segurar" no mesmo app seriam duas coisas para o dedo
+// aprender. O toque longo dispara NA HORA em que vence o prazo (não ao soltar):
+// segurar e esperar a música trocar é a resposta que o dedo espera, e o
+// `pointerup` seguinte já não repete a ação.
+function attachTransportStep(btn, dir) {
+  let timer = null, fired = false;
+  const slideBtn = () => (dir < 0 ? slidePrevBtnEl : slideNextBtnEl);
+  btn.addEventListener('pointerdown', () => {
+    fired = false;
+    clearTimeout(timer);
+    timer = setTimeout(() => { fired = true; step(dir); }, LONGPRESS);
+  });
+  const cancel = () => { clearTimeout(timer); timer = null; };
+  ['pointerup', 'pointercancel', 'pointerleave'].forEach((ev) => btn.addEventListener(ev, cancel));
+  btn.addEventListener('click', () => {
+    if (fired) { fired = false; return; }   // o toque longo já agiu
+    if (slideTarget()) slideBtn().click();
+    else step(dir);
+  });
+}
+attachTransportStep(prevEl, -1);
+attachTransportStep(nextEl, 1);
 repeatEl.addEventListener('click', cycleRepeat);
 
 
@@ -7309,7 +7405,15 @@ seekEl.addEventListener('change', () => cmd({ type: 'seek', time: parseFloat(see
 
 viewToggleEl.addEventListener('click', () => setView(view === 'visual' ? 'wallpaper' : 'visual'));
 muteToggleEl.addEventListener('click', toggleMute);
-standaloneToggleEl.addEventListener('click', () => setStandalone(!standalone));
+// Configurações: a porta fixa no topo da coluna do mixer. Substituiu a
+// engrenagem que ficava sobre a preview — aquela sumia com um toque na
+// miniatura, e uma configuração escondida atrás de um estado de UI é a que
+// ninguém acha.
+settingsBtnEl.addEventListener('click', openFadePopup);
+standaloneSegEl.addEventListener('click', (e) => {
+  const btn = e.target.closest('.fit-opt');
+  if (btn) setStandalone(btn.dataset.standalone === 'on');
+});
 lyricsViewBtnEl.addEventListener('click', openLyricsPopup);
 // Letra × Bíblia (só aparece com as duas em cena — ver renderLyricsView).
 lyricsViewSegEl.addEventListener('click', (e) => {
@@ -7558,13 +7662,24 @@ function holdRepeat(btn, fn) {
 function renderSimpleCast() {
   if (appMode !== 'simple') return;
   const tv = simpleDisplay();
-  simpleCastBtnEl.classList.toggle('connected', !!tv);
+  // `.connected` é o verde de "há uma tela recebendo"; a liberação de teste
+  // NUNCA o veste (ver `castTestUnlocked`) — ela é aviso, não conexão.
+  simpleCastBtnEl.classList.toggle('connected', !!tv && !castTestUnlocked);
+  simpleCastBtnEl.classList.toggle('testing', castTestUnlocked);
   // Sem tela, o botão é a tela inteira (ver o bloqueio abaixo) e precisa dizer
   // tudo sozinho: uma frase, no rótulo. Com tela conectada ele volta a ser um
   // cartão entre outros — o rótulo nomeia a ação e o subtítulo informa o
   // estado, que é a divisão de sempre.
   simpleCastLabelEl.textContent = tv ? 'Conectar a tela' : 'Toque para conectar uma tela';
-  if (!window.__NATIVE__) {
+  // O subtítulo tem UMA linha e corta com reticências: cabe o estado, não a
+  // instrução. Quem está nesse modo acabou de segurar o botão 5 s para entrar
+  // nele — a instrução de sair vai no `title`.
+  simpleCastBtnEl.title = castTestUnlocked
+    ? 'Liberação de teste ativa — segure 5 s para trancar'
+    : 'Segure 5 s para liberar a tela sem telão (teste)';
+  if (castTestUnlocked) {
+    simpleCastStatusEl.textContent = 'Liberado para teste';
+  } else if (!window.__NATIVE__) {
     simpleCastStatusEl.textContent = tv ? 'Tela do Display aberta' : 'Abrir a tela do Display';
   } else {
     simpleCastStatusEl.textContent = tv
@@ -7595,7 +7710,31 @@ function renderSimpleCast() {
 let webDisplayWin = null;      // navegador: janela do Display aberta pelo botão
 let webDisplayTimer = null;
 
+// ===== Liberação de TESTE do modo simplificado (segurar 5 s) =====
+// Sem telão à mão não há como OLHAR a tela simplificada destravada — e ela é a
+// tela que o app abre, ou seja, a que mais precisa ser vista enquanto se mexe
+// no desenho dela. Segurar "Conectar a tela" por 5 s destrava como se houvesse
+// telão; segurar de novo tranca.
+//
+// **É uma porta de desenvolvimento, e ela é honesta**: não finge conexão
+// nenhuma. `simpleDisplay()` devolve um descritor marcado (`test: true`), o
+// botão fica em AVISO (nunca no verde de conectado) e o subtítulo diz que é
+// teste — quem pegar o aparelho nesse estado lê na tela o que está acontecendo,
+// em vez de procurar a TV que "conectou" sozinha.
+//
+// Nada mais no app muda: os comandos continuam saindo pelo barramento como
+// sempre (e, sem Display, ninguém os escuta — exatamente o que já acontece hoje
+// com o modo avançado sem telão). A liberação não é persistida: cada abertura
+// do app volta ao comportamento normal.
+//
+// 5 s é longo de propósito — o botão é a ÚNICA ação da tela bloqueada, e um
+// limiar curto faria um toque hesitante virar um destravamento que ninguém
+// pediu.
+const CAST_HOLD_MS = 5000;
+let castTestUnlocked = false;
+
 function simpleDisplay() {
+  if (castTestUnlocked) return { name: 'Modo de teste', test: true };
   if (!window.__NATIVE__) {
     return webDisplayWin && !webDisplayWin.closed ? { name: 'Display' } : null;
   }
@@ -7630,6 +7769,7 @@ function openWebDisplay() {
 }
 
 simpleFullBtnEl.addEventListener('click', () => setAppMode('full'));
+fullSimpleBtnEl.addEventListener('click', () => setAppMode('simple'));
 appModeSegEl.addEventListener('click', (e) => {
   const btn = e.target.closest('.fit-opt');
   if (!btn) return;
@@ -7644,13 +7784,43 @@ simplePlayEl.addEventListener('click', () => playPauseEl.click());
 simpleMuteEl.addEventListener('click', () => muteToggleEl.click());
 holdRepeat(simpleVolUpEl, () => simpleVolStep(1));
 holdRepeat(simpleVolDownEl, () => simpleVolStep(-1));
-simpleCastBtnEl.addEventListener('click', () => {
-  if (window.__NATIVE__) AVNative.openCast();
-  else openWebDisplay();
-});
+// Toque curto = abrir o seletor de tela; 5 s segurando = liberação de teste
+// (acima). O `holdFired` é o que impede o `click` seguinte de abrir o seletor
+// de espelhamento em cima da tela que acabou de destravar.
+(function setupCastHold() {
+  let timer = null, holdFired = false;
+  const stop = () => {
+    clearTimeout(timer); timer = null;
+    simpleCastBtnEl.classList.remove('simple-key--holding');
+  };
+  simpleCastBtnEl.style.setProperty('--cast-hold', CAST_HOLD_MS + 'ms');
+  simpleCastBtnEl.addEventListener('pointerdown', () => {
+    holdFired = false;
+    clearTimeout(timer);
+    // A classe reentra do zero a cada toque: reiniciar a animação exige que ela
+    // saia e volte, e é o `stop()` de qualquer toque anterior que a tirou.
+    simpleCastBtnEl.classList.add('simple-key--holding');
+    timer = setTimeout(() => {
+      holdFired = true;
+      castTestUnlocked = !castTestUnlocked;
+      stop();
+      renderSimpleCast();
+    }, CAST_HOLD_MS);
+  });
+  ['pointerup', 'pointercancel', 'pointerleave'].forEach((ev) => simpleCastBtnEl.addEventListener(ev, stop));
+  simpleCastBtnEl.addEventListener('click', () => {
+    if (holdFired) { holdFired = false; return; }
+    if (window.__NATIVE__) AVNative.openCast();
+    else openWebDisplay();
+  });
+})();
 // Fecha o ciclo com o HTML: as classes já vêm do documento, aqui o estado do
 // JS (segmento do popup, espelho dos controles) nasce igual a elas.
 setAppMode('simple');
+// Mesa de som nasce desligada (não é persistida); o segmento precisa nascer
+// dizendo isso, senão a primeira abertura de Configurações mostra dois botões
+// apagados e nenhuma escolha marcada.
+renderStandaloneSeg();
 
 // ===== Botões físicos de volume =====
 // No app eles passam a mexer no fader daqui, não na saída do sistema: com
@@ -7770,6 +7940,93 @@ tabsEl.addEventListener('click', (e) => {
   if (tab) switchTab(tab.dataset.tab);
 });
 
+// ===== Carrossel: deslizar horizontalmente troca de aba =====
+// As três abas já são um carrossel na cabeça de quem usa Android — a animação
+// de troca (`animateTabSwitch`) sempre desenhou a lista ENTRANDO pelo lado,
+// mas o gesto que produz esse movimento em qualquer outro app não existia
+// aqui: só o toque no ícone.
+//
+// A ordem é a da FAIXA (`SWIPE_TABS`), não a do `TAB_ORDER`: este inclui os
+// Favoritos, que não têm botão na faixa — deslizar até uma tela que não aparece
+// na navegação deixaria o operador num lugar sem indicação de onde ele está.
+//
+// **Não vale começando numa linha da biblioteca.** A `.row` já tem gesto
+// horizontal próprio (deslizar para a esquerda adiciona à playlist), e dois
+// gestos idênticos nos mesmos pixels não podem ambos ganhar. Sobra tudo o mais:
+// o cabeçalho, a própria faixa de abas, os vazios da lista, a grade da Bíblia e
+// os painéis de Diversos — que é justamente onde não há linha nenhuma.
+//
+// As outras guardas existem para não roubar gestos que já significam algo:
+// campos de texto, trilhos que rolam na horizontal (as pílulas de categoria, o
+// histórico do sorteio) e qualquer SUB-TELA (pasta aberta, capítulo/leitura da
+// Bíblia — reconhecidas pelo botão voltar visível), onde o eixo horizontal
+// pertence à navegação de dentro, não à de fora.
+const SWIPE_TABS = ['imports', 'bible', 'mic'];
+const TAB_SWIPE_MIN = 60;     // px — acima do limiar de 10px que a linha usa
+const TAB_SWIPE_RATIO = 1.5;  // quanto o eixo X precisa dominar o Y
+
+(function setupTabCarousel() {
+  const mainEl = document.querySelector('main');
+  let x0 = 0, y0 = 0, pid = null, done = false, engolirClique = false;
+
+  function elegivel(target) {
+    if (selectionMode) return false;
+    if (!backBtnEl.hidden) return false;                 // sub-tela: o voltar manda ali
+    if (SWIPE_TABS.indexOf(activeTab) < 0) return false;
+    if (!target || !target.closest) return false;
+    if (target.closest('.row')) return false;            // gesto da linha (playlist)
+    if (target.closest('input, textarea, .coll-filters, .draw-hist, .bible-half')) return false;
+    return true;
+  }
+
+  mainEl.addEventListener('pointerdown', (e) => {
+    // Todo toque legítimo começa aqui, então é aqui que a trava do clique é
+    // desarmada — ver `engolirClique`.
+    engolirClique = false;
+    if (!elegivel(e.target)) { pid = null; return; }
+    pid = e.pointerId; x0 = e.clientX; y0 = e.clientY; done = false;
+  });
+  mainEl.addEventListener('pointermove', (e) => {
+    if (pid === null || e.pointerId !== pid || done) return;
+    const dx = e.clientX - x0, dy = e.clientY - y0;
+    if (Math.abs(dx) < TAB_SWIPE_MIN || Math.abs(dx) < Math.abs(dy) * TAB_SWIPE_RATIO) return;
+    // Age no meio do gesto (não ao soltar): a aba entra deslizando enquanto o
+    // dedo ainda se move, que é o que faz o gesto parecer arrastar a tela.
+    done = true; pid = null;
+    // O clique é engolido SEMPRE que o gesto se completa, inclusive na ponta
+    // do carrossel (deslizar para além da última aba). Ali não há troca de
+    // aba, mas o dedo percorreu 60px sobre a tela e o `click` sairia mesmo
+    // assim: deslizar sobre "+ Nova mensagem" na última aba abria o diálogo de
+    // mensagem nova — um gesto de navegação virando uma ação de conteúdo, que
+    // é o pior defeito possível num controle de culto.
+    engolirClique = true;
+    const i = SWIPE_TABS.indexOf(activeTab) + (dx < 0 ? 1 : -1);
+    if (i >= 0 && i < SWIPE_TABS.length) switchTab(SWIPE_TABS[i]);
+  });
+
+  // Todo deslize termina num `click` sobre o que estava sob o dedo. Sem engolir
+  // esse clique, deslizar sobre a grade de livros trocava de aba **e** abria um
+  // livro; sobre a faixa de abas, trocava de aba e voltava para a do ícone que
+  // o dedo cruzou; e na ponta do carrossel, um deslize sobre "+ Nova mensagem"
+  // abria o diálogo de mensagem. Um listener de CAPTURA, que roda antes de
+  // qualquer handler do alvo.
+  //
+  // A trava é uma FLAG desarmada no `pointerdown` seguinte, e não um listener
+  // com prazo. O prazo (350 ms) parecia bastar — num aparelho o clique vem um
+  // quadro depois do dedo levantar —, mas ele mede o tempo errado: numa página
+  // em segundo plano (com a janela do Display aberta ao lado, no navegador) o
+  // resto do gesto levava mais que isso e a trava expirava antes do clique
+  // chegar, que é exatamente o defeito que ela existe para impedir. A flag não
+  // depende de tempo nenhum: só um toque novo a limpa, e um toque novo é
+  // justamente quando ela deixa de valer.
+  mainEl.addEventListener('click', (e) => {
+    if (!engolirClique) return;
+    engolirClique = false;
+    e.stopPropagation(); e.preventDefault();
+  }, true);
+  ['pointerup', 'pointercancel'].forEach((ev) => mainEl.addEventListener(ev, () => { pid = null; }));
+})();
+
 selCancelEl.addEventListener('click', exitSelection);
 selFolderEl.addEventListener('click', openFolderPicker);
 selDeleteEl.addEventListener('click', deleteSelected);
@@ -7829,7 +8086,8 @@ hymnSearchInputEl.addEventListener('input', debounce(() => renderSearchResults(h
   const fabsEl = document.getElementById('pvFabs');
   function showFabs(on) { fabsEl.hidden = !on; }
   // Os botões NÃO se escondem ao serem usados: são o estado padrão da preview.
-  document.getElementById('pvSettingsBtn').addEventListener('click', openFadePopup);
+  // São DOIS desde a v5.49 — a engrenagem virou o `#settingsBtn` fixo no topo
+  // do mixer, que não some com um toque na miniatura.
   document.getElementById('pvFullBtn').addEventListener('click', enterFullscreen);
   // Cast: só existe com o shell nativo (é um intent do Android). No navegador
   // o botão nem aparece — regra geral do projeto: o web é o padrão, o nativo
