@@ -1382,7 +1382,8 @@ main {
    é manutenção, e o accent quando o painel dela está aberto — o mesmo "é este"
    que o app usa em toda parte. */
 .coll-bar-cfg { background: var(--surface); color: var(--muted); }
-.coll-bar-cfg.on { background: var(--accent-soft); color: var(--accent); }
+/* (`.coll-bar-cfg.on` saiu na v5.95: o botão não alterna mais um painel — ele
+   fecha o álbum, e um estado "ligado" não existe mais.) */
 /* O invólucro do que a abertura revela (engrenagem + músicas). Existe só para a
    animação de altura ter UM nó para recortar — sem ele o `overflow:hidden`
    teria de ir no card, e o card tem a barra grudada no topo (`position:sticky`),
@@ -1502,6 +1503,23 @@ main {
 /* Sem o padding do sheet (o card já tem o seu) e separado da lista de músicas
    pelo mesmo respiro que separa as músicas entre si. */
 .coll-opts--inline { padding: .5rem 0 .2rem; }
+/* AS DUAS AÇÕES DO ÁLBUM DIVIDEM UMA LINHA (v5.95). Empilhadas, eram duas
+   faixas largas para duas ações curtas — e era esse tamanho que obrigava a
+   esconder as opções atrás de uma engrenagem. Lado a lado elas cabem sempre,
+   que é o que permite mostrá-las junto com o álbum aberto.
+
+   `flex: 1 1 0` nos dois (e não `width: 100%`, que o `.new-folder-btn` traz):
+   metade da linha para cada um, independentemente do comprimento do rótulo —
+   duas larguras diferentes leriam como dois pesos diferentes, e a ação
+   destrutiva não pode ser a maior das duas. O rótulo QUEBRA em duas linhas em
+   vez de virar reticências: "Remover do disposi…" esconde justamente a palavra
+   que diz o alcance da ação. */
+.coll-opts-acoes { display: flex; gap: .5rem; }
+.coll-opts-acoes .new-folder-btn {
+  flex: 1 1 0; min-width: 0; width: auto;
+  padding: .55rem .4rem; font-size: .82rem; line-height: 1.2;
+  text-align: center; text-wrap: balance;
+}
 /* O mesmo botão vira "cancelar" enquanto o download roda (ver
    renderCollectionOptions) — sem giro, e em AVISO para não se confundir nem
    com a ação normal nem com excluir, que são os seus dois vizinhos imediatos
