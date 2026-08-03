@@ -1193,9 +1193,10 @@ main {
 .folder-opfs .msym { color: var(--accent); }
 .folder-opfs .folder-count { color: var(--accent); opacity: .7; }
 
-/* (O indicador de rede da linha do Hinário 2022 é hoje o chip `.hymnal-stat.net`
-   dentro das opções da coleção; as regras `.net-badge`/`.net-badge--warn` que
-   viviam aqui não eram alcançadas por elemento nenhum e saíram.) */
+/* (Não há mais indicador de rede em lugar nenhum do acervo: as regras
+   `.net-badge`/`.net-badge--warn` que viviam aqui já eram inalcançáveis, e o
+   chip `.hymnal-stat.net` que as substituíra saiu com as opções condensadas da
+   v5.73 — quem pergunta sobre dados móveis é o diálogo da sincronização.) */
 .storage-usage { font-size: .72rem; opacity: .7; padding: 10px 0; }
 
 /* ---------- Card de coleção (álbum / hinário) ---------- */
@@ -1373,7 +1374,6 @@ main {
 /* Sem o padding do sheet (o card já tem o seu) e separado da lista de músicas
    pelo mesmo respiro que separa as músicas entre si. */
 .coll-opts--inline { padding: .5rem 0 .2rem; }
-.coll-opts .hymnal-card-status { white-space: normal; }
 /* O mesmo botão vira "cancelar" enquanto o download roda (ver
    renderCollectionOptions) — sem giro, e em AVISO para não se confundir nem
    com a ação normal nem com excluir, que são os seus dois vizinhos imediatos
@@ -1381,9 +1381,9 @@ main {
    mesmo valor do accent: ficaria idêntico à ação normal, que é exatamente o
    que o raciocínio original queria evitar. */
 .coll-opts .new-folder-btn.cancel { color: var(--warn-text); background: var(--warn-soft); }
-.hymnal-card-status { font-size: .72rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: .25rem; }
-.hymnal-card-status.sync { color: var(--accent); }
-.hymnal-card-status.done { color: var(--ok); }
+/* (`.hymnal-card-status` e suas variantes saíram na v5.73 junto com a linha de
+   texto que vestiam: o estado parado virou parte do chip de sincronizados e o
+   progresso já vive na barra do card, que é fixa no topo do aberto.) */
 
 /* (O bloco `.hymnal-card-btn` — sete regras, um alvo de 38px — descrevia os
    botões que o card de coleção tinha antes de a manutenção mudar para o
@@ -1392,29 +1392,30 @@ main {
    botão de sincronizar do bottom-sheet NÃO gira enquanto baixa — ele vira
    "cancelar", e isso está dito no comentário de `.new-folder-btn.cancel`. */
 
-/* faixa de estatísticas (chips): sincronizados / peso / Wi-Fi */
+/* Faixa de estatísticas (chips): sincronização+offline à esquerda, peso à
+   direita. Eram TRÊS chips (sincronizados / peso / Rede) mais uma linha de
+   status repetindo o estado; desde a v5.73 são dois, e o peso é o único que
+   não cresce — daí ele ficar ancorado na borda oposta. */
 .hymnal-card-stats { display: flex; gap: .4rem; }
-/* flex:1 1 auto → cada chip parte do seu conteúdo e recebe uma fatia igual do
-   espaço livre, preenchendo a linha inteira (sem sobrar à direita da "Rede")
-   mas sem forçar largura idêntica — assim a "Rede", que tem o texto mais
-   longo, não fica apertada a ponto de espremer o ícone de Wi-Fi. */
 .hymnal-stat {
   flex: 1 1 auto; min-width: 0;
   display: flex; flex-direction: column; gap: 1px;
   background: var(--surface-2); border-radius: var(--radius-btn);
   padding: .32rem .55rem;
 }
+/* O peso é um número curto: `flex:0` para ele parar no próprio tamanho, e o
+   texto alinhado à direita para o valor bater com a borda do painel. */
+.hymnal-stat.right { flex: 0 0 auto; text-align: right; }
 .hymnal-stat label, .hymnal-stat b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.hymnal-stat.net b svg { flex-shrink: 0; }  /* o ícone de Wi-Fi nunca encolhe */
 .hymnal-stat label { font-size: .56rem; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
 .hymnal-stat b { font-size: .82rem; font-weight: 700; color: var(--text); }
 .hymnal-stat.done b { color: var(--ok); }
-.hymnal-stat.net b { display: flex; align-items: center; gap: .3rem; }
-/* "Wi-Fi confirmado" é uma CONDIÇÃO ATENDIDA, não uma seleção: vai no verde de
-   concluído/conectado, o mesmo do catálogo completo logo ao lado. Em accent
-   ele dizia "é aqui que você está", que é outra coisa. */
-.hymnal-stat.net.ok b { color: var(--ok); }
-.hymnal-stat.net.warn b { color: var(--warn-text); }
+/* O chip de sincronização carrega duas coisas na mesma linha ("4/4 · Completo
+   offline"), com um ✓ à frente quando está completo: `flex` para o ícone não
+   ser espremido pelo `text-overflow` do texto ao lado. */
+.hymnal-stat.sinc b { display: flex; align-items: center; gap: .3rem; }
+.hymnal-stat.sinc b svg { flex-shrink: 0; }
+.hymnal-stat.sinc b span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 
 /* ---------- Bíblia: seleção em "tabela periódica" ---------- */
 /* Três telas de seleção (livros → capítulos → versículos), cada uma uma grade

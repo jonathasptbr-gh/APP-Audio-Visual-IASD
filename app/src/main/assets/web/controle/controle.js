@@ -156,7 +156,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.72';
+const WEB_VERSION = '5.73';
 
 // Escrita UMA vez, na carga: o indicador mora no rodapé de Configurações desde
 // a v5.49 e não depende mais de qual aba está aberta (no cabeçalho ele
@@ -3970,21 +3970,12 @@ function countDownloaded(id) {
   return collSongs(id).filter((s) => s.fileIdFull).length;
 }
 
-// Linha fixa do Hinário Adventista 2022 no topo da lista de coleções — mesmo padrão
-// visual das pastas sincronizadas do OPFS, mas a fonte é remota (API do
-// LouvorJA), não um `showDirectoryPicker()` do dispositivo. Sempre visível
-// (mesmo antes da 1ª sincronização) para o operador saber que a opção existe.
-// SVG inline (ícone fora do subset da fonte, mesma convenção do botão de
-// volume/mixer): antena de Wi-Fi. `.net-badge--warn` (via CSS) recolore para
-// indicar "sem Wi-Fi confirmado" — a sincronização em massa fica desativada
-// por padrão nesse estado (ver isConfirmedWifi/syncCollection).
-function wifiIconEl() {
-  const span = document.createElement('span');
-  span.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
-    + '<path d="M2 8.5a17 17 0 0 1 20 0"/><path d="M5.5 12.5a11.5 11.5 0 0 1 13 0"/><path d="M9 16.3a6 6 0 0 1 6 0"/><circle cx="12" cy="19.5" r="1.2" fill="currentColor" stroke="none"/>'
-    + '</svg>';
-  return span.firstElementChild;
-}
+// (O ícone de antena `wifiIconEl()` saiu na v5.73 com o chip "Rede" das opções
+// do álbum, seu único consumidor. A regra de rede não mudou: quem decide se a
+// sincronização em massa pergunta antes de usar dados móveis continua sendo
+// `isConfirmedWifi()`, e ela o diz na hora, no diálogo — que é onde a
+// informação tem consequência. Um chip permanente repetindo o estado da rede
+// em cada álbum aberto era ruído entre dados sobre o ÁLBUM.)
 
 // SVG inline (fora do subset da fonte): setas circulares de "sincronizar".
 function syncIconSvg() {
@@ -4017,6 +4008,14 @@ function checkIconSvg() {
 // conjunto, útil na próxima lista que aparecer.
 function listIconSvg() {
   return '<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>';
+}
+// SVG inline de "seta para cima" — o MESMO botão da engrenagem enquanto as
+// opções estão à mostra (v5.73). A engrenagem acesa dizia "as opções estão
+// abertas" só pela cor; a seta diz o que o toque FAZ, que é recolher o painel
+// que está logo abaixo dela. É a convenção de qualquer gaveta, e aqui o alvo é
+// literalmente o teto do painel que ela fecha.
+function chevronUpIconSvg() {
+  return '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="18 15 12 9 6 15"/></svg>';
 }
 // SVG inline de "engrenagem" — botão de opções do card de coleção (mesmo
 // desenho do botão de configurações que flutua sobre a preview).
@@ -4328,8 +4327,10 @@ function renderCollectionCard(coll, ctx) {
   if (u.expanded && !u.syncBusy) {
     const cfg = document.createElement('button');
     cfg.className = 'coll-bar-dl coll-bar-cfg' + (u.optsOpen ? ' on' : '');
-    cfg.title = u.optsOpen ? 'Fechar as opções' : 'Sincronizar e opções';
-    cfg.innerHTML = gearIconSvg();
+    cfg.title = u.optsOpen ? 'Recolher as opções' : 'Sincronizar e opções';
+    // Engrenagem para ABRIR, seta para RECOLHER (v5.73): o botão é um só, e o
+    // símbolo acompanha o que o toque faz a seguir.
+    cfg.innerHTML = u.optsOpen ? chevronUpIconSvg() : gearIconSvg();
     cfg.addEventListener('click', (e) => {
       e.stopPropagation();   // divide a barra com o toque que fecha o acordeão
       u.optsOpen = !u.optsOpen;
@@ -4536,39 +4537,38 @@ function buildCollectionOptions(coll, collOptsEl) {
   const total = collSongs(coll.id).length;
   const downloaded = countDownloaded(coll.id);
   const complete = total > 0 && downloaded >= total;
-  const wifiOk = isConfirmedWifi();
   const u = ui(coll.id);
 
-  const status = document.createElement('div'); status.className = 'hymnal-card-status';
-  if (u.status) {
-    status.classList.add('sync');
-    status.textContent = u.status;
-  } else if (complete) {
-    status.classList.add('done');
-    status.innerHTML = checkIconSvg();
-    status.appendChild(document.createTextNode(' Completo offline'));
-  } else if (total > 0) {
-    status.textContent = 'Parcial';
-  } else {
-    status.textContent = 'Não sincronizado';
-  }
-  collOptsEl.appendChild(status);
+  // A LINHA DE STATUS SAIU DAQUI (v5.73). Parada, ela repetia numa linha
+  // inteira o que o chip abaixo já diz ("Completo offline", "Parcial", "Não
+  // sincronizado"); em movimento, repetia PALAVRA POR PALAVRA o
+  // "Baixando 2 de 4…" que a barra do card mostra dois centímetros acima — e a
+  // barra é fixa no topo do aberto, então ela nunca sai de vista enquanto se
+  // lê o painel.
 
   const stats = document.createElement('div'); stats.className = 'hymnal-card-stats';
-  stats.appendChild(hymnalStat('Sincronizados', total ? downloaded + '/' + total : '—', complete ? 'done' : ''));
-  stats.appendChild(hymnalStat('Peso', u.bytes ? fmtBytes(u.bytes) : '—'));
 
-  const net = document.createElement('div');
-  net.className = 'hymnal-stat net ' + (wifiOk ? 'ok' : 'warn');
-  net.title = wifiOk
-    ? 'Wi-Fi confirmado — sincronização completa liberada'
-    : 'Sem Wi-Fi confirmado — sincronizar pergunta antes de usar dados móveis (a escolha vale só para este álbum)';
-  const netLabel = document.createElement('label'); netLabel.textContent = 'Rede';
-  const netVal = document.createElement('b');
-  netVal.appendChild(wifiIconEl());
-  netVal.appendChild(document.createTextNode(wifiOk ? 'Wi-Fi' : 'Aguardando'));
-  net.append(netLabel, netVal);
-  stats.appendChild(net);
+  // UM chip para as duas informações (v5.73): quantas faixas estão no aparelho
+  // e o que isso significa. Separadas, "4/4" e "Completo offline" eram a mesma
+  // frase dita duas vezes — e a segunda ainda ocupava a largura toda.
+  const sinc = document.createElement('div');
+  sinc.className = 'hymnal-stat sinc' + (complete ? ' done' : '');
+  const sLabel = document.createElement('label'); sLabel.textContent = 'Sincronizados';
+  const sVal = document.createElement('b');
+  if (complete) sVal.innerHTML = checkIconSvg();
+  // O texto num <span> porque o <b> é flex (por causa do ✓): num contêiner
+  // flex o texto solto vira item anônimo e o `text-overflow` do pai não o
+  // alcança — o nome de um álbum longo cortaria a seco em vez de reticências.
+  const sTxt = document.createElement('span');
+  sTxt.textContent = (total ? downloaded + '/' + total : '—') + ' · '
+    + (complete ? 'Completo offline' : (total > 0 ? 'Parcial' : 'Não sincronizado'));
+  sVal.appendChild(sTxt);
+  sinc.append(sLabel, sVal);
+  stats.appendChild(sinc);
+
+  // O peso à DIREITA: é o número curto e secundário da linha, e ancorá-lo na
+  // borda oposta dá ao chip de sincronização toda a largura de que ele precisa.
+  stats.appendChild(hymnalStat('Peso', u.bytes ? fmtBytes(u.bytes) : '—', 'right'));
   collOptsEl.appendChild(stats);
 
   // O MESMO botão dispara e cancela — o download de um álbum grande leva
@@ -4578,8 +4578,12 @@ function buildCollectionOptions(coll, collOptsEl) {
   // "toque para parar". Quem indica atividade é o status logo acima.
   syncBtn.className = 'new-folder-btn' + (u.syncBusy ? ' cancel' : '');
   syncBtn.innerHTML = u.syncBusy ? closeIconSvg() : syncIconSvg();
+  // O rótulo diz o que ESTE toque vai fazer neste álbum (v5.73). "Atualizar e
+  // baixar" era a mesma frase para os dois casos opostos: com o álbum inteiro
+  // no aparelho não há o que baixar — só conferir se o catálogo mudou —, e com
+  // ele vazio "atualizar" não descreve nada do que vai acontecer.
   syncBtn.appendChild(document.createTextNode(
-    u.syncBusy ? ' Cancelar o download' : (total > 0 ? ' Atualizar e baixar' : ' Sincronizar lista'),
+    u.syncBusy ? ' Cancelar o download' : (complete ? ' Verificar atualizações' : ' Baixar álbum'),
   ));
   syncBtn.addEventListener('click', () => syncCollection(coll));
   collOptsEl.appendChild(syncBtn);
@@ -4588,7 +4592,7 @@ function buildCollectionOptions(coll, collOptsEl) {
     const rmBtn = document.createElement('button');
     rmBtn.className = 'new-folder-btn danger';
     rmBtn.appendChild(msym(ICON.del));
-    rmBtn.appendChild(document.createTextNode(' Excluir baixado'));
+    rmBtn.appendChild(document.createTextNode(' Excluir downloads do álbum'));
     rmBtn.addEventListener('click', () => deleteCollection(coll));
     collOptsEl.appendChild(rmBtn);
   }
