@@ -156,7 +156,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.98';
+const WEB_VERSION = '5.99';
 
 // Escrita UMA vez, na carga: o indicador mora no rodapé de Configurações desde
 // a v5.49 e não depende mais de qual aba está aberta (no cabeçalho ele
@@ -4219,9 +4219,25 @@ function appendImportRow() {
   const li = document.createElement('li');
   li.className = 'import-row';
 
-  const label = document.createElement('label');
+  // UM botão só, para TODO arquivo — inclusive apresentação (v5.99). O que
+  // muda é só QUEM abre o seletor:
+  //
+  //  - no app (shell ≥ 21), o seletor do SISTEMA (`AVNative.pickDoc`). É o
+  //    único caminho que serve para o PDF: o `<input type="file">` devolve um
+  //    `File` — bytes já lidos —, e quem desenha o PDF é o shell, que precisa
+  //    do ARQUIVO; mandar os bytes de volta pela ponte inverteria o princípio
+  //    dela ("URLs servíveis, nunca bytes"). O `content://` que o seletor
+  //    entrega é a mesma porta por onde as pastas do dispositivo já entram.
+  //  - no navegador (e num shell antigo), o `<input type="file">` de sempre,
+  //    dentro de um <label>, que é o que dispensa JS para abrir o seletor.
+  //
+  // O rótulo é o mesmo nos dois casos: o operador escolhe o ARQUIVO, não a
+  // porta por onde ele entra.
+  const usaSeletorNativo = window.__NATIVE__ && (window.__SHELL_VERSION__ | 0) >= 21;
+  const label = document.createElement(usaSeletorNativo ? 'button' : 'label');
+  if (usaSeletorNativo) label.type = 'button';
   label.className = 'import-btn';
-  label.title = 'Importar arquivos';
+  label.title = 'Importar arquivos (mídia, PDF ou PowerPoint)';
   label.innerHTML = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor"'
     + ' stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
     + '<path d="M7 3h7l5 5v11a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/>'
@@ -4231,7 +4247,8 @@ function appendImportRow() {
   const txt = document.createElement('span');
   txt.textContent = 'Importar arquivos';
   label.appendChild(txt);
-  label.appendChild(fileEl); // o MESMO input de sempre, só reposicionado
+  if (usaSeletorNativo) label.addEventListener('click', importarPeloSistema);
+  else label.appendChild(fileEl); // o MESMO input de sempre, só reposicionado
 
   // Favoritos saiu da faixa de abas e virou o par de "Importar": as duas são a
   // mesma pergunta — "de onde vem a mídia?" —, e ficam lado a lado no fim do
@@ -4253,72 +4270,26 @@ function appendImportRow() {
   li.append(label, folders);
   libraryEl.appendChild(li);
 
-  // APRESENTAÇÃO: botão PRÓPRIO, e não o `accept` do input ao lado (v5.98).
-  // O `<input type="file">` devolve um `File` — bytes já lidos —, e quem
-  // desenha o PDF é o shell, que precisa do ARQUIVO; devolver os bytes pela
-  // ponte inverteria o princípio dela ("URLs servíveis, nunca bytes") e faria
-  // uma apresentação de dezenas de MB passar pela memória do WebView à toa.
-  // Então aqui o seletor é o do SISTEMA (`AVNative.pickDoc`), que entrega o
-  // `content://` — a mesma porta por onde as pastas do dispositivo já entram.
-  //
-  // Num shell < 20 (ou no navegador) o botão não existe: no lugar dele fica a
-  // frase que diz o caminho que funciona ali, o compartilhamento. Um botão que
-  // não faz nada é pior que botão nenhum.
-  const shell = window.__NATIVE__ ? (window.__SHELL_VERSION__ | 0) : 0;
-  if (shell >= 20) {
-    const li2 = document.createElement('li');
-    li2.className = 'import-row';
-    const deck = document.createElement('button');
-    deck.type = 'button';
-    deck.className = 'import-btn';
-    deck.title = 'Importar uma apresentação em PDF';
-    deck.innerHTML = deckIconSvg();
-    const dtxt = document.createElement('span');
-    dtxt.textContent = 'Apresentação (PDF)';
-    deck.appendChild(dtxt);
-    deck.addEventListener('click', importarApresentacao);
-    li2.appendChild(deck);
-    libraryEl.appendChild(li2);
-  } else if (shell >= 19) {
-    const dica = document.createElement('li');
-    dica.className = 'empty import-dica';
-    dica.textContent = 'Apresentação: exporte como PDF e COMPARTILHE com o app '
-      + '(o Google Apresentações também entra pelo link).';
-    libraryEl.appendChild(dica);
-  }
 }
 
-// SVG inline (fora do subset da fonte): uma tela de apresentação com um pé.
-// Deliberadamente NÃO é o ícone de um arquivo: o que entra aqui é uma
-// apresentação, e o formato (PDF) é detalhe do caminho, não do resultado.
-function deckIconSvg() {
-  return '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor"'
-    + ' stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
-    + '<rect x="3" y="4" width="18" height="12" rx="2"/>'
-    + '<path d="M12 16v4"/><path d="M8.5 20h7"/></svg>';
-}
+// Os tipos que o seletor do sistema oferece. PDF e PPTX entram na MESMA lista
+// dos de mídia: uma apresentação é um arquivo como qualquer outro, e separá-la
+// num botão próprio faria o operador escolher a PORTA antes de escolher o
+// arquivo. `.ppt` (o binário anterior a 2007) e `.odp` ficam de fora porque o
+// app não sabe desenhá-los — oferecer e depois falhar é pior que não oferecer.
+const IMPORT_MIMES = [
+  'image/*', 'video/*', 'audio/*',
+  'application/pdf',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+].join(',');
 
-async function importarApresentacao() {
-  const escolha = await AVNative.pickDoc();
-  if (!escolha || !escolha.url) return;   // o operador desistiu
-  await sairDasCamadas();
-  const rec = await deckImportar(escolha.url, nomeSemExtensao(escolha.name || 'Apresentação'), {
-    naPreview: simplificado(), lista: destinoDoShare(),
-  });
-  if (!rec) {
-    // Um PDF protegido por senha ou corrompido chega aqui. Diálogo, e não um
-    // aviso que some sozinho: o operador acabou de escolher um arquivo e
-    // precisa saber que ele NÃO entrou — silêncio, aqui, leria como "importou".
-    await appConfirm({
-      title: 'Não deu para abrir',
-      message: 'Esta apresentação não pôde ser lida. Se ela tiver senha, salve uma cópia '
-        + 'sem proteção e tente de novo.',
-      okText: 'Entendi', cancelText: null,
-    });
-    return;
-  }
-  if (simplificado()) await fixarAvulso(rec.id);
-  await focarImportado(rec.id);
+async function importarPeloSistema() {
+  const escolhidos = await AVNative.pickDoc(IMPORT_MIMES);
+  if (!escolhidos || !escolhidos.length) return;   // o operador desistiu
+  // Pelo MESMO caminho do compartilhamento: os itens já vêm no formato
+  // `{ name, type, url }` que ele espera, e é lá que mora o roteamento por
+  // tipo. Duas rotas de importação divergiriam na primeira correção.
+  await importShare({ files: escolhidos });
 }
 
 function countDownloaded(id) {
@@ -8477,6 +8448,26 @@ function ehPdf(item) {
   const n = String((item && item.name) || '').toLowerCase();
   return t === 'application/pdf' || n.endsWith('.pdf');
 }
+function ehPptx(item) {
+  const t = String((item && item.type) || '').toLowerCase();
+  const n = String((item && item.name) || '').toLowerCase();
+  return n.endsWith('.pptx')
+    || t === 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+}
+// O que o app sabe transformar em páginas: PDF (pelo shell) e PPTX (aqui).
+function ehApresentacao(item) { return ehPdf(item) || ehPptx(item); }
+
+// Arquivo que o app aceitou mas não conseguiu abrir. DIÁLOGO, e não um aviso
+// que some sozinho: o operador acabou de escolher (ou compartilhar) um arquivo,
+// e nada acontecer leria como "importou".
+function avisarNaoAbriu(nome) {
+  return appConfirm({
+    title: 'Não deu para abrir',
+    message: '"' + nome + '" não pôde ser lido. Um PDF com senha precisa de uma cópia '
+      + 'sem proteção; um PowerPoint muito antigo (.ppt) precisa ser salvo como .pptx.',
+    okText: 'Entendi', cancelText: null,
+  });
+}
 function nomeSemExtensao(n) { return String(n || '').replace(/\.[^.]+$/, ''); }
 
 // ===== APRESENTAÇÃO (PDF / Google Apresentações) =====
@@ -8504,6 +8495,122 @@ function deckStep(delta) {
   cmd({ type: 'page', page: deckPagina });
   renderSlideNav();
   renderNowPlaying();
+}
+
+// ===== .pptx → páginas, DENTRO do WebView =====
+//
+// O Android não desenha PowerPoint: a plataforma só traz o `PdfRenderer` (que
+// é o caminho do PDF). As bibliotecas nativas que fazem isso são comerciais, e
+// converter num servidor exigiria conta, chave e mandar o material do culto
+// para fora do aparelho. Sobrou uma saída, e ela roda AQUI: um renderizador de
+// OOXML em JavaScript (`vendor/pptx-renderer.js`, Apache-2.0 — ver o LEIA-ME
+// daquela pasta para o levantamento inteiro).
+//
+// O que ele produz é DOM. O que o app projeta é IMAGEM — então cada slide é
+// rasterizado logo em seguida, e daí para a frente a apresentação é a MESMA
+// mídia `deck` que um PDF vira: fade, cortina, telão, ⏮/⏭ e reconexão, tudo
+// sem uma linha nova.
+//
+// A biblioteca entra por `import()` DINÂMICO: é 1,5 MB que só interessa a quem
+// importar um `.pptx`, e carregá-la no boot custaria isso a todo culto.
+const PPTX_LARGURA = 1920;   // o telão é 1080p; renderizar acima disso só engorda o IDB
+
+async function pptxParaPaginas(file, onProgresso) {
+  const { PptxViewer, RECOMMENDED_ZIP_LIMITS } = await import('../vendor/pptx-renderer.js');
+  // Fora da tela, mas MEDIDO: um contêiner `display:none` não tem layout, e
+  // sem layout não há o que rasterizar. Daí `position:fixed` + `left:-99999px`.
+  const palco = document.createElement('div');
+  palco.style.cssText = 'position:fixed;left:-99999px;top:0;width:' + PPTX_LARGURA
+    + 'px;pointer-events:none;opacity:0;';
+  document.body.appendChild(palco);
+  try {
+    await PptxViewer.open(await file.arrayBuffer(), palco, { zipLimits: RECOMMENDED_ZIP_LIMITS });
+    // Um quadro para o layout assentar antes de medir/serializar.
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    const slides = [...palco.children];
+    const pages = [];
+    for (let i = 0; i < slides.length; i++) {
+      const blob = await elementoParaPng(slides[i]);
+      if (!blob) return null;
+      pages.push(blob);
+      if (onProgresso) onProgresso(i + 1, slides.length);
+    }
+    return pages.length ? pages : null;
+  } finally {
+    palco.remove();
+  }
+}
+
+// DOM → PNG sem biblioteca nenhuma: o elemento vai para dentro de um
+// `<foreignObject>` de SVG, que o navegador desenha como imagem.
+//
+// As `<img>` do slide são blob: — e uma URL blob NÃO carrega dentro do
+// foreignObject (o SVG é um documento à parte). Por isso cada uma é redesenhada
+// num canvas e vira `data:` antes da serialização: sem esse passo, a foto do
+// slide simplesmente não aparece na página gerada, e o defeito é silencioso.
+async function elementoParaPng(el) {
+  const r = el.getBoundingClientRect();
+  const w = Math.max(1, Math.round(r.width));
+  const h = Math.max(1, Math.round(r.height));
+  const clone = el.cloneNode(true);
+  const origens = [...el.querySelectorAll('img')];
+  const copias = [...clone.querySelectorAll('img')];
+  for (let i = 0; i < origens.length; i++) {
+    try {
+      const cv = document.createElement('canvas');
+      cv.width = origens[i].naturalWidth || 1;
+      cv.height = origens[i].naturalHeight || 1;
+      cv.getContext('2d').drawImage(origens[i], 0, 0);
+      copias[i].setAttribute('src', cv.toDataURL('image/png'));
+    } catch (_) { /* imagem que não carregou: o slide sai sem ela */ }
+  }
+  const html = new XMLSerializer().serializeToString(clone);
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + w + '" height="' + h + '">'
+    + '<foreignObject width="100%" height="100%">'
+    + '<div xmlns="http://www.w3.org/1999/xhtml">' + html + '</div>'
+    + '</foreignObject></svg>';
+  const img = new Image();
+  img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+  try { await img.decode(); } catch (_) { return null; }
+  const cv = document.createElement('canvas');
+  cv.width = w; cv.height = h;
+  const ctx = cv.getContext('2d');
+  // FUNDO BRANCO antes de desenhar, como no lado nativo (ver SlideDeck.kt): o
+  // slide pode não pintar o próprio papel, e transparente, no telão, é o preto
+  // do palco — o texto escuro sumiria.
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, w, h);
+  ctx.drawImage(img, 0, 0, w, h);
+  return new Promise((res) => cv.toBlob(res, 'image/png'));
+}
+
+// Importa um `.pptx` já lido como File/Blob.
+async function pptxImportar(file, nome, opts) {
+  const rotulo = nome || 'Apresentação';
+  const naPreview = !!(opts && opts.naPreview);
+  const bg = naPreview
+    ? previewBusy('Preparando apresentação', rotulo)
+    : libBusy(rotulo, opts && opts.chave);
+  const notif = bgTaskStart('Preparando apresentação', 1);
+  try {
+    return await withBgWork(async () => {
+      const pages = await pptxParaPaginas(file, (feitas, total) => {
+        const pct = total ? Math.floor((feitas / total) * 100) : -1;
+        bg.atualizar('Preparando página ' + feitas + (total ? ' de ' + total : '') + '…', null, pct);
+      });
+      if (!pages) return null;
+      const thumb = await makeThumb(pages[0], 'image');
+      return await AVDB.addDeck(pages, {
+        name: rotulo, thumb, list: (opts && opts.lista) || 'imports',
+      });
+    });
+  } catch (e) {
+    console.warn('[pptx] falhou:', e && e.message);
+    return null;
+  } finally {
+    bgTaskEnd(notif);
+    bg.soltar();
+  }
 }
 
 async function deckImportar(origem, nome, opts) {
@@ -8706,24 +8813,48 @@ async function importShare(pending) {
   // arquivo empurraria o primeiro para fora — e o primeiro é justamente o que
   // vai ser projetado.
   const lote = [];
+  let naoAbriu = null;   // o último arquivo que o app não conseguiu abrir
   let ok = 0;
   for (const item of files) {
-    // APRESENTAÇÃO: o PDF não vira blob nenhum aqui — quem o transforma em
-    // imagens é o shell, e ele precisa do arquivo ORIGINAL (a URL `/saf/`), não
-    // de uma cópia já lida. Por isso o desvio acontece ANTES da leitura.
+    // DOCUMENTO (PDF ou PowerPoint): vira uma imagem por página, e cada formato
+    // pelo caminho que existe para ele. O desvio acontece ANTES da leitura
+    // porque o PDF não pode virar blob aqui — quem o desenha é o shell, e ele
+    // precisa do arquivo ORIGINAL (a URL `/saf/`), não de uma cópia já lida.
     //
-    // Só pelo compartilhamento: um PDF escolhido no seletor de arquivos chega
-    // como `File`, sem caminho que o Kotlin consiga abrir — e a ponte entrega
-    // URLs servíveis, nunca bytes, então mandá-lo de volta seria inverter o
-    // princípio dela.
-    if (item && item.url && ehPdf(item)) {
-      const rec = await deckImportar(item.url, nomeSemExtensao(item.name || 'Apresentação'), {
-        naPreview: simplificado(), lista: destinoDoShare(),
-      });
+    // Este ramo atende as DUAS portas de entrada, que entregam a mesma forma:
+    // o compartilhamento e o seletor do sistema (`importarPeloSistema`).
+    if (ehApresentacao(item)) {
+      const nome = nomeSemExtensao((item && item.name) || 'Apresentação');
+      let rec = null;
+      if (ehPdf(item) && item.url) {
+        // PDF: quem desenha é o shell, e ele precisa do ARQUIVO (a URL `/saf/`),
+        // não de uma cópia já lida — por isso o desvio acontece ANTES da leitura.
+        rec = await deckImportar(item.url, nome, {
+          naPreview: simplificado(), lista: destinoDoShare(),
+        });
+      } else if (ehPptx(item)) {
+        // PPTX: quem desenha é o próprio WebView (ver `pptxParaPaginas`), então
+        // aqui os bytes SERVEM — e é o único caminho que existe para ele.
+        let arquivo = item instanceof File ? item : null;
+        if (!arquivo && item.url) {
+          try {
+            const res = await fetch(item.url);
+            if (res.ok) arquivo = await res.blob();
+          } catch (_) { arquivo = null; }
+        }
+        if (arquivo) rec = await pptxImportar(arquivo, nome, {
+          naPreview: simplificado(), lista: destinoDoShare(),
+        });
+      }
       if (rec) {
         if (!primeiro) primeiro = rec.id;
         lote.push(rec.id);
         ok++;
+      } else {
+        // Arquivo que não abre (PDF com senha, PPTX corrompido): DIÁLOGO, e não
+        // silêncio. O operador acabou de escolher um arquivo; nada acontecer
+        // leria como "importou".
+        naoAbriu = nome;
       }
       continue;
     }
@@ -8766,6 +8897,7 @@ async function importShare(pending) {
   // um dia vierem os dois, duas chamadas fariam a segunda expulsar a primeira.
   if (simplificado()) await fixarAvulso(lote);
   if (added) await focarImportado(primeiro);
+  if (naoAbriu) await avisarNaoAbriu(naoAbriu);
   return added;
 }
 
@@ -9316,7 +9448,19 @@ function closePlPopup() {
 // ===== eventos =====
 fileEl.addEventListener('change', async () => {
   const files = Array.from(fileEl.files || []);
+  let naoAbriu = null;
   for (const file of files) {
+    // APRESENTAÇÃO escolhida por aqui (navegador, ou shell antigo sem o seletor
+    // do sistema): vira páginas como qualquer outra. Sem este desvio um `.pptx`
+    // entraria como mídia 'other' — importada e impossível de projetar. O PDF
+    // não tem caminho AQUI: quem o desenha é o shell, que precisa do arquivo e
+    // não de um `File` já lido — e é justamente por isso que, no app, este
+    // botão abre o seletor do sistema.
+    if (ehApresentacao(file)) {
+      const rec = ehPptx(file) ? await pptxImportar(file, nomeSemExtensao(file.name), {}) : null;
+      if (!rec) naoAbriu = nomeSemExtensao(file.name);
+      continue;
+    }
     // O tipo vem da EXTENSÃO, com o do arquivo como reserva: um seletor de
     // documentos do Android pode entregar `application/octet-stream`, e aí a
     // mídia entraria como 'other' — importada mas impossível de reproduzir.
@@ -9331,6 +9475,7 @@ fileEl.addEventListener('change', async () => {
   // acompanha para o operador ver o que acabou de entrar.
   if (activeTab !== 'imports') activeTab = 'imports';
   load();
+  if (naoAbriu) await avisarNaoAbriu(naoAbriu);
 });
 
 playPauseEl.addEventListener('click', () => {

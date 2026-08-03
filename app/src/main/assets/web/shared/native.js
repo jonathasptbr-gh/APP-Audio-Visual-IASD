@@ -264,15 +264,19 @@
     // biblioteca — senão o vídeo fica DUAS vezes no aparelho.
     ytDiscard(url) { try { B.ytDiscard(String(url)); } catch (_) { /* shell antigo */ } },
 
-    // Escolhe UM PDF pelo seletor do sistema e resolve `{ url, name }` — a
-    // `url` é servível (`/saf/`), que é o que o shell sabe abrir para
-    // rasterizar. O `<input type="file">` da página não serve aqui: ele devolve
-    // um `File` (bytes já lidos), e quem desenha o PDF é o Kotlin, que precisa
-    // do ARQUIVO — ver NativeBridge.pickDoc.
+    // O SELETOR DE ARQUIVOS do aparelho: resolve `[{ url, name, type }]`, uma
+    // entrada por arquivo escolhido (lista vazia se o operador desistir). É a
+    // importação inteira do app no nativo — imagem, vídeo, áudio, PDF e PPTX
+    // pela mesma porta —, e não só documentos.
+    //
+    // O `<input type="file">` continua existindo para o NAVEGADOR. Aqui ele não
+    // serve: entrega um `File` (bytes já lidos), e o PDF precisa ser aberto
+    // pelo Kotlin, que só sabe abrir um ARQUIVO. Pelo seletor do sistema todo
+    // import chega como URL servível — o mesmo formato do compartilhamento.
     //
     // SEM PRAZO, como o `pickFolder`: quem responde é uma PESSOA escolhendo um
     // arquivo, e um timeout resolveria null com o seletor ainda aberto.
-    pickDoc: () => call((id) => B.pickDoc(id)),
+    pickDoc: (mimes) => call((id) => B.pickDoc(id, String(mimes || ''))).then((r) => r || []),
 
     // ---- apresentação (PDF / Google Apresentações) ----
     // Rasteriza uma apresentação e resolve `{ name, pages: [url] }`: uma imagem

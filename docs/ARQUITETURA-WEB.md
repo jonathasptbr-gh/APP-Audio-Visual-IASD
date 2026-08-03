@@ -168,43 +168,72 @@ por OTA (ver "Como esta base é servida").
 
 ---
 
-## Apresentação: PDF e Google Apresentações (v5.97)
+## Documento em cena: PDF, PowerPoint, Google Apresentações (v5.97 · v5.99)
 
-O que o operador tem na mão é um PowerPoint ou um Google Apresentações. O que
-o app guarda é **uma imagem por página** — e é essa tradução que torna o
-recurso pequeno: a partir dela a apresentação é mídia comum, com o fade, a
-cortina, o telão e a `MediaSession` que já existem há dezenas de versões.
+O que o operador tem na mão é um PDF, um PowerPoint ou um Google
+Apresentações. O que o app guarda é **uma imagem por página** — e é essa
+tradução que torna o recurso pequeno: a partir dela a apresentação é mídia
+comum, com o fade, a cortina, o telão e a `MediaSession` que já existem há
+dezenas de versões.
 
-**Por que PDF, e por que o desenho é nativo.** Não existe no Android quem
-desenhe um `.pptx`, e escrever um renderizador de OOXML (formas, SmartArt,
-fontes, gráficos) produziria, no telão da igreja, um slide que se PARECE com o
-que o pastor montou — e um slide quase igual na frente da congregação é pior
-que slide nenhum. PDF é o formato em que os dois exportam com dois toques, é o
-que preserva o desenho exatamente, e o Android traz um renderizador dele **na
-plataforma** (`PdfRenderer`, API 21+): fidelidade total e **zero dependência
-nova**, que é a regra do projeto. Ver `SlideDeck.kt`.
+**Não é um recurso de "apresentação", é um TIPO DE ARQUIVO a mais.** Não há
+botão próprio, nem aba, nem fluxo separado (a v5.98 teve um, e ele saiu na
+v5.99): o operador escolhe o ARQUIVO, e o app decide o que fazer com ele. Um
+PDF comum — um roteiro, uma partitura, um comunicado — entra do mesmo jeito
+que um de apresentação, porque para o app não há diferença entre os dois.
 
-**As três portas de entrada, e por que só duas existem:**
+**Cada formato pelo caminho que existe para ele:**
 
-- **Compartilhar um PDF** com o app (o `intent-filter` passou a aceitar
-  `application/pdf`). É o caminho principal.
-- **Compartilhar o link** do Google Apresentações: o shell monta a URL de
-  exportação (`/presentation/d/<id>/export/pdf`) e baixa. Precisa estar
-  compartilhada por link — que é como um roteiro de culto circula.
-- **Escolher um PDF no aparelho**, pelo botão "Apresentação (PDF)" no fim do
-  Cronograma (v5.98). Ele NÃO é o `<input type="file">` ao lado: aquele devolve
-  um `File` — bytes já lidos —, e quem desenha o PDF é o shell, que precisa do
-  ARQUIVO; devolver os bytes pela ponte inverteria o princípio dela ("URLs
-  servíveis, nunca bytes") e faria uma apresentação de dezenas de MB passar
-  pela memória do WebView à toa. O botão abre o seletor do SISTEMA
-  (`AVNative.pickDoc` → `ACTION_OPEN_DOCUMENT` filtrado em `application/pdf`),
-  que entrega o `content://` — a mesma porta por onde as pastas do dispositivo
-  já entram. Num shell < 20 ele não aparece: no lugar fica a frase que diz o
-  caminho que funciona ali, o compartilhamento (`.import-dica`).
-- **Um PDF ilegível avisa** (protegido por senha, corrompido): diálogo, e não um
-  aviso que some sozinho — o operador acabou de escolher um arquivo, e silêncio
-  ali leria como "importou". É o primeiro uso do diálogo em modo AVISO
-  (`cancelText: null` esconde o botão de cancelar: ele não pergunta nada).
+- **PDF → o shell.** O Android traz um renderizador de PDF **na plataforma**
+  (`PdfRenderer`, API 21+): fidelidade total e zero dependência. Ver
+  `SlideDeck.kt`. É também o caminho do **Google Apresentações**, que tem uma
+  URL de exportação em PDF (`/presentation/d/<id>/export/pdf`) — o shell a monta
+  a partir do link e baixa, sem o operador exportar nada. Precisa estar
+  compartilhada por link, que é como um roteiro de culto circula.
+- **`.pptx` → o próprio WebView.** Aqui o Android não ajuda: não existe na
+  plataforma quem desenhe OOXML. O renderizador é a única dependência do lado
+  web (`assets/web/vendor/pptx-renderer.js`, Apache-2.0 — o levantamento que
+  justifica a exceção está no `LEIA-ME.md` daquela pasta), e ele entra por
+  `import()` **dinâmico**: é 1,5 MB que só interessa a quem importar um `.pptx`,
+  e carregá-lo no boot custaria isso a todo culto.
+- **`.ppt` (anterior a 2007) e `.odp` ficam de fora**, no `accept` do seletor e
+  nos `intent-filter`: ninguém sabe desenhá-los, e aceitar para depois falhar é
+  pior do que não aceitar.
+
+**O `.pptx` produz DOM; o app projeta IMAGEM.** A ponte entre os dois é
+`elementoParaPng`, sem biblioteca nenhuma: o slide vai para dentro de um
+`<foreignObject>` de SVG, que o navegador desenha como imagem, e daí para um
+canvas. Dois detalhes que não são opcionais:
+
+- **As `<img>` do slide são `blob:`, e uma URL blob NÃO carrega dentro do
+  `foreignObject`** (o SVG é um documento à parte). Cada uma é redesenhada num
+  canvas e vira `data:` antes da serialização — sem esse passo a foto do slide
+  simplesmente não aparece, e o defeito é silencioso.
+- **Fundo branco antes de desenhar**, como no lado nativo: o slide pode não
+  pintar o próprio papel, e transparente, no telão, é o preto do palco — o texto
+  escuro sumiria.
+
+O palco de renderização fica `position:fixed; left:-99999px`, e não
+`display:none`: sem layout não há o que rasterizar.
+
+**As portas de entrada são as mesmas de qualquer arquivo:**
+
+- **"Importar arquivos"**, no fim do Cronograma. No app (shell ≥ 21) esse botão
+  abre o seletor do SISTEMA (`AVNative.pickDoc`, com a lista de mimes), e não o
+  `<input type="file">`: aquele devolve um `File` — bytes já lidos —, e quem
+  desenha o PDF é o shell, que precisa do ARQUIVO; devolver os bytes pela ponte
+  inverteria o princípio dela ("URLs servíveis, nunca bytes") e faria um vídeo
+  de 2 GB passar pela memória do WebView. O seletor do sistema entrega
+  `content://` para TUDO — a mesma porta por onde as pastas do dispositivo já
+  entram —, então a importação inteira passou a ser uma coisa só. No navegador
+  (e num shell antigo) continua o `<input type="file">` de sempre, com o `.pptx`
+  no `accept`; ali o PDF é o único que não tem como funcionar.
+- **Compartilhar** um PDF, um `.pptx` ou o link do Google com o app.
+- **Um arquivo ilegível avisa** (PDF com senha, `.pptx` corrompido): diálogo, e
+  não um aviso que some sozinho — o operador acabou de escolher um arquivo, e
+  silêncio ali leria como "importou". É o uso do diálogo em modo AVISO
+  (`cancelText: null` esconde o botão de cancelar: ele não pergunta nada), e o
+  texto é um só (`avisarNaoAbriu`) para as duas portas de entrada.
 
 **O registro** é `kind: 'deck'` com `pages: [Blob]` — as páginas ficam DENTRO
 do próprio registro de mídia, não em arquivos soltos no OPFS, para que o gc que

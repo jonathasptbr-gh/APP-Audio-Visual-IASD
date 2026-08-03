@@ -19,12 +19,11 @@ interface BridgeHost {
     fun requestFolderPick(onResult: (Uri?) -> Unit)
 
     /**
-     * Abre o seletor de DOCUMENTO do sistema (hoje: o PDF de uma
-     * apresentação) e devolve o `content://` escolhido, ou `null` se o
-     * operador desistir. Ver o porquê de não ser o `<input type="file">` em
-     * `MainActivity.docPicker`.
+     * Abre o seletor de ARQUIVOS do sistema e devolve os `content://`
+     * escolhidos (lista vazia se o operador desistir). Ver o porquê de não ser
+     * o `<input type="file">` em `MainActivity.docPicker`.
      */
-    fun requestDocPick(mimes: Array<String>, onResult: (Uri?) -> Unit)
+    fun requestDocPick(mimes: Array<String>, onResult: (List<Uri>) -> Unit)
 
     /**
      * Declara ao sistema que há download em andamento, para o processo não
@@ -91,7 +90,7 @@ class NativeBridge(
          * exijam mais do que o shell instalado oferece (ver [WebUpdater]).
          * Subir SEMPRE que a superfície da ponte mudar.
          */
-        const val SHELL_VERSION = 20
+        const val SHELL_VERSION = 21
 
         /**
          * Fila de IO da ponte, **compartilhada por todas as instâncias**.
@@ -528,33 +527,38 @@ class NativeBridge(
     }
 
     /**
-     * Abre o seletor do sistema para escolher UM PDF e devolve
-     * `{ url, name }` — com `url` servível pelo mesmo `/saf/` das pastas do
-     * dispositivo, que é o que o [SlideDeck] sabe abrir.
+     * Abre o seletor de ARQUIVOS do sistema (um ou vários) e devolve
+     * `[{ url, name, type }]` — com `url` servível pelo mesmo `/saf/` das
+     * pastas do dispositivo. É a importação INTEIRA do app no aparelho:
+     * imagem, vídeo, áudio, PDF e PPTX pela mesma porta.
      *
      * Por que não o `<input type="file">` da página: ele entrega ao JavaScript
-     * um `File` (bytes já lidos), e quem desenha o PDF é o shell, que precisa
-     * do ARQUIVO. Devolver os bytes pela ponte inverteria o princípio dela e
-     * faria uma apresentação de dezenas de MB passar pela memória do WebView
-     * sem necessidade.
+     * um `File` — bytes já lidos —, e o PDF precisa ser aberto pelo Kotlin
+     * ([SlideDeck]), que só sabe abrir um ARQUIVO. Devolver os bytes pela ponte
+     * inverteria o princípio dela e faria um vídeo de 2 GB passar pela memória
+     * do WebView. Com o seletor do sistema, todo import chega como URL
+     * servível — inclusive o que já chegava assim pelo compartilhamento.
      *
      * SEM PRAZO no lado web: quem responde aqui é uma PESSOA escolhendo um
      * arquivo, e um timeout resolveria null com o seletor ainda aberto — a
      * mesma regra do [pickFolder] e do [requestMic].
      */
     @JavascriptInterface
-    fun pickDoc(callId: String) {
+    fun pickDoc(callId: String, mimesCsv: String) {
         val h = host
-        if (h == null) { resolve(callId, "null"); return }
-        h.requestDocPick(arrayOf("application/pdf")) { uri ->
-            if (uri == null) {
-                resolve(callId, "null")
-            } else {
-                val obj = JSONObject()
-                    .put("url", SafRegistry.urlFor(uri))
-                    .put("name", nomeDoDocumento(uri))
-                resolve(callId, obj.toString())
+        if (h == null) { resolve(callId, "[]"); return }
+        val mimes = mimesCsv.split(',').map { it.trim() }.filter { it.isNotBlank() }
+        h.requestDocPick(if (mimes.isEmpty()) arrayOf("*/*") else mimes.toTypedArray()) { uris ->
+            val arr = JSONArray()
+            for (uri in uris) {
+                arr.put(
+                    JSONObject()
+                        .put("url", SafRegistry.urlFor(uri))
+                        .put("name", nomeDoDocumento(uri))
+                        .put("type", ctx.contentResolver.getType(uri) ?: "application/octet-stream"),
+                )
             }
+            resolve(callId, arr.toString())
         }
     }
 
