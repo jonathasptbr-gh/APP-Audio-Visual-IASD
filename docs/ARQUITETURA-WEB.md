@@ -94,7 +94,7 @@ git push origin main
   MENOR que o já publicado — caso em que `WebUpdater.compareVersions` ignora o
   bundle em silêncio. Para saber onde a base está, leia `version.json`.
 
-  No app nativo o rótulo mostra os **dois índices** — `Web v5.72 · Shell v1.24`
+  No app nativo o rótulo mostra os **dois índices** — `Web v5.73 · Shell v1.24`
   —, porque base web e shell atualizam por caminhos independentes (OTA ×
   instalar APK); no navegador sai só `Controle v<versão>`. **Ele mora no rodapé
   do popup de Configurações** desde a v5.49 (antes ficava no cabeçalho da lista,
@@ -2493,6 +2493,12 @@ continua lá mesmo com o card aberto. Um álbum de centenas de faixas, uma vez
 começado, precisa poder parar num toque — esconder isso atrás da engrenagem
 devolveria exatamente o problema que o botão de cancelar veio resolver.
 
+**Com as opções à mostra a engrenagem vira uma SETA PARA CIMA**
+(`chevronUpIconSvg`, v5.73). Acesa em accent, a engrenagem dizia "as opções
+estão abertas" só pela cor; a seta diz o que o **toque faz** — recolher o painel
+que está imediatamente abaixo dela. É a convenção de qualquer gaveta, e aqui o
+alvo é literalmente o teto da gaveta que ele fecha.
+
 ### Os acordeões abrem animados
 
 Um acordeão que troca `display` aparece **pronto**, e num toque a lista inteira
@@ -2546,14 +2552,43 @@ linha de música.
 > acompanhava não existem mais.
 
 **Opções da coleção** (`buildCollectionOptions` → painel `.coll-opts--inline`,
-dentro do card): tudo que é manutenção — **linha de status** (progresso
-via `setCollStatus`, ou "✓ Completo offline" em verde quando `downloaded ===
-total`, ou "Parcial…"/"Não sincronizado"), a faixa de **estatísticas** (chips
-`.hymnal-stat`): **Sincronizados** (`downloaded/total`), **Peso**
-(`fmtBytes(ui(coll.id).bytes)`) e **Rede** (Wi-Fi
-confirmado × "Aguardando", ícone de Wi-Fi SVG inline — ver `isConfirmedWifi`);
-e os botões **Sincronizar/Atualizar** (`syncCollection`) e **Excluir baixado**
-(`deleteCollection`). Não há "Ver músicas" aqui: a lista é o **toque no card**.
+dentro do card): tudo que é manutenção — uma faixa de **dois chips**
+(`.hymnal-stat`) e **dois botões**. Não há "Ver músicas" aqui: a lista é o
+**toque no card**.
+
+- **`Sincronizados`** (`.hymnal-stat.sinc`) diz as duas coisas na mesma linha:
+  quantas faixas estão no aparelho e o que isso significa — `4/4 · Completo
+  offline` (com ✓, em verde), `1/4 · Parcial`, `— · Não sincronizado`.
+- **`Peso`** (`fmtBytes(ui(coll.id).bytes)`), à direita (`.hymnal-stat.right`,
+  `flex: 0 0 auto`): é o número curto e secundário da linha, e ancorá-lo na
+  borda oposta dá ao chip de sincronização a largura de que ele precisa.
+- **Sincronizar** (`syncCollection`), rotulado pelo que ESTE toque vai fazer
+  neste álbum: **"Verificar atualizações"** com o álbum inteiro no aparelho
+  (não há o que baixar — só conferir se o catálogo mudou), **"Baixar álbum"**
+  em qualquer outro caso, e **"Cancelar o download"** enquanto roda.
+- **"Excluir downloads do álbum"** (`deleteCollection`) — nomeia o que some,
+  que é o conteúdo baixado, não o álbum.
+
+#### O que a v5.73 tirou daqui, e por quê
+
+Eram **três chips e uma linha de status**, e três dos quatro repetiam algo que
+já estava na tela:
+
+- **A linha de status saiu.** Parada, ela dizia numa linha inteira o mesmo que o
+  chip logo abaixo ("Completo offline", "Parcial", "Não sincronizado"); em
+  movimento, repetia palavra por palavra o `Baixando 2 de 4…` que a **barra do
+  card** mostra dois centímetros acima — e a barra é `sticky` no topo do aberto,
+  logo nunca sai de vista enquanto se lê o painel. Com ela saíram
+  `.hymnal-card-status` e suas variantes.
+- **"Sincronizados" e "Completo offline" viraram um chip só.** Separados, `4/4`
+  e "Completo offline" eram a mesma frase dita duas vezes — e a segunda ainda
+  ocupava a largura toda.
+- **O chip "Rede" saiu**, e com ele `wifiIconEl()`, seu único consumidor. A
+  regra não mudou: quem decide se a sincronização em massa pergunta antes de
+  usar dados móveis continua sendo `isConfirmedWifi()`, e ela o diz **na hora,
+  no diálogo** — que é onde a informação tem consequência. Um chip permanente
+  repetindo o estado da rede em cada álbum aberto era ruído entre dados sobre o
+  ÁLBUM.
 
 **Elas eram um bottom-sheet** (`#collPopup`, com degrau próprio de `z-index` e
 uma linha em `POPUPS`). Viraram um painel DENTRO do card na v5.72: um popup
@@ -4850,7 +4885,7 @@ diferentes**. Quatro estados eram pintados por duas famílias de cor cada:
 |---|---|---|
 | está no telão agora | `--danger` ×4 e `--success` ×2 | vermelho em `.pv-fab.live`, `.mic-btn.live`, `.misc-project.live`, `.misc-tab-live`; **verde** em `.bible-vsec.cur.live` e `.msg-item.active` |
 | selecionado / onde estou | `--accent` ×19 e `--success` ×2 | tudo accent, menos `.msg-item.active` |
-| concluído / OK | `--success` ×8 e `--accent` ×1 | tudo verde, menos `.hymnal-stat.net.ok` |
+| concluído / OK | `--success` ×8 e `--accent` ×1 | tudo verde, menos `.hymnal-stat.net.ok` (chip que saiu na v5.73) |
 | baixando / ocupado | `--accent` ×5 e `--danger` ×2 | o texto do progresso numa cor e o botão de cancelar em outra, na mesma linha |
 
 No sentido inverso, `--gold` acumulava **27 usos** cobrindo marca, aviso, erro,
@@ -5308,8 +5343,9 @@ os dois botões flutuantes da preview (**cast** e
 e nos **cards de coleção** a **seta de baixar** (`downloadAllIconSvg`), o **✕**
 de cancelar (`closeIconSvg`), as **setas circulares** de sincronizar
 (`syncIconSvg`), o **check** de "completo offline" (`checkIconSvg`), a
-**engrenagem** de opções (`gearIconSvg`) e o ícone de **lista**
-(`listIconSvg`); e nos resultados da busca os botões de tocar
+**engrenagem** de opções (`gearIconSvg`) com a **seta para cima** que a
+substitui enquanto elas estão à mostra (`chevronUpIconSvg`) e o ícone de
+**lista** (`listIconSvg`); e nos resultados da busca os botões de tocar
 **voz/microfone** (Cantado, `voiceIconSvg`) e **nota musical** (Playback,
 `noteIconSvg`); e o **livro com uma cruz** da aba **Bíblia**
 (`.tab[data-tab="bible"]`), mais a **grade de módulos** da aba **Ferramentas** —
