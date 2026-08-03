@@ -111,7 +111,7 @@ object YoutubeGrab {
                 Log.w(TAG, "nenhum stream progressivo para $link")
                 return null
             }
-            val nome = info.name?.takeIf { it.isNotBlank() } ?: "Vídeo do YouTube"
+            val nome = tituloLimpo(info.name, info.uploaderName)
             val destino = arquivoDestino(ctx, info.id ?: "video")
             baixar(stream.getContent(), destino, onProgresso)
             if (destino.length() <= 0L) {
@@ -166,7 +166,7 @@ object YoutubeGrab {
                 JSONObject()
                     .put("id", id)
                     .put("url", url)
-                    .put("name", item.getName() ?: "")
+                    .put("name", tituloLimpo(item.getName(), item.getUploaderName()))
                     .put("author", item.getUploaderName() ?: "")
                     .put("seconds", item.getDuration())
                     .put("thumb", "https://i.ytimg.com/vi/$id/mqdefault.jpg"),
@@ -174,6 +174,37 @@ object YoutubeGrab {
             if (out.length() >= max) break
         }
         return out
+    }
+
+    /**
+     * Tira o nome do CANAL da frente do título.
+     *
+     * Meio YouTube publica como "Arautos do Rei - Firme nas Promessas", e no
+     * Cronograma isso vira uma lista em que a metade esquerda de toda linha é a
+     * mesma palavra — justamente a parte que não distingue um item do outro. O
+     * canal não se perde: ele aparece no subtítulo do resultado da busca, que é
+     * onde ele ajuda a escolher.
+     *
+     * A remoção é CONSERVADORA de propósito: só corta quando o começo do título
+     * é exatamente o nome do canal seguido de um separador. Um título que
+     * simplesmente contenha um travessão ("Hino 512 - Ao Deus de Abraão")
+     * continua inteiro — cortar por "tem um traço" estragaria mais nomes do que
+     * arrumaria.
+     *
+     * `- Topic` é o sufixo dos canais que o YouTube gera sozinho para música
+     * ("Arautos do Rei - Topic"): sem tirá-lo, a comparação nunca casaria
+     * justamente nos vídeos de louvor, que são o caso mais comum aqui.
+     */
+    private fun tituloLimpo(titulo: String?, canal: String?): String {
+        val t = titulo?.trim().orEmpty()
+        if (t.isEmpty()) return "Vídeo do YouTube"
+        val c = canal?.trim()?.removeSuffix("- Topic")?.trim().orEmpty()
+        if (c.isEmpty()) return t
+        val re = Regex("^" + Regex.escape(c) + "\\s*[-–—|:]\\s*", RegexOption.IGNORE_CASE)
+        val limpo = t.replace(re, "").trim()
+        // Título que era SÓ o nome do canal continua como estava: uma linha
+        // vazia no Cronograma seria pior que um nome repetido.
+        return limpo.ifEmpty { t }
     }
 
     /** `watch?v=<id>`, `youtu.be/<id>`, `/shorts/<id>` — o id tem 11 caracteres. */
