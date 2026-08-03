@@ -156,7 +156,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.83';
+const WEB_VERSION = '5.84';
 
 // Escrita UMA vez, na carga: o indicador mora no rodapé de Configurações desde
 // a v5.49 e não depende mais de qual aba está aberta (no cabeçalho ele
@@ -3888,7 +3888,15 @@ function renderLibrary() {
     items = libItems.filter((m) => m.name.toLowerCase().includes(fq));
   }
 
-  if (items.length === 0) {
+  // Lista vazia MAS com download em curso: a linha provisória é a única coisa
+  // que existe, e ela precisa aparecer — é justamente o primeiro item chegando.
+  // Sem isto o operador via "Cronograma vazio" durante todo o download do
+  // primeiro vídeo, que é o pior momento possível para essa frase.
+  const provisorias = (activeTab === 'imports' && !currentFolder)
+    ? [...libBaixando.entries()].filter(([chave]) => !libItems.some((m) => m.id === chave))
+    : [];
+
+  if (items.length === 0 && !provisorias.length) {
     host.innerHTML = activeTab === 'folders'
       ? (fq ? '<li class="empty">Nenhum arquivo encontrado.</li>'
         : (currentFolder && currentFolder._opfs
@@ -3932,7 +3940,8 @@ function renderLibrary() {
           e.stopPropagation();
           if (ytDl.disabled) return;
           ytDl.disabled = true;
-          const rec = await ytBaixarNativo(item.url, item.name);
+          // A linha JÁ existe: o aviso vai nela, com a chave do próprio item.
+          const rec = await ytBaixarNativo(item.url, item.name, { chave: item.id });
           if (!rec) { ytDl.disabled = false; return; }
           // O arquivo TOMA O LUGAR do link, NA MESMA POSIÇÃO: duas linhas com o
           // mesmo nome deixariam o operador adivinhando qual das duas é a que
@@ -3973,9 +3982,28 @@ function renderLibrary() {
       });
     }
 
+    // Item que JÁ existe e está sendo baixado (converter um link em arquivo):
+    // o aviso vai nele mesmo, não na preview.
+    const dl = libBaixando.get(item.id);
+    if (dl) {
+      li.classList.add('baixando');
+      li.dataset.dl = item.id;
+      const anel = document.createElement('span'); anel.className = 'dl-ring';
+      anel.innerHTML = downloadArrowIconSvg();
+      thumb.appendChild(anel);
+    }
+
     const parts = [thumb, name];
     if (badge) parts.push(badge);
-    if (ytDl) parts.push(ytDl);
+    if (dl) {
+      const pct = document.createElement('span'); pct.className = 'dl-pct';
+      pct.textContent = dl.pct >= 0 ? dl.pct + '%' : '';
+      parts.push(pct);
+    }
+    // Baixando: o botão de converter sai de cena. Ele já está desabilitado, mas
+    // continuar desenhando "baixar" ao lado de um anel girando é oferecer a
+    // ação que está justamente em curso.
+    if (ytDl && !dl) parts.push(ytDl);
     if (addBtn) parts.push(addBtn);
     if (activeTab !== 'folders') parts.push(handle);
     row.append(...parts);
@@ -3984,6 +4012,10 @@ function renderLibrary() {
     if (activeTab !== 'folders') attachHandle(handle, item.id, activeTab);
     host.appendChild(li);
   });
+
+  // As linhas PROVISÓRIAS vão no fim, que é para onde o item vai quando
+  // existir: `addMedia` sempre pendura no fim do Cronograma.
+  provisorias.forEach(([chave, reg]) => host.appendChild(libBusyRow(chave, reg)));
 
   appendImportRow();
 }
@@ -7439,6 +7471,73 @@ let pvBusyTimer = null;
 // Devolve `{ visivel, soltar }`. `visivel` é falso no simplificado, onde a
 // preview não está na tela — ali quem avisa continua sendo o toast, e é por
 // isso que o chamador precisa saber.
+// ===== "Baixando" NA LINHA DO CRONOGRAMA =====
+//
+// O cartão sobre a preview diz "isto vai entrar em cena". É a mensagem certa
+// quando o toque foi TOCAR — e a errada quando ele foi só ADICIONAR: um vídeo
+// compartilhado que apenas entra na lista não vai ao telão a seguir, e anunciar
+// o download ali insinua o contrário. A regra passa a ser (v5.84): **o aviso
+// mora onde o resultado vai aparecer.**
+//
+// Aqui o resultado é uma linha do Cronograma — só que ela ainda NÃO EXISTE
+// enquanto o arquivo baixa. Por isso a linha é criada provisória: o operador vê
+// o item entrar na lista na hora, com o anel e o percentual, e ele vira o item
+// de verdade quando os bytes chegam. É a mesma ideia do `setSongRowBusy` no
+// acervo, com um passo a mais porque lá a linha já existia.
+//
+// A chave é o ID DA MÍDIA quando ela já existe (o botão de converter um item de
+// player), e uma chave provisória quando não existe (um link recém-chegado).
+const libBaixando = new Map();
+
+function libBusy(nome, chaveExistente) {
+  const chave = chaveExistente || ('dl:' + Math.random().toString(36).slice(2, 9));
+  libBaixando.set(chave, { nome: nome || 'Baixando…', pct: -1 });
+  if (activeTab === 'imports') load();
+  let solto = false;
+  return {
+    visivel: true,
+    atualizar(_acao, _nome, pct) {
+      const r = libBaixando.get(chave);
+      if (!r || solto) return;
+      r.pct = typeof pct === 'number' ? pct : r.pct;
+      // Repinta SÓ o texto, sem refazer a lista: o percentual chega a cada
+      // megabyte, e um `load()` por atualização reconstruiria dezenas de linhas
+      // (com object URLs de miniatura) enquanto o operador rola a lista.
+      document.querySelectorAll('.lib-item').forEach((li) => {
+        if (li.dataset.dl !== chave) return;
+        const t = li.querySelector('.dl-pct');
+        if (t) t.textContent = r.pct >= 0 ? r.pct + '%' : '';
+      });
+    },
+    soltar() {
+      if (solto) return;
+      solto = true;
+      libBaixando.delete(chave);
+      if (activeTab === 'imports') load();
+    },
+  };
+}
+
+// A linha provisória: mesma anatomia de uma linha de mídia (miniatura + nome),
+// com o anel no lugar da miniatura — que é justamente o que ela ainda não tem.
+function libBusyRow(chave, reg) {
+  const li = document.createElement('li');
+  li.className = 'lib-item baixando';
+  li.dataset.dl = chave;
+  const row = document.createElement('div'); row.className = 'row';
+  const t = document.createElement('div'); t.className = 'thumb thumb--icon';
+  const anel = document.createElement('span'); anel.className = 'dl-ring';
+  anel.innerHTML = downloadArrowIconSvg();
+  t.appendChild(anel);
+  const nome = document.createElement('span'); nome.className = 'row-name';
+  nome.textContent = reg.nome;
+  const pct = document.createElement('span'); pct.className = 'dl-pct';
+  pct.textContent = reg.pct >= 0 ? reg.pct + '%' : '';
+  row.append(t, nome, pct);
+  li.appendChild(row);
+  return li;
+}
+
 function previewBusy(acao, nome) {
   // No simplificado a preview só está na tela com um telão conectado (ver
   // hostPreview/`.simple.locked`); bloqueado, quem avisa continua sendo o
@@ -7462,6 +7561,8 @@ function previewBusy(acao, nome) {
     // percentual de um download longo aparece. Com dois downloads ao mesmo
     // tempo o último a escrever ganha, exatamente como já acontecia quando os
     // dois chamavam `previewBusy`.
+    // O 3º parâmetro (percentual) existe só para a assinatura bater com a de
+    // `libBusy`: aqui quem mostra o número é o próprio texto da legenda.
     atualizar(acaoNova, nomeNovo) {
       if (solto) return;
       pvBusyCapEl.textContent = acaoNova;
@@ -7683,17 +7784,25 @@ function detectUrlKind(url) {
 // Exige shell ≥ 16. Num anterior o método não existe e a função devolve null
 // na hora, sem custo: o link vira item de player embutido, que é o
 // comportamento de sempre e continua sendo o plano B.
-async function ytBaixarNativo(link, nome) {
+// `opts.naPreview` decide ONDE o aviso aparece — e a pergunta que ele responde
+// é "isto vai entrar em cena a seguir?". Tocar: sim, o cartão vai sobre a
+// preview. Só entrar na lista: não, o aviso vai na linha do Cronograma, que é
+// onde o resultado vai aparecer. Ver `libBusy`.
+async function ytBaixarNativo(link, nome, opts) {
   if (!window.__NATIVE__ || (window.__SHELL_VERSION__ | 0) < 16) return null;
   const rotulo = nome || 'Vídeo do YouTube';
-  const bg = previewBusy('Preparando vídeo', rotulo);
+  const naPreview = !!(opts && opts.naPreview);
+  const bg = naPreview
+    ? previewBusy('Preparando vídeo', rotulo)
+    : libBusy(rotulo, opts && opts.chave);
   const notif = bgTaskStart('Baixando vídeo', 1);
   try {
     return await withBgWork(async () => {
       const r = await AVNative.ytFetch(link, (lidos, total) => {
-        bg.atualizar(total
-          ? 'Baixando vídeo · ' + Math.floor((lidos / total) * 100) + '%'
-          : 'Baixando vídeo · ' + fmtBytes(lidos));
+        const pct = total ? Math.floor((lidos / total) * 100) : -1;
+        bg.atualizar(pct >= 0
+          ? 'Baixando vídeo · ' + pct + '%'
+          : 'Baixando vídeo · ' + fmtBytes(lidos), null, pct);
       });
       if (!r || !r.url) return null;
       try {
@@ -7736,7 +7845,10 @@ async function handleSharedUrl(url, title) {
     // (ver `ytBaixarNativo` e YoutubeGrab.kt). Não pede configuração, não
     // depende de instância de terceiro e sai do IP do chip do operador, que é
     // justamente o que o YouTube não bloqueia.
-    const nativo = await ytBaixarNativo(url, title || ('YouTube: ' + ytId));
+    // No simplificado o item vai DIRETO ao telão (ver focarImportado), então o
+    // aviso pertence à preview; no avançado ele só entra no Cronograma.
+    const nativo = await ytBaixarNativo(url, title || ('YouTube: ' + ytId),
+      { naPreview: appMode === 'simple' });
     if (nativo) return nativo;
     return await AVDB.addUrlMedia(url, {
       kind: 'youtube',

@@ -397,6 +397,27 @@ body {
 .preview:-webkit-full-screen .pv-fabs,
 .preview:-webkit-full-screen .pv-fab--bl { display: none !important; }
 
+/* ---------- "Baixando…" NA LINHA DO CRONOGRAMA ----------
+   O cartão sobre a preview diz "isto vai entrar em cena"; quando o toque foi só
+   ADICIONAR, essa é a mensagem errada. Aqui o aviso mora onde o resultado vai
+   aparecer: na própria linha da lista — que, enquanto o arquivo baixa, é uma
+   linha PROVISÓRIA (o item ainda não existe). */
+.lib-item.baixando { opacity: .85; }
+.lib-item.baixando .row-name { color: var(--muted); }
+/* O anel ocupa a miniatura: é justamente o que a linha ainda não tem. Quando o
+   item já existe (converter um link), ele fica POR CIMA da miniatura dele. */
+.lib-item.baixando .thumb { position: relative; }
+.lib-item.baixando .thumb .dl-ring {
+  --dl-ring: 30px;
+  position: absolute; inset: 0; margin: auto;
+}
+/* A miniatura de verdade escurece atrás do anel, senão as duas competem. */
+.lib-item.baixando .thumb img, .lib-item.baixando .thumb .msym { opacity: .25; }
+.dl-pct {
+  flex-shrink: 0; font-size: .74rem; font-weight: 700;
+  color: var(--accent); font-variant-numeric: tabular-nums;
+}
+
 /* ---------- "Baixando…" NA PREVIEW ----------
    Tocar uma música que ainda não está no aparelho abre um download de dezenas
    de segundos. O sinal disso era um toast na tela principal, junto do acervo
