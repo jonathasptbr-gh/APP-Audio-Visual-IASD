@@ -5,6 +5,7 @@ import android.net.Uri
 import android.util.Log
 import org.json.JSONArray
 import org.json.JSONObject
+import org.schabi.newpipe.extractor.Extractor
 import org.schabi.newpipe.extractor.NewPipe
 import org.schabi.newpipe.extractor.ServiceList
 import org.schabi.newpipe.extractor.downloader.Downloader
@@ -92,13 +93,44 @@ object YoutubeGrab {
      * brasileiro voltava com títulos em inglês de vídeos cujo título original é
      * em português — o operador procurava por um nome que não estava mais lá.
      *
-     * Fixo em pt-BR, e não herdado do `Locale` do aparelho: o que se quer aqui
+     * Fixo no português do Brasil, e não herdado do `Locale` do aparelho: o que se quer aqui
      * é o título ORIGINAL do louvor, e um celular configurado em inglês (não é
      * raro) traria a tradução de volta. `ContentCountry` acompanha porque é ele
      * que decide o acervo regional dos resultados.
+     *
+     * **E passar isto ao `NewPipe.init` NÃO BASTA** — foi o que a v1.32 fez, e
+     * os títulos continuaram chegando em inglês. `StreamingService.
+     * getLocalization()` FILTRA o pedido pela lista de idiomas suportados do
+     * serviço, e a do YouTube nesta versão da biblioteca (v0.26.1) tem um item
+     * só: `en-GB` (o resto está comentado no fonte). Qualquer outro idioma cai
+     * no `Localization.DEFAULT`, que é justamente o en-GB — em silêncio, sem
+     * erro nenhum, e por isso o código anterior PARECIA certo. O país escapa
+     * do filtro porque "BR" está na lista de países suportados, então só metade
+     * do pedido chegava.
+     *
+     * A saída é o `forceLocalization`/`forceContentCountry` do próprio
+     * `Extractor` ([aportuguesar]), que é a válvula que a biblioteca oferece
+     * para exatamente isto: ele é lido ANTES da lista de suportados
+     * (`getExtractorLocalization`).
+     *
+     * E o código é `pt`, não `pt-BR`: a lista (comentada) que a própria
+     * biblioteca guarda como os `hl` que o YouTube aceita tem "pt" e "pt-PT" —
+     * não tem "pt-BR". Com o `gl=BR` do [PAIS], "pt" É o português do Brasil;
+     * pedir um código que o YouTube talvez não reconheça arriscaria voltar para
+     * o inglês pela porta dos fundos, que é exatamente o defeito.
      */
-    private val IDIOMA = Localization("pt", "BR")
+    private val IDIOMA = Localization("pt")
     private val PAIS = ContentCountry("BR")
+
+    /**
+     * Português no extrator, por cima do filtro de idiomas suportados.
+     * Todo caminho que fala com o YouTube passa por aqui — busca e extração —,
+     * senão um deles volta a devolver título traduzido.
+     */
+    private fun aportuguesar(ex: Extractor) {
+        ex.forceLocalization(IDIOMA)
+        ex.forceContentCountry(PAIS)
+    }
 
     /** `NewPipe.init` é global e só pode acontecer uma vez por processo. */
     @Volatile
@@ -125,7 +157,11 @@ object YoutubeGrab {
     fun buscar(ctx: Context, link: String, onProgresso: (Long, Long) -> Unit): JSONObject? {
         return try {
             garantirInit()
-            val info = StreamInfo.getInfo(ServiceList.YouTube, link)
+            // Pelo EXTRATOR, e não pelo atalho `getInfo(service, url)`: é o
+            // único ponto em que dá para forçar o idioma antes do fetch.
+            val ex = ServiceList.YouTube.getStreamExtractor(link)
+            aportuguesar(ex)
+            val info = StreamInfo.getInfo(ex)
             val stream = melhorProgressivo(info)
             if (stream == null) {
                 Log.w(TAG, "nenhum stream progressivo para $link")
@@ -177,7 +213,13 @@ object YoutubeGrab {
         // Só VÍDEOS: canais e playlists não têm o que fazer numa lista cujo
         // único destino é virar um arquivo de mídia.
         val q = svc.getSearchQHFactory().fromQuery(termo, listOf("videos"), "")
-        val info = SearchInfo.getInfo(svc, q)
+        val ex = svc.getSearchExtractor(q)
+        aportuguesar(ex)
+        // `SearchInfo.getInfo(extractor)` NÃO busca a página sozinho (ao
+        // contrário do `getInfo(service, query)` e do `StreamInfo.getInfo`):
+        // sem este `fetchPage` a lista volta vazia, sem erro.
+        ex.fetchPage()
+        val info = SearchInfo.getInfo(ex)
         for (item in info.relatedItems) {
             if (item !is StreamInfoItem) continue
             val url = item.getUrl() ?: continue
@@ -337,6 +379,18 @@ object YoutubeGrab {
                 }
                 if (conn.getRequestProperty("User-Agent") == null) {
                     conn.setRequestProperty("User-Agent", UA)
+                }
+                // O idioma do pedido também vai no CABEÇALHO. Quem manda de
+                // fato é o `hl` do corpo InnerTube, mas nem toda requisição da
+                // biblioteca é InnerTube (há páginas HTML no caminho), e é
+                // justamente o `Accept-Language` que decide o idioma nelas —
+                // que é o que fazem os downloaders de referência do NewPipe.
+                // Sempre pt-BR, e não o `request.localization()`: é ele que
+                // pode vir com o en-GB que o filtro de idiomas suportados da
+                // biblioteca impõe (ver IDIOMA), e aí o cabeçalho desfaria
+                // justamente o que o `forceLocalization` acabou de corrigir.
+                if (conn.getRequestProperty("Accept-Language") == null) {
+                    conn.setRequestProperty("Accept-Language", IDIOMA.localizationCode)
                 }
                 request.dataToSend()?.let { corpo ->
                     conn.doOutput = true
