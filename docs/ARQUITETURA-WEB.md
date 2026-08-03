@@ -94,7 +94,7 @@ git push origin main
   MENOR que o já publicado — caso em que `WebUpdater.compareVersions` ignora o
   bundle em silêncio. Para saber onde a base está, leia `version.json`.
 
-  No app nativo o rótulo mostra os **dois índices** — `Web v5.79 · Shell v1.26`
+  No app nativo o rótulo mostra os **dois índices** — `Web v5.80 · Shell v1.26`
   —, porque base web e shell atualizam por caminhos independentes (OTA ×
   instalar APK); no navegador sai só `Controle v<versão>`. **Ele mora no rodapé
   do popup de Configurações** desde a v5.49 (antes ficava no cabeçalho da lista,
@@ -4686,6 +4686,18 @@ ganho maior de todos.
 A conversão é feita pelo [Cobalt](https://cobalt.tools) por HTTP puro (`fetch` +
 JSON) — **nenhuma dependência entra no projeto**, como manda a regra.
 
+- **O app PROCURA uma instância sozinho** (v5.80, `cobaltDescobrir`): com o
+  campo em branco, a primeira importação baixa a lista pública da comunidade,
+  filtra o que não serve (offline, sem CORS, com autenticação declarada, sem
+  `youtube`, sem `https`) e **sonda** até seis candidatas em PARALELO — em série
+  os prazos se somariam, e há um operador esperando um vídeo. A escolha é
+  persistida (`cobaltAuto`) por 24 h, uma varredura infrutífera não se repete
+  por 30 min, e a instância automática que falhar é descartada na hora (a
+  digitada à mão, não: ali a escolha é de quem opera).
+  **A lista serve para UMA coisa: dar nomes.** O formato dela não é contrato de
+  ninguém — o endpoint já mudou uma vez —, então quem decide se uma candidata
+  presta é o `GET /` do próprio Cobalt, que é documentado. Lista em formato
+  desconhecido ⇒ zero candidatas ⇒ item de player, sem quebrar nada.
 - **A instância NÃO vem embutida, e isso NÃO é uma escolha de comodidade** — é
   o que a documentação do próprio Cobalt pede: *"hosted api instances (such as
   `api.cobalt.tools`) use bot protection and are **not** intended to be used in
