@@ -156,7 +156,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.89';
+const WEB_VERSION = '5.90';
 
 // Escrita UMA vez, na carga: o indicador mora no rodapé de Configurações desde
 // a v5.49 e não depende mais de qual aba está aberta (no cabeçalho ele
@@ -6928,10 +6928,21 @@ function openHymnSearch() {
   hymnSearchInputEl.value = '';
   renderSearchResults('');
   hymnSearchPopupEl.classList.add('open');
-  // **Sem foco automático.** Enquanto a abertura era uma lista de músicas, o
-  // teclado subir junto era o certo — não havia mais nada a fazer ali. Agora a
-  // abertura é o acervo para folhear, e o teclado cobriria metade dele antes de
-  // o operador decidir se vai digitar.
+  // **Sem foco automático — no AVANÇADO.** Enquanto a abertura era uma lista de
+  // músicas, o teclado subir junto era o certo: não havia mais nada a fazer
+  // ali. Hoje a abertura é o acervo para folhear, e o teclado cobriria metade
+  // dele antes de o operador decidir se vai digitar.
+  //
+  // **No SIMPLIFICADO ele sobe** (v5.90). Ali o acervo é aberto por um botão
+  // que se chama BUSCAR, e o modo inteiro existe para encurtar caminho — o
+  // toque na música já toca, sem folha de escolha. Quem entra por ali sabe o
+  // que quer e vai digitar; um toque a mais no campo é justamente o tipo de
+  // cerimônia que esse modo tira.
+  //
+  // Síncrono e dentro do gesto: `focus()` adiado (um `setTimeout`) sai da
+  // interação do toque, e aí o WebView aceita o foco mas NÃO abre o teclado —
+  // o pior resultado possível, porque parece que funcionou.
+  if (appMode === 'simple') hymnSearchInputEl.focus();
 }
 
 function closeHymnSearch() {

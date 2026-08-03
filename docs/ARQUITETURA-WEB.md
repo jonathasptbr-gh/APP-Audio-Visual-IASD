@@ -3755,10 +3755,17 @@ A busca ganha assim **dois níveis**, e isso muda três coisas:
   - **Baixar/cancelar voltou para a barra** (`.coll-bar-dl`). Com a engrenagem
     dentro do aberto, baixar um hinário passava por expandir 600 linhas —
     caro para a ação mais comum do acervo.
-- **O campo não rouba mais o foco na abertura.** Enquanto ela era uma lista de
-  músicas, o teclado subir junto era o certo — não havia mais nada a fazer ali.
-  Agora a abertura é um acervo para folhear, e o teclado cobriria metade dele
-  antes de o operador decidir se vai digitar.
+- **O campo não rouba o foco na abertura — no AVANÇADO.** Enquanto ela era uma
+  lista de músicas, o teclado subir junto era o certo: não havia mais nada a
+  fazer ali. Hoje a abertura é um acervo para folhear, e o teclado cobriria
+  metade dele antes de o operador decidir se vai digitar.
+- **No SIMPLIFICADO ele sobe** (v5.90). Lá o acervo é aberto por um botão que se
+  chama BUSCAR, e o modo inteiro existe para encurtar caminho — o toque na
+  música já toca, sem folha de escolha. Quem entra por ali sabe o que quer e vai
+  digitar; um toque a mais no campo é exatamente a cerimônia que esse modo tira.
+  O `focus()` é SÍNCRONO, dentro do gesto do toque: adiado (um `setTimeout`) ele
+  sai da interação, e aí o WebView aceita o foco mas **não abre o teclado** — o
+  pior resultado possível, porque na leitura do código parece que funcionou.
 
 #### Tela cheia, e a ação de maior alcance no título (v5.45)
 
