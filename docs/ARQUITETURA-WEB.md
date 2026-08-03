@@ -94,7 +94,7 @@ git push origin main
   MENOR que o já publicado — caso em que `WebUpdater.compareVersions` ignora o
   bundle em silêncio. Para saber onde a base está, leia `version.json`.
 
-  No app nativo o rótulo mostra os **dois índices** — `Web v5.83 · Shell v1.29`
+  No app nativo o rótulo mostra os **dois índices** — `Web v5.84 · Shell v1.29`
   —, porque base web e shell atualizam por caminhos independentes (OTA ×
   instalar APK); no navegador sai só `Controle v<versão>`. **Ele mora no rodapé
   do popup de Configurações** desde a v5.49 (antes ficava no cabeçalho da lista,
@@ -4720,6 +4720,38 @@ onde ele aparece como texto. É a única janela para o que acontece com a
 projeção enquanto o celular está fora da frente: não há console, não há logcat,
 e o Controle está estrangulado justamente nesse intervalo. Se voltar a parar,
 o registro diz QUAL das três causas foi — em vez de mais uma rodada de palpite.
+
+### Onde o aviso de download aparece (v5.84)
+
+O cartão sobre a preview diz **"isto vai entrar em cena"**. É a mensagem certa
+quando o toque foi TOCAR, e a errada quando ele foi só ADICIONAR: um vídeo
+compartilhado que apenas entra no Cronograma não vai ao telão a seguir, e
+anunciar o download ali insinua o contrário. A regra passou a ser **o aviso mora
+onde o resultado vai aparecer**:
+
+| O que o toque pediu | Onde o aviso aparece |
+|---|---|
+| Tocar uma música do acervo (cantada, playback, só a letra) | cartão sobre a **preview** (`previewBusy`) |
+| Adicionar uma música do acervo a uma lista | miniatura da **linha do acervo** (`setSongRowBusy`) |
+| Compartilhar um link do YouTube no **simplificado** | **preview** — ali o item vai direto ao telão |
+| Compartilhar um link do YouTube no **avançado** | **linha do Cronograma** (`libBusy`) |
+| Converter um item de player que já está na lista | **a própria linha** dele |
+
+O caso novo é o do Cronograma, e ele tem um detalhe: enquanto o arquivo baixa,
+**a linha ainda não existe**. Por isso ela é criada PROVISÓRIA — o operador vê o
+item entrar na lista na hora, com o anel no lugar da miniatura e o percentual ao
+lado, e ela vira o item de verdade quando os bytes chegam. Duas consequências
+que o código trata explicitamente:
+
+- **A lista vazia também desenha a provisória.** Sem isso, o primeiro vídeo
+  importado num Cronograma vazio mostrava "Cronograma vazio." durante todo o
+  download — a pior frase possível naquele momento.
+- **O percentual repinta SÓ o texto**, sem refazer a lista: ele chega a cada
+  megabyte, e um `load()` por atualização reconstruiria dezenas de linhas (com
+  object URLs de miniatura) enquanto o operador rola a lista.
+- Enquanto baixa, o botão de converter **sai da linha**: ele já ficava
+  desabilitado, mas desenhar "baixar" ao lado de um anel girando é oferecer a
+  ação que está em curso.
 
 ### A via do arquivo baixado — v5.78, e a extração NATIVA da v5.81
 
