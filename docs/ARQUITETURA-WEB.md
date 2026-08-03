@@ -94,7 +94,7 @@ git push origin main
   MENOR que o já publicado — caso em que `WebUpdater.compareVersions` ignora o
   bundle em silêncio. Para saber onde a base está, leia `version.json`.
 
-  No app nativo o rótulo mostra os **dois índices** — `Web v5.78 · Shell v1.26`
+  No app nativo o rótulo mostra os **dois índices** — `Web v5.79 · Shell v1.26`
   —, porque base web e shell atualizam por caminhos independentes (OTA ×
   instalar APK); no navegador sai só `Controle v<versão>`. **Ele mora no rodapé
   do popup de Configurações** desde a v5.49 (antes ficava no cabeçalho da lista,
@@ -4686,11 +4686,21 @@ ganho maior de todos.
 A conversão é feita pelo [Cobalt](https://cobalt.tools) por HTTP puro (`fetch` +
 JSON) — **nenhuma dependência entra no projeto**, como manda a regra.
 
-- **A instância NÃO vem embutida.** Ela é digitada em **Configurações**
-  (`cobaltApi`, `cobaltKey`, mais a qualidade), e sem ela a via nova
-  simplesmente não existe: o link do YouTube continua virando item de player,
-  exatamente como antes. Instância pública vai e volta, costuma exigir chave, e
-  não é nossa para prometer.
+- **A instância NÃO vem embutida, e isso NÃO é uma escolha de comodidade** — é
+  o que a documentação do próprio Cobalt pede: *"hosted api instances (such as
+  `api.cobalt.tools`) use bot protection and are **not** intended to be used in
+  other projects without explicit permission"*. Não existe endereço público e
+  gratuito para embutir. Ela é digitada em **Configurações** (`cobaltApi`,
+  `cobaltKey`, mais a qualidade), e sem ela a via nova simplesmente não existe:
+  o link continua virando item de player, exatamente como antes. O porquê
+  completo e a receita de subir uma instância própria estão em
+  [`COBALT.md`](COBALT.md).
+- **`cobaltTestar()`** confere o endereço na hora por `GET /` (não autenticado,
+  fora do limite de taxa) e separa os três motivos de falha que na tela seriam
+  o mesmo "não baixou": endereço errado, instância **sem YouTube** na lista de
+  `services`, e instância com **`turnstileSitekey`** — desafio que o app não tem
+  como resolver (não há widget aqui), e cuja única saída é uma chave de API.
+  Sem esse teste, descobrir qual dos três era custava um vídeo e um palpite.
 - **`youtubeVideoCodec: 'h264'`, sempre.** H.264 em MP4 é o que o WebView do
   Android toca em qualquer aparelho; AV1/VP9 num `.webm` depende do modelo, e um
   vídeo que não abre no telão no meio do culto é pior que um arquivo maior.

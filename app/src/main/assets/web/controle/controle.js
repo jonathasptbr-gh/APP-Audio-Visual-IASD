@@ -156,7 +156,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.78';
+const WEB_VERSION = '5.79';
 
 // Escrita UMA vez, na carga: o indicador mora no rodapé de Configurações desde
 // a v5.49 e não depende mais de qual aba está aberta (no cabeçalho ele
@@ -199,6 +199,7 @@ const cobaltApiEl = document.getElementById('cobaltApi');
 const cobaltKeyEl = document.getElementById('cobaltKey');
 const cobaltQualSegEl = document.getElementById('cobaltQualSeg');
 const cobaltHintEl = document.getElementById('cobaltHint');
+const cobaltTestEl = document.getElementById('cobaltTest');
 const songMenuPopupEl = document.getElementById('songMenuPopup');
 const songMenuTitleEl = document.getElementById('songMenuTitle');
 const songMenuListEl = document.getElementById('songMenuList');
@@ -7560,19 +7561,56 @@ function cobaltDica(texto, classe) {
   cobaltHintEl.className = 'fade-hint' + (d.classe ? ' ' + d.classe : '');
   cobaltHintEl.textContent = d.texto;
 }
+// Os dois handlers limpam a dica ANTES de qualquer `await`: tocar em "Testar"
+// dispara o `change` do campo (o toque tira o foco dele) e, com a limpeza
+// depois das escritas assíncronas, ela chegava DEPOIS do resultado do teste e
+// apagava justamente a resposta que o operador tinha acabado de pedir.
 cobaltApiEl.addEventListener('change', async () => {
   cobaltCfg.api = cobaltApiEl.value.trim();
-  await saveCobaltCfg();
   cobaltUltimo = null;   // instância nova, histórico velho não vale mais
   cobaltDica();
+  await saveCobaltCfg();
   await load();   // o botão de converter aparece/some nas linhas do Cronograma
 });
 cobaltKeyEl.addEventListener('change', async () => {
   cobaltCfg.key = cobaltKeyEl.value.trim();
-  await saveCobaltCfg();
   cobaltUltimo = null;   // uma chave nova invalida o "401" de antes
   cobaltDica();
+  await saveCobaltCfg();
 });
+// Confere a instância NA HORA, sem gastar um vídeo para descobrir. `GET /` é o
+// endpoint de informação do Cobalt: não é autenticado, não entra no limite de
+// taxa e responde `{ cobalt: { version, services, turnstileSitekey } }`. Com
+// isso dá para distinguir os três motivos de falha que na tela seriam o mesmo
+// "não baixou": endereço errado, instância sem YouTube, e instância protegida
+// por Turnstile — que o app NÃO tem como resolver (não há widget aqui), e cuja
+// única saída é uma chave de API.
+async function cobaltTestar() {
+  // Lê o CAMPO, não a config gravada: quem digita e toca em "Testar" sem sair
+  // do campo espera testar o que está na tela.
+  const digitado = cobaltApiEl.value.trim();
+  if (digitado !== cobaltCfg.api) { cobaltCfg.api = digitado; await saveCobaltCfg(); }
+  const base = cobaltCfg.api.replace(/\/+$/, '');
+  if (!/^https:\/\//i.test(base)) { cobaltDica('O endereço precisa começar com https://', 'erro'); return; }
+  cobaltDica('Testando…');
+  try {
+    const res = await fetch(base + '/', { headers: { Accept: 'application/json' } });
+    const j = await res.json();
+    const c = j && j.cobalt;
+    if (!c || !c.version) throw new Error('não respondeu como uma instância Cobalt');
+    const temYt = Array.isArray(c.services) && c.services.includes('youtube');
+    const turnstile = !!c.turnstileSitekey;
+    const partes = ['Instância v' + c.version];
+    if (!temYt) partes.push('SEM YouTube nesta instância');
+    if (turnstile) partes.push('exige Turnstile — o app não resolve esse desafio, use uma chave de API');
+    if (temYt && !turnstile) partes.push('YouTube disponível');
+    cobaltDica(partes.join(' · '), temYt && !turnstile ? 'ok' : 'erro');
+  } catch (e) {
+    cobaltDica('Não respondeu: ' + ((e && e.message) || 'erro de rede'), 'erro');
+  }
+}
+cobaltTestEl.addEventListener('click', cobaltTestar);
+
 cobaltQualSegEl.addEventListener('click', async (e) => {
   const btn = e.target.closest('.fit-opt');
   if (!btn) return;
