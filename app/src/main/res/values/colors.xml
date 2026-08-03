@@ -14,8 +14,15 @@
          build detecta a divergência, e o OTA pode trocar a base web sem trocar
          o APK. -->
     <color name="app_bg">#131211</color>
-    <!-- Fundo do ícone adaptativo (o desenho dos PWAs é dourado sobre escuro).
-         Segue o gradiente do wallpaper, não o fundo do app: é o ÍCONE na
-         gaveta do sistema, não a UI. -->
-    <color name="ic_launcher_background">#0A1A10</color>
+    <!-- Fundo do ícone adaptativo. É o MESMO `bg` acima, e a razão mudou na
+         v1.34: até então ele seguia o verde do wallpaper (o gradiente da
+         cortina do telão), com o argumento de que o ícone é da gaveta do
+         sistema e não da UI. Só que aquele verde nunca aparece no CELULAR —
+         ele é a cortina da TV —, e o desenho por cima estava em AZUL, de uma
+         paleta que a base web abandonou na v5.47. Um ícone em verde-e-azul não
+         representava nenhuma tela deste app. A identidade que o operador vê no
+         aparelho é âmbar sobre este escuro, e é ela que o ícone mostra: o
+         mesmo preto que o sistema desenha ANTES do WebView carregar, de modo
+         que abrir o app expande o fundo do próprio ícone. -->
+    <color name="ic_launcher_background">#131211</color>
 </resources>

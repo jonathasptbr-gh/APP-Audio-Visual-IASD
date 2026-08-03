@@ -87,7 +87,9 @@ app/src/main/
 │   └── MessageBus.kt            # relay de comandos entre os dois WebViews
 └── res/
     ├── drawable/                # ic_image{,_off} — a cortina, na notificação
-    ├── values/colors.xml        # app_bg: ESPELHA o token --bg da base web (ver "A paleta")
+    │                            #  + ic_launcher_{foreground,mono} — o ÍCONE, em vetor
+    ├── mipmap-anydpi-v26/       # ic_launcher{,_round}: o adaptativo (o único, minSdk 26)
+    ├── values/colors.xml        # app_bg e ic_launcher_background: ESPELHAM tokens da base web
     ├── values/themes.xml        # tema sem action bar; tema preto da Presentation
     └── xml/                     # backup_rules + data_extraction_rules (ver "Build")
 docs/
@@ -816,7 +818,20 @@ O essencial para não quebrar nada aqui:
   exceções são **o palco**: `--stage-text: #fff`, porque num telão a
   legibilidade vem de luminância máxima, não de um off-white calibrado para uma
   tela a 30 cm do rosto.
-- **`res/values/colors.xml` espelha `--bg` à mão.** É o preto das barras de
+- **O ÍCONE DO APP também é a paleta** (v1.34). Ele era um PNG com o botão AZUL
+— sobra da paleta azul que a base web abandonou na v5.47 — sobre um fundo verde
+copiado do wallpaper, que é a cortina da TV e nunca aparece no celular: nenhuma
+das duas cores existia na tela que o operador vê ao tocar no ícone. Agora é o
+mesmo mixer de três faixas em `--text` (trilha) e `--accent` (botão) sobre
+`--bg`, o mesmo preto que o sistema desenha antes de o WebView carregar. Ele
+virou VETOR (`res/drawable/ic_launcher_foreground.xml`) porque com `minSdk` 26 o
+adaptativo é o único ícone que chega a ser desenhado: os cinco PNGs por
+densidade eram peso morto e mais cinco lugares para a cor divergir. A camada
+`monochrome` (ícones temáticos do Android 13+) ganhou vetor próprio — ela
+apontava para o PNG do primeiro plano, que tinha fundo opaco, e o ícone temático
+virava um quadrado cheio.
+
+**`res/values/colors.xml` espelha `--bg` à mão.** É o preto das barras de
   status e navegação e o `windowBackground` (o que aparece ANTES de o WebView
   carregar). Nada no build detecta a divergência, e o OTA pode trocar a base web
   sem trocar o APK — se o token mudar, este valor muda junto.
