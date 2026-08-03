@@ -39,6 +39,12 @@ interface BridgeHost {
      */
     fun openExternalUrl(url: String)
 
+    /**
+     * A *mesa de som* está ligada: o áudio sai pelo CELULAR, do WebView do
+     * Controle — que portanto não pode ser suspenso quando o app é minimizado.
+     */
+    fun setAudioAlive(on: Boolean)
+
     /** Interceptar os botões físicos de volume e mandá-los para o app. */
     fun setCaptureVolumeKeys(on: Boolean)
 
@@ -76,7 +82,7 @@ class NativeBridge(
          * exijam mais do que o shell instalado oferece (ver [WebUpdater]).
          * Subir SEMPRE que a superfície da ponte mudar.
          */
-        const val SHELL_VERSION = 16
+        const val SHELL_VERSION = 17
 
         /**
          * Fila de IO da ponte, **compartilhada por todas as instâncias**.
@@ -353,6 +359,17 @@ class NativeBridge(
     @JavascriptInterface
     fun castTarget(callId: String) {
         resolve(callId, JSONObject().put("label", host?.describeCastTarget() ?: "").toString())
+    }
+
+    /**
+     * Mesa de som ligada/desligada. Com ela ligada o celular É a caixa de som, e
+     * minimizar o app não pode calar o louvor — ver [BridgeHost.setAudioAlive].
+     * Desligada, o WebView do Controle volta a ser estrangulado em segundo
+     * plano, que é o certo quando ele é só a mesa de comando.
+     */
+    @JavascriptInterface
+    fun keepAudioAlive(on: Boolean) {
+        host?.setAudioAlive(on)
     }
 
     // ---------- botões físicos de volume ----------

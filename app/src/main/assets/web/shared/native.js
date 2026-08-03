@@ -279,6 +279,12 @@
     // (num shell sem o método, `call` já resolve null — isto vira string vazia)
     castTarget: () => call((id) => B.castTarget(id), CALL_TIMEOUT_MS).then((r) => (r && r.label) || ''),
 
+    // Mesa de som LIGADA: o áudio sai pelo celular, deste WebView, e ele não
+    // pode ser suspenso quando o app é minimizado. Desligada, ele volta a ser
+    // estrangulado em segundo plano — que é o certo quando o celular é só a
+    // mesa de comando e o som está no telão.
+    keepAudioAlive(on) { try { B.keepAudioAlive(!!on); } catch (_) { /* shell antigo */ } },
+
     // Botões físicos de volume: pede que a Activity os intercepte e os entregue
     // em `window.__avVolumeKey(±1)` — sem isso eles mexem na saída do sistema
     // (e, com espelhamento ativo, no volume da TV) em vez do fader do app.

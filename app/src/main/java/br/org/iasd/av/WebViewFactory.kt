@@ -100,9 +100,18 @@ object WebViewFactory {
      * O efeito colateral é o desejado e já era verdade: o renderer do telão não
      * é desacelerado quando o app sai da frente.
      */
-    private class KeepVisibleWebView(ctx: Context) : WebView(ctx) {
+    class KeepVisibleWebView(ctx: Context) : WebView(ctx) {
+        /**
+         * LIGÁVEL EM TEMPO DE EXECUÇÃO, e não fixo na criação (v1.29): o telão
+         * precisa disto sempre, mas o **Controle** precisa só enquanto a *mesa
+         * de som* estiver ligada — é o momento em que o celular deixa de ser a
+         * mesa de comando e vira a caixa de som. Fora disso, ser estrangulado
+         * em segundo plano é o comportamento correto para ele.
+         */
+        var manterVisivel = false
+
         override fun onWindowVisibilityChanged(visibility: Int) {
-            super.onWindowVisibilityChanged(View.VISIBLE)
+            super.onWindowVisibilityChanged(if (manterVisivel) View.VISIBLE else visibility)
         }
 
         /**
@@ -112,7 +121,7 @@ object WebViewFactory {
          * resolveu nada: a metade que faltava é esta.
          */
         override fun onVisibilityChanged(changedView: View, visibility: Int) {
-            super.onVisibilityChanged(changedView, View.VISIBLE)
+            super.onVisibilityChanged(changedView, if (manterVisivel) View.VISIBLE else visibility)
         }
     }
 
@@ -125,7 +134,9 @@ object WebViewFactory {
         keepVisible: Boolean = false,
         onRendererGone: (() -> Unit)? = null,
     ): WebView {
-        val web = if (keepVisible) KeepVisibleWebView(ctx) else WebView(ctx)
+        // SEMPRE a subclasse: o Controle também precisa poder manter-se vivo,
+        // sob demanda, quando a mesa de som está ligada.
+        val web = KeepVisibleWebView(ctx).apply { manterVisivel = keepVisible }
         if (keepVisible) {
             // O renderer do telão NÃO pode ser rebaixado quando o app sai da
             // frente: `waivedWhenNotVisible = false` é literalmente "não abra

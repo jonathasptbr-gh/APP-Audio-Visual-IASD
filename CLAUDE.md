@@ -225,6 +225,7 @@ window.AVNative = {
   openExternal(url),   // abre uma URL https FORA do app (só o Controle)
   ytFetch(url, onProg),// → { url, name, size, type }: baixa um vídeo do YouTube
   ytDiscard(url),      //   e apaga o arquivo depois que os bytes foram copiados
+  keepAudioAlive(bool),// mesa de som ligada: este WebView não pode ser suspenso
   captureVolumeKeys(bool), // botões físicos de volume vão para o app
   systemVolume(step),  // devolve um passo ao volume do sistema (fader no limite)
   requestMic(),        // → bool: permissão RECORD_AUDIO (push-to-talk)
@@ -235,7 +236,7 @@ window.AVNative = {
 }
 ```
 
-São **dezessete métodos**, e essa é a superfície inteira que o resto do lado web
+São **dezoito métodos**, e essa é a superfície inteira que o resto do lado web
 tem direito de usar: fora do `native.js`, tocar em `__AVBridge` direto é
 acoplamento indevido. O próprio `native.js` chama mais cinco coisas no
 `__AVBridge`, e nenhuma delas é API para o app — `shellVersion()`, `role()` e
@@ -248,7 +249,7 @@ Além disso, `native.js` publica **quatro globais** lidas direto (sem Promise):
 o `versionName` do APK, que é o **índice de versão do shell exibido ao
 operador**. Ele não se confunde com `__SHELL_VERSION__`: base web e shell
 atualizam por caminhos independentes (OTA × instalar APK), então o rodapé de
-**Configurações** mostra os dois (`Web v5.82 · Shell v<versionName do APK>`,
+**Configurações** mostra os dois (`Web v5.83 · Shell v<versionName do APK>`,
 montado em `renderVersionLabel`; até a v5.48 ficava no cabeçalho do Cronograma —
 saiu de lá porque metadado de diagnóstico pertence à mesma tela do estado do
 telão, não a uma faixa de navegação). Num shell antigo (sem
@@ -296,8 +297,8 @@ esperam uma **pessoa** e ficam sem prazo, porque um timeout ali resolveria null
 com o operador ainda escolhendo a pasta.
 
 `NativeBridge.SHELL_VERSION` identifica a versão da casca — **subir sempre que
-a superfície da ponte mudar**. Hoje vale **16** — a v5.81 acrescentou
-`ytFetch`/`ytDiscard`; a v5.76 tinha acrescentado `openExternal`. (A v5.48 não a mexeu: nenhum método foi acrescentado ou teve
+a superfície da ponte mudar**. Hoje vale **17** — a v5.83 acrescentou
+`keepAudioAlive`, a v5.81 `ytFetch`/`ytDiscard` e a v5.76 `openExternal`. (A v5.48 não a mexeu: nenhum método foi acrescentado ou teve
 assinatura alterada, e as mudanças do lote foram restrições de quem pode chamar
 o quê, que nunca exigem shell mais novo.)
 
@@ -1284,7 +1285,7 @@ aparelho nenhum.
 O `versionCode`/`versionName` do APK vêm do CI (ver "Build") e não se tocam à
 mão.
 
-**Versão atual: v5.82** (base web) · `SHELL_VERSION` **16**, e o bundle segue com
+**Versão atual: v5.83** (base web) · `SHELL_VERSION` **17**, e o bundle segue com
 `minShell: 2` — ele funciona igual num shell antigo, só sem os recursos que são
 nativos por construção (a escada do voltar, os botões de volume, a notificação de
 controles), que **só chegam instalando o APK novo**, não pelo OTA.
