@@ -191,11 +191,20 @@ nova**, que é a regra do projeto. Ver `SlideDeck.kt`.
 - **Compartilhar o link** do Google Apresentações: o shell monta a URL de
   exportação (`/presentation/d/<id>/export/pdf`) e baixa. Precisa estar
   compartilhada por link — que é como um roteiro de culto circula.
-- **O seletor de arquivos NÃO entra**, e não é esquecimento: ele devolve um
-  `File` (bytes já lidos), e quem desenha o PDF é o shell, que precisa do
-  ARQUIVO. Mandar os bytes de volta pela ponte inverteria o princípio dela
-  ("URLs servíveis, nunca bytes"). Como isso não se adivinha, o fim do
-  Cronograma diz em uma linha o que fazer (`.import-dica`).
+- **Escolher um PDF no aparelho**, pelo botão "Apresentação (PDF)" no fim do
+  Cronograma (v5.98). Ele NÃO é o `<input type="file">` ao lado: aquele devolve
+  um `File` — bytes já lidos —, e quem desenha o PDF é o shell, que precisa do
+  ARQUIVO; devolver os bytes pela ponte inverteria o princípio dela ("URLs
+  servíveis, nunca bytes") e faria uma apresentação de dezenas de MB passar
+  pela memória do WebView à toa. O botão abre o seletor do SISTEMA
+  (`AVNative.pickDoc` → `ACTION_OPEN_DOCUMENT` filtrado em `application/pdf`),
+  que entrega o `content://` — a mesma porta por onde as pastas do dispositivo
+  já entram. Num shell < 20 ele não aparece: no lugar fica a frase que diz o
+  caminho que funciona ali, o compartilhamento (`.import-dica`).
+- **Um PDF ilegível avisa** (protegido por senha, corrompido): diálogo, e não um
+  aviso que some sozinho — o operador acabou de escolher um arquivo, e silêncio
+  ali leria como "importou". É o primeiro uso do diálogo em modo AVISO
+  (`cancelText: null` esconde o botão de cancelar: ele não pergunta nada).
 
 **O registro** é `kind: 'deck'` com `pages: [Blob]` — as páginas ficam DENTRO
 do próprio registro de mídia, não em arquivos soltos no OPFS, para que o gc que

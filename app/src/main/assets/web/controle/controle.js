@@ -156,7 +156,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.97';
+const WEB_VERSION = '5.98';
 
 // Escrita UMA vez, na carga: o indicador mora no rodapé de Configurações desde
 // a v5.49 e não depende mais de qual aba está aberta (no cabeçalho ele
@@ -4253,19 +4253,72 @@ function appendImportRow() {
   li.append(label, folders);
   libraryEl.appendChild(li);
 
-  // COMO ENTRA UMA APRESENTAÇÃO — a única mídia que não entra por este botão.
-  // O seletor de arquivos devolve um `File` (bytes já lidos), e quem desenha o
-  // PDF é o shell, que precisa do ARQUIVO: o caminho é o compartilhamento, que
-  // entrega uma URL servível. Isso não se adivinha, então está escrito aqui,
-  // ao lado do botão em que o operador ia procurar. Só onde funciona: num
-  // shell antigo (ou no navegador) a dica ofereceria algo que não existe.
-  if (window.__NATIVE__ && (window.__SHELL_VERSION__ | 0) >= 19) {
+  // APRESENTAÇÃO: botão PRÓPRIO, e não o `accept` do input ao lado (v5.98).
+  // O `<input type="file">` devolve um `File` — bytes já lidos —, e quem
+  // desenha o PDF é o shell, que precisa do ARQUIVO; devolver os bytes pela
+  // ponte inverteria o princípio dela ("URLs servíveis, nunca bytes") e faria
+  // uma apresentação de dezenas de MB passar pela memória do WebView à toa.
+  // Então aqui o seletor é o do SISTEMA (`AVNative.pickDoc`), que entrega o
+  // `content://` — a mesma porta por onde as pastas do dispositivo já entram.
+  //
+  // Num shell < 20 (ou no navegador) o botão não existe: no lugar dele fica a
+  // frase que diz o caminho que funciona ali, o compartilhamento. Um botão que
+  // não faz nada é pior que botão nenhum.
+  const shell = window.__NATIVE__ ? (window.__SHELL_VERSION__ | 0) : 0;
+  if (shell >= 20) {
+    const li2 = document.createElement('li');
+    li2.className = 'import-row';
+    const deck = document.createElement('button');
+    deck.type = 'button';
+    deck.className = 'import-btn';
+    deck.title = 'Importar uma apresentação em PDF';
+    deck.innerHTML = deckIconSvg();
+    const dtxt = document.createElement('span');
+    dtxt.textContent = 'Apresentação (PDF)';
+    deck.appendChild(dtxt);
+    deck.addEventListener('click', importarApresentacao);
+    li2.appendChild(deck);
+    libraryEl.appendChild(li2);
+  } else if (shell >= 19) {
     const dica = document.createElement('li');
     dica.className = 'empty import-dica';
     dica.textContent = 'Apresentação: exporte como PDF e COMPARTILHE com o app '
       + '(o Google Apresentações também entra pelo link).';
     libraryEl.appendChild(dica);
   }
+}
+
+// SVG inline (fora do subset da fonte): uma tela de apresentação com um pé.
+// Deliberadamente NÃO é o ícone de um arquivo: o que entra aqui é uma
+// apresentação, e o formato (PDF) é detalhe do caminho, não do resultado.
+function deckIconSvg() {
+  return '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor"'
+    + ' stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+    + '<rect x="3" y="4" width="18" height="12" rx="2"/>'
+    + '<path d="M12 16v4"/><path d="M8.5 20h7"/></svg>';
+}
+
+async function importarApresentacao() {
+  const escolha = await AVNative.pickDoc();
+  if (!escolha || !escolha.url) return;   // o operador desistiu
+  await sairDasCamadas();
+  const rec = await deckImportar(escolha.url, nomeSemExtensao(escolha.name || 'Apresentação'), {
+    naPreview: simplificado(), lista: destinoDoShare(),
+  });
+  if (!rec) {
+    // Um PDF protegido por senha ou corrompido chega aqui. Diálogo, e não um
+    // aviso que some sozinho: o operador acabou de escolher um arquivo e
+    // precisa saber que ele NÃO entrou — silêncio, aqui, leria como "importou".
+    await appConfirm({
+      title: 'Não deu para abrir',
+      message: 'Esta apresentação não pôde ser lida. Se ela tiver senha, salve uma cópia '
+        + 'sem proteção e tente de novo.',
+      okText: 'Entendi', cancelText: null,
+    });
+    return;
+  }
+  if (simplificado()) await fixarAvulso(rec.id);
+  await focarImportado(rec.id);
 }
 
 function countDownloaded(id) {
@@ -9222,6 +9275,10 @@ function openAppDialog(opts) {
     appDialogMsgEl.textContent = message || '';
     appDialogMsgEl.hidden = !message;
     appDialogOkEl.textContent = okText || 'OK';
+    // `cancelText: null` é o diálogo de AVISO: ele não pergunta nada, só conta
+    // o que aconteceu, e um "Cancelar" ao lado do "Entendi" ofereceria uma
+    // escolha que não existe.
+    appDialogCancelEl.hidden = cancelText === null;
     appDialogCancelEl.textContent = cancelText || 'Cancelar';
     if (input) {
       appDialogInputEl.hidden = false;

@@ -114,6 +114,30 @@ class MainActivity : ComponentActivity(), BridgeHost {
         cb?.invoke(granted)
     }
 
+    /** Callback do `AVNative.pickDoc()` em andamento. */
+    private var pendingDocPick: ((Uri?) -> Unit)? = null
+
+    /**
+     * Seletor de DOCUMENTO (hoje: o PDF de uma apresentação).
+     *
+     * O `<input type="file">` da página não serve para isto: ele devolve ao
+     * JavaScript um `File` — bytes já lidos —, e quem desenha o PDF é o shell,
+     * que precisa do ARQUIVO. Mandar os bytes de volta pela ponte inverteria o
+     * princípio dela ("URLs servíveis, nunca bytes") e faria uma apresentação
+     * de dezenas de MB passar pela memória do WebView à toa.
+     *
+     * `OpenDocument` (SAF), e não `GetContent`: só ele devolve um `content://`
+     * que o `contentResolver` deste processo consegue abrir depois, que é
+     * exatamente o que o [SlideDeck] faz.
+     */
+    private val docPicker = registerForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        val cb = pendingDocPick
+        pendingDocPick = null
+        cb?.invoke(uri)
+    }
+
     private val folderPicker = registerForActivityResult(
         ActivityResultContracts.OpenDocumentTree(),
     ) { uri ->
@@ -526,6 +550,19 @@ class MainActivity : ComponentActivity(), BridgeHost {
             } catch (e: Exception) {
                 Log.w(TAG, "seletor de pasta indisponível", e)
                 pendingFolderPick = null
+                onResult(null)
+            }
+        }
+    }
+
+    override fun requestDocPick(mimes: Array<String>, onResult: (Uri?) -> Unit) {
+        runOnUiThread {
+            pendingDocPick = onResult
+            try {
+                docPicker.launch(mimes)
+            } catch (e: Exception) {
+                Log.w(TAG, "seletor de documento indisponível", e)
+                pendingDocPick = null
                 onResult(null)
             }
         }
