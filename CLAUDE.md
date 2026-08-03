@@ -226,6 +226,7 @@ window.AVNative = {
   ytFetch(url, onProg),// → { url, name, size, type }: baixa um vídeo do YouTube
   ytDiscard(url),      //   e apaga o arquivo depois que os bytes foram copiados
   keepAudioAlive(bool),// mesa de som ligada: este WebView não pode ser suspenso
+  ytSearch(termo),     // → [{ id, url, name, author, seconds, thumb }] do YouTube
   captureVolumeKeys(bool), // botões físicos de volume vão para o app
   systemVolume(step),  // devolve um passo ao volume do sistema (fader no limite)
   requestMic(),        // → bool: permissão RECORD_AUDIO (push-to-talk)
@@ -236,7 +237,7 @@ window.AVNative = {
 }
 ```
 
-São **dezoito métodos**, e essa é a superfície inteira que o resto do lado web
+São **dezenove métodos**, e essa é a superfície inteira que o resto do lado web
 tem direito de usar: fora do `native.js`, tocar em `__AVBridge` direto é
 acoplamento indevido. O próprio `native.js` chama mais cinco coisas no
 `__AVBridge`, e nenhuma delas é API para o app — `shellVersion()`, `role()` e
@@ -249,7 +250,7 @@ Além disso, `native.js` publica **quatro globais** lidas direto (sem Promise):
 o `versionName` do APK, que é o **índice de versão do shell exibido ao
 operador**. Ele não se confunde com `__SHELL_VERSION__`: base web e shell
 atualizam por caminhos independentes (OTA × instalar APK), então o rodapé de
-**Configurações** mostra os dois (`Web v5.84 · Shell v<versionName do APK>`,
+**Configurações** mostra os dois (`Web v5.85 · Shell v<versionName do APK>`,
 montado em `renderVersionLabel`; até a v5.48 ficava no cabeçalho do Cronograma —
 saiu de lá porque metadado de diagnóstico pertence à mesma tela do estado do
 telão, não a uma faixa de navegação). Num shell antigo (sem
@@ -297,8 +298,9 @@ esperam uma **pessoa** e ficam sem prazo, porque um timeout ali resolveria null
 com o operador ainda escolhendo a pasta.
 
 `NativeBridge.SHELL_VERSION` identifica a versão da casca — **subir sempre que
-a superfície da ponte mudar**. Hoje vale **17** — a v5.83 acrescentou
-`keepAudioAlive`, a v5.81 `ytFetch`/`ytDiscard` e a v5.76 `openExternal`. (A v5.48 não a mexeu: nenhum método foi acrescentado ou teve
+a superfície da ponte mudar**. Hoje vale **18** — a v5.85 acrescentou
+`ytSearch`, a v5.83 `keepAudioAlive`, a v5.81 `ytFetch`/`ytDiscard` e a v5.76
+`openExternal`. (A v5.48 não a mexeu: nenhum método foi acrescentado ou teve
 assinatura alterada, e as mudanças do lote foram restrições de quem pode chamar
 o quê, que nunca exigem shell mais novo.)
 
@@ -848,6 +850,7 @@ contextos.
 | Estado do telão (rodapé de Configurações) | atalho `window.open('../display/')`, útil só para desenvolver | **indicador ao vivo** (desabilitado como botão) — a Presentation é criada sozinha |
 | Botão de cast da preview | oculto | `AVNative.openCast()` → seletor de **espelhamento de tela** (ver abaixo) |
 | Vídeo do YouTube | player embutido (IFrame API) | **arquivo de vídeo baixado PELO APARELHO** (`YoutubeGrab.kt` + `AVNative.ytFetch`) — o embed pausa sozinho com o app minimizado, e a extração no próprio celular sai do IP do chip, que é o que o YouTube não bloqueia. Sem configurar nada. Cobalt continua como segunda opção para quem já mantém uma instância; falhando os dois, o link vira item de player |
+| Buscar no YouTube | não existe: o botão abre o YouTube numa aba | **a busca acontece DENTRO do acervo** (`AVNative.ytSearch`, `YoutubeGrab.pesquisar`): os resultados entram na mesma lista e o toque já baixa. Um iframe da página de resultados é recusado pelo `X-Frame-Options` do YouTube, e a API oficial exigiria chave com cota compartilhada pela frota |
 | Link para fora do app ("Pesquisar … no YouTube") | `window.open` numa aba nova | **`AVNative.openExternal(url)`** → `ACTION_VIEW` numa tarefa própria. O WebView RECUSA navegar para outro origin (invariante 2), então sem esse método um link externo não faz absolutamente nada — nem erro no console |
 | "Conectar a tela" (modo simplificado) | abre a tela do Display (`window.open`) — e é ela que conta como "conectado" | mesmo `AVNative.openCast()`, com o nome da tela conectada no subtítulo |
 | Simplificado sem tela conectada | mesmo bloqueio, com a janela do Display no lugar da `Presentation` | **modo bloqueado**: cortina embaçada sobre tudo, só o botão de conectar — preenchido no accent, no centro da tela — e a saída para o avançado na frente |
@@ -1285,7 +1288,7 @@ aparelho nenhum.
 O `versionCode`/`versionName` do APK vêm do CI (ver "Build") e não se tocam à
 mão.
 
-**Versão atual: v5.84** (base web) · `SHELL_VERSION` **17**, e o bundle segue com
+**Versão atual: v5.85** (base web) · `SHELL_VERSION` **18**, e o bundle segue com
 `minShell: 2` — ele funciona igual num shell antigo, só sem os recursos que são
 nativos por construção (a escada do voltar, os botões de volume, a notificação de
 controles), que **só chegam instalando o APK novo**, não pelo OTA.

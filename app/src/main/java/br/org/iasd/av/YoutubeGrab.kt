@@ -3,6 +3,7 @@ package br.org.iasd.av
 import android.content.Context
 import android.net.Uri
 import android.util.Log
+import org.json.JSONArray
 import org.json.JSONObject
 import org.schabi.newpipe.extractor.NewPipe
 import org.schabi.newpipe.extractor.ServiceList
@@ -10,7 +11,9 @@ import org.schabi.newpipe.extractor.downloader.Downloader
 import org.schabi.newpipe.extractor.downloader.Request
 import org.schabi.newpipe.extractor.downloader.Response
 import org.schabi.newpipe.extractor.exceptions.ReCaptchaException
+import org.schabi.newpipe.extractor.search.SearchInfo
 import org.schabi.newpipe.extractor.stream.StreamInfo
+import org.schabi.newpipe.extractor.stream.StreamInfoItem
 import org.schabi.newpipe.extractor.stream.VideoStream
 import java.io.File
 import java.io.IOException
@@ -125,6 +128,56 @@ object YoutubeGrab {
             null
         }
     }
+
+    /**
+     * BUSCA no YouTube, de dentro do app.
+     *
+     * A mesma biblioteca que extrai o vídeo também pesquisa, e a busca sai do
+     * IP do aparelho como tudo o mais aqui. Isso resolve um caminho que era
+     * absurdo: para achar um louvor, o operador saía do app, abria o YouTube,
+     * pesquisava, compartilhava de volta e esperava. Agora ele digita uma vez,
+     * na tela do acervo, e toca no resultado.
+     *
+     * As duas alternativas não serviam: um `<iframe>` da página de resultados é
+     * recusado pelo `X-Frame-Options` do YouTube, e a API oficial exigiria uma
+     * chave embutida no APK com cota diária dividida por toda a frota.
+     *
+     * **BLOQUEANTE** — fila de IO da ponte, como [buscar].
+     *
+     * A miniatura é montada a partir do ID (`i.ytimg.com/vi/<id>/mqdefault.jpg`)
+     * em vez de vir da biblioteca: é uma URL estável há mais de uma década, e
+     * assim o formato das imagens do extrator (que já mudou de forma entre
+     * versões) deixa de ser algo que pode quebrar a lista.
+     */
+    fun pesquisar(termo: String, max: Int = 20): JSONArray {
+        val out = JSONArray()
+        if (termo.isBlank()) return out
+        garantirInit()
+        val svc = ServiceList.YouTube
+        // Só VÍDEOS: canais e playlists não têm o que fazer numa lista cujo
+        // único destino é virar um arquivo de mídia.
+        val q = svc.getSearchQHFactory().fromQuery(termo, listOf("videos"), "")
+        val info = SearchInfo.getInfo(svc, q)
+        for (item in info.relatedItems) {
+            if (item !is StreamInfoItem) continue
+            val url = item.getUrl() ?: continue
+            val id = ID_NA_URL.find(url)?.groupValues?.get(1) ?: continue
+            out.put(
+                JSONObject()
+                    .put("id", id)
+                    .put("url", url)
+                    .put("name", item.getName() ?: "")
+                    .put("author", item.getUploaderName() ?: "")
+                    .put("seconds", item.getDuration())
+                    .put("thumb", "https://i.ytimg.com/vi/$id/mqdefault.jpg"),
+            )
+            if (out.length() >= max) break
+        }
+        return out
+    }
+
+    /** `watch?v=<id>`, `youtu.be/<id>`, `/shorts/<id>` — o id tem 11 caracteres. */
+    private val ID_NA_URL = Regex("(?:[?&]v=|/)([A-Za-z0-9_-]{11})(?:[?&#]|\\z)")
 
     /**
      * Apaga o arquivo depois que o lado web já copiou os bytes para a

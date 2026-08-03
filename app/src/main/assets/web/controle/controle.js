@@ -156,7 +156,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.84';
+const WEB_VERSION = '5.85';
 
 // Escrita UMA vez, na carga: o indicador mora no rodapé de Configurações desde
 // a v5.49 e não depende mais de qual aba está aberta (no cabeçalho ele
@@ -6933,6 +6933,9 @@ function searchIsBrowsing(q) { return !q; }
 
 function renderSearchResults(query) {
   const q = normalizeForSearch(query).trim();
+  // Digitou outra coisa: os resultados do YouTube da busca anterior saem de
+  // cena. Deixá-los ali embaixo de um termo novo é oferecer a resposta errada.
+  if (!ytBuscando && ytBuscaItens && ytBuscaTermo !== (query || '').trim()) ytBuscaItens = null;
   if (searchIsBrowsing(q)) {
     hymnResultsEl.innerHTML = '';
     renderAcervoTotal(() => renderSearchResults(hymnSearchInputEl.value));
@@ -7013,6 +7016,14 @@ function renderSearchResults(query) {
 // Ela fecha o fim da lista em TODOS os desfechos da busca — inclusive (e
 // principalmente) "Nenhuma música encontrada", que é justamente quando a
 // pergunta "e agora?" aparece.
+// Estado da busca do YouTube dentro do acervo: `null` = nem pediram; array =
+// resultados do termo em `ytBuscaTermo`. Zerado a cada tecla nova (ver o
+// chamador), porque uma lista de resultados de OUTRA busca embaixo do campo é
+// pior que nenhuma.
+let ytBuscaTermo = '';
+let ytBuscaItens = null;
+let ytBuscando = false;
+
 function appendYoutubeSearch(texto) {
   const termo = (texto || '').trim();
   if (!termo) return;
@@ -7026,17 +7037,104 @@ function appendYoutubeSearch(texto) {
   const li = document.createElement('li');
   const btn = document.createElement('button');
   btn.className = 'yt-search-btn';
-  btn.innerHTML = searchIconSvg();
+  btn.innerHTML = ytBuscando ? '<span class="dl-ring"></span>' : searchIconSvg();
   const txt = document.createElement('span');
   txt.className = 'yt-search-txt';
   // O termo entre aspas é o que diz que a busca vai levar ISTO, e não abrir o
   // YouTube na página inicial. Como `textContent`, nunca `innerHTML`: aqui
   // entra texto digitado pelo operador.
-  txt.textContent = 'Pesquisar “' + termo + '” no YouTube';
+  txt.textContent = ytBuscando
+    ? 'Procurando “' + termo + '” no YouTube…'
+    : 'Pesquisar “' + termo + '” no YouTube';
   btn.appendChild(txt);
-  btn.addEventListener('click', () => openYoutubeSearch(termo));
+  btn.addEventListener('click', () => buscarNoYoutube(termo));
   li.appendChild(btn);
   hymnResultsEl.appendChild(li);
+
+  // Os RESULTADOS, na mesma lista — é isto que dispensa sair do app. Só do
+  // termo atual: uma lista de outra busca embaixo do campo é pior que nenhuma.
+  if (ytBuscaItens && ytBuscaTermo === termo) {
+    if (!ytBuscaItens.length) {
+      const vazio = document.createElement('li');
+      vazio.className = 'empty';
+      vazio.textContent = 'Nada encontrado no YouTube.';
+      hymnResultsEl.appendChild(vazio);
+      return;
+    }
+    ytBuscaItens.forEach((r) => hymnResultsEl.appendChild(ytResultRow(r)));
+  }
+}
+
+// Uma linha de resultado do YouTube. Mesma anatomia das linhas de música do
+// acervo — miniatura à esquerda, nome e subtítulo — para a lista continuar
+// sendo UMA lista, e não duas coladas.
+function ytResultRow(r) {
+  const li = document.createElement('li');
+  li.className = 'lib-item hymn-result yt-result';
+  li.dataset.yt = r.id;
+
+  const row = document.createElement('div'); row.className = 'row hymn-row';
+  const thumb = document.createElement('div'); thumb.className = 'thumb yt-thumb';
+  if (r.thumb) {
+    const im = document.createElement('img'); im.src = r.thumb; im.alt = ''; im.loading = 'lazy';
+    thumb.appendChild(im);
+  }
+  const anel = document.createElement('span'); anel.className = 'dl-ring';
+  anel.innerHTML = downloadArrowIconSvg();
+  thumb.appendChild(anel);
+
+  const info = document.createElement('div'); info.className = 'hymn-info';
+  const nome = document.createElement('span'); nome.className = 'row-name';
+  nome.textContent = r.name || '';
+  const sub = document.createElement('span'); sub.className = 'hymn-sub';
+  sub.textContent = [r.author, fmtDur(r.seconds)].filter(Boolean).join(' · ');
+  info.append(nome, sub);
+
+  row.append(thumb, info);
+  li.appendChild(row);
+  // O toque BAIXA — é a única coisa que se faz com um resultado aqui. O aviso
+  // vai na linha do Cronograma (ver libBusy) e, enquanto isso, esta linha marca
+  // que já foi tocada: o acervo continua aberto, e sem essa marca o operador
+  // toca de novo achando que não pegou.
+  li.addEventListener('click', async () => {
+    if (li.classList.contains('baixando')) return;
+    li.classList.add('baixando');
+    const rec = await ytBaixarNativo(r.url, r.name);
+    if (!rec) li.classList.remove('baixando');
+  });
+  return li;
+}
+
+function fmtDur(seg) {
+  const n = Math.max(0, Math.floor(Number(seg) || 0));
+  if (!n) return '';
+  const m = Math.floor(n / 60);
+  return m + ':' + String(n % 60).padStart(2, '0');
+}
+
+// Pede a busca ao shell e redesenha a lista com o resultado. No navegador (e
+// num shell antigo) não há como pesquisar de dentro do app: ali o toque volta a
+// ser o que sempre foi — abrir o YouTube por fora.
+async function buscarNoYoutube(termo) {
+  if (!window.__NATIVE__ || (window.__SHELL_VERSION__ | 0) < 18) {
+    openYoutubeSearch(termo);
+    return;
+  }
+  if (ytBuscando) return;
+  ytBuscando = true;
+  ytBuscaTermo = termo;
+  ytBuscaItens = null;
+  renderSearchResults(hymnSearchInputEl.value);
+  try {
+    const r = await AVNative.ytSearch(termo);
+    ytBuscaItens = Array.isArray(r) ? r : [];
+  } catch (_) {
+    ytBuscaItens = [];
+  } finally {
+    ytBuscando = false;
+    ytBuscaTermo = termo;
+    renderSearchResults(hymnSearchInputEl.value);
+  }
 }
 
 function openYoutubeSearch(termo) {

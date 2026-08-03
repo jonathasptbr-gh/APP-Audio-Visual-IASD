@@ -1415,6 +1415,28 @@ main {
   appearance: none; -webkit-appearance: none;
 }
 .yt-search-btn svg { flex-shrink: 0; color: var(--accent); }
+.yt-search-btn .dl-ring { --dl-ring: 18px; }
+
+/* ---------- Resultados do YouTube DENTRO do acervo ----------
+   Mesma anatomia das linhas de música (miniatura, nome, subtítulo) para a lista
+   continuar sendo UMA lista, e não duas coladas. A diferença é a miniatura:
+   16:9 de verdade, porque é o quadro do vídeo — um recorte quadrado cortaria
+   justamente o que identifica o louvor. */
+.yt-result .yt-thumb {
+  position: relative; width: 82px; height: 46px; flex-shrink: 0;
+  border-radius: var(--radius-btn); overflow: hidden; background: var(--surface);
+}
+.yt-result .yt-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.yt-result .yt-thumb .dl-ring { --dl-ring: 26px; position: absolute; inset: 0; margin: auto; display: none; }
+/* Tocada = já foi pedida. O acervo continua aberto depois do toque, e sem esta
+   marca o operador toca de novo achando que não pegou. */
+.yt-result.baixando .yt-thumb .dl-ring { display: flex; }
+.yt-result.baixando .yt-thumb img { opacity: .25; }
+.yt-result.baixando .row-name { color: var(--muted); }
+.yt-result .row-name {
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden; line-height: 1.25;
+}
 /* O termo digitado não tem tamanho previsível — corta em reticências em vez de
    esticar a linha ou quebrar em três. */
 .yt-search-txt { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
