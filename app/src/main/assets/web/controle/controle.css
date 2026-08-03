@@ -1203,15 +1203,26 @@ main {
    (sincronizar, excluir, estado do download) mora atrás da engrenagem, num
    bottom-sheet — antes era um acordeão dentro do próprio card, o que fazia o
    toque no álbum abrir um painel de status em vez das músicas. */
+/* ---------- O cartão do álbum: SÓLIDO, sem moldura (v5.71) ----------
+   Ele tinha um contorno de 1px em `--line` e uma faixa de 3px com a cor do
+   álbum no banco. Numa lista de dezenas de álbuns, cada card virava um retângulo
+   desenhado, e o que o olho via primeiro eram as linhas — não os nomes. Um
+   preenchimento sólido separa igual (o cartão contra o fundo do app já é um
+   degrau de elevação) sem desenhar nada.
+   A faixa de cor saiu junto: era a mesma linha vertical repetida em toda a
+   lista. Se ela fizer falta, o lugar natural para a cor do álbum passa a ser o
+   quadrado do ícone, que já existe e não acrescenta traço nenhum. */
 .hymnal-card {
   flex-shrink: 0;
   border-radius: var(--radius-card);
-  background: var(--panel);
-  border: 1px solid var(--line);
+  /* `--panel-2`, e não `--panel`: o acervo mora DENTRO da folha do popup, que já
+     é `--panel` — um cartão da mesma cor do que está atrás dele simplesmente
+     não existe aos olhos, e sem a moldura era só isso que sobrava. Um degrau
+     acima o cartão volta a ter corpo, e as músicas dentro dele (que são
+     `--panel`) passam a se ler como recessos, na mesma direção que o resto do
+     app usa. */
+  background: var(--panel-2);
   padding: .55rem .7rem;
-  /* Faixa lateral com a cor que o álbum tem no banco (--coll-color, escrita no
-     style pelo JS). Sem cor definida, fica transparente e nada muda. */
-  border-left: 3px solid var(--coll-color, transparent);
 }
 
 /* Cabeçalho de grupo: o nome da CATEGORIA do banco. A aba Álbuns reproduz a
@@ -1225,11 +1236,10 @@ main {
   font-size: .74rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
   color: var(--muted);
   /* A direita reserva o MESMO espaço que o card gasta depois do botão de
-     baixar: sua borda (1px), seu padding (.7rem), a seta do acordeão (20px) e
-     o gap antes dela (.55rem). Sem isso o botão do grupo — que não tem seta —
-     ficava ~40px mais à direita que o do card logo abaixo, e a coluna de
-     downloads saía torta. */
-  padding: .7rem calc(1px + .7rem + 20px + .55rem) .1rem .2rem;
+     baixar — hoje só o padding dele (.7rem), já que a moldura e a seta do
+     acordeão saíram na v5.71. Sem isso os dois botões de baixar, que ficam um
+     sobre o outro, não alinhariam. */
+  padding: .7rem .7rem .1rem .2rem;
 }
 .coll-group:first-child { padding-top: .2rem; }
 .coll-group-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1290,11 +1300,15 @@ main {
 /* ----- Coleção aberta no próprio card (acordeão do acervo, v5.45) ----- */
 /* Baixar/cancelar a coleção, na barra. Alvo próprio (`--hit`) e `stopPropagation`
    no clique: ele divide a linha com o toque que abre o acordeão. */
+/* Sem contorno, igual ao `.coll-group-btn` do cabeçalho com que ele divide a
+   coluna — dois botões alinhados um sobre o outro não podem ter formas
+   diferentes. */
 .coll-bar-dl {
   width: var(--hit); height: var(--hit); flex-shrink: 0;
   display: flex; align-items: center; justify-content: center;
-  border: 1px solid var(--line); border-radius: var(--radius-btn);
-  background: var(--surface); color: var(--accent); cursor: pointer;
+  border: none; appearance: none; -webkit-appearance: none;
+  border-radius: var(--radius-btn);
+  background: var(--accent-soft); color: var(--accent); cursor: pointer;
 }
 .coll-bar-dl.done { color: var(--ok); }
 /* Baixando: o toque CANCELA. Mesma família de aviso dos outros dois botões de
@@ -1302,25 +1316,25 @@ main {
    escuro por construção, sobre a superfície de um botão DENTRO de um cartão —
    2,32:1 medidos, o pior contraste do app inteiro, justamente no controle que
    anuncia "toque para cancelar". */
-.coll-bar-dl.busy { color: var(--warn); border-color: var(--warn); }
-/* A seta anuncia o que o toque faz. Gira ao abrir — é o sinal de que a lista
-   saiu dali, e não de outro lugar da tela. */
-.coll-bar-chev {
-  flex-shrink: 0; font-size: var(--icon-sm); color: var(--muted);
-  transition: transform .2s ease;
-}
-.hymnal-card.expanded .coll-bar-chev { transform: rotate(180deg); color: var(--accent); }
-.hymnal-card.expanded { border-color: var(--accent); }
+.coll-bar-dl.busy { background: var(--warn-soft); color: var(--warn); }
+/* (A seta do acordeão saiu na v5.71, junto com as molduras: numa lista em que
+   TODO card abre, ela dizia o mesmo em todas as linhas — e o que anuncia a
+   abertura agora é o próprio movimento, que a v5.63 passou a animar.)
+   ABERTO se diz no NOME, em accent — o mesmo recurso com que o app marca "é
+   este" em toda parte (`.lib-item.active`, a aba ativa). Um segundo degrau de
+   tom não cabia: o cartão já subiu um para existir dentro da folha, e as
+   músicas ocupam o degrau de baixo. */
+.hymnal-card.expanded .coll-bar-name { color: var(--accent); }
 /* A barra da coleção ABERTA gruda no topo enquanto se percorre as músicas dela.
-   Sem isto, um hinário de 600 faixas empurrava a própria barra — e a seta que
-   fecha — muito acima da tela: a única seta à vista passava a ser a de OUTRO
-   card, e tocá-la abria aquele em vez de fechar este. Do lado de quem opera,
-   "toquei na seta e não fechou". Grudada, a seta da coleção em que se está
-   fica sempre ao alcance, e o nome dela também — que é a outra metade da
-   pergunta "onde eu estou?". */
+   Sem isto, um hinário de 600 faixas empurrava a própria barra muito acima da
+   tela: a barra é o que FECHA a coleção, e a única à vista passava a ser a de
+   OUTRO card — tocá-la abria aquele em vez de fechar este. Do lado de quem
+   opera, "toquei para fechar e abriu outro". Grudada, ela fica sempre ao
+   alcance, e o nome da coleção junto — que é a outra metade da pergunta "onde
+   eu estou?". */
 .hymnal-card.expanded .coll-bar {
   position: sticky; top: 0; z-index: 3;
-  background: var(--panel);
+  background: var(--panel-2);   /* o mesmo do cartão: ela é a tampa dele */
   margin: -.55rem -.7rem 0; padding: .55rem .7rem;
   border-radius: var(--radius-card) var(--radius-card) 0 0;
   box-shadow: 0 6px 12px -8px rgba(0, 0, 0, .9);
@@ -1332,13 +1346,14 @@ main {
 .coll-open-actions { padding: .5rem 0 .1rem; }
 .coll-open-cfg {
   width: 100%; display: flex; align-items: center; justify-content: center; gap: .45rem;
-  border: 1px solid var(--line); border-radius: var(--radius-btn);
+  border: none; appearance: none; -webkit-appearance: none;
+  border-radius: var(--radius-btn);
   background: var(--surface); color: var(--text);
   font-family: inherit; font-size: .8rem; font-weight: 600;
   padding: .5rem .7rem; cursor: pointer;
 }
 .coll-open-cfg svg { color: var(--muted); }
-.coll-open-cfg.busy { border-color: var(--accent); color: var(--accent); }
+.coll-open-cfg.busy { background: var(--accent-soft); color: var(--accent); }
 .coll-open-cfg.busy svg { color: var(--accent); }
 /* O invólucro do que a abertura revela (engrenagem + músicas). Existe só para a
    animação de altura ter UM nó para recortar — sem ele o `overflow:hidden`
@@ -1354,7 +1369,6 @@ main {
    rola é o pior jeito de folhear. */
 .coll-songs {
   list-style: none; margin: .4rem -.7rem 0; padding: .4rem .7rem 0;
-  border-top: 1px solid var(--line);
   display: flex; flex-direction: column; gap: .35rem;
 }
 
@@ -2391,6 +2405,34 @@ body.mode-simple .bottombar { display: none; }
 .simple-action { padding: .8rem .5rem; }
 /* Telão conectado: o ícone confirma sem precisar ler o subtítulo. */
 .simple-action.connected svg { color: var(--ok); }
+
+/* ----- A PREVIEW no lugar do botão de conectar (v5.71) -----
+   Conectado, não há nada melhor a dizer sobre "está conectado?" do que MOSTRAR
+   o que a TV está exibindo: o botão de conectar sai e a preview toma o lugar
+   dele, com o ícone de cast no canto fazendo os dois papéis que sobraram —
+   sinalizar a conexão (pela cor) e ser a porta para trocar de tela ou
+   desconectar. Com isso a faixa de ações fica só com "Buscar música", que passa
+   a ocupar a largura inteira.
+   O nó é o MESMO do modo avançado, movido para cá por `hostPreview`. */
+.simple-stage { flex: none; display: flex; justify-content: center; height: 28vh; max-height: 210px; }
+/* A altura manda e a largura vem da proporção do telão — o inverso do deck, que
+   parte de `--deck-pv-h`. Sem isto a preview traria a largura calculada de lá,
+   estreita no meio de uma tela inteira. */
+.simple-stage .preview { height: 100%; width: auto; max-width: 100%; max-height: 100%; }
+/* Só o cast. Tela cheia aqui não faz sentido: neste modo há um telão conectado
+   (é o que faz esta faixa existir), e a projeção está nele. */
+.simple-stage #pvFullBtn { display: none; }
+/* O par de cores é o mesmo que o botão substituído usava: verde = uma tela
+   recebendo; âmbar de aviso = liberação de teste, que não é conexão nenhuma. */
+.pv-fab.connected { color: var(--ok); }
+.pv-fab.testing { color: var(--warn); }
+/* Sem tela conectada a faixa não existe — a tela inteira é o bloqueio, e o
+   botão de conectar volta ao centro dela. */
+.simple.locked .simple-stage { display: none; }
+/* Com tela conectada é o botão de conectar que sai: a preview já ocupa o lugar
+   dele, e "Buscar música" fica com a linha toda. */
+.simple:not(.locked) #simpleCastBtn { display: none; }
+.simple:not(.locked) .simple-actions { grid-template-columns: 1fr; }
 
 /* ----- Bloqueio sem tela conectada (ver renderSimpleGate) ----- */
 /* A cortina cobre a tela inteira e é o que embaça: `backdrop-filter` age sobre

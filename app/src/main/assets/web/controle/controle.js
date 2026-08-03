@@ -29,6 +29,12 @@ const simpleCastLabelEl = document.getElementById('simpleCastLabel');
 const simpleCastStatusEl = document.getElementById('simpleCastStatus');
 const simpleSearchBtnEl = document.getElementById('simpleSearchBtn');
 const simpleVeilEl = document.getElementById('simpleVeil');
+const simpleStageEl = document.getElementById('simpleStage');
+// A preview e a casa dela no modo avançado: são módulo-nível porque o nó MUDA
+// DE PAI conforme o modo (ver hostPreview).
+const previewEl = document.getElementById('preview');
+const previewRowEl = document.querySelector('.preview-row');
+const pvCastBtnEl = document.getElementById('pvCastBtn');
 const simpleNpNameEl = document.getElementById('simpleNpName');
 const simplePlayEl = document.getElementById('simplePlay');
 const simpleMuteEl = document.getElementById('simpleMute');
@@ -149,7 +155,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.70';
+const WEB_VERSION = '5.71';
 
 // Escrita UMA vez, na carga: o indicador mora no rodapé de Configurações desde
 // a v5.49 e não depende mais de qual aba está aberta (no cabeçalho ele
@@ -730,7 +736,12 @@ function ytPreviewForceLowQuality(player) {
   try { if (player.getPlaybackQuality() !== 'tiny') player.setPlaybackQuality('tiny'); } catch (_) {}
 }
 
-async function loadYtPreview(rec, v) {
+// `startAt` (segundos) existe para a REMONTAGEM: mover o `#preview` de lugar no
+// DOM recarrega o iframe do YouTube e mata o player, então `hostPreview` o
+// reconstrói — e reconstruir do zero faria a miniatura voltar ao início de um
+// vídeo que segue no telão. Mesmo campo, mesmo nome e mesmo papel do `startAt`
+// de `loadYoutube` no Display.
+async function loadYtPreview(rec, v, startAt) {
   dropYtPreview();
   const seq = ++ytPreviewSeq;
   // stage.js retorna cedo para kind='youtube' (só marca a thumbnail) e por
@@ -752,6 +763,8 @@ async function loadYtPreview(rec, v) {
     playerVars: {
       autoplay: 1, mute: 1, controls: 0, disablekb: 1, fs: 0,
       iv_load_policy: 3, rel: 0, playsinline: 1,
+      // Segundos inteiros — é o que a IFrame Player API aceita.
+      start: Math.max(0, Math.floor(startAt || 0)),
     },
     events: {
       onReady: (e) => {
@@ -4240,9 +4253,10 @@ function renderCollectionCard(coll, ctx) {
 
   const li = document.createElement('li');
   li.className = 'hymnal-card';
-  // Cor do álbum no banco: uma faixa lateral. É só um traço de identidade
-  // visual, e vem de graça no catálogo — nada é baixado por causa dela.
-  if (coll.color) li.style.setProperty('--coll-color', coll.color);
+  // (A `coll.color` do banco desenhava uma faixa lateral de 3px no cartão. Ela
+  // saiu na v5.71 com as molduras: era mais uma linha vertical repetida em toda
+  // a lista. O campo continua no catálogo, de graça, se um dia a cor voltar
+  // como tinta do ícone.)
 
   // Uma linha só: ícone + nome/subtítulo + resumo + engrenagem. O card deixou
   // de ser um acordeão de manutenção — TOCAR NELE ABRE A LISTA DE MÚSICAS, que
@@ -4287,10 +4301,12 @@ function renderCollectionCard(coll, ctx) {
     bar.appendChild(summary);
   }
 
-  // Seta de acordeão no lugar da engrenagem: o toque na barra ABRE A COLEÇÃO
-  // ali mesmo, e o que a barra precisa anunciar é isso. A engrenagem desceu
-  // para dentro do aberto (ver abaixo) — manutenção é o que se procura depois
-  // de já estar olhando o álbum, não antes.
+  // A BARRA INTEIRA é o alvo do acordeão: o toque nela abre a coleção ali
+  // mesmo. Houve uma seta anunciando isso; ela saiu na v5.71, porque numa lista
+  // em que todo card abre ela dizia o mesmo em todas as linhas — e quem anuncia
+  // a abertura agora é o próprio movimento, animado desde a v5.63.
+  // A engrenagem desceu para dentro do aberto (ver abaixo) — manutenção é o que
+  // se procura depois de já estar olhando o álbum, não antes.
   // Baixar/cancelar direto na barra. Desde a v5.45 a engrenagem mora DENTRO
   // do card aberto — o que, num hinário de 600 faixas, punha a ação de baixar
   // atrás de expandir uma lista enorme. E é por este botão que cada hinário
@@ -4311,11 +4327,6 @@ function renderCollectionCard(coll, ctx) {
     dl.addEventListener('click', (e) => { e.stopPropagation(); syncCollection(coll); });
     bar.appendChild(dl);
   }
-
-  const chevron = document.createElement('span');
-  chevron.className = 'coll-bar-chev msym';
-  chevron.textContent = '';   // expand_more
-  bar.appendChild(chevron);
 
   // Sem índice ainda não há lista para abrir — o toque leva às opções, que é
   // justamente onde está o sincronizar que resolve isso.
@@ -7218,7 +7229,10 @@ let pvBusyTimer = null;
 // preview não está na tela — ali quem avisa continua sendo o toast, e é por
 // isso que o chamador precisa saber.
 function previewBusy(acao, nome) {
-  if (appMode === 'simple') return { visivel: false, soltar: () => {} };
+  // No simplificado a preview só está na tela com um telão conectado (ver
+  // hostPreview/`.simple.locked`); bloqueado, quem avisa continua sendo o
+  // toast — é por isso que o chamador precisa saber.
+  if (appMode === 'simple' && !simpleDisplay()) return { visivel: false, soltar: () => {} };
   pvBusyCount++;
   pvBusyCapEl.textContent = acao;
   pvBusyLabelEl.textContent = nome;
@@ -8214,6 +8228,9 @@ function setAppMode(mode) {
   try { localStorage.setItem(APP_MODE_KEY, appMode); } catch (_) { /* storage bloqueado */ }
   document.body.classList.toggle('mode-simple', appMode === 'simple');
   simpleModeEl.classList.toggle('open', appMode === 'simple');
+  // A preview troca de casa junto com o modo (ver hostPreview) — antes dos
+  // renders, para que eles já a encontrem no lugar certo.
+  hostPreview();
   renderAppModeSeg();
   renderSimple();
   renderSimpleCast();
@@ -8301,6 +8318,16 @@ function renderSimpleCast() {
   // NUNCA o veste (ver `castTestUnlocked`) — ela é aviso, não conexão.
   simpleCastBtnEl.classList.toggle('connected', !!tv && !castTestUnlocked);
   simpleCastBtnEl.classList.toggle('testing', castTestUnlocked);
+  // Conectado, o botão dá lugar à PREVIEW e quem carrega o estado é o ícone de
+  // cast no canto dela: verde = uma tela recebendo, âmbar de aviso = liberação
+  // de teste (que não é conexão nenhuma). O mesmo par de cores do botão que ele
+  // substitui — o sinal mudou de lugar, não de significado.
+  pvCastBtnEl.classList.toggle('connected', !!tv && !castTestUnlocked);
+  pvCastBtnEl.classList.toggle('testing', castTestUnlocked);
+  pvCastBtnEl.title = castTestUnlocked
+    ? 'Liberação de teste ativa — toque para trancar'
+    : (tv ? 'Conectado: ' + (tv.name || 'TV') + ' — toque para trocar ou desconectar'
+          : 'Espelhar na TV');
   // Sem tela, o botão é a tela inteira (ver o bloqueio abaixo) e precisa dizer
   // tudo sozinho: uma frase, no rótulo. Com tela conectada ele volta a ser um
   // cartão entre outros — o rótulo nomeia a ação e o subtítulo informa o
@@ -8383,6 +8410,49 @@ function renderSimpleGate() {
   // A busca é o que a cortina esconde: reabri-la por trás dela deixaria o
   // popup no ar sobre uma tela bloqueada.
   if (preso) closeHymnSearch();
+}
+
+// ===== A PREVIEW é UM nó só, e ele MUDA DE CASA =====
+// No avançado ela mora na faixa do deck; no simplificado, no lugar que era do
+// botão de conectar. Move-se o mesmo elemento em vez de existirem duas, pelo
+// mesmo padrão do `#selbar` e do `<input type=file>`: duas divergiriam no
+// primeiro ajuste, e dois `createStage` decodificariam o MESMO vídeo duas
+// vezes num aparelho que já roda dois WebViews.
+//
+// A troca acontece só na mudança de MODO — não ao conectar/desconectar. Com a
+// tela bloqueada a faixa some por CSS (`.simple.locked .simple-stage`), e um
+// `display:none` não custa nada; mover o nó a cada conexão, sim (ver abaixo).
+function hostPreview() {
+  const alvo = appMode === 'simple' ? simpleStageEl : previewRowEl;
+  if (previewEl.parentElement === alvo) {
+    pvCastBtnEl.hidden = !(appMode === 'simple' || window.__NATIVE__);
+    return;
+  }
+  // Reparentar um `<video>` NÃO interrompe a reprodução desde que ele volte ao
+  // documento no mesmo passo — e `appendChild` de um nó já anexado é remoção e
+  // inserção atômicas, então o "removido do documento" nunca chega a valer.
+  // Quem manda no botão de cast é o CONTEXTO: no simplificado ele é o sinal de
+  // conexão e a porta de saída, então existe sempre; no avançado continua sendo
+  // um atalho para um intent do Android, e some no navegador.
+  pvCastBtnEl.hidden = !(appMode === 'simple' || window.__NATIVE__);
+  const yt = ytPreview;
+  const emQueSegundo = yt ? ytPreviewTime() : 0;
+  alvo.appendChild(previewEl);
+  // Um IFRAME, ao contrário, RECARREGA ao mudar de pai — o player do YouTube
+  // morre junto. Como o item segue tocando no telão, a miniatura é remontada
+  // no ponto em que estava, e não do começo.
+  if (yt && currentItem && currentItem.kind === 'youtube') {
+    loadYtPreview(currentItem, view, emQueSegundo);
+  }
+}
+
+// Segundo atual do player da preview do YouTube (0 se ele não responder).
+function ytPreviewTime() {
+  try {
+    const p = ytPreview && ytPreview.player;
+    const t = p && p.getCurrentTime && p.getCurrentTime();
+    return typeof t === 'number' && isFinite(t) ? t : 0;
+  } catch (_) { return 0; }
 }
 
 // Abre a tela do Display no navegador e acompanha a janela: fechá-la é o
@@ -8844,7 +8914,6 @@ hymnSearchInputEl.addEventListener('input', debounce(() => renderSearchResults(h
 // A trava de paisagem (Screen Orientation API) só é permitida COM o elemento já
 // em fullscreen (padrão de player de vídeo); é destravada ao sair.
 (function setupPreviewGestures() {
-  const previewEl = document.getElementById('preview');
   const isFs = () => document.fullscreenElement === previewEl;
 
   // ---- controles nos cantos da preview (fora do fullscreen) ----
@@ -8866,14 +8935,20 @@ hymnSearchInputEl.addEventListener('input', debounce(() => renderSearchResults(h
   // São DOIS desde a v5.49 — a engrenagem virou o `#settingsBtn` fixo no topo
   // do mixer.
   document.getElementById('pvFullBtn').addEventListener('click', enterFullscreen);
-  // Cast: só existe com o shell nativo (é um intent do Android). No navegador
-  // o botão nem aparece — regra geral do projeto: o web é o padrão, o nativo
-  // é a exceção que se declara.
-  const castBtnEl = document.getElementById('pvCastBtn');
-  if (window.__NATIVE__) {
-    castBtnEl.hidden = false;
-    castBtnEl.addEventListener('click', () => AVNative.openCast());
-  }
+  // Cast: no avançado só existe com o shell nativo (é um intent do Android) —
+  // regra geral do projeto: o web é o padrão, o nativo é a exceção que se
+  // declara. No SIMPLIFICADO ele aparece sempre, porque ali é o sinal de
+  // conexão da preview e a porta de saída dela (ver renderSimpleCast): no
+  // navegador, "desconectar" é fechar a janela do Display.
+  pvCastBtnEl.addEventListener('click', () => {
+    // Liberação de TESTE: não há tela real para desconectar, então o toque
+    // simplesmente tranca de volta. É o par do "segurar 5 s" que destravou —
+    // e o botão que hospedava aquele gesto some justamente quando a liberação
+    // fica ativa, porque a preview toma o lugar dele.
+    if (castTestUnlocked) { castTestUnlocked = false; renderSimpleCast(); return; }
+    if (window.__NATIVE__) AVNative.openCast();
+    else openWebDisplay();
+  });
 
   async function enterFullscreen() {
     try {

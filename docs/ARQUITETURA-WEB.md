@@ -94,7 +94,7 @@ git push origin main
   MENOR que o já publicado — caso em que `WebUpdater.compareVersions` ignora o
   bundle em silêncio. Para saber onde a base está, leia `version.json`.
 
-  No app nativo o rótulo mostra os **dois índices** — `Web v5.70 · Shell v1.24`
+  No app nativo o rótulo mostra os **dois índices** — `Web v5.71 · Shell v1.24`
   —, porque base web e shell atualizam por caminhos independentes (OTA ×
   instalar APK); no navegador sai só `Controle v<versão>`. **Ele mora no rodapé
   do popup de Configurações** desde a v5.49 (antes ficava no cabeçalho da lista,
@@ -896,7 +896,8 @@ mirar um alvo fino ali é o pior formato possível.
 
 | Elemento | O que faz |
 |---|---|
-| **Conectar a tela** (`#simpleCastBtn`) | `AVNative.openCast()` — o seletor de espelhamento do Android. O subtítulo mostra a tela conectada ao vivo (`AVNative.displays()`), porque "conectar" é a primeira dúvida de quem abre o app. **Sem tela conectada é o único botão disponível** (ver o bloqueio abaixo). No navegador vira o atalho para a tela do Display |
+| **Conectar a tela** (`#simpleCastBtn`) | `AVNative.openCast()` — o seletor de espelhamento do Android. **Só existe SEM tela conectada**, e ali é o único botão da tela (ver o bloqueio abaixo); conectado, ele dá lugar à preview. No navegador vira o atalho para a tela do Display |
+| **Preview** (`.simple-stage`) | a projeção em miniatura, **só com tela conectada** — ver "A preview no lugar do botão de conectar" |
 | **Buscar música** (`#simpleSearchBtn`) | o MESMO popup de busca do acervo (`openHymnSearch`). Um toque na linha **toca a versão Cantada direto** (ver abaixo) |
 | **Linha do tempo** (`#simpleTime`) | decorrido · barra · duração, só LEITURA — espelha a mesma `#seek` do modo avançado (que já é alimentada pela preview, pelo `display-status` e pelo polling do YouTube) e some quando o item não tem duração |
 | **Letra** (`#simpleLyrics`) | a letra INTEIRA da música em cena, com o mesmo destaque e o mesmo acompanhamento da leitura auxiliar do modo avançado |
@@ -973,6 +974,49 @@ próprio botão já dizia. Sem ela, `.simple-actions` pode simplesmente centrali
 o que sobrou — o botão fica no meio exato, sem ninguém precisar medir a altura
 de um para posicionar o outro.
 
+#### A preview no lugar do botão de conectar (v5.71)
+
+Conectado, não há nada melhor a dizer sobre "está conectado?" do que **mostrar o
+que a TV está exibindo**. O botão de conectar sai e a preview ocupa o lugar
+dele, no topo; a faixa `.simple-actions` fica só com "Buscar música", em uma
+coluna. O ícone de **cast no canto** da preview faz os dois papéis que sobraram:
+
+- **sinaliza** — verde (`--ok`) com uma tela recebendo, âmbar (`--warn`) na
+  liberação de teste. O mesmo par de cores do botão que ele substitui: o sinal
+  mudou de lugar, não de significado;
+- **é a saída** — abre o seletor do Android, que é onde se troca de tela ou se
+  desconecta. Desconectado, `onDisplayChange` rebaixa a cortina sozinho e o
+  botão de conectar volta ao centro, pelo caminho que já existia.
+- Na **liberação de teste** o toque simplesmente TRANCA de volta: não há tela
+  real para desconectar, e o botão que hospedava o "segurar 5 s" some justamente
+  quando a liberação fica ativa, porque a preview toma o lugar dele.
+
+**A tela cheia (`#pvFullBtn`) não aparece aqui**: neste modo existe um telão
+conectado — é o que faz esta faixa existir — e a projeção está nele.
+
+**O nó da preview é O MESMO do modo avançado**, movido de um pai para o outro
+(`hostPreview`), pelo mesmo padrão do `#selbar` e do `<input type=file>`: duas
+previews divergiriam no primeiro ajuste, e dois `createStage` decodificariam o
+MESMO vídeo duas vezes num aparelho que já roda dois WebViews. Três detalhes
+que a mudança de pai obriga:
+
+- **A troca acontece só na mudança de MODO**, não ao conectar/desconectar. Com
+  a tela bloqueada a faixa some por CSS (`.simple.locked .simple-stage`), e um
+  `display:none` não custa nada.
+- **Um `<video>` sobrevive à mudança de pai**; um **iframe, não** — ele recarrega
+  e leva o player do YouTube junto. Por isso `hostPreview` remonta a preview do
+  YouTube depois de mover, e **no segundo em que ela estava**: `loadYtPreview`
+  ganhou um `startAt`, mesmo nome e mesmo papel do `startAt` de `loadYoutube` no
+  Display. Sem ele a miniatura voltaria ao início de um vídeo que segue tocando
+  no telão.
+- **`appendChild` de um nó já anexado é remoção e inserção atômicas**, então o
+  "removido do documento" que pausaria o vídeo nunca chega a valer.
+
+**E o cartão de "Baixando…" aparece aqui também** — é a mesma preview, então é o
+mesmo `previewBusy`. A única condição que mudou: ele volta `visivel: false` no
+simplificado **sem tela conectada**, quando a preview não está na tela e quem
+avisa continua sendo o toast.
+
 **A única parte que muda por contexto é quem responde "há tela?"** — o resto do
 mecanismo é o mesmo nos dois. No app são as telas de apresentação que a ponte
 lista (`AVNative.displays()` + `onDisplayChange`), então o dongle que cai
@@ -987,13 +1031,16 @@ enquanto a janela existe.
 Sem telão à mão **não há como olhar esta tela destravada** — e ela é a tela que
 o app abre, ou seja, a que mais precisa ser vista enquanto se mexe no desenho
 dela. Segurar `#simpleCastBtn` por **5 s** (`CAST_HOLD_MS`) destrava como se
-houvesse tela conectada; segurar de novo tranca.
+houvesse tela conectada. Para **trancar** de volta basta um toque no ícone de
+cast da preview (v5.71): o botão que hospedava o gesto de 5 s some assim que a
+liberação fica ativa, porque é a preview que toma o lugar dele.
 
 - **`castTestUnlocked` entra por `simpleDisplay()`**, que passa a devolver um
   descritor marcado (`{ name: 'Modo de teste', test: true }`). Um ponto só, e é
   o mesmo que a cortina, o rótulo do botão e o modo simplificado inteiro já
   consultavam — nada mais no app precisou saber que existe um modo de teste.
-- **Não finge conexão.** O botão fica em `--warn` (`.simple-action.testing`),
+- **Não finge conexão.** O botão — e, destravado, o ícone de cast da preview —
+  fica em `--warn` (`.simple-action.testing`/`.pv-fab.testing`),
   **nunca** no verde de `.connected`, e o subtítulo diz "Liberado para teste"
   (o subtítulo é de UMA linha e corta com reticências, então cabe o estado; a
   instrução de sair vai no `title`).
@@ -2353,9 +2400,26 @@ sincroniza) + **baixar/cancelar** (`.coll-bar-dl`) + a **seta de acordeão**
 toque leva às **opções**, que é justamente onde está o sincronizar que resolve
 isso.
 
-O card ganha uma **faixa lateral** com a `color` que o álbum tem no banco
-(`--coll-color`, escrita no `style` pelo JS) — identidade visual que vem de
-graça no catálogo, sem baixar nada.
+> **Sem molduras, sem seta, sem faixa de cor (v5.71).** O card tinha um contorno
+> de 1px em `--line`, uma faixa de 3px com a `color` do álbum no banco e uma
+> seta de acordeão à direita. Numa lista de dezenas de álbuns, o que o olho via
+> primeiro eram as linhas, não os nomes. Hoje o card é só **preenchimento
+> sólido**: ele mora dentro da folha do popup, que é `--panel`, então sobe um
+> degrau para `--panel-2` — um cartão da cor do que está atrás dele
+> simplesmente não existe aos olhos, e sem a moldura era só isso que sobrava.
+> As músicas dentro dele são `--panel` e passam a se ler como recessos, na mesma
+> direção do resto do app.
+> **Aberto se diz no NOME**, em accent (`.hymnal-card.expanded .coll-bar-name`)
+> — o mesmo recurso com que o app marca "é este" em toda parte. Um segundo
+> degrau de tom não cabia: o cartão já gastou um para existir, e as músicas
+> ocupam o de baixo. A **seta** saiu porque numa lista em que TODO card abre ela
+> dizia o mesmo em todas as linhas, e quem anuncia a abertura agora é o próprio
+> movimento, animado desde a v5.63. O filete entre a barra e as músicas
+> (`.coll-songs`, `border-top`) e os contornos do botão de baixar e da
+> engrenagem saíram junto — sólidos, como o `.coll-group-btn` do cabeçalho com
+> que eles dividem a coluna.
+> O campo `color` continua no catálogo, de graça, se um dia a cor voltar como
+> tinta do quadrado do ícone — que já existe e não acrescenta traço nenhum.
 
 **O botão de baixar SAI da barra quando o álbum já está todo no aparelho**
 (v5.63 — a condição é `u.syncBusy || !complete`). Ele dizia "Baixar esta

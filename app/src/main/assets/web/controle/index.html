@@ -51,6 +51,19 @@
       </button>
     </div>
 
+    <!-- Com uma tela CONECTADA, o botão de conectar dá lugar à PREVIEW: ela é
+         o sinal de conexão (não há o que dizer melhor sobre "está conectado?"
+         do que mostrar o que a TV está exibindo) e o ícone de cast no canto
+         dela é por onde se desconecta.
+         O nó da preview é O MESMO do modo avançado — ele é MOVIDO para cá e de
+         volta (ver `hostPreview` em controle.js), pelo mesmo padrão do `#selbar`
+         e do `<input type=file>`: dois nós divergiriam no primeiro ajuste, e
+         dois `createStage` decodificariam o mesmo vídeo duas vezes num aparelho
+         que já roda dois WebViews.
+         Vazio no HTML de propósito: sem tela conectada esta faixa não existe
+         (`.simple.locked .simple-stage`), e é o bloqueio que ocupa a tela. -->
+    <div class="simple-stage" id="simpleStage"></div>
+
     <!-- As duas ações no alto, lado a lado: teclas grandes de ícone + rótulo.
          Com a tela bloqueada esta faixa sai do fluxo e vai para o CENTRO da
          tela, só com o botão de conectar (ver .simple.locked .simple-actions).
@@ -580,7 +593,7 @@
              METADADO de diagnóstico e o lugar onde se procura diagnóstico é
              junto do estado do telão e do alvo de espelhamento, não numa faixa
              de navegação. Preenchido por `renderVersionLabel`. -->
-        <span id="appVersion" class="app-version">Controle v5.70</span>
+        <span id="appVersion" class="app-version">Controle v5.71</span>
       </div>
     </div>
   </div>
