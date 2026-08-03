@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Color
 import android.util.Log
+import android.view.View
 import android.view.ViewGroup
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebResourceRequest
@@ -78,12 +79,43 @@ object WebViewFactory {
      *   — mas o app continua vivo, que é o ponto.
      */
     @SuppressLint("SetJavaScriptEnabled")
+    /**
+     * WebView que NUNCA se declara oculto ao Chromium.
+     *
+     * O Chromium marca a página como `hidden` quando a janela da View some — e
+     * é isso que acontece com o telão no instante em que o operador minimiza o
+     * app. Um `<video>` local não liga para isso e continua tocando, mas o
+     * **embed do YouTube pausa sozinho** ao ver `document.hidden`: é regra do
+     * player deles, roda dentro de um iframe de outra origem e nenhum código
+     * nosso alcança. O louvor parava no meio do culto.
+     *
+     * Reportar sempre `VISIBLE` tira o gatilho: a página do telão nunca fica
+     * oculta, então nada tem por que se pausar. Vale SÓ para o WebView da
+     * [StagePresentation] — ele é a projeção, e a projeção continua no ar com o
+     * app minimizado de propósito (é para isso que existe o [SessionService]).
+     * O WebView do Controle segue o ciclo normal: ali ser estrangulado em
+     * segundo plano é o comportamento correto, e é justamente o que o
+     * `snoopDisplayStatus` da ponte existe para contornar.
+     *
+     * O efeito colateral é o desejado e já era verdade: o renderer do telão não
+     * é desacelerado quando o app sai da frente.
+     */
+    private class KeepVisibleWebView(ctx: Context) : WebView(ctx) {
+        override fun onWindowVisibilityChanged(visibility: Int) {
+            super.onWindowVisibilityChanged(View.VISIBLE)
+        }
+    }
+
+    /**
+     * @param keepVisible ver [KeepVisibleWebView] — só o telão usa.
+     */
     fun create(
         ctx: Context,
         loader: WebViewAssetLoader,
+        keepVisible: Boolean = false,
         onRendererGone: (() -> Unit)? = null,
     ): WebView {
-        val web = WebView(ctx)
+        val web = if (keepVisible) KeepVisibleWebView(ctx) else WebView(ctx)
         web.setBackgroundColor(Color.BLACK)
         // O telão e a UI do operador nunca rolam a página inteira — o layout
         // web já é 100vh com áreas roláveis próprias.

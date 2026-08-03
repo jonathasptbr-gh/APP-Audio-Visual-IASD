@@ -2341,6 +2341,17 @@ main {
   font-size: .9rem; cursor: pointer;
 }
 .fade-row--fit { flex-direction: column; align-items: stretch; gap: .5rem; cursor: default; }
+/* Igual à `--fit`, mas para uma linha com CAMPOS de texto: o rótulo em cima e
+   os campos empilhados embaixo, cada um com a largura toda — um `<input>` de
+   URL espremido ao lado de um rótulo não deixa ler o que foi digitado. */
+.fade-row--col { flex-direction: column; align-items: stretch; gap: .5rem; cursor: default; }
+.fade-row--col .lib-search { width: 100%; }
+/* Uma linha de diagnóstico: o que a última tentativa de download disse. Só
+   ocupa espaço quando tem o que dizer. */
+.fade-hint { font-size: .72rem; color: var(--muted); }
+.fade-hint:empty { display: none; }
+.fade-hint.erro { color: var(--warn-text); }
+.fade-hint.ok { color: var(--ok); }
 .fit-seg { display: flex; gap: .35rem; }
 .fit-opt {
   flex: 1; border: none; border-radius: var(--radius-btn); padding: .5rem .4rem;
