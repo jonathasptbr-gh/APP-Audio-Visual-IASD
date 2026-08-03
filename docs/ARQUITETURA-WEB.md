@@ -94,7 +94,7 @@ git push origin main
   MENOR que o já publicado — caso em que `WebUpdater.compareVersions` ignora o
   bundle em silêncio. Para saber onde a base está, leia `version.json`.
 
-  No app nativo o rótulo mostra os **dois índices** — `Web v5.69 · Shell v1.24`
+  No app nativo o rótulo mostra os **dois índices** — `Web v5.70 · Shell v1.24`
   —, porque base web e shell atualizam por caminhos independentes (OTA ×
   instalar APK); no navegador sai só `Controle v<versão>`. **Ele mora no rodapé
   do popup de Configurações** desde a v5.49 (antes ficava no cabeçalho da lista,
@@ -1825,8 +1825,8 @@ app não existia aqui: só o toque no ícone. `setupTabCarousel` escuta o
   movimento vertical nunca é tocado.
 - **Nem em sub-tela** (pasta aberta, capítulo/leitura da Bíblia), reconhecida
   pelo `#backBtn` visível: ali o eixo horizontal pertence à navegação de dentro.
-  Também ficam de fora campos de texto e trilhos que rolam na horizontal (as
-  pílulas de categoria, o histórico do sorteio) e o modo de seleção múltipla.
+  Também ficam de fora campos de texto e trilhos que rolam na horizontal (o
+  histórico do sorteio) e o modo de seleção múltipla.
 - **O `click` do fim do gesto é engolido** por um listener de CAPTURA no
   `<main>`, senão deslizar sobre a grade de livros trocava de aba **e** abria um
   livro; sobre a faixa, trocava de aba e voltava para a do ícone que o dedo
@@ -2131,14 +2131,24 @@ lupa, e desde a v5.44 é o único (ver "O acervo É o estado padrão da busca").
 função recebe o elemento-alvo e o callback de redesenho justamente por isso —
 duas cópias divergiriam no primeiro ajuste de categoria.
 
-No topo, uma faixa de **pílulas de filtro** (`.coll-filters`: Todos · Hinários ·
-uma por categoria, `albumFilter`): com dezenas de álbuns em várias categorias,
-rolar a lista inteira para achar um grupo é lento. Uma categoria sem nenhum card
-visível não vira pílula (levaria a uma lista vazia), e os álbuns órfãos — os
-que categoria nenhuma reivindica — só aparecem em "Todos". O filtro é estado de
-sessão, não persistido: cada abertura mostra o acervo inteiro. O card do Hinário
-**saiu da tela de pastas** (hoje os **Favoritos**, que voltou a ser só atalhos e
-pastas do dispositivo).
+O card do Hinário **saiu da tela de pastas** (hoje os **Favoritos**, que voltou
+a ser só atalhos e pastas do dispositivo).
+
+> **As pílulas de filtro saíram na v5.70.** Havia uma faixa rolável no topo
+> (`.coll-filters`/`.coll-pill`: Todos · Hinários · uma por categoria do banco,
+> guardada em `albumFilter`), pensada para cortar caminho até um grupo sem rolar
+> a lista. Ela cobrava um recorte antes de mostrar o acervo, e o acervo já vem
+> recortado: os cabeçalhos de categoria são o mesmo agrupamento, na mesma ordem
+> do banco, e os cards são colapsados — a lista inteira cabe em pouquíssimas
+> telas de rolagem. Quem sabe o nome digita, e o campo de busca fica logo acima.
+>
+> Tirá-las simplificou o render: `albumFilter` era o único motivo de três ramos
+> em `renderCollectionsList` (ocultar os hinários, pular categorias, e um
+> retorno antecipado que escondia os álbuns órfãos e trocava a mensagem de lista
+> vazia), e do parâmetro `showName` do cabeçalho de grupo — que hoje só serve a
+> "Todo o acervo", onde o nome já está dentro do botão. A faixa também era uma
+> exceção no reconhecedor de deslize do carrossel de abas (um trilho horizontal
+> dentro de uma área que troca de aba na horizontal); essa exceção saiu junto.
 
 Os mecanismos abaixo (sincronização/download/letra/Wi-Fi/busca) valem **por
 coleção**, exatamente como antes valiam só pro Hinário 2022.
@@ -2152,9 +2162,11 @@ tem uma dúzia de álbuns, e sincronizar um a um pela engrenagem de cada card er
 uma dúzia de idas ao popup. Vale para os três tipos de grupo: os hinários, cada
 categoria do banco e os álbuns órfãos.
 
-Com um filtro de categoria ativo o cabeçalho **omite o nome** (a pílula
-selecionada já diz qual é) mas continua existindo — o que estava lá antes era
-redundante, o que está lá agora é uma ação.
+O cabeçalho pode **omitir o nome** e continuar existindo (`showName === false`)
+— o que estava lá antes era redundante, o que está lá agora é uma ação. Hoje só
+"Todo o acervo" usa isso, porque ali o nome já está dentro do próprio botão;
+antes da v5.70 valia também para o grupo que a pílula de filtro selecionada já
+nomeava.
 
 - **Um álbum por vez, nunca em paralelo** — e isso não custa velocidade: o
   limite de conexões é por HOST, não por álbum (ver `NET_CONCURRENCY`). Dois
@@ -2352,11 +2364,24 @@ coleção" para uma coleção que não tem mais o que baixar: um alvo do tamanho
 dezenas de álbuns. O que resta a fazer ali — re-sincronizar o índice, apagar o
 baixado, ver o peso — é manutenção, e já mora na engrenagem DENTRO do card
 aberto, que é onde se procura depois de abrir o álbum. Enquanto o download
-**roda** o botão continua, porque ali ele é o cancelar. (O contador
-`baixados/total` fica, em verde: é ele que diz "está completo".) O botão de
-grupo (`.coll-group-btn`, no cabeçalho de categoria e em "Todo o acervo") **não**
+**roda** o botão continua, porque ali ele é o cancelar. O botão de grupo (`.coll-group-btn`, no cabeçalho de categoria e em "Todo o acervo") **não**
 segue a regra — ali não existe engrenagem, e sumir com ele tiraria a única rota
 de re-sincronizar o grupo.
+
+**E o CONTADOR sai junto** (v5.70). `24/24` não pede nada nem informa nada de
+novo — é ruído repetido em cada linha de uma lista de dezenas de álbuns, e o
+estado que o operador procura ali é justamente o oposto: o que ainda **falta**.
+Numa lista toda baixada, o silêncio é a resposta certa, e ela continua legível
+por eliminação: `não sincron.` quando não há índice, uma fração quando falta
+algo, **nada** quando está completo. Um álbum completo fica só com nome e seta,
+e o detalhe (peso, "✓ Completo offline") segue na engrenagem dentro do card
+aberto. Enquanto o download roda o resumo volta, mostrando o progresso ao vivo.
+
+Os **contadores de GRUPO** (`.coll-group-count`, no cabeçalho de categoria e em
+"Todo o acervo") ficam mesmo completos: eles somam várias coleções, e ali o
+número ainda responde alguma coisa — é o único lugar que diz que o grupo inteiro
+está no aparelho. É também o último uso do verde de "concluído" nesse contexto:
+`.coll-bar-sync.done` saiu com o contador do card.
 
 **Uma coleção aberta por vez** (abrir uma fecha as demais): duas listas de
 centenas de faixas empurrariam o acervo para fora da tela e tirariam do lugar
@@ -2558,9 +2583,8 @@ não há por que competir pela mesma chave durante o trabalho pesado.
 **Busca/lista — um popup só, e O CAMPO É A CHAVE.** `#hymnSearchPopup` é
 aberto exclusivamente pelo botão de lupa (`#hymnSearchBtn`, SVG inline, à
 direita das abas), com o título fixo "Acervo". `searchIsBrowsing(q)` é
-literalmente `!q`: **campo vazio** = o navegador de coleções (pílulas,
-cabeçalhos de categoria e cards, com as músicas de cada uma dentro do próprio
-acordeão); **com texto** = a lista de músicas que casam, varrendo **todas** as
+literalmente `!q`: **campo vazio** = o navegador de coleções (cabeçalhos de
+categoria e cards, com as músicas de cada uma dentro do próprio acordeão); **com texto** = a lista de músicas que casam, varrendo **todas** as
 coleções indexadas. Não existe mais um "modo coleção" separado — o escopo por
 coleção (`searchScope`, com título próprio e um degrau de navegação) foi
 substituído pelo acordeão do card, que mostra o álbum **sem perder o acervo de
@@ -3272,9 +3296,8 @@ lupa **sem saber o nome** quer folhear — e folhear é por coleção, que é o
 recorte que o próprio banco dá e que a aba Álbuns desenhava (ela saiu na
 v5.44 — ver abaixo).
 
-Então a abertura da busca passou a ser esse navegador: as mesmas pílulas de
-filtro, os mesmos cabeçalhos de categoria e os mesmos cards. **É a mesma
-função** — `renderCollectionsList(alvo, redesenhar)` ganhou o elemento-alvo e o
+Então a abertura da busca passou a ser esse navegador: os mesmos cabeçalhos de
+categoria e os mesmos cards. **É a mesma função** — `renderCollectionsList(alvo, redesenhar)` ganhou o elemento-alvo e o
 callback de redesenho como parâmetros. Duas cópias divergiriam no primeiro
 ajuste de categoria, e o operador veria dois acervos diferentes conforme por
 onde entrou.

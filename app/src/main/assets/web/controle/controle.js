@@ -149,7 +149,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.69';
+const WEB_VERSION = '5.70';
 
 // Escrita UMA vez, na carga: o indicador mora no rodapé de Configurações desde
 // a v5.49 e não depende mais de qual aba está aberta (no cabeçalho ele
@@ -351,11 +351,6 @@ let collState = {};
 // Antes guardávamos apenas `[{id_album, name}]` achatado — o que jogava fora
 // exatamente a classificação que o operador precisa para achar um álbum.
 let albumCatalog = { categories: [], albums: [] };
-// Filtro da aba Álbuns: null = tudo, 'hymnals' = só os hinários, ou um
-// `id_category` do banco. Estado de UI da sessão — não persistido: cada
-// abertura do app começa mostrando o acervo inteiro.
-let albumFilter = null;
-
 // Registro completo de coleções: hinários fixos + um card por álbum do catálogo.
 // `subtitle`/`order` NÃO entram aqui: são do pivô categoria↔álbum e só fazem
 // sentido no contexto de uma categoria (ver renderCollectionsList).
@@ -4103,35 +4098,6 @@ async function desnumerarAlbunsBaixados() {
 // A relação categoria↔álbum é N:N, então **o mesmo álbum pode aparecer em mais
 // de uma categoria** — de propósito: é assim no banco e no app original, e o
 // `subtitle` que acompanha o card muda conforme a categoria (é campo de pivô).
-// Pílulas de filtro no topo: Todos · Hinários · uma por categoria do banco.
-// Com dezenas de álbuns em várias categorias, rolar a lista inteira para achar
-// "os CDs oficiais" é lento — a pílula corta direto para o grupo.
-function renderCollectionFilters(alvo, redesenhar) {
-  const li = document.createElement('li');
-  li.className = 'coll-filters';
-  const add = (label, value) => {
-    const b = document.createElement('button');
-    b.type = 'button';
-    b.className = 'coll-pill' + (albumFilter === value ? ' active' : '');
-    b.textContent = label;
-    b.addEventListener('click', () => {
-      if (albumFilter === value) return;
-      albumFilter = value;
-      redesenhar();
-      alvo.scrollTop = 0;
-    });
-    li.appendChild(b);
-  };
-  add('Todos', null);
-  if (FIXED_COLLECTIONS.length) add('Hinários', 'hymnals');
-  for (const cat of albumCatalog.categories) {
-    // Categoria sem nenhum card visível não vira pílula (levaria a uma lista
-    // vazia) — ex.: uma categoria só de álbuns que são hinários disfarçados.
-    if (categoryCards(cat).length) add(cat.name, cat.id_category);
-  }
-  return li;
-}
-
 // Álbuns de uma categoria que de fato viram card (existem no catálogo e não
 // são hinário disfarçado).
 function categoryCards(cat) {
@@ -4155,12 +4121,12 @@ function renderCollectionsList(alvo, redesenhar, opts) {
   const byId = new Map(allCollections().map((c) => [c.id, c]));
   let any = false;
 
-  alvo.appendChild(renderCollectionFilters(alvo, redesenhar));
-
   // Cabeçalho de grupo: nome + resumo (baixados/total do grupo inteiro) + o
-  // botão que baixa a COLEÇÃO COMPLETA. Com um filtro ativo o nome é omitido
-  // (a pílula selecionada já diz qual é), mas o cabeçalho continua existindo —
-  // ele deixou de ser só um rótulo e passou a ser onde mora a ação.
+  // botão que baixa a COLEÇÃO COMPLETA — ele deixou de ser só um rótulo e
+  // passou a ser onde mora a ação. (`showName === false` existia para o caso
+  // de um filtro ativo, quando a pílula selecionada já dizia o nome do grupo;
+  // as pílulas saíram na v5.70, e hoje só "Todo o acervo" o usa, porque ali o
+  // nome estaria dentro do próprio botão.)
   const header = (text, colls, showName, opts) => {
     const li = document.createElement('li');
     li.className = 'coll-group';
@@ -4207,50 +4173,36 @@ function renderCollectionsList(alvo, redesenhar, opts) {
   };
 
   // Baixar TODO o acervo de uma vez: os hinários mais todos os álbuns de todas
-  // as categorias. Só aparece em "Todos" — com um filtro ativo, "tudo" seria
-  // ambíguo (tudo do filtro? tudo mesmo?), e o cabeçalho da categoria já cobre
-  // o primeiro caso.
+  // as categorias.
   // `semTotal`: no popup do acervo esta barra subiu para o CABEÇALHO (ver
   // renderAcervoTotal) — é a ação de maior alcance da tela e estava rolando
   // junto com a lista, saindo de vista assim que se descia um pouco.
-  if (albumFilter === null && !(opts && opts.semTotal)) {
+  if (!(opts && opts.semTotal)) {
     const todas = allCollections().filter((c) => !isHymnalAlbum(c));
     if (todas.length > 1) header('Todo o acervo', todas, true, { confirmScale: true });
   }
 
-  const showHymnals = albumFilter === null || albumFilter === 'hymnals';
-  const fixed = showHymnals ? FIXED_COLLECTIONS.filter((c) => byId.has(c.id)) : [];
+  const fixed = FIXED_COLLECTIONS.filter((c) => byId.has(c.id));
   if (fixed.length) {
     // **Os hinários NÃO baixam em lote.** São as duas maiores coleções do
     // acervo (~1.100 músicas juntas): um botão só disparando as duas é um
     // download que ninguém consegue dimensionar antes de tocar, e que não dá
     // para parar pela metade sem perder o outro. Cada um baixa pelo próprio
     // card (o botão na barra). O contador do grupo fica — ele informa.
-    header('Hinários', fixed, albumFilter === null, { semBotao: true });
+    header('Hinários', fixed, true, { semBotao: true });
     fixed.forEach((coll) => { alvo.appendChild(renderCollectionCard(coll)); any = true; });
   }
 
   for (const cat of albumCatalog.categories) {
-    if (albumFilter === 'hymnals') break;
-    if (albumFilter !== null && albumFilter !== cat.id_category) continue;
     const cards = categoryCards(cat);
     if (!cards.length) continue;
-    header(cat.name, cards.map((x) => x.coll), albumFilter === null);
+    header(cat.name, cards.map((x) => x.coll), true);
     cards.forEach(({ coll, ctx }) => { alvo.appendChild(renderCollectionCard(coll, ctx)); any = true; });
   }
 
   // Álbuns conhecidos que nenhuma categoria reivindicou (catálogo antigo,
   // migrado de uma versão sem categorias, ou álbum removido de todas elas).
-  // Só aparecem em "Todos" — não pertencem a categoria nenhuma para filtrar.
   const claimed = new Set();
-  if (albumFilter !== null) {
-    if (!any) {
-      const empty = document.createElement('li'); empty.className = 'empty';
-      empty.textContent = 'Nada nesta seção.';
-      alvo.appendChild(empty);
-    }
-    return;
-  }
   for (const cat of albumCatalog.categories) for (const a of cat.albums) claimed.add('album-' + a.id_album);
   const orphans = albumCatalog.albums
     .map((a) => byId.get('album-' + a.id_album))
@@ -4314,16 +4266,26 @@ function renderCollectionCard(coll, ctx) {
 
   // Resumo de sincronização: progresso ao vivo enquanto sincroniza, senão
   // baixados/total.
-  const summary = document.createElement('span'); summary.className = 'coll-bar-sync';
-  if (u.syncBusy && u.status) {
-    summary.classList.add('busy'); summary.textContent = u.status;
-  } else if (total > 0) {
-    if (complete) summary.classList.add('done');
-    summary.textContent = downloaded + '/' + total;
-  } else {
-    summary.textContent = coll.kind === 'album' ? 'não sincron.' : '—';
+  //
+  // COM O ÁLBUM INTEIRO BAIXADO ELE SOME (v5.70), junto com o botão de baixar
+  // que já saíra na v5.63. "24/24" não pede nada nem informa nada de novo — é
+  // ruído repetido em cada linha de uma lista de dezenas de álbuns, e o estado
+  // que o operador procura ali é justamente o oposto: o que ainda FALTA. Numa
+  // lista toda baixada, o silêncio é a resposta certa, e ela continua legível
+  // por eliminação: "não sincron." quando não há índice, uma fração quando
+  // falta algo, nada quando está completo. O detalhe (peso, "✓ Completo
+  // offline") segue na engrenagem dentro do card aberto.
+  if (!complete || u.syncBusy) {
+    const summary = document.createElement('span'); summary.className = 'coll-bar-sync';
+    if (u.syncBusy && u.status) {
+      summary.classList.add('busy'); summary.textContent = u.status;
+    } else if (total > 0) {
+      summary.textContent = downloaded + '/' + total;
+    } else {
+      summary.textContent = coll.kind === 'album' ? 'não sincron.' : '—';
+    }
+    bar.appendChild(summary);
   }
-  bar.appendChild(summary);
 
   // Seta de acordeão no lugar da engrenagem: o toque na barra ABRE A COLEÇÃO
   // ali mesmo, e o que a barra precisa anunciar é isso. A engrenagem desceu
@@ -8747,7 +8709,7 @@ const TAB_SWIPE_RATIO = 1.5;  // quanto o eixo X precisa dominar o Y
     if (!backBtnEl.hidden) return false;                 // sub-tela: o voltar manda ali
     if (SWIPE_TABS.indexOf(activeTab) < 0) return false;
     if (!target || !target.closest) return false;
-    if (target.closest('input, textarea, .coll-filters, .draw-hist, .bible-half')) return false;
+    if (target.closest('input, textarea, .draw-hist, .bible-half')) return false;
     return true;
   }
 
