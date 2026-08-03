@@ -156,7 +156,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.85';
+const WEB_VERSION = '5.86';
 
 // Escrita UMA vez, na carga: o indicador mora no rodapé de Configurações desde
 // a v5.49 e não depende mais de qual aba está aberta (no cabeçalho ele
@@ -7050,6 +7050,11 @@ function appendYoutubeSearch(texto) {
   btn.addEventListener('click', () => buscarNoYoutube(termo));
   li.appendChild(btn);
   hymnResultsEl.appendChild(li);
+  // CHEGAR NO FIM DA LISTA JÁ PESQUISA. Rolar até o fim do que o acervo tem é
+  // exatamente o gesto de quem não achou o que queria — e nesse ponto pedir mais
+  // um toque num botão é cerimônia. O botão fica: ele é o caminho de quem
+  // decidiu antes de rolar, e é o que mostra que a busca está em curso.
+  armarAutoBuscaYt(li, termo);
 
   // Os RESULTADOS, na mesma lista — é isto que dispensa sair do app. Só do
   // termo atual: uma lista de outra busca embaixo do campo é pior que nenhuma.
@@ -7063,6 +7068,72 @@ function appendYoutubeSearch(texto) {
     }
     ytBuscaItens.forEach((r) => hymnResultsEl.appendChild(ytResultRow(r)));
   }
+}
+
+// O estado de cada resultado (`baixando` / `pronto`) vive num Map, e não na
+// classe do nó: a lista do acervo é RECONSTRUÍDA a cada tecla e a cada
+// redesenho, e uma classe escrita no elemento sumiria no próximo render — com o
+// download ainda correndo. É a mesma razão do `songRowBusy` das músicas.
+const ytEstado = new Map();
+function setYtEstado(id, estado, pct) {
+  if (estado) ytEstado.set(id, { estado, pct: typeof pct === 'number' ? pct : -1 });
+  else ytEstado.delete(id);
+  document.querySelectorAll('.yt-result').forEach((li) => {
+    if (li.dataset.yt !== id) return;
+    pintarYtLinha(li, ytEstado.get(id));
+  });
+}
+function pintarYtLinha(li, reg) {
+  li.classList.toggle('baixando', !!reg && reg.estado === 'baixando');
+  li.classList.toggle('pronto', !!reg && reg.estado === 'pronto');
+  const t = li.querySelector('.dl-pct');
+  if (t) t.textContent = (reg && reg.estado === 'baixando' && reg.pct >= 0) ? reg.pct + '%' : '';
+}
+
+// A folha de ações do resultado — as MESMAS três escolhas das músicas do
+// acervo, pela mesma folha (`#songMenuPopup`) e com os mesmos ícones. Antes o
+// toque baixava direto e pronto: o operador não escolhia nada e o vídeo caía no
+// Cronograma quisesse ele ou não.
+function openYtMenu(r) {
+  songMenuFor = { yt: r, variant: 'full' };
+  songMenuTitleEl.textContent = r.name || 'Vídeo do YouTube';
+  songMenuListEl.innerHTML = '';
+  songMenuListEl.appendChild(songMenuItem(msym(ICON.play), 'Tocar agora',
+    'Baixa e projeta em seguida', () => ytAcao(r, 'tocar')));
+  songMenuListEl.appendChild(songMenuItem(msym(ICON.queue), 'Adicionar à playlist',
+    'Entra na fila do que está tocando agora', () => ytAcao(r, 'playlist')));
+  songMenuListEl.appendChild(songMenuItem(msym(ICON.plAdd), 'Adicionar ao Cronograma',
+    'A lista do culto', () => ytAcao(r, 'cronograma')));
+  songMenuPopupEl.classList.add('open');
+}
+
+// Baixa e faz o que foi escolhido.
+//
+// "Tocar agora" FECHA o acervo — mesma regra de `playSongVariant`: o cartão de
+// progresso mora na preview, e a preview está atrás desta bandeja. As duas
+// opções de "adicionar" MANTÊM o acervo aberto, porque o operador está no meio
+// de uma busca e provavelmente vai pegar mais de um; ali o aviso é a própria
+// linha, que fica marcada como concluída em vez de voltar ao estado inicial —
+// era essa volta silenciosa que fazia parecer que nada tinha acontecido.
+async function ytAcao(r, destino) {
+  const tocar = destino === 'tocar';
+  if (tocar) closeHymnSearch();
+  setYtEstado(r.id, 'baixando');
+  const rec = await ytBaixarNativo(r.url, r.name, {
+    naPreview: tocar,
+    onPct: (pct) => setYtEstado(r.id, 'baixando', pct),
+  });
+  if (!rec) { setYtEstado(r.id, null); return; }
+  setYtEstado(r.id, 'pronto');
+  // `addMedia` já pendura o item no Cronograma — é onde toda mídia importada
+  // entra —, então "Adicionar ao Cronograma" não tem passo extra nenhum.
+  if (destino === 'playlist') {
+    await AVDB.listAdd('playlist', rec.id);
+    plItems = await AVDB.listItems('playlist');
+    renderPlaylist();
+  }
+  await load();
+  if (tocar) await send(rec.id);
 }
 
 // Uma linha de resultado do YouTube. Mesma anatomia das linhas de música do
@@ -7082,6 +7153,11 @@ function ytResultRow(r) {
   const anel = document.createElement('span'); anel.className = 'dl-ring';
   anel.innerHTML = downloadArrowIconSvg();
   thumb.appendChild(anel);
+  // O ✓ de concluído mora no mesmo lugar do anel: são os dois estados do mesmo
+  // canto da miniatura, e a classe da linha decide qual aparece.
+  const ok = document.createElement('span'); ok.className = 'yt-ok';
+  ok.innerHTML = checkIconSvg();
+  thumb.appendChild(ok);
 
   const info = document.createElement('div'); info.className = 'hymn-info';
   const nome = document.createElement('span'); nome.className = 'row-name';
@@ -7090,17 +7166,14 @@ function ytResultRow(r) {
   sub.textContent = [r.author, fmtDur(r.seconds)].filter(Boolean).join(' · ');
   info.append(nome, sub);
 
-  row.append(thumb, info);
+  const pct = document.createElement('span'); pct.className = 'dl-pct';
+  row.append(thumb, info, pct);
   li.appendChild(row);
-  // O toque BAIXA — é a única coisa que se faz com um resultado aqui. O aviso
-  // vai na linha do Cronograma (ver libBusy) e, enquanto isso, esta linha marca
-  // que já foi tocada: o acervo continua aberto, e sem essa marca o operador
-  // toca de novo achando que não pegou.
-  li.addEventListener('click', async () => {
+  pintarYtLinha(li, ytEstado.get(r.id));
+  // O toque abre a MESMA folha de três escolhas das músicas do acervo.
+  li.addEventListener('click', () => {
     if (li.classList.contains('baixando')) return;
-    li.classList.add('baixando');
-    const rec = await ytBaixarNativo(r.url, r.name);
-    if (!rec) li.classList.remove('baixando');
+    openYtMenu(r);
   });
   return li;
 }
@@ -7110,6 +7183,37 @@ function fmtDur(seg) {
   if (!n) return '';
   const m = Math.floor(n / 60);
   return m + ':' + String(n % 60).padStart(2, '0');
+}
+
+// O observador da sentinela de auto-busca. Um só, recriado a cada render — a
+// lista é reconstruída a cada tecla, e um observador por render vazaria.
+let ytAutoObs = null;
+let ytAutoTimer = 0;
+// A espera existe porque a lista é redesenhada A CADA TECLA: com poucos
+// resultados o botão nasce visível, e sem ela a busca dispararia com o termo
+// pela metade ("Fir"), uma vez por letra digitada. Meio segundo parado é o
+// sinal de que o operador terminou de escrever.
+const YT_AUTO_MS = 500;
+function armarAutoBuscaYt(sentinela, termo) {
+  if (ytAutoObs) { ytAutoObs.disconnect(); ytAutoObs = null; }
+  clearTimeout(ytAutoTimer);
+  // Nada a fazer se já pesquisou este termo, se está pesquisando, ou se o shell
+  // não sabe pesquisar (ali o botão abre o YouTube por fora — disparar isso
+  // sozinho seria tirar o operador do app sem ele ter pedido).
+  if (ytBuscando || (ytBuscaItens && ytBuscaTermo === termo)) return;
+  if (!window.__NATIVE__ || (window.__SHELL_VERSION__ | 0) < 18) return;
+  ytAutoObs = new IntersectionObserver((entradas) => {
+    if (!entradas.some((e) => e.isIntersecting)) { clearTimeout(ytAutoTimer); return; }
+    clearTimeout(ytAutoTimer);
+    ytAutoTimer = setTimeout(() => {
+      // O termo pode ter mudado durante a espera — e aí esta busca é a de uma
+      // pergunta que ninguém está mais fazendo.
+      if (hymnSearchInputEl.value.trim() !== termo) return;
+      if (!hymnSearchPopupEl.classList.contains('open')) return;
+      buscarNoYoutube(termo);
+    }, YT_AUTO_MS);
+  }, { rootMargin: '0px' });
+  ytAutoObs.observe(sentinela);
 }
 
 // Pede a busca ao shell e redesenha a lista com o resultado. No navegador (e
@@ -7368,6 +7472,9 @@ function songMenuItem(icone, rotulo, sub, acao) {
 }
 
 function renderSongMenu(modo) {
+  // A folha é compartilhada com os resultados do YouTube (`openYtMenu`), que
+  // não têm `coll`/`s` — e o seletor de variante do topo chama isto de volta.
+  if (!songMenuFor || songMenuFor.yt) return;
   const { coll, s } = songMenuFor;
   const temPlayback = !!s.has_instrumental_music;
   songMenuListEl.innerHTML = '';
@@ -7901,6 +8008,7 @@ async function ytBaixarNativo(link, nome, opts) {
         bg.atualizar(pct >= 0
           ? 'Baixando vídeo · ' + pct + '%'
           : 'Baixando vídeo · ' + fmtBytes(lidos), null, pct);
+        if (opts && opts.onPct) opts.onPct(pct);
       });
       if (!r || !r.url) return null;
       try {
