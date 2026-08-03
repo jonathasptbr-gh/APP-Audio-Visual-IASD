@@ -358,6 +358,36 @@ class MainActivity : ComponentActivity(), BridgeHost {
     override fun onStop() {
         super.onStop()
         presentation?.keepPlaying()
+        // Mesa de som ligada: o áudio sai DESTE WebView, e ele também precisa
+        // atravessar o segundo plano. Sem isso o louvor calava no instante em
+        // que o operador saía do app — que é justamente o caso relatado, e o
+        // que as três tentativas anteriores não cobriam, porque protegiam o
+        // WebView do telão.
+        if (audioAlive) {
+            val w = web ?: return
+            try {
+                w.onResume()
+                w.resumeTimers()
+            } catch (_: Exception) { /* WebView já destruído */ }
+        }
+    }
+
+    /** A mesa de som está ligada? (ver [setAudioAlive]) */
+    private var audioAlive = false
+
+    override fun setAudioAlive(on: Boolean) {
+        runOnUiThread {
+            audioAlive = on
+            val w = web as? WebViewFactory.KeepVisibleWebView ?: return@runOnUiThread
+            w.manterVisivel = on
+            // Com o celular fazendo o som, o renderer do Controle não pode ser
+            // rebaixado quando a View sai de vista — é a mesma política do
+            // telão, e pelo mesmo motivo.
+            // `waivedWhenNotVisible = !on`: com a mesa de som ligada NÃO se abre
+            // mão da prioridade por a View sair de vista; desligada, volta ao
+            // padrão de um WebView comum.
+            w.setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, !on)
+        }
     }
 
     override fun onDestroy() {

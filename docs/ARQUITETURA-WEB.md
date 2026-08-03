@@ -94,7 +94,7 @@ git push origin main
   MENOR que o já publicado — caso em que `WebUpdater.compareVersions` ignora o
   bundle em silêncio. Para saber onde a base está, leia `version.json`.
 
-  No app nativo o rótulo mostra os **dois índices** — `Web v5.82 · Shell v1.28`
+  No app nativo o rótulo mostra os **dois índices** — `Web v5.83 · Shell v1.29`
   —, porque base web e shell atualizam por caminhos independentes (OTA ×
   instalar APK); no navegador sai só `Controle v<versão>`. **Ele mora no rodapé
   do popup de Configurações** desde a v5.49 (antes ficava no cabeçalho da lista,
@@ -4695,6 +4695,22 @@ distingui-las sem instrumentação já custou três tentativas:
    tudo —, mais `setRendererPriorityPolicy(IMPORTANT, waivedWhenNotVisible =
    false)`, que é literalmente "não abra mão da prioridade só porque esta View
    não está visível".
+
+#### E o caso relatado era no CELULAR, não no telão (v1.29)
+
+Depois de tudo acima, veio a informação que faltava: a pausa acontecia com a
+**mesa de som** ligada — o áudio saindo pelo próprio aparelho. Nesse modo quem
+toca é o `<video>` da **preview**, no WebView do **Controle**, e não o do telão.
+As três correções anteriores protegiam o WebView errado.
+
+E o Controle ser estrangulado em segundo plano é, normalmente, o comportamento
+CERTO: ele é a mesa de comando, e o som está no telão. Deixa de ser certo
+exatamente quando a mesa de som está ligada, porque aí o celular é a caixa de
+som. Então a proteção virou **condicional e ligável em tempo de execução**:
+`AVNative.keepAudioAlive(on)` (chamado por `setStandalone`) → `manterVisivel`
+do `KeepVisibleWebView`, mais `onResume()`/`resumeTimers()` no `onStop()` da
+Activity e a mesma política de prioridade de renderer do telão. Desligada a
+mesa de som, tudo volta ao padrão.
 
 **E, desta vez, uma CAIXA-PRETA.** `diag()` em `display.js` mantém um anel dos
 últimos 60 eventos do telão (visibilidade, `pagehide`, `freeze`/`resume`, e cada

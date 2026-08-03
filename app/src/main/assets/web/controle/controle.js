@@ -156,7 +156,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.82';
+const WEB_VERSION = '5.83';
 
 // Escrita UMA vez, na carga: o indicador mora no rodapé de Configurações desde
 // a v5.49 e não depende mais de qual aba está aberta (no cabeçalho ele
@@ -965,6 +965,7 @@ async function setStandalone(v) {
   // ao volume alvo (respeitando o mudo do operador); desligar desce até 0 e só
   // então muta.
   preview.setForceMuted(!standalone);
+  pushAudioAlive();
   if (ytPreview && ytPreview.player) {
     const p = ytPreview.player;
     clearInterval(ytPreviewRampTimer);
@@ -994,6 +995,20 @@ async function setStandalone(v) {
 // O ÍCONE mostra o ESTADO (alto-falante inteiro = há som no celular; riscado =
 // não há), pela mesma convenção do botão de mudo e da cortina: o riscado é o
 // corte. Quem nomeia a ação é o `title`.
+// MESA DE SOM LIGADA = O CELULAR É A CAIXA DE SOM, e aí minimizar o app não
+// pode calar o louvor. Este WebView (o do Controle) é estrangulado em segundo
+// plano de propósito — é o certo quando ele é só a mesa de comando —, mas
+// deixa de ser quando é ELE que está tocando: o áudio sai daqui, do `<video>`
+// da preview, não do telão.
+//
+// Foi essa distinção que faltou nas três tentativas anteriores: elas
+// protegeram o WebView do TELÃO, e o problema relatado acontecia com a mesa de
+// som, isto é, no outro WebView.
+function pushAudioAlive() {
+  if (!window.__NATIVE__ || (window.__SHELL_VERSION__ | 0) < 17) return;
+  try { AVNative.keepAudioAlive(standalone); } catch (_) { /* shell antigo */ }
+}
+
 function renderStandaloneSeg() {
   if (!pvSoundBtnEl) return;
   pvSoundBtnEl.classList.toggle('on', standalone);
@@ -7543,24 +7558,57 @@ function closeFadePopup() {
 // intervalo. O despejo é pedido ao ABRIR esta tela, não continuamente: o telão
 // guarda o anel dele e entrega quando alguém pergunta.
 let diagLinhas = [];
+
+// O CONTROLE TEM O PRÓPRIO ANEL, e ele é o que importa no modo MESA DE SOM: ali
+// quem toca é o `<video>` desta página, não o do telão — o registro do Display
+// não veria nada. Foi exatamente essa distinção que faltou nas tentativas
+// anteriores.
+const DIAG_MAX_C = 40;
+const diarioC = [];
+function diagC(ev, extra) {
+  diarioC.push(Object.assign({
+    t: Date.now(), ev, oculto: document.visibilityState !== 'visible', onde: 'celular',
+  }, extra || {}));
+  if (diarioC.length > DIAG_MAX_C) diarioC.shift();
+}
+document.addEventListener('visibilitychange', () => diagC('visibilidade'));
+window.addEventListener('freeze', () => diagC('congelou'));
+window.addEventListener('resume', () => diagC('descongelou'));
+(function vigiarPreview() {
+  const v = document.getElementById('pvVideo') || document.querySelector('#preview video');
+  if (!v) return;
+  v.addEventListener('pause', () => diagC(pausaPedida() ? 'pausa (comando)' : 'PAUSA ESPONTÂNEA',
+    { t2: Math.round(v.currentTime || 0) }));
+  v.addEventListener('play', () => diagC('play', { t2: Math.round(v.currentTime || 0) }));
+})();
+// Uma pausa é "comandada" se o operador tocou em algo nos últimos instantes.
+let pausaEm = 0;
+function pausaPedida() { return Date.now() - pausaEm < 500; }
+
 function renderDiag() {
   if (!diagBoxEl) return;
   if (!diagLinhas.length) {
-    diagBoxEl.textContent = displayActive()
-      ? 'Sem registros ainda. Minimize o app com um vídeo tocando e volte aqui.'
-      : 'Sem telão conectado.';
+    diagBoxEl.textContent = 'Sem registros ainda. Minimize o app com algo'
+      + ' tocando e volte aqui.';
     return;
   }
   const hora = (t) => new Date(t).toLocaleTimeString('pt-BR', { hour12: false });
   diagBoxEl.textContent = diagLinhas
-    .slice(-14)
-    .map((l) => hora(l.t) + '  ' + l.ev + (l.oculto ? ' [oculto]' : '')
-      + (l.t2 != null ? '  ' + l.t2 + 's' : ''))
+    .slice(-16)
+    .map((l) => hora(l.t) + '  ' + (l.onde === 'celular' ? '📱' : '📺') + ' ' + l.ev
+      + (l.oculto ? ' [oculto]' : '') + (l.t2 != null ? '  ' + l.t2 + 's' : ''))
     .join('\n');
 }
-function pedirDiag() {
-  diagLinhas = [];
+// Junta os dois anéis em ORDEM DE RELÓGIO: celular e telão são dois processos
+// da mesma cena, e o que interessa é a sequência entre eles — "o celular ficou
+// oculto e ENTÃO o telão pausou" é uma história diferente de "o telão pausou
+// sozinho".
+function juntarDiag(doTelao) {
+  diagLinhas = diarioC.concat(doTelao || []).sort((a, b) => a.t - b.t);
   renderDiag();
+}
+function pedirDiag() {
+  juntarDiag([]);
   if (displayActive()) AVDB.sendCommand({ type: 'diag-ask' });
 }
 
@@ -7717,6 +7765,13 @@ async function importShare(pending) {
   if (!pending) return false;
   let added = false;
   let primeiro = null;   // o 1º item que entrou: é ele que o foco vai buscar
+  // A RESPOSTA VEM PRIMEIRO. Um link do YouTube vira arquivo em minutos e um
+  // vídeo compartilhado leva segundos para ser copiado; sair do acervo (ou da
+  // Bíblia, ou de uma pasta) só no fim disso deixava o operador olhando a tela
+  // que ele já tinha deixado, sem sinal de que algo chegou. O cartão de
+  // progresso aparece sobre a preview — que agora está à vista justamente
+  // porque saímos das camadas antes, e não depois.
+  await sairDasCamadas();
 
   const files = pending.files || [];
   let ok = 0;
@@ -7775,7 +7830,14 @@ async function importShare(pending) {
 // - **Avançado**: leva para o **Cronograma**, que é onde o item entrou, e
 //   deixa a decisão de projetar com o operador — ele pode estar com outra
 //   coisa no ar neste exato momento.
-async function focarImportado(id) {
+// A metade que RESPONDE AO TOQUE, separada da que projeta — porque as duas
+// acontecem em momentos diferentes (v5.83). Um link do YouTube leva minutos
+// para virar arquivo, e até aqui o app só saía do acervo DEPOIS que o download
+// terminava: o operador compartilhava, voltava para o app e continuava vendo a
+// tela do acervo, sem sinal nenhum de que algo estava acontecendo. É o mesmo
+// princípio que `playSongVariant` já seguia — "a resposta vem primeiro" — e ele
+// vale ainda mais aqui, onde a espera é de minutos e não de segundos.
+async function sairDasCamadas() {
   // 1. Sai de tudo que está POR CIMA da lista, em qualquer modo: um acervo em
   //    tela cheia esconderia tanto o Cronograma quanto a tela simplificada.
   if (selectionMode) exitSelection();
@@ -7789,17 +7851,19 @@ async function focarImportado(id) {
     try { await document.exitFullscreen(); } catch (_) {}
   }
 
-  if (appMode === 'simple') {
-    // A lista precisa existir antes do send: `send` procura o item em
-    // `plItems`/`libItems` para montar o "tocando agora".
-    await load();
-    if (id) await send(id);
-    return;
-  }
   // 3. Fora do Cronograma, volta para ele — inclusive de dentro de uma pasta
-  //    dos Favoritos, que é um `activeTab` próprio ('folders').
-  if (activeTab !== 'imports') await switchTab('imports');
+  //    dos Favoritos, que é um `activeTab` próprio ('folders'). No simplificado
+  //    não há abas: basta redesenhar.
+  if (appMode !== 'simple' && activeTab !== 'imports') await switchTab('imports');
   else await load();
+}
+
+// E a metade que PROJETA, chamada quando o item finalmente existe.
+async function focarImportado(id) {
+  await sairDasCamadas();
+  // No simplificado o item vai direto ao telão: esse modo existe para quem não
+  // vai operar nada, e a lista sequer aparece nele.
+  if (appMode === 'simple' && id) await send(id);
 }
 
 async function checkPendingShare() {
@@ -8308,6 +8372,7 @@ fileEl.addEventListener('change', async () => {
 });
 
 playPauseEl.addEventListener('click', () => {
+  pausaEm = Date.now();
   // Texto manual em cena SEM áudio de fundo: play/pause não faz nada (navega-se
   // pelos botões de slide). Com um áudio de fundo tocando (preview.getCurrent),
   // o play/pause controla esse áudio — a projeção do texto é independente.
@@ -9585,8 +9650,7 @@ AVDB.onCommand((msg) => {
   if (!msg) return;
   if (msg.type === 'display-ready') { resendSceneToDisplay(); return; }
   if (msg.type === 'diag-dump') {
-    diagLinhas = Array.isArray(msg.linhas) ? msg.linhas : [];
-    renderDiag();
+    juntarDiag(Array.isArray(msg.linhas) ? msg.linhas : []);
     return;
   }
   // Áudio bloqueado no Display (política de autoplay): avisa o OPERADOR —
