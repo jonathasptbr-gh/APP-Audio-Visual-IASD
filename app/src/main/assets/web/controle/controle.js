@@ -8816,16 +8816,15 @@ async function importShare(pending) {
   let naoAbriu = null;   // o último arquivo que o app não conseguiu abrir
   let ok = 0;
   for (const item of files) {
-    // APRESENTAÇÃO: o PDF não vira blob nenhum aqui — quem o transforma em
-    // imagens é o shell, e ele precisa do arquivo ORIGINAL (a URL `/saf/`), não
-    // de uma cópia já lida. Por isso o desvio acontece ANTES da leitura.
+    // DOCUMENTO (PDF ou PowerPoint): vira uma imagem por página, e cada formato
+    // pelo caminho que existe para ele. O desvio acontece ANTES da leitura
+    // porque o PDF não pode virar blob aqui — quem o desenha é o shell, e ele
+    // precisa do arquivo ORIGINAL (a URL `/saf/`), não de uma cópia já lida.
     //
-    // Só pelo compartilhamento: um PDF escolhido no seletor de arquivos chega
-    // como `File`, sem caminho que o Kotlin consiga abrir — e a ponte entrega
-    // URLs servíveis, nunca bytes, então mandá-lo de volta seria inverter o
-    // princípio dela.
+    // Este ramo atende as DUAS portas de entrada, que entregam a mesma forma:
+    // o compartilhamento e o seletor do sistema (`importarPeloSistema`).
     if (ehApresentacao(item)) {
-      const nome = nomeSemExtensao((item instanceof File ? item.name : item.name) || 'Apresentação');
+      const nome = nomeSemExtensao((item && item.name) || 'Apresentação');
       let rec = null;
       if (ehPdf(item) && item.url) {
         // PDF: quem desenha é o shell, e ele precisa do ARQUIVO (a URL `/saf/`),
