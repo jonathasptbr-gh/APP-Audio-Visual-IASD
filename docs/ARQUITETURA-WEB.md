@@ -94,7 +94,7 @@ git push origin main
   MENOR que o já publicado — caso em que `WebUpdater.compareVersions` ignora o
   bundle em silêncio. Para saber onde a base está, leia `version.json`.
 
-  No app nativo o rótulo mostra os **dois índices** — `Web v5.76 · Shell v1.24`
+  No app nativo o rótulo mostra os **dois índices** — `Web v5.77 · Shell v1.25`
   —, porque base web e shell atualizam por caminhos independentes (OTA ×
   instalar APK); no navegador sai só `Controle v<versão>`. **Ele mora no rodapé
   do popup de Configurações** desde a v5.49 (antes ficava no cabeçalho da lista,
@@ -3284,6 +3284,39 @@ aberto):
   **Cronograma** (`imports`), pronto para tocar.
 - **Outras URLs** → `kind` detectado pela extensão (`video`/`audio`/`image`/`url`).
 
+#### O que chegou fica NA FRENTE do operador (v5.77)
+
+Um compartilhamento é um pedido explícito e imediato — ninguém manda um vídeo
+para o app de projeção "para depois". Mas o app pode estar em qualquer lugar
+quando ele chega: na aba Bíblia, com o acervo aberto em tela cheia, dentro de
+uma pasta dos Favoritos, com a seleção múltipla ligada. Até aqui `importShare`
+trocava a variável `activeTab` por baixo de tudo isso e chamava `load()` — o
+operador voltava para o app e via exatamente a tela que tinha deixado, **sem
+sinal nenhum de que algo entrou**.
+
+`focarImportado(id)` roda depois de todo import bem-sucedido:
+
+1. **Sai do que está por cima**, nos dois modos: `exitSelection()` e o
+   fechamento de **todos** os popups abertos, percorrendo a MESMA tabela
+   `POPUPS` que o ✕, o toque no fundo e o botão voltar já usam — um popup novo
+   entra numa linha e passa a ser fechado também por aqui.
+2. **A preview em tela cheia só sai quando há TELÃO.** Sem telão conectado ela
+   **é** a projeção (ver "Divergências"), e derrubá-la para mostrar uma lista
+   tiraria do ar o que estiver em cena. Caro demais para um import — ali o item
+   simplesmente espera no Cronograma.
+3. Então cada modo faz o que aquele modo quer dizer:
+   - **Simplificado → PROJETA na hora** (`send(id)`). Esse modo existe para
+     quem não vai operar nada, e a lista sequer aparece nele: "adicionei ao
+     Cronograma" não significaria nada. Quem compartilha um louvor com o app já
+     conectado à TV quer aquilo no telão.
+   - **Avançado → leva para o Cronograma** (`switchTab('imports')`), que é onde
+     o item entrou, e deixa a decisão de projetar com o operador — que pode
+     estar com outra coisa no ar neste exato segundo.
+
+O alvo é o **primeiro** item que entrou (um share pode trazer vários arquivos),
+e para isso `addMedia`/`addUrlMedia` — que já devolviam o registro — passaram a
+ter o retorno aproveitado; `handleSharedUrl` também devolve o seu.
+
 ### Modos de repetição
 
 Ciclo ao tocar no botão 🔁: `off → all → one → shuffle → off` (persistido em `repeat`).
@@ -4595,7 +4628,33 @@ anterior) sofria.
   então o wrapper nunca precisa conhecer detalhes do iframe da API.
 - **UI mínima**: `playerVars` pede `controls:0`, `disablekb:1`, `fs:0`,
   `iv_load_policy:3`, `rel:0` — sem barra de controles, teclado, fullscreen,
-  anotações ou vídeos relacionados ao final. O wrapper tem
+  anotações ou vídeos relacionados ao final.
+- **LEGENDA NUNCA** (v5.77). Num telão de culto ela cobre a parte de baixo do
+  vídeo — exatamente onde a Camada de Texto escreve — e vem no idioma e no
+  gosto da CONTA logada no WebView, não numa escolha do operador.
+  `cc_load_policy: 0` é só metade: ele diz "não force a legenda" e **perde**
+  para o "sempre mostrar legendas" da conta. A outra metade é `ytKillCaptions`,
+  que chama `unloadModule('cc')` (player HTML5) e `unloadModule('captions')`
+  (o legado) — descarrega o módulo em vez de pedir educadamente. Roda no
+  `onReady` **e de novo no primeiro `PLAYING`**: o módulo de legenda costuma
+  entrar junto com a faixa de vídeo, ou seja, depois do ready — descarregar só
+  ali deixava a legenda voltar no primeiro quadro.
+- **O vídeo não para porque o app saiu da frente** (`ytWatchResume`, v5.77).
+  Com o app minimizado o telão segue projetando (a `Presentation` não morre com
+  a Activity) e um `<video>` local continua tocando; o embed do YouTube, não —
+  o player dele **pausa sozinho** quando a página passa a "oculta", que é o que
+  o Android reporta ao WebView quando o app vai para segundo plano. O louvor
+  parava no meio.
+  Aqui isso é sempre um engano, e dá para AFIRMAR: com `controls:0`,
+  `disablekb:1`, `pointer-events:none` no wrapper e o escudo anti-UI,
+  **ninguém pausa este vídeo pelo telão**. Então toda pausa que o app não pediu
+  (`yt.wantPlaying`, a intenção de transporte, escrita pelos comandos
+  `play`/`pause`) veio do próprio YouTube, e a resposta é mandar tocar de novo,
+  700 ms depois, conferindo antes se ele já não saiu da pausa sozinho.
+  **Limitado a 4 tentativas**, e não um laço eterno: se o vídeo parar por um
+  motivo real e permanente (um erro do embed), insistir para sempre seria uma
+  briga invisível com o player. A cota zera a cada `PLAYING`, então uma sessão
+  longa com várias idas ao segundo plano é recuperada todas as vezes. O wrapper tem
   `pointer-events:none` (CSS) — toque/hover no telão nunca invoca overlays;
   todo o transporte vem do Controle. `allow="autoplay; fullscreen;
   encrypted-media; picture-in-picture"` é aplicado programaticamente no
