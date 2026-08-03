@@ -2946,17 +2946,25 @@ pesquisar de novo, compartilhar de volta, esperar. Agora é digitar uma vez.
 - **O botão manual SAIU onde o shell sabe pesquisar** (v5.91). Ele existia para
   quem decidisse antes de rolar; com a busca disparando sozinha ao chegar no
   fim, virou um botão que quase sempre era apertado depois de a busca já ter
-  começado. No lugar dele fica uma **linha de estado** (`.yt-auto`), que faz os
-  três papéis que ele fazia e nenhum a mais: é a SENTINELA que o observador
+  começado. No lugar dele fica um **cabeçalho de seção** (`.yt-head`), que faz
+  os três papéis que ele fazia e nenhum a mais: é a SENTINELA que o observador
   vigia (por isso precisa de altura de verdade — um `li` de altura zero é uma
   aposta na forma como o navegador trata a interseção de área nula), é o sinal
   de que a busca está em curso (anel + "Procurando no YouTube…") e, depois, o
-  rótulo que separa o acervo dos resultados ("Resultados do YouTube", ou "Nada
+  rótulo que separa o acervo dos resultados ("Resultados do YouTube:", ou "Nada
   encontrado no YouTube."). O termo entre aspas saiu junto com o botão: ele
   dizia "vou levar ISTO para fora do app", e numa linha de estado logo abaixo
   do campo em que o operador acabou de digitar ele só quebrava a frase em duas
   linhas. **O botão continua onde é a única saída**: navegador e shell < 18, que
   não sabem pesquisar de dentro do app.
+- **Cabeçalho, e não linha de aviso** (v5.92). O que vem abaixo dele não é mais
+  o acervo, e até aqui a lista não dava esse degrau: as duas origens vinham
+  coladas, com a mesma anatomia de linha, e só o nome do canal no subtítulo
+  denunciava a troca. O filete em cima é a separação; o alinhamento à ESQUERDA
+  e o peso são o que fazem ler como título de seção — centrado, lia como mais
+  um item da lista. Pela mesma razão a frase do acervo vazio virou "Nenhuma
+  música encontrada **no acervo**": com o cabeçalho do YouTube logo abaixo, uma
+  negativa sem escopo parece negar a busca inteira.
 - **O toque num resultado abre a MESMA folha de três escolhas das músicas do
   acervo** (v5.86): *Tocar agora* · *Adicionar à playlist* · *Adicionar ao
   Cronograma*. Antes o toque baixava direto — o operador não escolhia nada e o

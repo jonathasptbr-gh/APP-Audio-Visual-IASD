@@ -156,7 +156,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.91';
+const WEB_VERSION = '5.92';
 
 // Escrita UMA vez, na carga: o indicador mora no rodapé de Configurações desde
 // a v5.49 e não depende mais de qual aba está aberta (no cabeçalho ele
@@ -7014,7 +7014,9 @@ function renderSearchResults(query) {
     return;
   }
   if (matches.length === 0) {
-    hymnResultsEl.innerHTML = '<li class="empty">Nenhuma música encontrada.</li>';
+    // "no acervo" não é detalhe: logo abaixo vem o cabeçalho dos resultados do
+    // YouTube, e sem dizer ONDE não achou a frase parece negar a busca inteira.
+    hymnResultsEl.innerHTML = '<li class="empty">Nenhuma música encontrada no acervo.</li>';
     appendYoutubeSearch(query);
     return;
   }
@@ -7074,9 +7076,17 @@ function appendYoutubeSearch(texto) {
   const li = document.createElement('li');
   if (aquiDentro) {
     const buscou = ytBuscaItens && ytBuscaTermo === termo;
-    li.className = 'empty yt-auto';
+    // CABEÇALHO DE SEÇÃO, não uma linha de aviso solta (v5.92): o que vem
+    // abaixo dele não é mais o acervo, e a lista não dava esse degrau — as duas
+    // origens vinham coladas, com a mesma anatomia de linha, e só o nome do
+    // canal no subtítulo denunciava a troca. O filete em cima é a separação; o
+    // alinhamento à esquerda e o peso são o que fazem ler como título de seção
+    // e não como mais um item.
+    li.className = 'yt-head';
     if (buscou) {
-      li.textContent = ytBuscaItens.length ? 'Resultados do YouTube' : 'Nada encontrado no YouTube.';
+      li.textContent = ytBuscaItens.length
+        ? 'Resultados do YouTube:'
+        : 'Nada encontrado no YouTube.';
     } else {
       // Ainda não buscou, ou está buscando: os dois estados desenham a mesma
       // coisa de propósito. A linha só é VISTA quando a lista chega ao fim, e
