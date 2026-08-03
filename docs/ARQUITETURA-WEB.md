@@ -15,16 +15,16 @@ offline.
 2. [Regras de desenvolvimento](#regras-de-desenvolvimento) — invariantes do projeto
 3. [A ideia](#a-ideia-duas-telas-um-só-estado) — duas telas, um só estado
 4. [Estrutura de arquivos](#estrutura-de-arquivos)
-5. [Modelo de dados (`shared/db.js`)](#modelo-de-dados-shareddbjs) — IDB, OPFS, BroadcastChannel
-6. [Motor de renderização (`shared/stage.js`)](#motor-de-renderização-sharedstagejs) — cortina, fades, concorrência
-7. [Controle](#controle) — layout, mixer, biblioteca, coleções (LouvorJA), letra sincronizada
-8. [Camada de Texto](#camada-de-texto-bíblia--mensagens--letra) — Bíblia, Mensagens, letra avulsa, cronômetro, sorteio, letra sincronizada
-9. [Bíblia](#bíblia-aba-bible) — seleção, leitura e projeção
-10. [Display](#display) — wallpaper, YouTube, microfone, recuperação de áudio
-11. [Design System](#design-system--a-paleta-sala-escura-âmbar) — a paleta "Sala Escura", tokens, contraste
-12. [Como esta base é servida](#como-esta-base-é-servida)
+5. [Documento em cena](#documento-em-cena-pdf-powerpoint-google-apresentações) — PDF, PowerPoint e Google Apresentações viram páginas
+6. [Modelo de dados (`shared/db.js`)](#modelo-de-dados-shareddbjs) — IDB, OPFS, BroadcastChannel
+7. [Motor de renderização (`shared/stage.js`)](#motor-de-renderização-sharedstagejs) — cortina, fades, concorrência
+8. [Controle](#controle) — layout, mixer, biblioteca, coleções (LouvorJA), letra sincronizada
+9. [Camada de Texto](#camada-de-texto-bíblia--mensagens--letra) — Bíblia, Mensagens, letra avulsa, cronômetro, sorteio, letra sincronizada
+10. [Bíblia](#bíblia-aba-bible) — seleção, leitura e projeção
+11. [Display](#display) — wallpaper, YouTube, microfone, recuperação de áudio
+12. [Design System](#design-system--a-paleta-sala-escura-âmbar) — a paleta "Sala Escura", tokens, contraste
 13. [Fonte de ícones (Material Symbols)](#fonte-de-ícones-material-symbols)
-14. [Build, distribuição e instalação](#build-distribuição-e-instalação)
+14. [Build, distribuição e instalação](#build-distribuição-e-instalação) — e como esta base é SERVIDA (asset loader + OTA)
 
 ---
 
@@ -67,7 +67,30 @@ git push origin main
   !important`, que vence o `*` pela maior especificidade) — os campos de busca
   (`#libSearch`/`#hymnSearchInput`) precisam continuar editáveis/selecionáveis.
 - Toda operação IDB multi-passo que precise de atomicidade deve usar `storeTx()`.
-- Não introduzir dependências externas — JavaScript puro no cliente, Kotlin puro + AndroidX oficial no shell. (Exceção já existente: Display **e** Controle carregam a IFrame Player API oficial do YouTube via `<script src="https://www.youtube.com/iframe_api">` em runtime — não é dependência de build/npm, e o recurso YouTube já depende de rede/youtube.com para tocar o vídeo mesmo sem essa API. O Controle usa isso para a preview de vídeos do YouTube — ver seção do YouTube.)
+- **Mídia PARADA não tem pulso — teste com ela.** Boa parte da UI do Controle é
+  reposta de graça pelo `timeupdate` da preview, que só existe em áudio e vídeo.
+  Uma imagem (e uma apresentação, que é imagem) não dispara nada: ali, um estado
+  que alguém esqueceu de redesenhar fica **permanente**, enquanto no áudio ele se
+  conserta sozinho no quadro seguinte e passa despercebido. Foi assim o defeito
+  da v5.101 (ver "Documento em cena"). Ao mexer em qualquer render de cena,
+  repita o teste com uma imagem em cena, não só com uma música.
+- Não introduzir dependências externas — JavaScript puro no cliente, Kotlin puro
+  + AndroidX oficial no shell. **Duas exceções deste lado, e as duas carregam sob
+  demanda:**
+  - a **IFrame Player API do YouTube** (`<script src="https://www.youtube.com/iframe_api">`,
+    em runtime, no Display **e** no Controle) — não é dependência de build/npm, e
+    o recurso YouTube já depende de rede/youtube.com para tocar o vídeo mesmo sem
+    ela. O Controle a usa na preview — ver a seção do YouTube;
+  - o **renderizador de `.pptx`** (`vendor/pptx-renderer.js`, Apache-2.0, por
+    `import()` dinâmico) — existe porque o Android **não desenha PowerPoint** e
+    as alternativas eram todas piores: bibliotecas nativas comerciais, um
+    servidor de conversão (que manda o material do culto para fora do aparelho)
+    ou escrever DrawingML à mão (que produz um slide PARECIDO com o que o pastor
+    montou). O levantamento inteiro está no `LEIA-ME.md` daquela pasta.
+
+  Uma terceira exceção precisa do mesmo tipo de justificativa: um problema que
+  não se resolve de outro jeito, e a conta da manutenção paga por quem publica
+  a biblioteca.
 - Ao atualizar o código, atualizar este documento se a mudança afetar arquitetura, protocolo de comandos ou API pública. Mudanças no shell (Kotlin) vão em `../CLAUDE.md`.
 - **Todo código novo precisa continuar rodando no navegador.** Caminhos
   específicos do nativo entram sempre como `if (!window.__NATIVE__) { …web… }`
@@ -148,6 +171,10 @@ app/src/main/assets/web/
 │   ├── material-symbols.css    # Font-face da fonte de ícones (subset offline; só o Controle usa)
 │   └── fonts/
 │       └── material-symbols.woff2  # ~3.2 KB — 30 glifos
+├── vendor/                     # ÚNICO código de terceiro daqui — carregado sob demanda
+│   ├── pptx-renderer.js        # desenha .pptx (Apache-2.0); ver o LEIA-ME da pasta
+│   ├── LICENSE-pptx-renderer.txt
+│   └── LEIA-ME.md              # por que a exceção existe, e como atualizar
 ├── controle/
 │   ├── index.html              # UI do operador
 │   ├── controle.css            # Estilos do Controle
@@ -164,11 +191,17 @@ docs/
 
 Sem `manifest.json`, sem `icons/`, sem `sw.js` e sem `server.js`: ícone, nome e
 orientação vêm do APK, os arquivos são locais por natureza e a atualização é
-por OTA (ver "Como esta base é servida").
+por OTA (ver "Build, distribuição e instalação", no fim, e o `CLAUDE.md`).
+
+`vendor/` é a única pasta aqui que não é código do projeto, e **nada fora do
+caminho do `.pptx` a carrega**: ela entra por `import()` dinâmico, na hora em
+que alguém importa uma apresentação. Um arquivo buildado de 1,5 MB no boot
+custaria isso a todo culto, e a todo aparelho, para um recurso que a maioria
+dos cultos não usa.
 
 ---
 
-## Documento em cena: PDF, PowerPoint, Google Apresentações (v5.97 · v5.99)
+## Documento em cena: PDF, PowerPoint, Google Apresentações
 
 O que o operador tem na mão é um PDF, um PowerPoint ou um Google
 Apresentações. O que o app guarda é **uma imagem por página** — e é essa
@@ -3411,7 +3444,7 @@ download é permitido.
 
 > **Nota de rede**: a API de produção precisa aceitar CORS para a origin em que
 > a base roda — no aparelho, `https://appassets.androidplatform.net`, servida
-> pelo `WebViewAssetLoader` do shell (ver "Como esta base é servida"); no
+> pelo `WebViewAssetLoader` do shell (ver "Build, distribuição e instalação"); no
 > navegador, o que o servidor estático de desenvolvimento usar. Não verificado
 > em produção: a rede das sessões de desenvolvimento não alcança
 > `api.louvorja.com.br`. Se o `fetch` falhar por CORS, a sincronização e a

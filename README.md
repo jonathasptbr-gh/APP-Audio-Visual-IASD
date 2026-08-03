@@ -10,6 +10,12 @@ letra sincronizada, Bíblia, mensagens, coleções do LouvorJA, YouTube) roda nu
 base web hospedada em dois WebViews do mesmo processo e mesmo origin — que por
 isso compartilham IndexedDB, OPFS e o canal de comandos.
 
+**Documento também é mídia.** PDF, PowerPoint (`.pptx`) e Google Apresentações
+entram pelo mesmo "Importar arquivos" (ou pelo compartilhamento) e viram uma
+imagem por página — daí para a frente têm o fade, a cortina, o telão e os
+botões ⏮/⏭ passando página, como qualquer outro item. Não há botão nem fluxo
+separado para apresentação: é um arquivo como os outros.
+
 ## Instalar
 
 1. Baixe o `.apk` mais recente em **[Releases](../../releases)** (link direto,
