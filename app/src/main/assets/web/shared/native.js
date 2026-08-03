@@ -254,6 +254,12 @@
       };
       return call((id) => B.ytFetch(id, String(url)));
     },
+    // Busca no YouTube DENTRO do app: devolve
+    // `[{ id, url, name, author, seconds, thumb }]`. Lista vazia num shell
+    // antigo (o `call` resolve null) — quem chama já não desenha a seção.
+    ytSearch: (termo) => call((id) => B.ytSearch(id, String(termo)), CALL_TIMEOUT_MS)
+      .then((r) => r || []),
+
     // Apaga o arquivo intermediário depois que os bytes já foram para a
     // biblioteca — senão o vídeo fica DUAS vezes no aparelho.
     ytDiscard(url) { try { B.ytDiscard(String(url)); } catch (_) { /* shell antigo */ } },

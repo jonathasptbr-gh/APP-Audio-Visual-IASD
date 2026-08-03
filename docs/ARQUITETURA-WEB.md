@@ -94,7 +94,7 @@ git push origin main
   MENOR que o já publicado — caso em que `WebUpdater.compareVersions` ignora o
   bundle em silêncio. Para saber onde a base está, leia `version.json`.
 
-  No app nativo o rótulo mostra os **dois índices** — `Web v5.84 · Shell v1.29`
+  No app nativo o rótulo mostra os **dois índices** — `Web v5.85 · Shell v1.30`
   —, porque base web e shell atualizam por caminhos independentes (OTA ×
   instalar APK); no navegador sai só `Controle v<versão>`. **Ele mora no rodapé
   do popup de Configurações** desde a v5.49 (antes ficava no cabeçalho da lista,
@@ -2829,6 +2829,35 @@ passou a existir; a volta já existia.
 - **Uma LUPA, não o logotipo do YouTube.** O que o botão faz é uma busca;
   desenhar a marca de outro app promete que ele abre lá dentro em algum lugar
   específico. Quem nomeia o destino é o texto ao lado.
+#### E, desde a v5.85, a BUSCA acontece aqui dentro
+
+O botão continua sendo o mesmo, mas num shell ≥ 18 ele **não sai mais do app**:
+`AVNative.ytSearch(termo)` devolve os resultados e eles entram **na mesma
+lista**, abaixo do botão, com miniatura 16:9, título, canal e duração. O toque
+num resultado **já baixa** — o aviso vai para a linha do Cronograma (v5.84) e a
+linha do resultado fica marcada, porque o acervo continua aberto e sem essa
+marca o operador toca de novo achando que não pegou.
+
+Isso encurta um caminho que era absurdo: sair do app, abrir o YouTube,
+pesquisar de novo, compartilhar de volta, esperar. Agora é digitar uma vez.
+
+- **Quem pesquisa é o Kotlin** (`YoutubeGrab.pesquisar`, o mesmo
+  `NewPipeExtractor` da extração), e não o WebView: ali não existe CORS, e a
+  requisição sai do IP do aparelho. As duas alternativas não serviam — um
+  `<iframe>` da página de resultados é recusado pelo `X-Frame-Options` do
+  YouTube, e a API oficial exigiria uma chave embutida no APK com cota diária
+  dividida por toda a frota.
+- **Só vídeos** no filtro de conteúdo: canal e playlist não têm o que fazer numa
+  lista cujo único destino é virar arquivo de mídia.
+- **A miniatura é montada a partir do ID** (`i.ytimg.com/vi/<id>/mqdefault.jpg`)
+  em vez de vir da biblioteca: é uma URL estável há mais de uma década, e assim
+  o formato das imagens do extrator — que já mudou entre versões — deixa de ser
+  algo capaz de quebrar a lista.
+- **Digitar outro termo descarta os resultados anteriores**: uma lista de outra
+  busca embaixo do campo é pior que nenhuma.
+- Num shell < 18 o botão volta a ser o que sempre foi: abre o YouTube por fora.
+
+
 - **Ele exige shell ≥ 15** (`AVNative.openExternal`), e por isso **não é
   desenhado** num shell mais antigo: o WebView recusa navegar para fora do
   origin, então ali o toque não faria nada — nem erro no console. Um botão morto

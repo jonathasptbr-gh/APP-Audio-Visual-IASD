@@ -82,7 +82,7 @@ class NativeBridge(
          * exijam mais do que o shell instalado oferece (ver [WebUpdater]).
          * Subir SEMPRE que a superfície da ponte mudar.
          */
-        const val SHELL_VERSION = 17
+        const val SHELL_VERSION = 18
 
         /**
          * Fila de IO da ponte, **compartilhada por todas as instâncias**.
@@ -327,6 +327,20 @@ class NativeBridge(
                 YoutubeGrab.buscar(ctx, url) { lidos, total -> ytProgresso(callId, lidos, total) }
             } catch (_: Exception) { null }
             resolve(callId, r?.toString() ?: "null")
+        }
+    }
+
+    /**
+     * Busca no YouTube, de dentro do app — devolve uma lista de
+     * `{ id, url, name, author, seconds, thumb }`. Ver [YoutubeGrab.pesquisar]
+     * para por que isto não pode ser um iframe nem a API oficial.
+     */
+    @JavascriptInterface
+    fun ytSearch(callId: String, termo: String) {
+        if (host == null) { resolve(callId, "[]"); return }
+        io.execute {
+            val r = try { YoutubeGrab.pesquisar(termo) } catch (_: Exception) { JSONArray() }
+            resolve(callId, r.toString())
         }
     }
 
