@@ -115,10 +115,11 @@ class MainActivity : ComponentActivity(), BridgeHost {
     }
 
     /** Callback do `AVNative.pickDoc()` em andamento. */
-    private var pendingDocPick: ((Uri?) -> Unit)? = null
+    private var pendingDocPick: ((List<Uri>) -> Unit)? = null
 
     /**
-     * Seletor de DOCUMENTO (hoje: o PDF de uma apresentação).
+     * Seletor de ARQUIVOS do sistema — a importação inteira do app passa por
+     * aqui (imagem, vídeo, áudio, PDF e PPTX), não só documentos.
      *
      * O `<input type="file">` da página não serve para isto: ele devolve ao
      * JavaScript um `File` — bytes já lidos —, e quem desenha o PDF é o shell,
@@ -131,11 +132,11 @@ class MainActivity : ComponentActivity(), BridgeHost {
      * exatamente o que o [SlideDeck] faz.
      */
     private val docPicker = registerForActivityResult(
-        ActivityResultContracts.OpenDocument(),
-    ) { uri ->
+        ActivityResultContracts.OpenMultipleDocuments(),
+    ) { uris ->
         val cb = pendingDocPick
         pendingDocPick = null
-        cb?.invoke(uri)
+        cb?.invoke(uris ?: emptyList())
     }
 
     private val folderPicker = registerForActivityResult(
@@ -555,7 +556,7 @@ class MainActivity : ComponentActivity(), BridgeHost {
         }
     }
 
-    override fun requestDocPick(mimes: Array<String>, onResult: (Uri?) -> Unit) {
+    override fun requestDocPick(mimes: Array<String>, onResult: (List<Uri>) -> Unit) {
         runOnUiThread {
             pendingDocPick = onResult
             try {
@@ -563,7 +564,7 @@ class MainActivity : ComponentActivity(), BridgeHost {
             } catch (e: Exception) {
                 Log.w(TAG, "seletor de documento indisponível", e)
                 pendingDocPick = null
-                onResult(null)
+                onResult(emptyList())
             }
         }
     }

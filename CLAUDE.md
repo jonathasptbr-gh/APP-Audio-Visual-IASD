@@ -69,6 +69,8 @@ app/src/main/
 │   ├── shared/native.js         #   ponte AVNative + watchdog do OTA (NÃO existe no PWA)
 │   ├── shared/db.js             #   + relay nativo no canal de comandos
 │   ├── shared/stage.js          #   motor de mídia (compartilhado Controle/Display)
+│   ├── vendor/                  #   ÚNICO código de terceiro do lado web:
+│   │                            #   o renderizador de .pptx (ver o LEIA-ME de lá)
 │   ├── controle/                #   (sem sw.js / manifest / icons — ver abaixo)
 │   └── display/                 #   (idem)
 ├── java/br/org/iasd/av/
@@ -219,7 +221,7 @@ navegador a IIFE retorna logo na entrada e nada é definido, nem `__NATIVE__`.
 ```js
 window.AVNative = {
   pickFolder(),        // → { id, name, uri }   (SAF ACTION_OPEN_DOCUMENT_TREE)
-  pickDoc(),           // → { url, name }: escolhe UM PDF (SAF ACTION_OPEN_DOCUMENT)
+  pickDoc(mimes),      // → [{ url, name, type }]: o SELETOR DE ARQUIVOS do aparelho
   listFolder(uri),     // → [{ name, size, mtime, type, url }]   (só no Controle)
   onShare(cb),         // cb({ files:[{name,type,size,url}], url, title })
   displays(),          // → [{ id, name, w, h, density }]
@@ -305,8 +307,10 @@ esperam uma **pessoa** e ficam sem prazo, porque um timeout ali resolveria null
 com o operador ainda escolhendo a pasta.
 
 `NativeBridge.SHELL_VERSION` identifica a versão da casca — **subir sempre que
-a superfície da ponte mudar**. Hoje vale **20** — a v5.98 acrescentou o `pickDoc`
-(o seletor de PDF do sistema), a v5.97 os três métodos da
+a superfície da ponte mudar**. Hoje vale **21** — a v5.99 mudou a ASSINATURA do
+`pickDoc` (que passou a receber os mimes e a devolver uma LISTA, porque virou a
+importação inteira do app e não só o seletor de PDF), a v5.98 o acrescentou, a
+v5.97 os três métodos da
 APRESENTAÇÃO (`deckPages`/`deckExportUrl`/`deckDiscard`), a v5.85 acrescentou
 `ytSearch`, a v5.83 `keepAudioAlive`, a v5.81 `ytFetch`/`ytDiscard` e a v5.76
 `openExternal`. (A v5.48 não a mexeu: nenhum método foi acrescentado ou teve
@@ -871,7 +875,7 @@ contextos.
 | Onde o share ATERRISSA | idem ao nativo (o caminho é o mesmo `importShare`) | **`focarImportado`** (v5.77): fecha os popups abertos e a seleção, e então **projeta na hora** no simplificado ou **vai para o Cronograma** no avançado — e no simplificado o item NÃO entra em lista visível nenhuma (v5.89: vai para a prateleira `avulsos`), porque aquela tela não tem Cronograma nem playlist. A preview em tela cheia só é encerrada se houver telão — sem ele, ela É a projeção |
 | Estado do telão (rodapé de Configurações) | atalho `window.open('../display/')`, útil só para desenvolver | **indicador ao vivo** (desabilitado como botão) — a Presentation é criada sozinha |
 | Botão de cast da preview | oculto | `AVNative.openCast()` → seletor de **espelhamento de tela** (ver abaixo) |
-| Apresentação (PDF / Google Apresentações) | **não existe**: sem quem desenhe o PDF, o arquivo não vira mídia | **vira UMA IMAGEM POR PÁGINA** (`SlideDeck.kt` + `AVNative.deckPages`), com o `PdfRenderer` da PLATAFORMA — fidelidade total e zero dependência nova. Daí para a frente é mídia comum: fade, cortina, telão e `MediaSession` que já existem, com ⏮/⏭ passando página. O `.pptx` fica de fora de propósito: não há no Android quem o desenhe, e um slide "quase igual" na frente da congregação é pior que slide nenhum — PowerPoint e Google exportam PDF em dois toques, e o link do Google entra sozinho pela URL de exportação. O PDF entra pelo compartilhamento OU pelo botão "Apresentação (PDF)", que abre o seletor do SISTEMA (`pickDoc`) — o `<input type="file">` não serve aqui, porque devolve bytes e o shell precisa do arquivo |
+| PDF, PowerPoint, Google Apresentações | **PDF não existe** (não há quem o desenhe); o `.pptx` funciona, e é o MESMO caminho do app | **viram UMA IMAGEM POR PÁGINA**, cada formato pelo caminho que existe para ele: o **PDF** pelo `PdfRenderer` da PLATAFORMA (`SlideDeck.kt` + `AVNative.deckPages`) — fidelidade total, zero dependência; o **`.pptx`** pelo renderizador de OOXML em `assets/web/vendor/` (`pptxParaPaginas`, em `controle.js`), carregado por `import()` dinâmico e rasterizado com `<foreignObject>` + canvas. Daí para a frente é mídia comum: fade, cortina, telão e `MediaSession` que já existem, com ⏮/⏭ passando página. **Não há botão de "apresentação"**: uma apresentação é um arquivo como outro qualquer, e entra pelo mesmo "Importar arquivos" (que no app abre o seletor do SISTEMA, `pickDoc` — o `<input type="file">` devolve bytes, e o PDF precisa que o shell abra o ARQUIVO) ou pelo compartilhamento. O `.ppt` anterior a 2007 e o `.odp` ficam de fora: ninguém sabe desenhá-los, e aceitar para depois falhar é pior que não aceitar. O link do Google entra sozinho pela URL de exportação |
 | Vídeo do YouTube | player embutido (IFrame API) | **arquivo de vídeo baixado PELO APARELHO** (`YoutubeGrab.kt` + `AVNative.ytFetch`) — o embed pausa sozinho com o app minimizado, e a extração no próprio celular sai do IP do chip, que é o que o YouTube não bloqueia. Sem configurar nada. Cobalt continua como segunda opção para quem já mantém uma instância; falhando os dois, o link vira item de player |
 | Buscar no YouTube | não existe: o botão abre o YouTube numa aba | **a busca acontece DENTRO do acervo** — a tela que o rótulo chama de **Biblioteca** desde a v5.96, e que no código segue sendo o acervo — (`AVNative.ytSearch`, `YoutubeGrab.pesquisar`, em **português** — no padrão en-GB da biblioteca o YouTube devolve o título TRADUZIDO de vídeos que são originalmente em português, e passar a localização ao `NewPipe.init` NÃO resolve: o serviço filtra o idioma por uma lista de suportados que hoje só tem `en-GB`. Quem resolve é o `forceLocalization` do próprio `Extractor`): os resultados entram na mesma lista e o toque abre a mesma folha de três escolhas das músicas (tocar · playlist · Cronograma), cada uma indo só para o seu lugar. Um iframe da página de resultados é recusado pelo `X-Frame-Options` do YouTube, e a API oficial exigiria chave com cota compartilhada pela frota |
 | Link para fora do app ("Pesquisar … no YouTube") | `window.open` numa aba nova | **`AVNative.openExternal(url)`** → `ACTION_VIEW` numa tarefa própria. O WebView RECUSA navegar para outro origin (invariante 2), então sem esse método um link externo não faz absolutamente nada — nem erro no console |
@@ -1274,15 +1278,23 @@ Rodar local: `./gradlew assembleDebug` (exige Android SDK instalado).
 - **Todo código novo em `assets/web/` precisa continuar rodando no navegador.**
   Caminhos nativos entram sempre como `if (!window.__NATIVE__) { …web… }`.
 - Não introduzir dependências externas — Kotlin puro + AndroidX oficial no
-  shell; JavaScript puro no web. **Duas exceções, e as duas são declaradas:** a
-  IFrame Player API do YouTube (carregada em runtime) e o
+  shell; JavaScript puro no web. **Três exceções, e as três são declaradas:** a
+  IFrame Player API do YouTube (carregada em runtime), o
+  **`@aiden0z/pptx-renderer`** (v5.99, em `assets/web/vendor/`, Apache-2.0,
+  carregado por `import()` dinâmico só quando alguém importa um `.pptx`), que
+  existe porque o Android **não desenha PowerPoint** — a plataforma só traz o
+  `PdfRenderer`, as bibliotecas nativas que fazem isso são comerciais ou
+  limitadas a três páginas, converter num servidor mandaria o material do culto
+  para fora do aparelho, e escrever DrawingML à mão produziria um slide PARECIDO
+  com o que o pastor montou, que na frente da congregação é pior que slide
+  nenhum (o levantamento inteiro está no `LEIA-ME.md` daquela pasta) — e o
   **`NewPipeExtractor`** (v5.81), que existe porque extrair a URL de um vídeo do
   YouTube significa acompanhar as defesas deles — os PO Tokens de hoje são
   atrelados a cada vídeo e assinados por BotGuard/DroidGuard, e escrever isso à
   mão seria assinar um contrato de manutenção semanal que quebraria sempre num
   domingo. A alternativa sem dependência era um servidor público, e ela FALHOU
   em aparelho: eles rodam em IP de datacenter, que é exatamente o que o YouTube
-  bloqueia. Ver `YoutubeGrab.kt`. Uma terceira exceção precisa do mesmo tipo de
+  bloqueia. Ver `YoutubeGrab.kt`. Uma quarta exceção precisa do mesmo tipo de
   justificativa: um problema que não se resolve de outro jeito, e a conta da
   manutenção paga por quem publica a biblioteca.
 - Toda operação IDB multi-passo que precise de atomicidade usa `storeTx()`.
@@ -1311,7 +1323,7 @@ aparelho nenhum.
 O `versionCode`/`versionName` do APK vêm do CI (ver "Build") e não se tocam à
 mão.
 
-**Versão atual: v5.98** (base web) · `SHELL_VERSION` **20**, e o bundle segue com
+**Versão atual: v5.99** (base web) · `SHELL_VERSION` **21**, e o bundle segue com
 `minShell: 2` — ele funciona igual num shell antigo, só sem os recursos que são
 nativos por construção (a escada do voltar, os botões de volume, a notificação de
 controles), que **só chegam instalando o APK novo**, não pelo OTA.

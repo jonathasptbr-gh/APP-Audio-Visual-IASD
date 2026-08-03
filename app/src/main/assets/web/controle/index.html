@@ -186,7 +186,9 @@
          linha "Importar arquivos" no fim do Cronograma a cada render (ver
          appendImportRow em controle.js) — assim sobrevive ao innerHTML=''
          que reconstrói a lista, sem perder o listener de `change`. -->
-    <input id="file" type="file" accept="image/*,video/*,audio/*" multiple hidden>
+    <input id="file" type="file"
+           accept="image/*,video/*,audio/*,.pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation"
+           multiple hidden>
   </main>
 
   <!-- controles multimídia fixados na base -->
@@ -615,7 +617,7 @@
              METADADO de diagnóstico e o lugar onde se procura diagnóstico é
              junto do estado do telão e do alvo de espelhamento, não numa faixa
              de navegação. Preenchido por `renderVersionLabel`. -->
-        <span id="appVersion" class="app-version">Controle v5.98</span>
+        <span id="appVersion" class="app-version">Controle v5.99</span>
       </div>
     </div>
   </div>

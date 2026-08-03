@@ -96,14 +96,20 @@
                 <data android:mimeType="image/*" />
                 <data android:mimeType="video/*" />
                 <data android:mimeType="audio/*" />
-                <!-- APRESENTAÇÃO. O app aceita o PDF, que é o formato em que
-                     PowerPoint e Google Apresentações exportam com dois toques
-                     e o único que o Android sabe desenhar sozinho (SlideDeck.kt
-                     usa o PdfRenderer da plataforma). Os formatos de origem
-                     (.pptx, .odp) ficam DE FORA de propósito: aparecer na lista
-                     de compartilhamento e depois não conseguir projetar o
-                     arquivo é pior do que não aparecer. -->
+                <!-- DOCUMENTO. PDF comum (não só apresentação: um roteiro, uma
+                     partitura, um comunicado) vira uma imagem por página pelo
+                     PdfRenderer da PLATAFORMA, em SlideDeck.kt — fidelidade
+                     total e zero dependência. -->
                 <data android:mimeType="application/pdf" />
+                <!-- E o PowerPoint DE VERDADE (.pptx): quem o desenha é o próprio
+                     WebView, com o renderizador de OOXML em assets/web/vendor (ver
+                     o LEIA-ME de lá). Aceitar só o PDF obrigaria o operador a
+                     converter antes de compartilhar, que é atrito no domingo de
+                     manhã. O `.ppt` binário anterior a 2007 e o `.odp` ficam de
+                     fora: ninguém aqui sabe desenhá-los, e aparecer na lista de
+                     compartilhamento para depois falhar é pior do que não
+                     aparecer. -->
+                <data android:mimeType="application/vnd.openxmlformats-officedocument.presentationml.presentation" />
             </intent-filter>
 
             <intent-filter>
@@ -113,6 +119,7 @@
                 <data android:mimeType="video/*" />
                 <data android:mimeType="audio/*" />
                 <data android:mimeType="application/pdf" />
+                <data android:mimeType="application/vnd.openxmlformats-officedocument.presentationml.presentation" />
             </intent-filter>
         </activity>
 
