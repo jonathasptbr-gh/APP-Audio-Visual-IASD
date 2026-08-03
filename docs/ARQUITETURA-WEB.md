@@ -170,11 +170,11 @@ por OTA (ver "Como esta base é servida").
 
 ## Modelo de dados (`shared/db.js`)
 
-### IndexedDB — banco `av-iasd` v2
+### IndexedDB — banco `av-iasd` v3
 
 | Object Store | Chave | Conteúdo |
 |---|---|---|
-| `media` | `id` (UUID) | `{ id, blob, url, thumb, type, kind, name, youtubeId, createdAt }` |
+| `media` | `id` (UUID), índice `youtubeId` | `{ id, blob, url, thumb, type, kind, name, youtubeId, createdAt }` |
 | `files` | `id` (UUID), índice `folder` | catálogo OPFS: `{ id, folder, opfsPath, srcName, name, type, kind, size, mtime, thumb, addedAt }` |
 | `state` | chave string | valor arbitrário (listas, estado atual, pastas, transições…) |
 
@@ -236,9 +236,35 @@ e buscar centenas de arquivos é instantâneo (nunca toca o disco); o arquivo s�
 - `renameMedia` cobre os dois stores (no catálogo, renomeia só a exibição;
   o `opfsPath` não muda).
 
-**Duas listas nomeadas** (arrays de IDs guardados em `state`): `imports`, `playlist`.
-Migração: `imports` herda o antigo state `order` se `imports` ainda não existir.
-(A antiga lista `favorites` foi removida — ver legado nas chaves de `state`.)
+**Três listas nomeadas** (arrays de IDs guardados em `state`): `imports`,
+`playlist` e `avulsos`. Migração: `imports` herda o antigo state `order` se
+`imports` ainda não existir. (A antiga lista `favorites` foi removida — ver
+legado nas chaves de `state`.)
+
+**`avulsos` (v5.87) é a única que o operador não vê.** Ela existe porque
+"Tocar agora" num resultado do YouTube não tem nada a ver com o Cronograma —
+o vídeo só precisa ir ao telão —, mas um registro em lista NENHUMA é
+vazamento permanente: o gc só alcança o que alguma lista já segurou (ver a
+nota das funções removidas na v5.48). `avulsos` é o detentor dessa mídia, e é uma
+prateleira PEQUENA e de tamanho fixo (`AVULSO_MAX` = 3, no Controle): quem
+entra empurra o mais ANTIGO para fora, e aí o `listRemove` decide sozinho — o
+blob some se ninguém mais o quiser e fica inteiro se o Cronograma, a playlist
+ou um Favorito também o tiverem.
+
+O tamanho é a escolha entre dois extremos ruins. Com **um** lugar, voltar ao
+vídeo anterior baixa tudo de novo — exatamente o desperdício que a v5.87
+existe para acabar. **Sem limite**, a mídia que a tela não mostra vira uma
+pilha de centenas de MB que o operador não tem como apagar (não existe tela de
+liberar espaço; o rodapé de uso é só informativo). Três cobre o uso real —
+alternar entre dois ou três vídeos num mesmo culto. O que ele quiser guardar,
+guarda pelas outras duas opções da mesma folha.
+
+**O índice `youtubeId` (v5.87)** responde "este vídeo já está no aparelho?"
+sem desserializar blob nenhum (`getAllKeys` no índice). Registros com
+`youtubeId: null` ficam de fora dele — `null` não é chave IDB válida —, então
+o índice contém exatamente os vídeos vindos do YouTube. É ele que faz o
+`ytArquivo` do Controle reaproveitar o arquivo em vez de baixar o mesmo vídeo
+uma vez por destino escolhido.
 
 O campo `kind` é derivado do `type` (ou definido pelo chamador para itens de URL):
 
@@ -291,9 +317,10 @@ O campo `kind` é derivado do `type` (ou definido pelo chamador para itens de UR
 setState, getState
 stateKeys(prefix)             // chaves de `state` com esse prefixo, numa transação
                               // só e SEM ler valor nenhum — teste de presença em massa
-addMedia(blob, meta)          // cria registro + adiciona a 'imports'
-addUrlMedia(url, meta)        // item de URL externa (blob=null) + adiciona a 'imports'
+addMedia(blob, meta)          // cria registro + adiciona a meta.list (padrão 'imports')
+addUrlMedia(url, meta)        // item de URL externa (blob=null), idem
 getMedia(id), renameMedia(id, name)
+mediaByYoutube(youtubeId)     // o registro desse vídeo, ou null (prefere o que tem blob)
 listIds, listSet, listItems, listHas, listAdd, listRemove, gc
 fileAdd, fileGet, fileDelete, filesByFolder, filesAll   // catálogo OPFS
 opfsSupported, opfsGetFile, opfsWriteFile,              // Origin Private
@@ -343,7 +370,7 @@ listRemove(listName, id)
 
 **`isReferenced` é o ponto único da pergunta "posso destruir este blob?"**, e
 ela precisa cobrir mais do que as duas listas fixas. Até a v5.47 o gc só olhava
-`LISTS` (`imports`/`playlist`), e os **Favoritos ficavam de fora**: cada atalho
+`LISTS` (`imports`/`playlist`/`avulsos`), e os **Favoritos ficavam de fora**: cada atalho
 guarda seus ids em `state['folder_<id>']`, que são listas de mídia como
 qualquer outra, só que em chaves dinâmicas que o gc não conhecia. O resultado
 era destrutivo e silencioso — importar um vídeo, pô-lo num Favorito e depois
@@ -2841,6 +2868,15 @@ marca o operador toca de novo achando que não pegou.
 Isso encurta um caminho que era absurdo: sair do app, abrir o YouTube,
 pesquisar de novo, compartilhar de volta, esperar. Agora é digitar uma vez.
 
+- **O pedido sai em pt-BR** (`NewPipe.init(downloader, Localization("pt","BR"),
+  ContentCountry("BR"))`, v1.32). Sozinho, o `init` usa a localização padrão da
+  biblioteca — **en-GB** —, e o YouTube leva isso a sério: ele TRADUZ o título
+  quando o canal publica traduções ou quando a tradução automática está ligada.
+  O resultado era uma busca por louvor brasileiro voltando com títulos em
+  inglês de vídeos cujo título original é em português — o operador procurava
+  por um nome que não estava mais ali. Fixo, e não herdado do `Locale` do
+  aparelho: o que se quer é o título ORIGINAL, e um celular configurado em
+  inglês traria a tradução de volta.
 - **Quem pesquisa é o Kotlin** (`YoutubeGrab.pesquisar`, o mesmo
   `NewPipeExtractor` da extração), e não o WebView: ali não existe CORS, e a
   requisição sai do IP do aparelho. As duas alternativas não serviam — um
@@ -2891,6 +2927,45 @@ pesquisar de novo, compartilhar de volta, esperar. Agora é digitar uma vez.
     o download ainda correndo — mesma razão do `songRowBusy` das músicas.
   - Concluído fica APAGADO, não desabilitado: o mesmo vídeo pode ser querido de
     novo (uma vez na playlist, outra no Cronograma).
+  - **Cada escolha vai só para o SEU lugar** (v5.87). Até a v5.86 as três caíam
+    no Cronograma junto, porque quem escolhia a lista era o `addMedia` e ela era
+    sempre `imports`: pedir "Tocar agora" enchia a lista do culto de vídeo que o
+    operador só quis ver uma vez, e "Adicionar à playlist" deixava o item em
+    dois lugares sem ninguém ter pedido. A lista de destino agora é decidida no
+    `ytAcao` (`YT_LISTA`) e entregue ao `addMedia`, que continua gravando
+    registro e entrada na lista na MESMA transação — a lista passou a ser
+    escolhida, não dispensada, justamente para o registro nunca nascer órfão.
+    "Tocar agora" vai para `avulsos` (ver o modelo de dados), e é por isso que o
+    subtítulo dos dois primeiros itens diz "sem entrar no Cronograma": é a
+    diferença entre as três opções, e ela não se adivinha pelo ícone.
+  - **O mesmo vídeo não baixa duas vezes** (v5.87, `ytArquivo`). Escolher um
+    destino e depois outro para o MESMO resultado eram dois downloads de dezenas
+    de MB, provavelmente em rede de celular. O registro guarda o `youtubeId`
+    desde que nasce, então a pergunta "já tenho isto?" é uma leitura do índice
+    (`AVDB.mediaByYoutube`). Só vale para quem tem **blob**: um item de player
+    carrega o mesmo `youtubeId` e é justamente o que o download existe para
+    substituir — aceitá-lo faria o botão "baixar o vídeo" da linha do Cronograma
+    devolver o próprio link e parecer que não fez nada. Vale também para o
+    compartilhamento do mesmo link (`handleSharedUrl`).
+  - **O resultado que já está no aparelho nasce marcado** (`marcarYtProntos`):
+    o ✓ passa a dizer as duas coisas — "acabou de baixar" e "já estava aqui" —,
+    que é o que o operador precisa saber antes de escolher o destino. É
+    assíncrono: a lista não espera o IDB, e o estado mora no `ytEstado`, logo
+    sobrevive ao próximo render.
+  - **No SIMPLIFICADO não há folha nenhuma: o toque toca.** As outras duas
+    opções são listas que aquela tela nem mostra, e abrir três escolhas seria
+    devolver ao operador exatamente a decisão que esse modo poupa — é a mesma
+    regra do toque numa música ali (`simplePlaySong`). Vale também para um link
+    compartilhado: no simplificado ele vai para `avulsos` e projeta, sem passar
+    pelo Cronograma. Só para LINK — um share de ARQUIVOS pode trazer vários de
+    uma vez, e com uma prateleira de três cada um apagaria os anteriores; ali o
+    Cronograma continua sendo o destino nos dois modos.
+  - **Onde o aviso aparece tem TRÊS destinos, não dois.** Tocar: cartão sobre a
+    preview. Cronograma: linha provisória na lista (a regra da v5.84). Playlist:
+    **nenhum dos dois** — ela mora dentro de uma bandeja fechada, não há linha
+    para marcar, e desenhar a provisória no Cronograma prometeria um item que
+    nunca vai aparecer lá; ali quem mostra o andamento é a própria linha do
+    resultado e a notificação do sistema.
 - Num shell < 18 o botão volta a ser o que sempre foi: abre o YouTube por fora.
 
 

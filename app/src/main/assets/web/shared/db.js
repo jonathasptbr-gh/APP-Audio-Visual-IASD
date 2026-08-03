@@ -5,7 +5,9 @@
 //   - store "media": blobs importados (imagens/vídeos/áudios) e itens de URL.
 //   - store "files": catálogo dos arquivos guardados no OPFS (só metadados +
 //     thumbnail; os bytes ficam no Origin Private File System).
-//   - listas (em "state"): "imports", "playlist" = arrays de ids.
+//   - listas (em "state"): "imports", "playlist", "avulsos" = arrays de ids
+//     ("avulsos" é a prateleira invisível da mídia que está em cena sem
+//     pertencer a lista nenhuma — ver LISTS).
 //   - Favoritos (atalhos): "folders" = [{id,name}] e um array de ids por
 //     atalho em "folder_<id>". São detentores de referência como as listas.
 //   - um blob de "media" só é apagado quando NADA mais aponta para ele — nem
@@ -18,7 +20,8 @@
   'use strict';
 
   const DB_NAME = 'av-iasd';
-  const DB_VERSION = 2;
+  // 3: índice `youtubeId` em "media" (v5.87) — ver `mediaByYoutube`.
+  const DB_VERSION = 3;
   const STORE_MEDIA = 'media';
   const STORE_STATE = 'state';
   const STORE_FILES = 'files';
@@ -26,7 +29,17 @@
   // As listas FIXAS. NÃO é a lista completa de quem referencia um id de mídia
   // — os Favoritos moram em chaves dinâmicas (`folder_<id>`). Quem decide se
   // um blob pode ser apagado é `isReferenced`, não esta constante.
-  const LISTS = ['imports', 'playlist'];
+  //
+  // "avulsos" (v5.87) é a única que o operador NÃO vê: é o detentor da mídia
+  // que está em cena sem pertencer a lista nenhuma — "Tocar agora" num
+  // resultado do YouTube não tem nada a ver com o Cronograma, mas um registro
+  // em NENHUMA lista é vazamento permanente (o gc só alcança o que uma lista
+  // já segurou; ver o comentário das funções removidas na v5.48). Ela é
+  // PEQUENA e de tamanho fixo (`AVULSO_MAX`, no Controle): quem entra empurra
+  // o mais antigo para fora, e aí o gc decide — o blob some se ninguém mais o
+  // quiser, e fica inteiro se o Cronograma, a playlist ou um Favorito também o
+  // tiverem.
+  const LISTS = ['imports', 'playlist', 'avulsos'];
 
   let dbPromise = null;
 
@@ -42,7 +55,17 @@
       const req = indexedDB.open(DB_NAME, DB_VERSION);
       req.onupgradeneeded = () => {
         const db = req.result;
-        if (!db.objectStoreNames.contains(STORE_MEDIA)) db.createObjectStore(STORE_MEDIA, { keyPath: 'id' });
+        // O store pode já existir (upgrade 2 → 3): aí o objectStore vem da
+        // transação do próprio upgrade, e não de um `createObjectStore` — que
+        // lançaria ConstraintError e deixaria o app sem banco nenhum.
+        const ms = db.objectStoreNames.contains(STORE_MEDIA)
+          ? req.transaction.objectStore(STORE_MEDIA)
+          : db.createObjectStore(STORE_MEDIA, { keyPath: 'id' });
+        // Registros com `youtubeId: null` ficam FORA do índice (null não é
+        // chave IDB válida), que é exatamente o que se quer: o índice só tem
+        // os vídeos baixados do YouTube, e a busca por um id devolve ou o
+        // registro dele ou nada.
+        if (!ms.indexNames.contains('youtubeId')) ms.createIndex('youtubeId', 'youtubeId');
         if (!db.objectStoreNames.contains(STORE_STATE)) db.createObjectStore(STORE_STATE);
         if (!db.objectStoreNames.contains(STORE_FILES)) {
           const fs = db.createObjectStore(STORE_FILES, { keyPath: 'id' });
@@ -58,10 +81,11 @@
         // A OUTRA página (Controle × Display, mesmo origin) pediu um upgrade.
         // Sem fechar aqui, a conexão velha BLOQUEIA o upgrade dela e a outra
         // página fica esperando para sempre, com a tela montada e sem dado
-        // nenhum — no meio de um culto. Hoje o caso não chega a acontecer no
-        // app (o `beginSession` fixa um único bundle por sessão, logo um único
-        // DB_VERSION), mas o dia em que DB_VERSION subir de 2 para 3 é
-        // exatamente o dia em que ninguém vai lembrar disto.
+        // nenhum — no meio de um culto. No app o caso não chega a acontecer
+        // (o `beginSession` fixa um único bundle por sessão, logo um único
+        // DB_VERSION); no navegador, com as duas páginas abertas, é o que
+        // segura a subida de 2 para 3 da v5.87 — que é justamente o dia em que
+        // ninguém lembraria disto.
         db.onversionchange = () => { db.close(); forget(); };
         // Conexão fechada por fora (o navegador pode forçar em falha de
         // armazenamento): o handle memorizado está morto, reabrir na próxima.
@@ -180,6 +204,13 @@
   // classificaria a mídia como 'other' e a tornaria inutilizável. Quem tem
   // uma fonte melhor (a extensão do arquivo) passa aqui; o padrão continua
   // sendo o tipo do próprio blob.
+  //
+  // `meta.list` escolhe QUAL lista recebe o registro; o padrão continua sendo
+  // "imports" (o Cronograma), que é onde toda importação sempre entrou. Ele
+  // existe porque nem toda mídia baixada pertence ao Cronograma: "Tocar agora"
+  // num vídeo do YouTube entra em "avulsos" e "Adicionar à playlist" entra
+  // direto na playlist. Continua sendo UMA transação — a lista é escolhida,
+  // não dispensada, justamente para o registro nunca nascer órfão.
   async function addMedia(blob, meta) {
     const type = (meta && meta.type) || blob.type;
     const record = makeMediaRecord({
@@ -188,8 +219,27 @@
       kind: (meta && meta.kind) || kindFromType(type),
       thumb: (meta && meta.thumb) || null,
       name: (meta && meta.name) || 'sem-nome',
+      youtubeId: (meta && meta.youtubeId) || null,
     });
-    return addMediaToList(record, 'imports');
+    return addMediaToList(record, (meta && meta.list) || 'imports');
+  }
+  // O vídeo do YouTube que já está no aparelho, ou null. É o que impede o app
+  // de baixar o MESMO vídeo de novo a cada destino escolhido (tocar, playlist,
+  // Cronograma) — um download de dezenas de MB repetido por engano, em rede de
+  // celular, no meio de um culto.
+  //
+  // `getAllKeys` no índice devolve só as chaves primárias: nenhum blob é
+  // desserializado para responder a pergunta. Entre vários registros do mesmo
+  // vídeo (o link importado como item de player e o arquivo baixado depois),
+  // ganha o que tem BLOB — é ele que toca em segundo plano e não depende da
+  // rede.
+  async function mediaByYoutube(youtubeId) {
+    if (!youtubeId) return null;
+    const s = await store(STORE_MEDIA, 'readonly');
+    const ids = await asPromise(s.index('youtubeId').getAllKeys(IDBKeyRange.only(youtubeId)));
+    if (!ids || !ids.length) return null;
+    const recs = (await Promise.all(ids.map((id) => getMedia(id)))).filter(Boolean);
+    return recs.find((r) => r.blob) || recs[0] || null;
   }
   // Item de URL externa (sem blob local); kind pode ser 'image','video','audio','youtube'.
   async function addUrlMedia(url, meta) {
@@ -201,7 +251,7 @@
       name: (meta && meta.name) || url,
       youtubeId: (meta && meta.youtubeId) || null,
     });
-    return addMediaToList(record, 'imports');
+    return addMediaToList(record, (meta && meta.list) || 'imports');
   }
   // Busca em "media" e, se não achar, no catálogo OPFS "files" — assim um id
   // de arquivo sincronizado pode entrar em listas/pastas e tocar no Display
@@ -531,7 +581,7 @@
   // helpers — que é exatamente onde mora a atomicidade deste arquivo.
   global.AVDB = {
     setState, getState, stateKeys,
-    addMedia, addUrlMedia, getMedia, renameMedia,
+    addMedia, addUrlMedia, getMedia, mediaByYoutube, renameMedia,
     listIds, listSet, listItems, listHas, listAdd, listRemove, gc,
     fileAdd, fileGet, fileDelete, filesByFolder, filesAll,
     opfsSupported, opfsGetFile, opfsWriteFile, opfsDeleteFile, opfsDeleteDir,
