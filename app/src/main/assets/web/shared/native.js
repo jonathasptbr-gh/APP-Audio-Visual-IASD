@@ -240,6 +240,24 @@
     // método, não faz nada em vez de quebrar.
     openCast() { try { B.openCast(); } catch (_) { /* shell antigo */ } },
 
+    // Vídeo do YouTube como ARQUIVO, extraído e baixado pelo PRÓPRIO APARELHO
+    // (ver YoutubeGrab.kt). Resolve `{ url, name, size, type }` com uma URL
+    // servível — o lado web faz `fetch` + `Blob` como faz com um share — ou
+    // null se não deu. SEM PRAZO: é rede de verdade, um louvor de 40 minutos
+    // leva o que tiver de levar, e um timeout aqui abortaria justamente o
+    // download que estava indo bem.
+    // `onProgresso(lidos, total)` é opcional; o nativo empurra por
+    // `__avYtProgress` a cada megabyte.
+    ytFetch(url, onProgresso) {
+      global.__avYtProgress = function (id, lidos, total) {
+        if (onProgresso) { try { onProgresso(Number(lidos) || 0, Number(total) || 0); } catch (_) {} }
+      };
+      return call((id) => B.ytFetch(id, String(url)));
+    },
+    // Apaga o arquivo intermediário depois que os bytes já foram para a
+    // biblioteca — senão o vídeo fica DUAS vezes no aparelho.
+    ytDiscard(url) { try { B.ytDiscard(String(url)); } catch (_) { /* shell antigo */ } },
+
     // Abre uma URL FORA do app (navegador ou o app que a reivindicar). O
     // WebView do Controle recusa navegar para qualquer coisa que não seja o
     // próprio origin — é a invariante que impede conteúdo estranho de entrar

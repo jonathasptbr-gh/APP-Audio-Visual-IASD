@@ -128,6 +128,11 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+        // OBRIGATÓRIO para o NewPipeExtractor com `minSdk` 26: ele usa APIs de
+        // java.time e java.nio que só existem a partir da API 33. Sem o
+        // desugaring o app compila e quebra em tempo de execução no primeiro
+        // vídeo, num aparelho antigo — o pior lugar possível para descobrir.
+        isCoreLibraryDesugaringEnabled = true
     }
 
     kotlinOptions {
@@ -146,8 +151,24 @@ android {
 }
 
 dependencies {
-    // Apenas AndroidX oficial — nenhuma dependência de terceiros.
+    // AndroidX oficial.
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.activity:activity-ktx:1.9.3")
     implementation("androidx.webkit:webkit:1.12.1")
+
+    // A ÚNICA dependência de terceiro do projeto, e ela tem uma justificativa
+    // que nenhuma outra teve (ver YoutubeGrab.kt e o CLAUDE.md):
+    //
+    // O embed do YouTube pausa sozinho com o app minimizado, e a saída é usar o
+    // ARQUIVO em vez do player. Só que extrair a URL do arquivo exige
+    // acompanhar as defesas do YouTube — os PO Tokens de hoje são atrelados a
+    // cada vídeo e assinados por BotGuard/DroidGuard. Escrever isso à mão é
+    // assinar um contrato de manutenção semanal que quebraria sempre num
+    // domingo. E fazê-lo por um SERVIDOR público não funciona: eles rodam em IP
+    // de datacenter, que é justamente o que o YouTube bloqueia.
+    //
+    // Extrair AQUI, no aparelho, sai do IP do chip do operador — é por isso que
+    // o NewPipe funciona no celular enquanto os servidores públicos apanham.
+    implementation("com.github.TeamNewPipe:NewPipeExtractor:v0.26.1")
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs_nio:2.1.2")
 }

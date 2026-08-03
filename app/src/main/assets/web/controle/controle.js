@@ -156,7 +156,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.80';
+const WEB_VERSION = '5.81';
 
 // Escrita UMA vez, na carga: o indicador mora no rodapé de Configurações desde
 // a v5.49 e não depende mais de qual aba está aberta (no cabeçalho ele
@@ -3903,7 +3903,8 @@ function renderLibrary() {
     let ytDl = null;
     if (item.kind === 'youtube') {
       badge = document.createElement('span'); badge.className = 'url-badge yt-badge'; badge.textContent = 'YT';
-      if (cobaltReady() && item.url && activeTab === 'imports') {
+      const podeBaixar = (window.__NATIVE__ && (window.__SHELL_VERSION__ | 0) >= 16) || cobaltReady();
+      if (podeBaixar && item.url && activeTab === 'imports') {
         ytDl = document.createElement('button');
         ytDl.className = 'row-btn';
         ytDl.title = 'Baixar o vídeo e usar o arquivo no lugar do player';
@@ -3912,7 +3913,8 @@ function renderLibrary() {
           e.stopPropagation();
           if (ytDl.disabled) return;
           ytDl.disabled = true;
-          const rec = await cobaltBaixarVideo(item.url, item.name);
+          const rec = (await ytBaixarNativo(item.url, item.name))
+            || (await cobaltBaixarVideo(item.url, item.name));
           if (!rec) { ytDl.disabled = false; return; }
           // O arquivo TOMA O LUGAR do link, NA MESMA POSIÇÃO: duas linhas com o
           // mesmo nome deixariam o operador adivinhando qual das duas é a que
@@ -7999,6 +8001,62 @@ async function cobaltBaixarVideo(link, nome) {
   }
 }
 
+// ===== A via NATIVA: o aparelho extrai e baixa o vídeo sozinho =====
+//
+// É o caminho principal desde a v5.81, e o que finalmente cumpre "sem
+// configurar nada": quem extrai é o shell (`YoutubeGrab.kt`), com a
+// requisição saindo do IP do próprio celular. Servidor público — Cobalt,
+// Invidious, Piped — roda em IP de datacenter, que é exatamente o que o
+// YouTube bloqueia; foi por isso que a via anterior não funcionou.
+//
+// O nativo entrega uma URL SERVÍVEL (`/saf/<token>`), não bytes: daqui para a
+// frente o caminho é o mesmo de um arquivo compartilhado — `fetch` + `Blob` +
+// `addMedia`. O arquivo intermediário é apagado logo depois; sem isso o vídeo
+// ficaria duas vezes no aparelho.
+//
+// Exige shell ≥ 16. Num anterior o método não existe e a função devolve null
+// na hora, sem custo: o fluxo segue para o Cobalt e, na falta dele, para o
+// player embutido.
+async function ytBaixarNativo(link, nome) {
+  if (!window.__NATIVE__ || (window.__SHELL_VERSION__ | 0) < 16) return null;
+  const rotulo = nome || 'Vídeo do YouTube';
+  const bg = previewBusy('Preparando vídeo', rotulo);
+  const notif = bgTaskStart('Baixando vídeo', 1);
+  try {
+    return await withBgWork(async () => {
+      const r = await AVNative.ytFetch(link, (lidos, total) => {
+        bg.atualizar(total
+          ? 'Baixando vídeo · ' + Math.floor((lidos / total) * 100) + '%'
+          : 'Baixando vídeo · ' + fmtBytes(lidos));
+      });
+      if (!r || !r.url) return null;
+      try {
+        const res = await fetch(r.url);
+        if (!res.ok) return null;
+        const blob = await res.blob();
+        if (!blob.size) return null;
+        const thumb = await makeThumb(blob, 'video');
+        return await AVDB.addMedia(blob, {
+          name: r.name || rotulo,
+          type: r.type || 'video/mp4',
+          kind: 'video',
+          thumb,
+        });
+      } finally {
+        // No `finally`: mesmo que a cópia falhe, o arquivo do cache não pode
+        // ficar para trás — ninguém mais tem o token dele.
+        AVNative.ytDiscard(r.url);
+      }
+    });
+  } catch (e) {
+    console.warn('[yt nativo] falhou:', e && e.message);
+    return null;
+  } finally {
+    bgTaskEnd(notif);
+    bg.soltar();
+  }
+}
+
 // Devolve o registro criado — quem compartilhou precisa saber QUAL item
 // chegou para poder levar o operador até ele (ver focarImportado).
 async function handleSharedUrl(url, title) {
@@ -8009,9 +8067,15 @@ async function handleSharedUrl(url, title) {
     // toca em segundo plano e não depende da rede durante o culto. Falhando
     // (instância fora do ar, chave vencida, vídeo restrito), cai no item de
     // player de sempre: um link compartilhado nunca se perde por causa disso.
-    // SEM condição: quem decide se dá para baixar é `cobaltBaixarVideo`, que
-    // procura uma instância se não houver nenhuma. Gatear aqui em "já está
-    // configurado" era justamente o que obrigava o operador a configurar.
+    // PRIMEIRO a via NATIVA — extração no próprio aparelho, sem servidor
+    // nenhum no meio (ver `ytBaixarNativo` e YoutubeGrab.kt). Ela não pede
+    // configuração, não depende de instância de terceiro e sai do IP do chip do
+    // operador, que é justamente o que o YouTube não bloqueia.
+    const nativo = await ytBaixarNativo(url, title || ('YouTube: ' + ytId));
+    if (nativo) return nativo;
+    // Depois o Cobalt, se o operador tiver configurado um. Ele deixou de ser o
+    // caminho principal, mas quem já mantém uma instância própria não perde
+    // nada — e ela cobre o caso de um vídeo que a extração nativa recusar.
     const baixado = await cobaltBaixarVideo(url, title || ('YouTube: ' + ytId));
     if (baixado) return baixado;
     return await AVDB.addUrlMedia(url, {
