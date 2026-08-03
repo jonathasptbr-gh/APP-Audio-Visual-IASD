@@ -156,7 +156,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.76';
+const WEB_VERSION = '5.77';
 
 // Escrita UMA vez, na carga: o indicador mora no rodapé de Configurações desde
 // a v5.49 e não depende mais de qual aba está aberta (no cabeçalho ele
@@ -7534,29 +7534,28 @@ function detectUrlKind(url) {
   return mime ? AVDB.kindFromType(mime) : 'url';
 }
 
+// Devolve o registro criado — quem compartilhou precisa saber QUAL item
+// chegou para poder levar o operador até ele (ver focarImportado).
 async function handleSharedUrl(url, title) {
-  if (!url) return;
+  if (!url) return null;
   const ytId = extractYouTubeId(url);
   if (ytId) {
-    await AVDB.addUrlMedia(url, {
+    return await AVDB.addUrlMedia(url, {
       kind: 'youtube',
       type: 'video/youtube',
       name: title || ('YouTube: ' + ytId),
       thumb: 'https://img.youtube.com/vi/' + ytId + '/hqdefault.jpg',
       youtubeId: ytId,
     });
-    flash('YouTube adicionado');
-  } else {
-    const kind = detectUrlKind(url);
-    const fallbackName = url.split('/').pop().split('?')[0] || url;
-    await AVDB.addUrlMedia(url, {
-      kind,
-      type: kind + '/url',
-      name: title || fallbackName,
-      thumb: null,
-    });
-    flash('Link adicionado');
   }
+  const kind = detectUrlKind(url);
+  const fallbackName = url.split('/').pop().split('?')[0] || url;
+  return await AVDB.addUrlMedia(url, {
+    kind,
+    type: kind + '/url',
+    name: title || fallbackName,
+    thumb: null,
+  });
 }
 
 // Importa um share já normalizado. Aceita as DUAS formas de arquivo:
@@ -7567,6 +7566,7 @@ async function handleSharedUrl(url, title) {
 async function importShare(pending) {
   if (!pending) return false;
   let added = false;
+  let primeiro = null;   // o 1º item que entrou: é ele que o foco vai buscar
 
   const files = pending.files || [];
   let ok = 0;
@@ -7591,23 +7591,65 @@ async function importShare(pending) {
     const type = guessMediaType(name) || blob.type;
     const kind = AVDB.kindFromType(type);
     const thumb = await makeThumb(blob, kind);
-    await AVDB.addMedia(blob, { name: name.replace(/\.[^.]+$/, ''), type, kind, thumb });
+    const rec = await AVDB.addMedia(blob, { name: name.replace(/\.[^.]+$/, ''), type, kind, thumb });
+    if (rec && !primeiro) primeiro = rec.id;
     ok++;
   }
-  if (ok > 0) {
-    flash(ok + ' arquivo(s) adicionado(s)');
-    added = true;
-  }
+  if (ok > 0) added = true;
 
   if (pending.url) {
-    await handleSharedUrl(pending.url, pending.title);
+    const rec = await handleSharedUrl(pending.url, pending.title);
+    if (rec && !primeiro) primeiro = rec.id;
     added = true;
   }
-  if (added) {
-    if (activeTab !== 'imports') activeTab = 'imports';
-    load();
-  }
+  if (added) await focarImportado(primeiro);
   return added;
+}
+
+// O QUE CHEGOU PRECISA FICAR NA FRENTE DO OPERADOR.
+//
+// Um compartilhamento é sempre um pedido explícito e imediato — ninguém manda
+// um vídeo para o app de projeção "para depois". Só que o app pode estar em
+// qualquer lugar quando ele chega: na aba Bíblia, com o acervo aberto em tela
+// cheia, dentro de uma pasta dos Favoritos, com a seleção múltipla ligada. Até
+// a v5.76 o item entrava na lista `imports` e a variável `activeTab` era
+// trocada por baixo de tudo isso — o operador voltava para o app e via
+// exatamente a tela que tinha deixado, sem sinal nenhum de que algo chegou.
+//
+// Duas respostas, uma por modo, porque os dois modos querem coisas diferentes:
+//
+// - **Simplificado**: PROJETA na hora. Esse modo existe para quem não vai
+//   operar nada — a lista sequer aparece ali, então "adicionei ao Cronograma"
+//   não significa nada. Quem compartilha um louvor com o app já conectado à TV
+//   quer aquilo no telão.
+// - **Avançado**: leva para o **Cronograma**, que é onde o item entrou, e
+//   deixa a decisão de projetar com o operador — ele pode estar com outra
+//   coisa no ar neste exato momento.
+async function focarImportado(id) {
+  // 1. Sai de tudo que está POR CIMA da lista, em qualquer modo: um acervo em
+  //    tela cheia esconderia tanto o Cronograma quanto a tela simplificada.
+  if (selectionMode) exitSelection();
+  POPUPS.forEach(([backdrop, , close]) => {
+    if (backdrop.classList.contains('open')) close();
+  });
+  // 2. A preview em tela cheia só sai quando há TELÃO. Sem telão conectado ela
+  //    É a projeção (ver "Divergências"), e derrubá-la para mostrar uma lista
+  //    tiraria do ar o que estiver em cena — caro demais para um import.
+  if (document.fullscreenElement && displayActive()) {
+    try { await document.exitFullscreen(); } catch (_) {}
+  }
+
+  if (appMode === 'simple') {
+    // A lista precisa existir antes do send: `send` procura o item em
+    // `plItems`/`libItems` para montar o "tocando agora".
+    await load();
+    if (id) await send(id);
+    return;
+  }
+  // 3. Fora do Cronograma, volta para ele — inclusive de dentro de uma pasta
+  //    dos Favoritos, que é um `activeTab` próprio ('folders').
+  if (activeTab !== 'imports') await switchTab('imports');
+  else await load();
 }
 
 async function checkPendingShare() {

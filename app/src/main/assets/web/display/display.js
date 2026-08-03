@@ -837,6 +837,7 @@ function ytDrop() {
     clearTimeout(yt.endTimer);
     clearTimeout(yt.startTimer);
     clearTimeout(yt.muteApplyTimer);
+    clearTimeout(yt.resumeTimer);
     if (yt.player) ytSafeCall(() => yt.player.destroy());
     yt = null;
   }
@@ -912,8 +913,12 @@ async function loadYoutube(rec, v, m, vol, startAt, autoplay) {
     player: null,
     ready: false, shown: false, endedSent: false, stopping: false,
     autoplay: autoplay !== false,
+    // A INTENÇÃO de transporte, separada do estado real do player — é ela que
+    // o vigia de segundo plano compara (ver ytWatchResume).
+    wantPlaying: autoplay !== false,
+    resumeTries: 0,
     showTimer: null, fadeTimer: null, endTimer: null, rampTimer: null,
-    startTimer: null, timeLoop: null, muteApplyTimer: null,
+    startTimer: null, timeLoop: null, muteApplyTimer: null, resumeTimer: null,
   };
   const cur = yt;
   // O wrapper fica oculto (cortina do wallpaper em cena) até o vídeo
@@ -944,6 +949,14 @@ async function loadYoutube(rec, v, m, vol, startAt, autoplay) {
       disablekb: 1,
       fs: 0,
       iv_load_policy: 3,
+      // LEGENDA NUNCA. Num telão de culto ela cobre a parte de baixo do vídeo
+      // — exatamente onde a Camada de Texto do app escreve — e vem no idioma e
+      // no gosto da CONTA que estiver logada no WebView, não numa escolha do
+      // operador. `cc_load_policy: 0` é só metade: ele diz "não force a
+      // legenda", e perde para o "sempre mostrar legendas" da conta. A outra
+      // metade é `unloadModule` (ver ytKillCaptions), que tira o módulo do
+      // player em vez de pedir educadamente.
+      cc_load_policy: 0,
       rel: 0,
       origin: location.origin,
     },
@@ -984,6 +997,7 @@ function onPlayerReady(e) {
     const frame = p.getIframe();
     if (frame) frame.setAttribute('allow', 'autoplay; fullscreen; encrypted-media; picture-in-picture');
   });
+  ytKillCaptions(p);
   ytSafeCall(() => { if (yt.muted) p.mute(); else p.unMute(); });
   ytSafeCall(() => p.setVolume(Math.round(yt.volume * 100)));
   // Cena que voltou PAUSADA (reconexão): o quadro precisa aparecer, mas o vídeo
@@ -999,6 +1013,56 @@ function onPlayerReady(e) {
   ytSafeCall(() => p.playVideo());
   ytStartTimeLoop();
   ytWatchStart(0);
+}
+
+// Tira a legenda do player, de verdade. `unloadModule` DESCARREGA o módulo em
+// vez de pedir para ele ficar escondido, e é o único caminho que vence o
+// "sempre mostrar legendas" de uma conta logada. São dois nomes porque são dois
+// players: `cc` é o HTML5 (o que roda hoje) e `captions` é o legado — chamar os
+// dois é barato e cobre o dia em que o embed servir o outro.
+//
+// Roda no `onReady` E de novo quando o vídeo começa a REPRODUZIR: o módulo de
+// legenda costuma ser carregado junto com a faixa de vídeo, ou seja, depois do
+// ready — descarregar só ali deixaria a legenda voltar no primeiro quadro.
+function ytKillCaptions(p) {
+  if (!p) return;
+  ytSafeCall(() => p.unloadModule('captions'));
+  ytSafeCall(() => p.unloadModule('cc'));
+}
+
+// ===== O vídeo não pode parar porque o app saiu da frente =====
+// Com o app minimizado o telão segue projetando (a `Presentation` não morre com
+// a Activity — é para isso que existe o serviço de sessão), e um `<video>`
+// local continua tocando normalmente. O embed do YouTube, não: o player dele
+// PAUSA sozinho quando a página passa a "oculta", que é o que o Android reporta
+// ao WebView quando o app vai para segundo plano. O louvor parava no meio.
+//
+// Aqui isso é sempre um engano, e dá para afirmar: o player nasce com
+// `controls: 0`, `disablekb: 1`, o wrapper tem `pointer-events: none` e ainda
+// há o escudo anti-UI — NINGUÉM pausa este vídeo pelo telão. Toda pausa que o
+// app não pediu (`wantPlaying`) veio do próprio YouTube, e a resposta certa é
+// mandar tocar de novo.
+//
+// LIMITADO a algumas tentativas espaçadas, e não um laço eterno: se o vídeo
+// parar por um motivo real e permanente (um erro do embed, por exemplo),
+// insistir para sempre seria uma briga invisível com o player. O contador zera
+// a cada vez que ele volta a REPRODUZIR, então uma sessão longa com várias
+// idas ao segundo plano é recuperada todas as vezes.
+const YT_RESUME_TRIES = 4;
+const YT_RESUME_MS = 700;
+function ytWatchResume() {
+  const cur = yt;
+  if (!cur || !cur.wantPlaying || cur.stopping || cur.endedSent) return;
+  if (cur.resumeTries >= YT_RESUME_TRIES) return;
+  cur.resumeTries++;
+  clearTimeout(cur.resumeTimer);
+  cur.resumeTimer = setTimeout(() => {
+    if (yt !== cur || !cur.player || !cur.wantPlaying || cur.stopping) return;
+    let st;
+    try { st = cur.player.getPlayerState(); } catch (_) { return; }
+    if (st !== 2) return;   // já saiu da pausa sozinho
+    ytSafeCall(() => cur.player.playVideo());
+  }, YT_RESUME_MS);
 }
 
 // Garante que o vídeo realmente comece (o primeiro playVideo() pode chegar
@@ -1027,11 +1091,20 @@ function onPlayerStateChange(e) {
     ytShow();
     ytShield(false);
     yt.endedSent = false;
+    // O módulo de legenda entra junto com a faixa de vídeo, DEPOIS do ready —
+    // descarregar só lá deixava a legenda voltar no primeiro quadro.
+    ytKillCaptions(yt.player);
+    // Voltou a tocar: a cota do vigia de segundo plano é reposta.
+    yt.resumeTries = 0;
+    clearTimeout(yt.resumeTimer);
     // Se a view atual pedir visual, esconde a cortina (a reprodução em si
     // não espera por isso — só a exibição). Se a view for wallpaper, fica
     // tocando por baixo da cortina; ytSetView('visual') revela depois.
     if (yt.view === 'visual') stage.coverOut();
   }
+  // Pausa que o app NÃO pediu = o YouTube pausou sozinho (app em segundo
+  // plano). Ver ytWatchResume: aqui ninguém mais tem como pausar este player.
+  if (st === 2) ytWatchResume();
   if (st === 0 && !yt.endedSent) { // fim do vídeo → avanço de playlist no Controle
     yt.endedSent = true;
     // cobre a tela final de "vídeos relacionados" enquanto o player cai —
@@ -1058,9 +1131,15 @@ function ytHandle(cmd) {
   const p = yt.player;
   switch (cmd.type) {
     case 'play':
+      yt.wantPlaying = true;
+      yt.resumeTries = 0;
       ytSafeCall(() => p.playVideo());
       break;
     case 'pause':
+      // A intenção do operador desarma o vigia — daqui em diante a pausa é
+      // legítima e não pode ser desfeita por ele.
+      yt.wantPlaying = false;
+      clearTimeout(yt.resumeTimer);
       // padrão de player normal: quadro congelado (a UI nativa que o
       // YouTube desenhar na pausa é aceita — sem tela preta)
       ytSafeCall(() => p.pauseVideo());
