@@ -2671,6 +2671,16 @@ linha de música.
 > antigo com um conteúdo novo. `openCollectionSongs` e o `searchScope` que a
 > acompanhava não existem mais.
 
+> **Vocabulário: na TELA ela se chama "Biblioteca"** (v5.96). No código e neste
+> documento ela continua sendo o **acervo** — `hymnSearchPopup`,
+> `renderAcervoTotal`, `openHymnSearch` —, e renomear centenas de símbolos e
+> parágrafos para acompanhar um rótulo seria um diff enorme sem nada em troca.
+> A tradução é esta: *acervo* (código) = *Biblioteca* (rótulo). Cuidado com o
+> outro sentido de "biblioteca" que já existia por aqui — o IndexedDB/OPFS com
+> tudo o que o operador baixou (ver as regras de backup em CLAUDE.md); nos
+> textos VISÍVEIS ele passou a ser chamado de "os dados do app", para as duas
+> coisas não dividirem a mesma palavra na frente de quem usa.
+
 **Opções da coleção** (`buildCollectionOptions` → painel `.coll-opts--inline`,
 dentro do card): tudo que é manutenção — uma faixa de **dois chips**
 (`.hymnal-stat`) e **dois botões lado a lado**. Não há "Ver músicas" aqui: a

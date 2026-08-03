@@ -311,8 +311,8 @@ jobs:
 
             > **Atualiza por cima.** A partir da v1.1 o APK é assinado com
             > keystore fixa: instale sobre a versão anterior sem desinstalar —
-            > a biblioteca do app (Cronograma, pastas sincronizadas, hinos e
-            > Bíblia baixados) é preservada.
+            > os dados do app (Cronograma, pastas sincronizadas, hinos e
+            > Bíblia baixados) são preservados.
             >
             > Vindo da **v1.0**, que saiu com assinatura de debug, esta única
             > troca ainda exige desinstalar antes.

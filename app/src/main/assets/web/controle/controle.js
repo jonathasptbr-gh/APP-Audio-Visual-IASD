@@ -156,7 +156,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.95';
+const WEB_VERSION = '5.96';
 
 // Escrita UMA vez, na carga: o indicador mora no rodapé de Configurações desde
 // a v5.49 e não depende mais de qual aba está aberta (no cabeçalho ele
@@ -477,7 +477,7 @@ async function syncGroup(key, label, colls, opts) {
     }
     if (songs === 0) { setGroupStatus(key, 'Já completo', 5000); return; }
     const ok = await appConfirm({
-      title: 'Baixar todo o acervo?',
+      title: 'Baixar toda a biblioteca?',
       // O tamanho sai da mesma medida do álbum avulso (ver `medirColecao`).
       message: 'São ' + colls.length + ' coleções, com ' + songs
         + ' música(s) ainda não baixada(s)'
@@ -4436,7 +4436,7 @@ function renderCollectionsList(alvo, redesenhar, opts) {
       btn.title = g.busy
         ? 'Cancelar o download'
         : (opts && opts.confirmScale)
-          ? 'Baixar TODO o acervo (' + colls.length + ' coleções)'
+          ? 'Baixar TODA a biblioteca (' + colls.length + ' coleções)'
           : 'Baixar a coleção completa (' + colls.length + ' álbum(ns))';
       btn.innerHTML = g.busy ? closeIconSvg() : downloadAllIconSvg();
       btn.addEventListener('click', (e) => { e.stopPropagation(); syncGroup(key, text, colls, opts); });
@@ -4462,7 +4462,7 @@ function renderCollectionsList(alvo, redesenhar, opts) {
   // junto com a lista, saindo de vista assim que se descia um pouco.
   if (!(opts && opts.semTotal)) {
     const todas = allCollections().filter((c) => !isHymnalAlbum(c));
-    if (todas.length > 1) header('Todo o acervo', todas, true, { confirmScale: true });
+    if (todas.length > 1) header('Toda a biblioteca', todas, true, { confirmScale: true });
   }
 
   const fixed = FIXED_COLLECTIONS.filter((c) => byId.has(c.id));
@@ -4836,7 +4836,7 @@ function renderAcervoTotal(redesenhar) {
   hymnSearchTotalEl.innerHTML = '';
   const todas = allCollections().filter((c) => !isHymnalAlbum(c));
   if (todas.length < 2) return;
-  const key = 'grp:Todo o acervo';
+  const key = 'grp:Toda a biblioteca';
   const g = gui(key);
   let downloaded = 0, total = 0;
   for (const c of todas) { downloaded += countDownloaded(c.id); total += collSongs(c.id).length; }
@@ -4850,11 +4850,11 @@ function renderAcervoTotal(redesenhar) {
   const btn = document.createElement('button');
   btn.className = 'coll-group-btn' + (g.busy ? ' busy' : '');
   btn.title = g.busy ? 'Cancelar o download'
-    : 'Baixar TODO o acervo (' + todas.length + ' coleções)';
+    : 'Baixar TODA a biblioteca (' + todas.length + ' coleções)';
   btn.innerHTML = g.busy ? closeIconSvg() : downloadAllIconSvg();
   btn.addEventListener('click', (e) => {
     e.stopPropagation();
-    syncGroup(key, 'Todo o acervo', todas, { confirmScale: true });
+    syncGroup(key, 'Toda a biblioteca', todas, { confirmScale: true });
     redesenhar();
   });
   hymnSearchTotalEl.appendChild(btn);
@@ -7134,7 +7134,7 @@ async function syncLyrics() {
 
 // Busca GLOBAL (botão de lupa): escopo null = varre todas as coleções.
 function openHymnSearch() {
-  hymnSearchTitleEl.textContent = 'Acervo';
+  hymnSearchTitleEl.textContent = 'Biblioteca';
   hymnSearchInputEl.placeholder = 'Nome, número ou trecho da letra…';
   hymnSearchInputEl.value = '';
   renderSearchResults('');
@@ -7219,7 +7219,7 @@ function renderSearchResults(query) {
   const matches = porNome.concat(porLetra);
   hymnResultsEl.innerHTML = '';
   if (totalIndexed === 0) {
-    hymnResultsEl.innerHTML = '<li class="empty">Índice do acervo ainda não carregado.'
+    hymnResultsEl.innerHTML = '<li class="empty">Índice da biblioteca ainda não carregado.'
       + '<br>Precisa de internet na primeira vez.</li>';
     appendYoutubeSearch(query);
     return;
@@ -7227,7 +7227,7 @@ function renderSearchResults(query) {
   if (matches.length === 0) {
     // "no acervo" não é detalhe: logo abaixo vem o cabeçalho dos resultados do
     // YouTube, e sem dizer ONDE não achou a frase parece negar a busca inteira.
-    hymnResultsEl.innerHTML = '<li class="empty">Nenhuma música encontrada no acervo.</li>';
+    hymnResultsEl.innerHTML = '<li class="empty">Nenhuma música encontrada na biblioteca.</li>';
     appendYoutubeSearch(query);
     return;
   }
