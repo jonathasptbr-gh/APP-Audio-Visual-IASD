@@ -156,7 +156,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.74';
+const WEB_VERSION = '5.75';
 
 // Escrita UMA vez, na carga: o indicador mora no rodapé de Configurações desde
 // a v5.49 e não depende mais de qual aba está aberta (no cabeçalho ele
@@ -461,7 +461,7 @@ async function syncGroup(key, label, colls, opts) {
   // própria fila (ver lá).
   if (g.busy) { g.cancel = true; setGroupStatus(key, 'Cancelando…'); return; }
   if (!colls.length) return;
-  if (!AVDB.opfsSupported()) { setGroupStatus(key, 'Armazenamento OPFS indisponível', 5000); return; }
+  if (!AVDB.opfsSupported()) { setGroupStatus(key, 'OPFS indisponível', 5000); return; }
 
   // "Todo o acervo" confirma SEMPRE, mesmo no Wi-Fi: são milhares de músicas e
   // vários GB no aparelho. A pergunta de rede (abaixo) é sobre o plano de
@@ -473,7 +473,7 @@ async function syncGroup(key, label, colls, opts) {
       songs += pend;
       est += estimatePendingBytes(c, pend);
     }
-    if (songs === 0) { setGroupStatus(key, 'Acervo já completo offline', 5000); return; }
+    if (songs === 0) { setGroupStatus(key, 'Já completo', 5000); return; }
     const ok = await appConfirm({
       title: 'Baixar todo o acervo?',
       // O tamanho sai do peso REAL do que já está no disco (mesma base do
@@ -506,7 +506,7 @@ async function syncGroup(key, label, colls, opts) {
         + '.\n\nEsta escolha vale só para este download, agora.',
       okText: 'Usar dados móveis', cancelText: 'Só no Wi-Fi',
     });
-    if (!allowMobile) { setGroupStatus(key, 'Adiado para o Wi-Fi', 5000); return; }
+    if (!allowMobile) { setGroupStatus(key, 'Aguardando Wi-Fi', 5000); return; }
   }
 
   g.busy = true; g.cancel = false;
@@ -535,7 +535,13 @@ async function syncGroup(key, label, colls, opts) {
         for (let i = 0; i < colls.length; i++) {
           if (g.cancel) break;
           const coll = colls[i];
-          setGroupStatus(key, 'Álbum ' + (i + 1) + '/' + colls.length + ' · ' + coll.name);
+          // SEM O NOME DO ÁLBUM. Este texto cai num chip estreito (o cabeçalho
+          // do acervo, ou a linha de um grupo), e nome de álbum não tem largura
+          // previsível — "Álbum 3/12 · Arautos do Rei…" empurrava o ✕ do popup
+          // para fora da tela. Quem diz QUAL álbum está baixando é o card dele
+          // (`setCollStatus`, logo abaixo) e a notificação (`bgTaskStep`, na
+          // linha seguinte, que continua levando o nome).
+          setGroupStatus(key, 'Álbum ' + (i + 1) + '/' + colls.length);
           bgTaskStep(notifId, batchDone, label + ' · ' + coll.name);
           const r = await syncCollection(coll, {
             allowMobile: true,
@@ -556,10 +562,10 @@ async function syncGroup(key, label, colls, opts) {
     // colapsado e se autolimpa. O cabeçalho, que é o que ele está olhando,
     // agora conta as falhas.
     setGroupStatus(key, g.cancel ? 'Cancelado'
-      : semRede ? semRede + ' álbum(ns) sem rede — tente de novo'
-      : 'Coleção completa', 5000);
+      : semRede ? semRede + (semRede > 1 ? ' álbuns' : ' álbum') + ' sem rede'
+      : 'Completo', 5000);
   } catch (_) {
-    setGroupStatus(key, 'Erro ao baixar a coleção', 6000);
+    setGroupStatus(key, 'Erro no download', 6000);
   } finally {
     g.busy = false; g.cancel = false;
     refreshCollectionsIfVisible();

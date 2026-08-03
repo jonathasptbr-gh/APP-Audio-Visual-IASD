@@ -94,7 +94,7 @@ git push origin main
   MENOR que o já publicado — caso em que `WebUpdater.compareVersions` ignora o
   bundle em silêncio. Para saber onde a base está, leia `version.json`.
 
-  No app nativo o rótulo mostra os **dois índices** — `Web v5.74 · Shell v1.24`
+  No app nativo o rótulo mostra os **dois índices** — `Web v5.75 · Shell v1.24`
   —, porque base web e shell atualizam por caminhos independentes (OTA ×
   instalar APK); no navegador sai só `Controle v<versão>`. **Ele mora no rodapé
   do popup de Configurações** desde a v5.49 (antes ficava no cabeçalho da lista,
@@ -954,9 +954,14 @@ coisas, e só duas:
 - **Conectar a tela** (`#simpleCastBtn`), a única ação que resolve o bloqueio.
   Bloqueada a tela, a faixa `.simple-actions` deixa de ser faixa: vira um
   bloco absoluto no **centro exato da tela**, com a busca escondida e o botão
-  preenchido no accent (`--accent-fill`, ícone de 44px, sombra colorida). Ele
+  preenchido no accent (`--accent-fill`, ícone de 44px). Ele
   não podia continuar sendo a mesma tecla escura das outras: a única ação
   possível da tela não disputa atenção com o teclado embaçado atrás dela.
+  **Sem halo desde a v5.75**: havia um `box-shadow` em `--accent-glow` para
+  "separar o botão do fundo", mas quem separa é a CORTINA — o `backdrop-filter`
+  já apaga tudo atrás, e o botão é a única coisa nítida e a única preenchida da
+  tela. O halo não resolvia leitura nenhuma, só espalhava luz âmbar num salão
+  escuro.
   **Ali ele é ícone e UMA frase** — "Toque para conectar uma tela" — e nada
   mais: o subtítulo repetia o rótulo e a mensagem que havia acima dele dizia
   pela terceira vez a mesma coisa, três textos para uma tela com uma ação só.
@@ -3537,6 +3542,22 @@ A busca ganha assim **dois níveis**, e isso muda três coisas:
   saía de vista ao primeiro rolar — justamente quando o operador está
   decidindo entre baixar tudo e escolher um álbum. `renderCollectionsList`
   ganhou `opts.semTotal` para não desenhá-la duas vezes.
+  - **O chip de status do lote é ESTREITO, e as frases têm de caber nele**
+    (v5.75). O cabeçalho é uma linha flex de cinco itens (ícone, título,
+    status, baixar, ✕) em 390px: sobram ~180px para o texto. `.popup-total`
+    tinha `flex-shrink: 0`, então uma frase comprida não encolhia — empurrava
+    o **✕ para fora do sheet** e o acervo ficava sem saída. Duas correções, e
+    as duas são necessárias:
+    - **Estrutural:** `.popup-close` ganhou `flex-shrink: 0` (o ✕ é intocável),
+      `.popup-total` passou a `flex: 0 1 auto; min-width: 0` (é ele quem cede,
+      e o `.coll-group-count` dentro dele já corta em reticências) e um
+      `max-width: 58%` para o TÍTULO não ser a próxima vítima.
+    - **Textual:** as frases de `syncGroup` foram encurtadas até caberem sem
+      reticências — "Álbum 3/12" (era `… · <nome do álbum>`, largura
+      imprevisível e a causa direta do estouro), "OPFS indisponível",
+      "Já completo", "3 álbuns sem rede", "Erro no download", "Completo",
+      "Aguardando Wi-Fi". O nome do álbum em download não se perdeu: ele está
+      no card do próprio álbum e na notificação do sistema.
 - **O contador de itens saiu.** Na abertura ele contava coleções e durante a
   busca, resultados: o mesmo número dizendo coisas diferentes, ao lado de um
   título que já explica a tela. O contador que importa é o `N/M` de baixados,
@@ -4989,7 +5010,7 @@ fundo real de cada contexto).
 | `--accent-fill` | `#7c5a17` | o âmbar como **fundo de elemento preenchido** (aba ativa, botão primário) |
 | `--on-accent` | `#f6ecd6` | o que se escreve **em cima** de `--accent-fill` — 5,37:1 |
 | `--accent-soft` | `rgba(219,168,73,.16)` | fundo suave de estado ativo |
-| `--accent-glow` | `rgba(219,168,73,.32)` | halo do botão de conectar no simplificado bloqueado. Segue a MATIZ do accent, não o `--accent-fill`: um halo na cor do preenchimento (escuro por definição) sobre o fundo escuro do app seria invisível |
+| `--accent-glow` | `rgba(219,168,73,.32)` | halo do `.start-pill` do Display. Segue a MATIZ do accent, não o `--accent-fill`: um halo na cor do preenchimento (escuro por definição) sobre o fundo escuro do app seria invisível. **Saiu do botão de conectar do simplificado bloqueado na v5.75** — ali quem separa o botão do fundo é a cortina embaçada, e o halo só espalhava luz âmbar num salão escuro |
 | `--gold` / `--gold-soft` / `--gold-text` | `#dba849` / `rgba(219,168,73,.16)` / `#eed9a8` | marca secundária ("IASD"): logo, capa da letra, pill "Ligar Sistema", rótulo de estrofe, destaque da busca por letra |
 | `--live` | `#b34134` | **só** preenchimento/borda de "está no ar agora" |
 | `--on-live` | `#f3e9e8` | o que se escreve sobre `--live` — 4,74:1 |
