@@ -1352,6 +1352,15 @@ AVDB.onCommand(async (cmd) => {
     return;
   }
 
+  // Passar SLIDE da apresentação: só a imagem do palco troca (ver `page` no
+  // stage.js). Não passa pelo `load` de propósito — recarregar a mídia para
+  // trocar uma página que já está na mão faria o telão piscar preto a cada
+  // slide, na frente da congregação.
+  if (cmd.type === 'page') {
+    stage.handle(cmd);
+    return;
+  }
+
   if (cmd.type === 'clear') {
     hideLyrics(true);
     // `++ytSeq` (via stopYoutube quando há player, ou direto) cancela também um

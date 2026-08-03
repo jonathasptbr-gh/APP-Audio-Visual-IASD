@@ -168,6 +168,54 @@ por OTA (ver "Como esta base é servida").
 
 ---
 
+## Apresentação: PDF e Google Apresentações (v5.97)
+
+O que o operador tem na mão é um PowerPoint ou um Google Apresentações. O que
+o app guarda é **uma imagem por página** — e é essa tradução que torna o
+recurso pequeno: a partir dela a apresentação é mídia comum, com o fade, a
+cortina, o telão e a `MediaSession` que já existem há dezenas de versões.
+
+**Por que PDF, e por que o desenho é nativo.** Não existe no Android quem
+desenhe um `.pptx`, e escrever um renderizador de OOXML (formas, SmartArt,
+fontes, gráficos) produziria, no telão da igreja, um slide que se PARECE com o
+que o pastor montou — e um slide quase igual na frente da congregação é pior
+que slide nenhum. PDF é o formato em que os dois exportam com dois toques, é o
+que preserva o desenho exatamente, e o Android traz um renderizador dele **na
+plataforma** (`PdfRenderer`, API 21+): fidelidade total e **zero dependência
+nova**, que é a regra do projeto. Ver `SlideDeck.kt`.
+
+**As três portas de entrada, e por que só duas existem:**
+
+- **Compartilhar um PDF** com o app (o `intent-filter` passou a aceitar
+  `application/pdf`). É o caminho principal.
+- **Compartilhar o link** do Google Apresentações: o shell monta a URL de
+  exportação (`/presentation/d/<id>/export/pdf`) e baixa. Precisa estar
+  compartilhada por link — que é como um roteiro de culto circula.
+- **O seletor de arquivos NÃO entra**, e não é esquecimento: ele devolve um
+  `File` (bytes já lidos), e quem desenha o PDF é o shell, que precisa do
+  ARQUIVO. Mandar os bytes de volta pela ponte inverteria o princípio dela
+  ("URLs servíveis, nunca bytes"). Como isso não se adivinha, o fim do
+  Cronograma diz em uma linha o que fazer (`.import-dica`).
+
+**O registro** é `kind: 'deck'` com `pages: [Blob]` — as páginas ficam DENTRO
+do próprio registro de mídia, não em arquivos soltos no OPFS, para que o gc que
+já existe as leve junto quando o item sai da última lista. Páginas no OPFS
+pediriam uma faxina paralela, que é o tipo de bookkeeping duplicado que vaza
+espaço em silêncio. O IndexedDB guarda Blob por referência: ler o registro não
+traz os bytes de dezenas de páginas para a memória.
+
+**A navegação é o par ⏮/⏭ que já passa estrofe** (`slideTarget()` devolve
+`'deck'`): cada toque passa uma página, e os botões desabilitam nos extremos
+como em qualquer outro alvo de slide. O comando é um `page` próprio, e não um
+`load` novo — recarregar a mídia para trocar uma imagem que já está na mão
+faria o telão piscar preto a cada slide. A `MediaSession` acompanha: o rótulo
+dos botões passou a dizer "(página)" em vez de "(estrofe)" quando é uma
+apresentação que está no ar (`slideLabel`).
+
+**A reconexão do telão volta na página certa**, pelo mesmo motivo do tempo de
+uma mídia: um dongle que cai no meio da pregação não pode devolver o primeiro
+slide na frente de todo mundo — o `load` do reenvio leva o `page`.
+
 ## Modelo de dados (`shared/db.js`)
 
 ### IndexedDB — banco `av-iasd` v3

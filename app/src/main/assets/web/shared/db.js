@@ -2,7 +2,8 @@
 // Mesmo domínio/origin => compartilham IndexedDB, OPFS e BroadcastChannel.
 //
 // Modelo:
-//   - store "media": blobs importados (imagens/vídeos/áudios) e itens de URL.
+//   - store "media": blobs importados (imagens/vídeos/áudios), itens de URL e
+//     apresentações (kind 'deck': um array de Blobs, uma imagem por página).
 //   - store "files": catálogo dos arquivos guardados no OPFS (só metadados +
 //     thumbnail; os bytes ficam no Origin Private File System).
 //   - listas (em "state"): "imports", "playlist", "avulsos" = arrays de ids
@@ -154,6 +155,14 @@
       kind: 'other',
       name: 'sem-nome',
       youtubeId: null,
+      // APRESENTAÇÃO: um array de Blobs, uma imagem por página (kind 'deck').
+      // Dentro do PRÓPRIO registro, e não em arquivos soltos no OPFS, porque
+      // assim o gc que já existe leva as páginas junto quando o item sai da
+      // última lista — páginas no OPFS pediriam uma faxina paralela, que é
+      // exatamente o tipo de bookkeeping duplicado que vaza espaço em silêncio.
+      // O IndexedDB guarda Blob por REFERÊNCIA: ler o registro não traz os
+      // bytes de dezenas de páginas para a memória.
+      pages: null,
       createdAt: Date.now(),
     }, fields);
   }
@@ -231,6 +240,20 @@
       thumb: (meta && meta.thumb) || null,
       name: (meta && meta.name) || 'sem-nome',
       youtubeId: (meta && meta.youtubeId) || null,
+    });
+    return addMediaToList(record, (meta && meta.list) || 'imports');
+  }
+  // Uma APRESENTAÇÃO: as páginas já rasterizadas (ver SlideDeck.kt, no shell).
+  // Ela não tem `blob` nem `url` — a mídia É a lista de páginas —, e por isso
+  // não passa por `addMedia`, que deriva tipo e kind de um blob que aqui não
+  // existe.
+  async function addDeck(pages, meta) {
+    const record = makeMediaRecord({
+      pages: Array.isArray(pages) ? pages : [],
+      thumb: (meta && meta.thumb) || null,
+      type: 'application/pdf',
+      kind: 'deck',
+      name: (meta && meta.name) || 'Apresentação',
     });
     return addMediaToList(record, (meta && meta.list) || 'imports');
   }
@@ -592,7 +615,7 @@
   // helpers — que é exatamente onde mora a atomicidade deste arquivo.
   global.AVDB = {
     setState, getState, stateKeys,
-    addMedia, addUrlMedia, getMedia, mediaByYoutube, renameMedia,
+    addMedia, addUrlMedia, addDeck, getMedia, mediaByYoutube, renameMedia,
     listIds, listSet, listItems, listHas, listAdd, listRemove, gc,
     fileAdd, fileGet, fileDelete, filesByFolder, filesAll,
     opfsSupported, opfsGetFile, opfsWriteFile, opfsDeleteFile, opfsDeleteDir,

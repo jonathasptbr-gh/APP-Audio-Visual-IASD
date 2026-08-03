@@ -284,6 +284,9 @@ class SessionService : Service() {
             val subtitle: String = "",
             val playing: Boolean = false,
             val slideMode: Boolean = false,
+            /** Como o operador CHAMA o que ⏮/⏭ passam agora: "estrofe" numa
+             *  letra, "página" numa apresentação. Vazio = o padrão de sempre. */
+            val slideLabel: String = "",
             val wallpaper: Boolean = false,
             val positionMs: Long = 0,
             val durationMs: Long = 0,
@@ -431,8 +434,9 @@ class SessionService : Service() {
             // uma letra, um versículo ou uma mensagem em cena é a estrofe que o
             // operador está passando. O rótulo diz qual é o modo, para não virar
             // adivinhação.
-            val rotuloPrev = if (s.slideMode) "Anterior (estrofe)" else "Anterior"
-            val rotuloNext = if (s.slideMode) "Próxima (estrofe)" else "Próxima"
+            val unidade = s.slideLabel.ifBlank { "estrofe" }
+            val rotuloPrev = if (s.slideMode) "Anterior ($unidade)" else "Anterior"
+            val rotuloNext = if (s.slideMode) "Próxima ($unidade)" else "Próxima"
 
             val b = Notification.Builder(ctx, CHANNEL_ID)
                 .setSmallIcon(android.R.drawable.ic_media_play)

@@ -83,6 +83,7 @@ app/src/main/
 │   ├── WebUpdater.kt            # OTA da base web (watchdog, minShell, sha256)
 │   ├── WebPathHandler.kt        # serve o bundle OTA, com fallback pro APK
 │   ├── YoutubeGrab.kt           # extrai e baixa o vídeo do YouTube NO APARELHO
+│   ├── SlideDeck.kt             # apresentação (PDF/Google) → uma imagem por página
 │   ├── MicChromeClient.kt       # onPermissionRequest: microfone no WebView do telão
 │   └── MessageBus.kt            # relay de comandos entre os dois WebViews
 └── res/
@@ -97,7 +98,7 @@ docs/
 └── FONTE-DE-DADOS-LOUVORJA.md   # referência do banco LouvorJA (hinos/Bíblia)
 ```
 
-**Doze arquivos Kotlin, zero dependências de terceiros** — só AndroidX oficial
+**Treze arquivos Kotlin, uma dependência de terceiros** — só AndroidX oficial
 (`core-ktx`, `activity-ktx`, `webkit`). Medido agora (`wc -l`): **3.330 linhas
 de Kotlin** contra **11.445 linhas de JavaScript** em `assets/web/` — a
 proporção é o argumento, não o número absoluto. Manter o nativo pequeno respeita
@@ -229,6 +230,9 @@ window.AVNative = {
   ytDiscard(url),      //   e apaga o arquivo depois que os bytes foram copiados
   keepAudioAlive(bool),// mesa de som ligada: este WebView não pode ser suspenso
   ytSearch(termo),     // → [{ id, url, name, author, seconds, thumb }] do YouTube
+  deckPages(origem, nome, onProg), // → { name, pages:[url] }: APRESENTAÇÃO em imagens
+  deckExportUrl(link), // → URL de exportação PDF de um link do Google Apresentações
+  deckDiscard(url),    //   e apaga as páginas depois da cópia
   captureVolumeKeys(bool), // botões físicos de volume vão para o app
   systemVolume(step),  // devolve um passo ao volume do sistema (fader no limite)
   requestMic(),        // → bool: permissão RECORD_AUDIO (push-to-talk)
@@ -239,7 +243,7 @@ window.AVNative = {
 }
 ```
 
-São **dezenove métodos**, e essa é a superfície inteira que o resto do lado web
+São **vinte e dois métodos**, e essa é a superfície inteira que o resto do lado web
 tem direito de usar: fora do `native.js`, tocar em `__AVBridge` direto é
 acoplamento indevido. O próprio `native.js` chama mais cinco coisas no
 `__AVBridge`, e nenhuma delas é API para o app — `shellVersion()`, `role()` e
@@ -252,7 +256,7 @@ Além disso, `native.js` publica **quatro globais** lidas direto (sem Promise):
 o `versionName` do APK, que é o **índice de versão do shell exibido ao
 operador**. Ele não se confunde com `__SHELL_VERSION__`: base web e shell
 atualizam por caminhos independentes (OTA × instalar APK), então o rodapé de
-**Configurações** mostra os dois (`Web v5.96 · Shell v<versionName do APK>`,
+**Configurações** mostra os dois (`Web v5.97 · Shell v<versionName do APK>`,
 montado em `renderVersionLabel`; até a v5.48 ficava no cabeçalho do Cronograma —
 saiu de lá porque metadado de diagnóstico pertence à mesma tela do estado do
 telão, não a uma faixa de navegação). Num shell antigo (sem
@@ -300,7 +304,8 @@ esperam uma **pessoa** e ficam sem prazo, porque um timeout ali resolveria null
 com o operador ainda escolhendo a pasta.
 
 `NativeBridge.SHELL_VERSION` identifica a versão da casca — **subir sempre que
-a superfície da ponte mudar**. Hoje vale **18** — a v5.85 acrescentou
+a superfície da ponte mudar**. Hoje vale **19** — a v5.97 acrescentou os três métodos da
+APRESENTAÇÃO (`deckPages`/`deckExportUrl`/`deckDiscard`), a v5.85 acrescentou
 `ytSearch`, a v5.83 `keepAudioAlive`, a v5.81 `ytFetch`/`ytDiscard` e a v5.76
 `openExternal`. (A v5.48 não a mexeu: nenhum método foi acrescentado ou teve
 assinatura alterada, e as mudanças do lote foram restrições de quem pode chamar
@@ -864,6 +869,7 @@ contextos.
 | Onde o share ATERRISSA | idem ao nativo (o caminho é o mesmo `importShare`) | **`focarImportado`** (v5.77): fecha os popups abertos e a seleção, e então **projeta na hora** no simplificado ou **vai para o Cronograma** no avançado — e no simplificado o item NÃO entra em lista visível nenhuma (v5.89: vai para a prateleira `avulsos`), porque aquela tela não tem Cronograma nem playlist. A preview em tela cheia só é encerrada se houver telão — sem ele, ela É a projeção |
 | Estado do telão (rodapé de Configurações) | atalho `window.open('../display/')`, útil só para desenvolver | **indicador ao vivo** (desabilitado como botão) — a Presentation é criada sozinha |
 | Botão de cast da preview | oculto | `AVNative.openCast()` → seletor de **espelhamento de tela** (ver abaixo) |
+| Apresentação (PDF / Google Apresentações) | **não existe**: sem quem desenhe o PDF, o arquivo não vira mídia | **vira UMA IMAGEM POR PÁGINA** (`SlideDeck.kt` + `AVNative.deckPages`), com o `PdfRenderer` da PLATAFORMA — fidelidade total e zero dependência nova. Daí para a frente é mídia comum: fade, cortina, telão e `MediaSession` que já existem, com ⏮/⏭ passando página. O `.pptx` fica de fora de propósito: não há no Android quem o desenhe, e um slide "quase igual" na frente da congregação é pior que slide nenhum — PowerPoint e Google exportam PDF em dois toques, e o link do Google entra sozinho pela URL de exportação |
 | Vídeo do YouTube | player embutido (IFrame API) | **arquivo de vídeo baixado PELO APARELHO** (`YoutubeGrab.kt` + `AVNative.ytFetch`) — o embed pausa sozinho com o app minimizado, e a extração no próprio celular sai do IP do chip, que é o que o YouTube não bloqueia. Sem configurar nada. Cobalt continua como segunda opção para quem já mantém uma instância; falhando os dois, o link vira item de player |
 | Buscar no YouTube | não existe: o botão abre o YouTube numa aba | **a busca acontece DENTRO do acervo** — a tela que o rótulo chama de **Biblioteca** desde a v5.96, e que no código segue sendo o acervo — (`AVNative.ytSearch`, `YoutubeGrab.pesquisar`, em **português** — no padrão en-GB da biblioteca o YouTube devolve o título TRADUZIDO de vídeos que são originalmente em português, e passar a localização ao `NewPipe.init` NÃO resolve: o serviço filtra o idioma por uma lista de suportados que hoje só tem `en-GB`. Quem resolve é o `forceLocalization` do próprio `Extractor`): os resultados entram na mesma lista e o toque abre a mesma folha de três escolhas das músicas (tocar · playlist · Cronograma), cada uma indo só para o seu lugar. Um iframe da página de resultados é recusado pelo `X-Frame-Options` do YouTube, e a API oficial exigiria chave com cota compartilhada pela frota |
 | Link para fora do app ("Pesquisar … no YouTube") | `window.open` numa aba nova | **`AVNative.openExternal(url)`** → `ACTION_VIEW` numa tarefa própria. O WebView RECUSA navegar para outro origin (invariante 2), então sem esse método um link externo não faz absolutamente nada — nem erro no console |
@@ -1303,7 +1309,7 @@ aparelho nenhum.
 O `versionCode`/`versionName` do APK vêm do CI (ver "Build") e não se tocam à
 mão.
 
-**Versão atual: v5.96** (base web) · `SHELL_VERSION` **18**, e o bundle segue com
+**Versão atual: v5.97** (base web) · `SHELL_VERSION` **19**, e o bundle segue com
 `minShell: 2` — ele funciona igual num shell antigo, só sem os recursos que são
 nativos por construção (a escada do voltar, os botões de volume, a notificação de
 controles), que **só chegam instalando o APK novo**, não pelo OTA.

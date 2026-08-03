@@ -156,7 +156,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.96';
+const WEB_VERSION = '5.97';
 
 // Escrita UMA vez, na carga: o indicador mora no rodapé de Configurações desde
 // a v5.49 e não depende mais de qual aba está aberta (no cabeçalho ele
@@ -1889,7 +1889,12 @@ function renderNowPlaying() {
   // Prioriza plItems/libItems (já carregados); usa currentItem como fallback
   // para o caso de o item estar somente em outra aba (ex: dentro de uma pasta).
   const cur = [...plItems, ...libItems].find((m) => m.id === currentId) || currentItem;
-  npNameInnerEl.textContent = cur ? cur.name : 'Nada em exibição';
+  // A apresentação leva a PÁGINA no título, pela mesma razão da letra avulsa
+  // logo acima: sem o número, duas páginas seguidas dão o mesmo cabeçalho e o
+  // operador perde a única referência de onde está no material.
+  npNameInnerEl.textContent = cur
+    ? (isDeck(cur) ? cur.name + ' · ' + (deckPagina + 1) + '/' + cur.pages.length : cur.name)
+    : 'Nada em exibição';
   applyTitleMarquee();
   playPauseEl.querySelector('.msym').textContent = playing ? ICON.pause : ICON.play;
   const isTimed = cur && (cur.kind === 'video' || cur.kind === 'audio');
@@ -1983,6 +1988,11 @@ function pushNowPlaying() {
     subtitle,
     playing,
     slideMode: !!who,
+    // Como o operador CHAMA o que ⏮/⏭ passam agora. A notificação escrevia
+    // "(estrofe)" sempre, e com uma APRESENTAÇÃO em cena isso é simplesmente
+    // outra palavra — o que passa ali é página. Num shell antigo o campo é
+    // ignorado e o rótulo volta a ser o de sempre.
+    slideLabel: who === 'deck' ? 'página' : 'estrofe',
     wallpaper: view === 'wallpaper',
     positionMs: temTempo ? Math.round((parseFloat(seekEl.value) || 0) * 1000) : 0,
     durationMs: temTempo ? Math.round((parseFloat(seekEl.max) || 0) * 1000) : 0,
@@ -4242,6 +4252,20 @@ function appendImportRow() {
 
   li.append(label, folders);
   libraryEl.appendChild(li);
+
+  // COMO ENTRA UMA APRESENTAÇÃO — a única mídia que não entra por este botão.
+  // O seletor de arquivos devolve um `File` (bytes já lidos), e quem desenha o
+  // PDF é o shell, que precisa do ARQUIVO: o caminho é o compartilhamento, que
+  // entrega uma URL servível. Isso não se adivinha, então está escrito aqui,
+  // ao lado do botão em que o operador ia procurar. Só onde funciona: num
+  // shell antigo (ou no navegador) a dica ofereceria algo que não existe.
+  if (window.__NATIVE__ && (window.__SHELL_VERSION__ | 0) >= 19) {
+    const dica = document.createElement('li');
+    dica.className = 'empty import-dica';
+    dica.textContent = 'Apresentação: exporte como PDF e COMPARTILHE com o app '
+      + '(o Google Apresentações também entra pelo link).';
+    libraryEl.appendChild(dica);
+  }
 }
 
 function countDownloaded(id) {
@@ -5207,7 +5231,11 @@ async function send(id) {
   ytEnded = false;
   displayStatusAt = 0; // até o Display confirmar o novo item, a preview dirige
   lastDisplayTime = 0;
-  cmd({ type: 'load', mediaId: id, view, muted, volume });
+  // A apresentação entra sempre pela PRIMEIRA página: quem manda o operador
+  // para outra é o par de botões do transporte, e uma cena nova que começasse
+  // no meio do deck anterior seria um slide aleatório no telão.
+  deckPagina = 0;
+  cmd({ type: 'load', mediaId: id, view, muted, volume, page: 0 });
   // re-render leve de estados ativos
   document.querySelectorAll('.lib-item,.row-item').forEach((el) => el.classList.toggle('active', el.dataset.id === id));
   renderNowPlaying();
@@ -5247,6 +5275,10 @@ function slideTarget() {
   if (lyricProjecting()) return 'songlyrics';
   if (msgSession && msgSession.projecting) return 'message';
   if (bibleSession && bibleSession.projecting) return 'bible';
+  // A APRESENTAÇÃO é o alvo mais literal que este par de botões já teve: cada
+  // toque passa uma página. Vem antes da letra porque um deck não tem letra —
+  // são caminhos que nunca coexistem.
+  if (isDeck(currentItem)) return 'deck';
   const lyrics = currentItem && Array.isArray(currentItem.lyrics) ? currentItem.lyrics : null;
   if (lyrics && lyrics.length) return 'lyrics';
   return null;
@@ -5254,6 +5286,7 @@ function slideTarget() {
 
 function stepSlide(delta) {
   const who = slideTarget();
+  if (who === 'deck') { deckStep(delta); return; }
   if (who === 'songlyrics') { lyricStep(delta); return; }
   if (who === 'message') { msgStep(delta); return; }
   if (who === 'bible') { bibleStep(delta); return; }
@@ -5306,6 +5339,11 @@ function applySlideLimits(who) {
     slidePrevBtnEl.disabled = (s.bookIdx === 0 && s.chapter === 1 && s.idx === 0);
     slideNextBtnEl.disabled = (s.bookIdx === lastBook
       && s.chapter === Bible.BOOKS[lastBook].chapters && s.idx === s.verses.length - 1);
+    return;
+  }
+  if (who === 'deck') {
+    slidePrevBtnEl.disabled = deckPagina <= 0;
+    slideNextBtnEl.disabled = deckPagina >= currentItem.pages.length - 1;
     return;
   }
   if (who !== 'lyrics') {
@@ -6235,6 +6273,11 @@ const MEDIA_MIME = {
   m4v: 'video/mp4', mkv: 'video/x-matroska',
   mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg', aac: 'audio/aac',
   flac: 'audio/flac', m4a: 'audio/mp4', opus: 'audio/opus',
+  // A apresentação entra como PDF e vira IMAGENS no aparelho (ver
+  // `deckImportar`). Os formatos de origem — .pptx, .odp — ficam de fora de
+  // propósito: não existe no Android quem os desenhe, e aceitar o arquivo para
+  // depois não conseguir projetá-lo é pior do que dizer na hora o que fazer.
+  pdf: 'application/pdf',
 };
 function guessMediaType(filename) {
   const ext = (filename.split('.').pop() || '').toLowerCase();
@@ -8376,6 +8419,84 @@ async function ytBaixarNativo(link, nome, opts) {
   }
 }
 
+function ehPdf(item) {
+  const t = String((item && item.type) || '').toLowerCase();
+  const n = String((item && item.name) || '').toLowerCase();
+  return t === 'application/pdf' || n.endsWith('.pdf');
+}
+function nomeSemExtensao(n) { return String(n || '').replace(/\.[^.]+$/, ''); }
+
+// ===== APRESENTAÇÃO (PDF / Google Apresentações) =====
+//
+// O que chega é um PDF — ou um link do Google Apresentações, que o shell baixa
+// já exportado. O que o app guarda é uma IMAGEM POR PÁGINA: daí para a frente
+// a apresentação é mídia comum, com fade, cortina, `MediaSession` e o telão
+// que já existem. Ver SlideDeck.kt para por que o desenho é nativo e por que o
+// formato de entrada é PDF e não `.pptx`.
+//
+// Exige shell >= 19. Num anterior o método não existe e a função devolve null
+// na hora: o PDF volta a ser um arquivo qualquer e o link, um item de URL —
+// exatamente o comportamento de antes.
+let deckPagina = 0;   // página em cena da apresentação atual
+
+function isDeck(rec) {
+  return !!(rec && rec.kind === 'deck' && Array.isArray(rec.pages) && rec.pages.length);
+}
+
+function deckStep(delta) {
+  if (!isDeck(currentItem)) return;
+  const alvo = Math.min(Math.max(deckPagina + delta, 0), currentItem.pages.length - 1);
+  if (alvo === deckPagina) return;
+  deckPagina = alvo;
+  cmd({ type: 'page', page: deckPagina });
+  renderSlideNav();
+  renderNowPlaying();
+}
+
+async function deckImportar(origem, nome, opts) {
+  if (!window.__NATIVE__ || (window.__SHELL_VERSION__ | 0) < 19) return null;
+  const rotulo = nome || 'Apresentação';
+  const naPreview = !!(opts && opts.naPreview);
+  const bg = naPreview
+    ? previewBusy('Preparando apresentação', rotulo)
+    : libBusy(rotulo, opts && opts.chave);
+  const notif = bgTaskStart('Preparando apresentação', 1);
+  let primeira = null;   // uma página basta para o descarte: ele apaga a pasta
+  try {
+    return await withBgWork(async () => {
+      const r = await AVNative.deckPages(origem, rotulo, (feitas, total) => {
+        const pct = total ? Math.floor((feitas / total) * 100) : -1;
+        bg.atualizar('Preparando página ' + feitas + (total ? ' de ' + total : '') + '…', null, pct);
+      });
+      if (!r || !Array.isArray(r.pages) || !r.pages.length) return null;
+      primeira = r.pages[0];
+      // Uma página de cada vez: as imagens já estão no cache do aparelho, e
+      // buscar as dezenas de uma vez só encheria a memória sem ganhar tempo.
+      const pages = [];
+      for (const u of r.pages) {
+        const res = await fetch(u);
+        if (!res.ok) return null;
+        const b = await res.blob();
+        if (!b.size) return null;
+        pages.push(b);
+      }
+      const thumb = await makeThumb(pages[0], 'image');
+      return await AVDB.addDeck(pages, {
+        name: r.name || rotulo, thumb, list: (opts && opts.lista) || 'imports',
+      });
+    });
+  } catch (e) {
+    console.warn('[apresentação] falhou:', e && e.message);
+    return null;
+  } finally {
+    // No `finally`, como o `ytDiscard`: mesmo que a cópia falhe, as páginas do
+    // cache não podem ficar para trás — ninguém mais tem o token delas.
+    if (primeira) AVNative.deckDiscard(primeira);
+    bgTaskEnd(notif);
+    bg.soltar();
+  }
+}
+
 // O arquivo do vídeo: o que JÁ está no aparelho, ou um download novo.
 //
 // Até a v5.86 cada destino baixava por conta própria — tocar agora, adicionar
@@ -8459,6 +8580,20 @@ async function handleSharedUrl(url, title) {
       list: destinoDoShare(),
     }));
   }
+  // APRESENTAÇÃO DO GOOGLE: o link vira PDF exportado e, daí, imagens — quem
+  // sabe montar a URL de exportação é o shell (`deckExportUrl`), porque é ele
+  // que sabe o que consegue abrir. Precisa estar compartilhada por link, que é
+  // como um roteiro de culto circula; sem permissão a exportação falha e o link
+  // cai no caminho de sempre (item de URL).
+  if (window.__NATIVE__ && (window.__SHELL_VERSION__ | 0) >= 19) {
+    const exportacao = AVNative.deckExportUrl(url);
+    if (exportacao) {
+      const rec = await deckImportar(exportacao, title || 'Apresentação', {
+        naPreview: simplificado(), lista: destinoDoShare(),
+      });
+      if (rec) return guardarShare(rec);
+    }
+  }
   const kind = detectUrlKind(url);
   const fallbackName = url.split('/').pop().split('?')[0] || url;
   return guardarShare(await AVDB.addUrlMedia(url, {
@@ -8520,6 +8655,25 @@ async function importShare(pending) {
   const lote = [];
   let ok = 0;
   for (const item of files) {
+    // APRESENTAÇÃO: o PDF não vira blob nenhum aqui — quem o transforma em
+    // imagens é o shell, e ele precisa do arquivo ORIGINAL (a URL `/saf/`), não
+    // de uma cópia já lida. Por isso o desvio acontece ANTES da leitura.
+    //
+    // Só pelo compartilhamento: um PDF escolhido no seletor de arquivos chega
+    // como `File`, sem caminho que o Kotlin consiga abrir — e a ponte entrega
+    // URLs servíveis, nunca bytes, então mandá-lo de volta seria inverter o
+    // princípio dela.
+    if (item && item.url && ehPdf(item)) {
+      const rec = await deckImportar(item.url, nomeSemExtensao(item.name || 'Apresentação'), {
+        naPreview: simplificado(), lista: destinoDoShare(),
+      });
+      if (rec) {
+        if (!primeiro) primeiro = rec.id;
+        lote.push(rec.id);
+        ok++;
+      }
+      continue;
+    }
     let blob = null;
     let name = '';
     if (item instanceof File) {
@@ -10359,7 +10513,13 @@ function resendSceneToDisplay() {
     // `pushNowPlaying` usa): é a única que cobre todos os tipos, inclusive
     // YouTube, onde `preview.getTime()` não sabe de nada.
     const t = !seekEl.disabled ? (parseFloat(seekEl.value) || 0) : 0;
-    AVDB.sendCommand({ type: 'load', mediaId: currentId, view, muted, volume, time: t, playing });
+    // A apresentação volta na PÁGINA em que estava, pelo mesmo motivo do
+    // tempo: um telão que reconecta no meio da pregação não pode voltar ao
+    // primeiro slide na frente de todo mundo.
+    AVDB.sendCommand({
+      type: 'load', mediaId: currentId, view, muted, volume, time: t, playing,
+      page: isDeck(currentItem) ? deckPagina : 0,
+    });
   }
   // O cronômetro volta pelo DESCRITOR, não por um valor: o telão recalcula o
   // número a partir do mesmo `startAt`, então ele reaparece no segundo certo —
