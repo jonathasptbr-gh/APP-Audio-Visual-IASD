@@ -94,7 +94,7 @@ git push origin main
   MENOR que o já publicado — caso em que `WebUpdater.compareVersions` ignora o
   bundle em silêncio. Para saber onde a base está, leia `version.json`.
 
-  No app nativo o rótulo mostra os **dois índices** — `Web v5.85 · Shell v1.30`
+  No app nativo o rótulo mostra os **dois índices** — `Web v5.85 · Shell v1.31`
   —, porque base web e shell atualizam por caminhos independentes (OTA ×
   instalar APK); no navegador sai só `Controle v<versão>`. **Ele mora no rodapé
   do popup de Configurações** desde a v5.49 (antes ficava no cabeçalho da lista,
@@ -2849,6 +2849,16 @@ pesquisar de novo, compartilhar de volta, esperar. Agora é digitar uma vez.
   dividida por toda a frota.
 - **Só vídeos** no filtro de conteúdo: canal e playlist não têm o que fazer numa
   lista cujo único destino é virar arquivo de mídia.
+- **O nome do canal sai da frente do título** (`tituloLimpo`, v1.31). Meio
+  YouTube publica como "Arautos do Rei - Firme nas Promessas", e no Cronograma
+  isso vira uma lista em que a metade esquerda de toda linha é a mesma palavra —
+  justamente a parte que não distingue um item do outro. O canal não se perde:
+  ele continua no subtítulo do resultado da busca, que é onde ajuda a escolher.
+  A remoção é conservadora — só corta quando o título COMEÇA exatamente com o
+  nome do canal seguido de um separador, então "Hino 512 - Ao Deus de Abraão"
+  fica inteiro. E o sufixo `- Topic` (canais que o YouTube gera sozinho para
+  música) é descontado antes da comparação, senão ela nunca casaria justamente
+  nos vídeos de louvor.
 - **A miniatura é montada a partir do ID** (`i.ytimg.com/vi/<id>/mqdefault.jpg`)
   em vez de vir da biblioteca: é uma URL estável há mais de uma década, e assim
   o formato das imagens do extrator — que já mudou entre versões — deixa de ser
