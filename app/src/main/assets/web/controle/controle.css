@@ -1363,6 +1363,21 @@ main {
   display: flex; flex-direction: column; gap: .35rem;
 }
 
+/* A sentinela do fim da página (ver `fillSongList`). O objetivo é que ela NÃO
+   seja vista: o observador dispara 300px antes, então na rolagem normal a
+   próxima página já chegou quando esta linha entraria na tela. Ela existe
+   visível para os casos em que a espera acontece mesmo assim — e aí precisa
+   dizer que algo está vindo, e quanto ainda falta. */
+.coll-more { display: flex; }
+.coll-more-btn {
+  --dl-ring: 15px;
+  flex: 1; min-height: var(--hit);
+  display: flex; align-items: center; justify-content: center; gap: .45rem;
+  border: none; border-radius: var(--radius-btn);
+  background: var(--surface); color: var(--muted);
+  font-size: .74rem; cursor: pointer;
+}
+
 /* Conteúdo do bottom-sheet de mensagens. */
 .msg-list .empty { padding: 1rem 0; }
 

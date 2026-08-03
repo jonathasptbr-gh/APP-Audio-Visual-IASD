@@ -94,7 +94,7 @@ git push origin main
   MENOR que o já publicado — caso em que `WebUpdater.compareVersions` ignora o
   bundle em silêncio. Para saber onde a base está, leia `version.json`.
 
-  No app nativo o rótulo mostra os **dois índices** — `Web v5.73 · Shell v1.24`
+  No app nativo o rótulo mostra os **dois índices** — `Web v5.74 · Shell v1.24`
   —, porque base web e shell atualizam por caminhos independentes (OTA ×
   instalar APK); no navegador sai só `Controle v<versão>`. **Ele mora no rodapé
   do popup de Configurações** desde a v5.49 (antes ficava no cabeçalho da lista,
@@ -2477,6 +2477,41 @@ hinário. As linhas são as mesmas `hymnResultRow` da busca, com `semColecao`
 ligado: repetir o nome do álbum nas dez faixas é ruído, o card em volta já diz
 de quem elas são. Com as opções pedidas (abaixo), o painel delas vem ANTES da
 lista.
+
+#### …mas ela CHEGA em páginas de 100 (v5.74)
+
+"Inteira" é sobre o que está disponível, não sobre o que é montado no toque.
+Um hinário tem **613 hinos**, e cada linha é um `<li>` com miniatura, dois
+botões e SVG inline dentro deles: montar as 613 de uma vez é um bloco de
+JavaScript **síncrono** no meio do toque que abre o card — a animação de
+abertura nasce engasgada e o toque parece não ter funcionado. E não é uma vez
+só: o card é remontado a cada redesenho do acervo, que o progresso de um
+download dispara a cada `COLL_REFRESH_MS`.
+
+`fillSongList(lista, coll, u)` monta `COLL_PAGE` (100) linhas e pendura uma
+**sentinela** (`.coll-more`) no fim. Quando ela entra na tela, a página seguinte
+é anexada e a sentinela se remuda para o novo fim, até acabarem as faixas.
+
+- **O gatilho é o SCROLL, não um botão.** Quem folheia um hinário está
+  procurando um hino, não administrando uma lista: parar para pedir mais é
+  atrito num gesto que já é contínuo. A sentinela **também** é um botão, para o
+  caso de ela aparecer sem que a rolagem a tenha alcançado (uma lista curta
+  demais para rolar dentro do popup) — mas o caminho normal não passa por ele.
+- **`IntersectionObserver` com `root: null`.** A viewport resolve sozinha o
+  problema de descobrir QUAL elemento rola (hoje `#hymnResults`, amanhã outro):
+  a interseção com a viewport já vem recortada pelos `overflow` dos ancestrais,
+  então a sentinela só "aparece" quando de fato aparece na tela. O
+  `rootMargin: '300px'` adianta a página — o objetivo é que o operador **nunca
+  chegue a ver** essa linha.
+- **É INCREMENTAL.** A página nova é anexada às linhas que já estão no DOM, sem
+  reconstruir as anteriores: reconstruir mexeria no scroll debaixo do dedo que
+  acabou de pedir a página.
+- **`u.shown` mora no estado de UI do card** (ao lado de `u.expanded`), então um
+  redesenho por progresso de download reencontra o mesmo ponto — quem já rolou
+  até o hino 400 continua vendo 400.
+- **Fechar zera.** Reabrir um hinário que ficou rolado até o fim traria os 613
+  de volta de uma vez, que é exatamente o custo que a paginação existe para
+  evitar.
 
 #### A engrenagem volta para a barra, no lugar do download (v5.72)
 

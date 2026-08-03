@@ -156,7 +156,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.73';
+const WEB_VERSION = '5.74';
 
 // Escrita UMA vez, na carga: o indicador mora no rodapé de Configurações desde
 // a v5.49 e não depende mais de qual aba está aberta (no cabeçalho ele
@@ -4356,8 +4356,12 @@ function renderCollectionCard(coll, ctx) {
     // do lugar exatamente o card que o operador mira.
     const abrindo = !u.expanded;
     const aplicar = () => {
-      allCollections().forEach((c) => { ui(c.id).expanded = false; });
+      // Fechar zera a paginação junto: reabrir um hinário de 613 hinos que
+      // ficou rolado até o fim traria os 613 de volta de uma vez, que é
+      // exatamente o custo que `COLL_PAGE` existe para evitar.
+      allCollections().forEach((c) => { const x = ui(c.id); x.expanded = false; x.shown = 0; });
       u.expanded = abrindo;
+      if (abrindo) u.shown = COLL_PAGE;
       // O card só existe DEPOIS do redesenho (a lista inteira é reconstruída),
       // então quem anima a abertura é o próprio render — este é o recado.
       if (abrindo) u.animarAbertura = true;
@@ -4398,10 +4402,11 @@ function renderCollectionCard(coll, ctx) {
     // A lista sai INTEIRA, quantos itens tenha: aqui o operador está folheando
     // um álbum, não filtrando o acervo — cortar num teto esconderia o fim de
     // qualquer hinário. É o mesmo `hymnResultRow` da busca, sem o subtítulo da
-    // coleção (que é o próprio card em volta).
+    // coleção (que é o próprio card em volta). Ela só chega em PÁGINAS de
+    // `COLL_PAGE`, à medida que o scroll alcança o fim — ver `fillSongList`.
     if (total > 0) {
       const lista = document.createElement('ul'); lista.className = 'coll-songs';
-      collSongs(coll.id).forEach((s) => lista.appendChild(hymnResultRow(coll, s, null, true)));
+      fillSongList(lista, coll, u);
       aberto.appendChild(lista);
     }
     li.appendChild(aberto);
@@ -4416,6 +4421,72 @@ function renderCollectionCard(coll, ctx) {
     }
   }
   return li;
+}
+
+// ===== A lista do álbum chega em páginas =====
+// Um hinário tem 613 hinos, e cada linha é um `<li>` com miniatura, dois botões
+// e SVG inline dentro deles. Montar as 613 de uma vez no toque que abre o card
+// é meio segundo de JAVASCRIPT SÍNCRONO num celular: a animação de abertura
+// nasce já engasgada e o toque parece não ter funcionado. Pior, isso acontece
+// TODA vez que o card é redesenhado — e o progresso de um download redesenha o
+// acervo a cada `COLL_REFRESH_MS`.
+//
+// Então a lista chega de `COLL_PAGE` em `COLL_PAGE`, e o gatilho da próxima
+// página é o SCROLL CHEGAR NO FIM da anterior — não um botão. Quem folheia um
+// hinário está procurando um hino, não administrando uma lista: parar para
+// pedir mais é atrito num gesto que já é contínuo.
+const COLL_PAGE = 100;
+
+// Preenche (ou completa) `lista` até `u.shown` e reinstala a sentinela do fim.
+// É INCREMENTAL de propósito: a próxima página é anexada às linhas que já estão
+// no DOM, sem reconstruir as anteriores — reconstruir mexeria no scroll debaixo
+// do dedo do operador, que é o gesto que acabou de pedir a página.
+function fillSongList(lista, coll, u) {
+  const songs = collSongs(coll.id);
+  if (!u.shown) u.shown = COLL_PAGE;
+  const ate = Math.min(u.shown, songs.length);
+  for (let i = lista.querySelectorAll('.hymn-result').length; i < ate; i++) {
+    lista.appendChild(hymnResultRow(coll, songs[i], null, true));
+  }
+
+  const velha = lista.querySelector('.coll-more');
+  if (velha) {
+    if (velha.__obs) velha.__obs.disconnect();
+    velha.remove();
+  }
+  if (ate >= songs.length) return;
+
+  // A sentinela é também o BOTÃO da próxima página. O observador cobre o caso
+  // normal (o dedo rolando), o toque cobre quem chegou aqui de outro jeito —
+  // uma lista curta demais para rolar dentro do popup, por exemplo.
+  const sent = document.createElement('li');
+  sent.className = 'coll-more';
+  const btn = document.createElement('button');
+  btn.className = 'coll-more-btn';
+  btn.innerHTML = '<span class="dl-ring"></span>';
+  btn.appendChild(document.createTextNode('Carregando mais ' + Math.min(COLL_PAGE, songs.length - ate)
+    + ' de ' + (songs.length - ate) + ' restantes'));
+  sent.appendChild(btn);
+
+  const mais = () => {
+    if (sent.__obs) sent.__obs.disconnect();
+    if (!lista.isConnected) return;
+    u.shown = ate + COLL_PAGE;
+    fillSongList(lista, coll, u);
+  };
+  btn.addEventListener('click', mais);
+
+  // `root: null` (a viewport) resolve sozinho o problema de descobrir QUAL é o
+  // contêiner que rola — a interseção com a viewport já vem recortada pelos
+  // `overflow` dos ancestrais, então a sentinela só "aparece" quando de fato
+  // aparece na tela. A margem adianta a página em ~300px: o objetivo é que o
+  // operador nunca CHEGUE a ver esta linha.
+  const obs = new IntersectionObserver((entradas) => {
+    if (entradas.some((e) => e.isIntersecting)) mais();
+  }, { rootMargin: '300px 0px' });
+  sent.__obs = obs;
+  lista.appendChild(sent);
+  obs.observe(sent);
 }
 
 // ===== Acordeões: a animação de altura =====
