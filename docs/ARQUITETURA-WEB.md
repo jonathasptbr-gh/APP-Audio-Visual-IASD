@@ -2596,26 +2596,28 @@ download dispara a cada `COLL_REFRESH_MS`.
   de volta de uma vez, que é exatamente o custo que a paginação existe para
   evitar.
 
-#### A engrenagem volta para a barra, no lugar do download (v5.72)
+#### O canto da barra: de engrenagem a seta que FECHA (v5.72 → v5.95)
 
-Aberto o card, a **engrenagem toma a caixa do botão de baixar** na barra
+Aberto o card, aquele canto **toma a caixa do botão de baixar** na barra
 (`.coll-bar-cfg`, herdando `.coll-bar-dl`): mesma coluna, mesmo alvo. Os dois
 nunca fazem falta ao mesmo tempo — fechado, o que se decide é "baixo isto?";
-aberto, já se está olhando o conteúdo e o que sobra é manutenção. Ela foi uma
-**barra larga rotulada** dentro do card por duas versões (`.coll-open-cfg`,
-"Sincronizar e opções"): uma linha inteira gasta com o que cabe no canto que já
-existia.
+aberto, já se está olhando o conteúdo. Foi uma **barra larga rotulada** dentro
+do card por duas versões (`.coll-open-cfg`, "Sincronizar e opções"): uma linha
+inteira gasta com o que cabe no canto que já existia. Virou **engrenagem** na
+v5.72, e **seta para cima** quando o painel estava aberto (v5.73).
+
+**Na v5.95 a engrenagem sumiu e sobrou só a seta — fechando o ÁLBUM.** Com as
+duas ações encolhidas numa linha só (ver abaixo), as opções cabem SEMPRE que o
+card está aberto, e um botão para revelar duas ações que já caberiam na tela é
+cerimônia: some o estado `optsOpen`, some o `gearIconSvg` e some o
+`.coll-bar-cfg.on`. O alvo continua o mesmo canto de sempre; o que ele faz
+agora é o que a seta já dizia — recolher o que está abaixo dela. (O toque na
+barra continua alternando: são dois gatilhos para o mesmo `alternarAcordeao`.)
 
 **A exceção é o download EM CURSO.** Ali o botão da barra é o CANCELAR, e ele
-continua lá mesmo com o card aberto. Um álbum de centenas de faixas, uma vez
-começado, precisa poder parar num toque — esconder isso atrás da engrenagem
-devolveria exatamente o problema que o botão de cancelar veio resolver.
-
-**Com as opções à mostra a engrenagem vira uma SETA PARA CIMA**
-(`chevronUpIconSvg`, v5.73). Acesa em accent, a engrenagem dizia "as opções
-estão abertas" só pela cor; a seta diz o que o **toque faz** — recolher o painel
-que está imediatamente abaixo dela. É a convenção de qualquer gaveta, e aqui o
-alvo é literalmente o teto da gaveta que ele fecha.
+continua lá mesmo com o card aberto — um álbum de centenas de faixas, uma vez
+começado, precisa poder parar num toque. Nesse estado o álbum se fecha pelo
+toque na barra.
 
 ### Os acordeões abrem animados
 
@@ -2671,8 +2673,9 @@ linha de música.
 
 **Opções da coleção** (`buildCollectionOptions` → painel `.coll-opts--inline`,
 dentro do card): tudo que é manutenção — uma faixa de **dois chips**
-(`.hymnal-stat`) e **dois botões**. Não há "Ver músicas" aqui: a lista é o
-**toque no card**.
+(`.hymnal-stat`) e **dois botões lado a lado**. Não há "Ver músicas" aqui: a
+lista é o **toque no card**. Desde a v5.95 elas aparecem **sempre** que o álbum
+está aberto: não há mais botão para revelá-las.
 
 - **`Sincronizados`** (`.hymnal-stat.sinc`) diz as duas coisas na mesma linha:
   quantas faixas estão no aparelho e o que isso significa — `4/4 · Completo
@@ -2686,12 +2689,25 @@ dentro do card): tudo que é manutenção — uma faixa de **dois chips**
   sem "~". A unidade aparece uma vez quando é a mesma nos dois (`fmtParBytes`);
   se divergirem (`800 KB de ~1,2 GB`), as duas ficam — "800 de ~1,2 GB" seria
   falso.
+- **Os dois botões dividem UMA LINHA** (`.coll-opts-acoes`, v5.95). Empilhados,
+  eram duas faixas largas para duas ações curtas — e era esse tamanho que
+  obrigava a esconder o painel atrás de uma engrenagem. `flex: 1 1 0` nos dois:
+  metade da linha para cada um, independentemente do comprimento do rótulo
+  (duas larguras diferentes leriam como dois pesos diferentes, e a ação
+  destrutiva não pode ser a maior das duas). O rótulo QUEBRA em duas linhas em
+  vez de virar reticências — "Remover do disposi…" esconde justamente a palavra
+  que diz o alcance da ação.
 - **Sincronizar** (`syncCollection`), rotulado pelo que ESTE toque vai fazer
   neste álbum: **"Verificar atualizações"** com o álbum inteiro no aparelho
-  (não há o que baixar — só conferir se o catálogo mudou), **"Baixar álbum"**
-  em qualquer outro caso, e **"Cancelar o download"** enquanto roda.
-- **"Excluir downloads do álbum"** (`deleteCollection`) — nomeia o que some,
-  que é o conteúdo baixado, não o álbum.
+  (não há o que baixar — só conferir se o catálogo mudou), **"Baixar"** em
+  qualquer outro caso, e **"Cancelar"** enquanto roda. Os dois últimos
+  encurtaram na v5.95 junto com a linha: o card em volta já diz de que álbum se
+  trata e a barra logo acima já mostra o progresso, então a palavra que sobrava
+  era a que repetia o contexto.
+- **"Remover do dispositivo"** (`deleteCollection`) — era "Excluir downloads do
+  álbum". O que sai é o que ocupa espaço NESTE aparelho, e o álbum continua no
+  acervo para baixar de novo; "excluir" prometia um dano maior do que o que a
+  ação faz.
 
 #### O que a v5.73 tirou daqui, e por quê
 

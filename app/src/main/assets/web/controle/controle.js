@@ -156,7 +156,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.94';
+const WEB_VERSION = '5.95';
 
 // Escrita UMA vez, na carga: o indicador mora no rodapé de Configurações desde
 // a v5.49 e não depende mais de qual aba está aberta (no cabeçalho ele
@@ -4295,14 +4295,10 @@ function listIconSvg() {
 function chevronUpIconSvg() {
   return '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="18 15 12 9 6 15"/></svg>';
 }
-// SVG inline de "engrenagem" — botão de opções do card de coleção (mesmo
-// desenho do botão de configurações que flutua sobre a preview).
-function gearIconSvg() {
-  return '<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
-    + '<circle cx="12" cy="12" r="3.2"/>'
-    + '<path d="M19.4 14.2a1.6 1.6 0 0 0 .32 1.77l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.6 1.6 0 0 0-1.77-.32 1.6 1.6 0 0 0-.97 1.47V20a2 2 0 1 1-4 0v-.11a1.6 1.6 0 0 0-1.05-1.46 1.6 1.6 0 0 0-1.77.32l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.6 1.6 0 0 0 .32-1.77 1.6 1.6 0 0 0-1.47-.97H4a2 2 0 1 1 0-4h.11a1.6 1.6 0 0 0 1.46-1.05 1.6 1.6 0 0 0-.32-1.77l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.6 1.6 0 0 0 1.77.32H9.9a1.6 1.6 0 0 0 .97-1.47V4a2 2 0 1 1 4 0v.11a1.6 1.6 0 0 0 .97 1.47 1.6 1.6 0 0 0 1.77-.32l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.6 1.6 0 0 0-.32 1.77v.08a1.6 1.6 0 0 0 1.47.97H20a2 2 0 1 1 0 4h-.11a1.6 1.6 0 0 0-1.47.97z"/>'
-    + '</svg>';
-}
+// (`gearIconSvg` saiu na v5.95, com o botão de opções do card: as opções agora
+// aparecem sozinhas com o álbum aberto, e o único símbolo daquele canto é a
+// seta que fecha. O mesmo desenho continua no botão de Configurações que
+// flutua sobre a preview, que tem o seu.)
 // SVG inline de "voz" (microfone) — botão de tocar a variante CANTADO (vocal).
 function voiceIconSvg() {
   return '<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="11" rx="3"/><path d="M5 10a7 7 0 0 0 14 0"/><line x1="12" y1="17" x2="12" y2="21"/><line x1="8" y1="21" x2="16" y2="21"/></svg>';
@@ -4605,15 +4601,18 @@ function renderCollectionCard(coll, ctx) {
   // devolveria o problema que o botão de cancelar veio resolver.
   if (u.expanded && !u.syncBusy) {
     const cfg = document.createElement('button');
-    cfg.className = 'coll-bar-dl coll-bar-cfg' + (u.optsOpen ? ' on' : '');
-    cfg.title = u.optsOpen ? 'Recolher as opções' : 'Sincronizar e opções';
-    // Engrenagem para ABRIR, seta para RECOLHER (v5.73): o botão é um só, e o
-    // símbolo acompanha o que o toque faz a seguir.
-    cfg.innerHTML = u.optsOpen ? chevronUpIconSvg() : gearIconSvg();
+    cfg.className = 'coll-bar-dl coll-bar-cfg';
+    cfg.title = 'Fechar o álbum';
+    // A SETA FECHA O ÁLBUM (v5.95). Ela era uma engrenagem que abria um painel
+    // de opções dentro do card — mas com as opções encolhidas numa linha só de
+    // dois botões, elas cabem SEMPRE que o álbum está aberto, e um botão para
+    // revelar duas ações que já caberiam na tela é cerimônia. O alvo continua
+    // sendo o mesmo canto de sempre; o que ele faz agora é o que a seta já
+    // dizia.
+    cfg.innerHTML = chevronUpIconSvg();
     cfg.addEventListener('click', (e) => {
-      e.stopPropagation();   // divide a barra com o toque que fecha o acordeão
-      u.optsOpen = !u.optsOpen;
-      redesenharAcervo();
+      e.stopPropagation();   // divide a barra com o toque que também alterna
+      alternarAcordeao();
     });
     bar.appendChild(cfg);
   } else if (u.syncBusy || !complete) {
@@ -4626,10 +4625,12 @@ function renderCollectionCard(coll, ctx) {
     bar.appendChild(dl);
   }
 
-  // Sem índice ainda não há lista para abrir — o toque abre o card já com as
-  // OPÇÕES à mostra, que é onde está o sincronizar que resolve isso.
-  bar.addEventListener('click', () => {
-    if (!total) { openCollectionOptions(coll); return; }
+  // Sem índice ainda não há lista para abrir — o toque abre o card assim mesmo,
+  // e o que ele mostra são as opções, onde está o sincronizar que resolve isso.
+  //
+  // Nomeada porque tem DOIS gatilhos: o toque na barra e a seta (v5.95).
+  const alternarAcordeao = () => {
+    if (!total && !u.expanded) { openCollectionOptions(coll); return; }
     // Acordeão: uma coleção aberta por vez. Duas listas de centenas de músicas
     // abertas ao mesmo tempo empurrariam o acervo para fora da tela e tirariam
     // do lugar exatamente o card que o operador mira.
@@ -4651,13 +4652,14 @@ function renderCollectionCard(coll, ctx) {
     const aberto = li.querySelector('.coll-open');
     if (!abrindo && aberto) { collapseAccordion(aberto, aplicar); return; }
     aplicar();
-  });
+  };
+  bar.addEventListener('click', alternarAcordeao);
   li.appendChild(bar);
 
   // ----- Aberto: as opções (se pedidas) + as músicas da coleção -----
   // `total === 0` também abre: é o caso do álbum sem índice, em que o card só
   // tem as opções a mostrar — e é para elas que o toque na barra leva.
-  if (u.expanded && (total > 0 || u.optsOpen)) {
+  if (u.expanded) {
     li.classList.add('expanded');
 
     // Um invólucro só para os dois blocos abertos: é ele que a animação de
@@ -4672,11 +4674,9 @@ function renderCollectionCard(coll, ctx) {
     // sincronização de um álbum que já está aberto na tela era uma camada a
     // mais sobre outra camada — o acervo já é um popup de tela cheia. Aqui elas
     // ficam onde o assunto está, e fechar é o mesmo toque que abriu.
-    if (u.optsOpen) {
-      const opts = document.createElement('div'); opts.className = 'coll-opts coll-opts--inline';
-      buildCollectionOptions(coll, opts);
-      aberto.appendChild(opts);
-    }
+    const opts = document.createElement('div'); opts.className = 'coll-opts coll-opts--inline';
+    buildCollectionOptions(coll, opts);
+    aberto.appendChild(opts);
 
     // A lista sai INTEIRA, quantos itens tenha: aqui o operador está folheando
     // um álbum, não filtrando o acervo — cortar num teto esconderia o fim de
@@ -4860,12 +4860,10 @@ function renderAcervoTotal(redesenhar) {
   hymnSearchTotalEl.appendChild(btn);
 }
 
-// ===== Opções de uma coleção (bottom-sheet da engrenagem) =====
-// Tudo que é manutenção: estado do download, sincronizar/atualizar e excluir.
-// Fica fora da lista para que o card volte a ser só "o álbum", clicável.
-// Abre o CARD já com as opções à mostra. É o caminho do toque numa coleção sem
-// índice: ali não há lista para folhear, e o que resolve isso (sincronizar)
-// mora nas opções.
+// ===== Abrir o card de uma coleção =====
+// Abre o card sem passar pelo alternador da barra: é o caminho do toque numa
+// coleção SEM ÍNDICE (ali não há lista para folhear, e o que resolve isso —
+// sincronizar — está nas opções, que hoje aparecem sozinhas com o card aberto).
 function openCollectionOptions(coll) {
   const u = ui(coll.id);
   // Único ponto em que o peso é recontado a partir do catálogo: uma coleção,
@@ -4873,7 +4871,6 @@ function openCollectionOptions(coll) {
   updateCollBytes(coll.id);
   allCollections().forEach((c) => { ui(c.id).expanded = false; });
   u.expanded = true;
-  u.optsOpen = true;
   u.animarAbertura = true;
   redesenharAcervo();
 }
@@ -4934,6 +4931,18 @@ function buildCollectionOptions(coll, collOptsEl) {
   stats.appendChild(hymnalStat('Peso', pesoTxt, 'right'));
   collOptsEl.appendChild(stats);
 
+  // OS DOIS BOTÕES DIVIDEM UMA LINHA (v5.95). Empilhados, eles ocupavam duas
+  // faixas largas para duas ações curtas, e era esse tamanho que obrigava a
+  // esconder tudo atrás de uma engrenagem. Lado a lado eles cabem sempre — e é
+  // por isso que as opções não precisam mais ser reveladas por um botão.
+  //
+  // Os rótulos encurtaram junto, pelo mesmo motivo: "Baixar álbum" virou
+  // "Baixar" e "Cancelar o download" virou "Cancelar" porque o card em volta JÁ
+  // diz de que álbum se trata e a barra logo acima já mostra o progresso — a
+  // palavra que sobrava era a que repetia o contexto, não a que informava.
+  const acoes = document.createElement('div');
+  acoes.className = 'coll-opts-acoes';
+
   // O MESMO botão dispara e cancela — o download de um álbum grande leva
   // dezenas de minutos, e sem um jeito de parar o operador ficava refém dele.
   const syncBtn = document.createElement('button');
@@ -4946,19 +4955,24 @@ function buildCollectionOptions(coll, collOptsEl) {
   // no aparelho não há o que baixar — só conferir se o catálogo mudou —, e com
   // ele vazio "atualizar" não descreve nada do que vai acontecer.
   syncBtn.appendChild(document.createTextNode(
-    u.syncBusy ? ' Cancelar o download' : (complete ? ' Verificar atualizações' : ' Baixar álbum'),
+    u.syncBusy ? 'Cancelar' : (complete ? 'Verificar atualizações' : 'Baixar'),
   ));
   syncBtn.addEventListener('click', () => syncCollection(coll));
-  collOptsEl.appendChild(syncBtn);
+  acoes.appendChild(syncBtn);
 
   if (downloaded > 0 || total > 0) {
     const rmBtn = document.createElement('button');
     rmBtn.className = 'new-folder-btn danger';
     rmBtn.appendChild(msym(ICON.del));
-    rmBtn.appendChild(document.createTextNode(' Excluir downloads do álbum'));
+    // "Remover do dispositivo", e não "Excluir downloads do álbum": o que sai é
+    // o que ocupa espaço NESTE aparelho, e o álbum continua no acervo para
+    // baixar de novo quando quiser. "Excluir" prometia um dano maior do que o
+    // que a ação faz.
+    rmBtn.appendChild(document.createTextNode('Remover do dispositivo'));
     rmBtn.addEventListener('click', () => deleteCollection(coll));
-    collOptsEl.appendChild(rmBtn);
+    acoes.appendChild(rmBtn);
   }
+  collOptsEl.appendChild(acoes);
 }
 
 // Monta um "chip" de estatística (rótulo em cima, valor embaixo).
