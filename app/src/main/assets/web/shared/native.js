@@ -264,6 +264,31 @@
     // biblioteca — senão o vídeo fica DUAS vezes no aparelho.
     ytDiscard(url) { try { B.ytDiscard(String(url)); } catch (_) { /* shell antigo */ } },
 
+    // ---- apresentação (PDF / Google Apresentações) ----
+    // Rasteriza uma apresentação e resolve `{ name, pages: [url] }`: uma imagem
+    // por página, em URLs servíveis — daqui para a frente o caminho é o de
+    // qualquer imagem importada. Ver SlideDeck.kt para por que o formato é PDF
+    // e por que o desenho é nativo.
+    //
+    // SEM PRAZO, como o `ytFetch`: rasterizar dezenas de páginas (ou baixar a
+    // exportação do Google) leva o tempo que levar, e um timeout abortaria
+    // justamente a apresentação grande. `onProgresso(feitas, total)` é
+    // opcional; o nativo empurra por `__avDeckProgress` a cada página.
+    deckPages(origem, nome, onProgresso) {
+      global.__avDeckProgress = function (id, feitas, total) {
+        if (onProgresso) { try { onProgresso(Number(feitas) || 0, Number(total) || 0); } catch (_) {} }
+      };
+      return call((id) => B.deckPages(id, String(origem), String(nome || '')));
+    },
+    // A URL de exportação em PDF de um link do Google Apresentações, ou ''. É
+    // SÍNCRONO de propósito: quem chama precisa da resposta para decidir o
+    // caminho do import, e a pergunta é só um casamento de expressão regular.
+    deckExportUrl(link) {
+      try { return B.deckExportUrl(String(link)) || ''; } catch (_) { return ''; }
+    },
+    // Apaga as páginas intermediárias depois da cópia para a biblioteca.
+    deckDiscard(url) { try { B.deckDiscard(String(url)); } catch (_) { /* shell antigo */ } },
+
     // Abre uma URL FORA do app (navegador ou o app que a reivindicar). O
     // WebView do Controle recusa navegar para qualquer coisa que não seja o
     // próprio origin — é a invariante que impede conteúdo estranho de entrar

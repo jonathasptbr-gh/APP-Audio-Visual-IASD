@@ -96,6 +96,14 @@
                 <data android:mimeType="image/*" />
                 <data android:mimeType="video/*" />
                 <data android:mimeType="audio/*" />
+                <!-- APRESENTAÇÃO. O app aceita o PDF, que é o formato em que
+                     PowerPoint e Google Apresentações exportam com dois toques
+                     e o único que o Android sabe desenhar sozinho (SlideDeck.kt
+                     usa o PdfRenderer da plataforma). Os formatos de origem
+                     (.pptx, .odp) ficam DE FORA de propósito: aparecer na lista
+                     de compartilhamento e depois não conseguir projetar o
+                     arquivo é pior do que não aparecer. -->
+                <data android:mimeType="application/pdf" />
             </intent-filter>
 
             <intent-filter>
@@ -104,6 +112,7 @@
                 <data android:mimeType="image/*" />
                 <data android:mimeType="video/*" />
                 <data android:mimeType="audio/*" />
+                <data android:mimeType="application/pdf" />
             </intent-filter>
         </activity>
 

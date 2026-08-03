@@ -111,6 +111,7 @@
     let fit = 'contain'; // object-fit: 'contain' (ajustar) | 'cover' (preencher) | 'fill' (esticar)
     let url = null;
     let isBlobUrl = false;
+    let deckIdx = 0;      // página em cena da apresentação (kind 'deck')
     let ended = false;
     let loadSeq = 0;
     let viewSeq = 0; // troca de view (cortina) — independente do loadSeq
@@ -198,7 +199,7 @@
     // estiver cobrindo, ninguém vê nada, então não há o que esmaecer.
     function visibleEl() {
       if (!current || coveredNow) return null;
-      if (current.kind === 'image') return img;
+      if (current.kind === 'image' || current.kind === 'deck') return img;
       if (current.kind === 'video' || current.kind === 'audio') return video;
       return null;
     }
@@ -269,7 +270,9 @@
     // o próprio elemento estar em cena sem nada para mostrar.
     function applyMedia() {
       const kind = current ? current.kind : null;
-      img.hidden = !(kind === 'image');
+      // A APRESENTAÇÃO usa o mesmo `<img>`: cada página é uma imagem, e tudo o
+      // que vale para imagem (fade, cortina, `object-fit`) vale para ela.
+      img.hidden = !(kind === 'image' || kind === 'deck');
       video.hidden = kind !== 'video' || ended;
       video.muted = forceMuted ? true : muted;
       if (!forceMuted) video.volume = volume;
@@ -446,7 +449,11 @@
     // depois, porque `onCommand` no Display não serializa: o load é assíncrono
     // (getMedia → opfsGetFile → mediaReady) e um comando seguinte chegaria a
     // tempo de agir sobre o <video> ANTERIOR, antes de a fonte nova entrar.
-    async function load(id, v, m, vol, startAt, autoplay) {
+    // `page` só existe para a APRESENTAÇÃO (kind 'deck'): é a página em que ela
+    // entra em cena. Vem no mesmo comando que a mídia pelo motivo de sempre —
+    // um comando separado logo depois agiria sobre o item ANTERIOR, porque este
+    // `load` é assíncrono (ver a nota do `startAt` no CLAUDE.md).
+    async function load(id, v, m, vol, startAt, autoplay, page) {
       if (v !== undefined) view = v;
       if (m !== undefined) muted = m;
       if (typeof vol === 'number') volume = vol;
@@ -504,6 +511,10 @@
       if (rec.blob) {
         url = URL.createObjectURL(rec.blob);
         isBlobUrl = true;
+      } else if (rec.kind === 'deck' && Array.isArray(rec.pages) && rec.pages.length) {
+        deckIdx = Math.min(Math.max(page | 0, 0), rec.pages.length - 1);
+        url = URL.createObjectURL(rec.pages[deckIdx]);
+        isBlobUrl = true;
       } else if (rec.opfsPath) {
         // Arquivo sincronizado no OPFS: resolve o File direto do origin,
         // sem permissão e sem cópia para o IDB.
@@ -520,7 +531,7 @@
         clear(); return;
       }
 
-      if (rec.kind === 'image') {
+      if (rec.kind === 'image' || rec.kind === 'deck') {
         img.src = url;
       } else {
         video.src = url;
@@ -558,7 +569,8 @@
       // acima.
       if (view === 'visual' && coveredNow) {
         if (fadeIn) {
-          const el = rec.kind === 'image' ? img : (rec.kind === 'video' || rec.kind === 'audio' ? video : null);
+          const el = (rec.kind === 'image' || rec.kind === 'deck') ? img
+            : (rec.kind === 'video' || rec.kind === 'audio' ? video : null);
           if (el) { await mediaReady(el); if (seq !== loadSeq) return; }
         }
         await coverOut();
@@ -566,8 +578,26 @@
       }
     }
 
+    // TROCA DE PÁGINA da apresentação em cena. Um `load` novo faria o ciclo
+    // inteiro — fade de saída, leitura do IndexedDB, fade de entrada — para
+    // trocar uma imagem que já está na mão: passar slide ficaria lento e
+    // piscaria o preto entre um e outro. Aqui só a fonte do `<img>` muda.
+    function page(n) {
+      if (!current || current.kind !== 'deck') return;
+      const pages = Array.isArray(current.pages) ? current.pages : [];
+      if (!pages.length) return;
+      const alvo = Math.min(Math.max(n | 0, 0), pages.length - 1);
+      if (alvo === deckIdx) return;
+      deckIdx = alvo;
+      _revokeUrl();
+      url = URL.createObjectURL(pages[alvo]);
+      isBlobUrl = true;
+      img.src = url;
+    }
+
     function clear() {
       current = null;
+      deckIdx = 0;
       ended = false;
       resetMediaDom();
       instantCover(true); // current=null: cobre sempre, independente da view
@@ -607,7 +637,8 @@
     // (YouTube) antes de decidir o que mostrar enquanto o vídeo carrega.
     function handle(cmd) {
       switch (cmd.type) {
-        case 'load': return load(cmd.mediaId, cmd.view, cmd.muted, cmd.volume, cmd.time, cmd.playing);
+        case 'load': return load(cmd.mediaId, cmd.view, cmd.muted, cmd.volume, cmd.time, cmd.playing, cmd.page);
+        case 'page': page(cmd.page); break;
         case 'view': return setViewFaded(cmd.view, cmd.overlay);
         case 'mute': setMute(cmd.muted); break;
         case 'volume': if (typeof cmd.volume === 'number') setVolume(cmd.volume); break;
@@ -649,10 +680,11 @@
     setFit(fit); // aplica o valor inicial (default 'contain') via style, já na criação
 
     return {
-      handle, load, clear, play, pause, seek, setView, setMute, setVolume, setFade, setFit,
+      handle, load, clear, play, pause, seek, page, setView, setMute, setVolume, setFade, setFit,
       setForceMuted,
       coverIn, coverOut, instantCover, fadeOutToBlack,
       getCurrent: () => current,
+      getPage: () => deckIdx,
       getView: () => view,
       isPlaying: isPlayingNow,
       // Chegou ao fim natural e está aguardando replay. As camadas paralelas

@@ -82,7 +82,7 @@ class NativeBridge(
          * exijam mais do que o shell instalado oferece (ver [WebUpdater]).
          * Subir SEMPRE que a superfície da ponte mudar.
          */
-        const val SHELL_VERSION = 18
+        const val SHELL_VERSION = 19
 
         /**
          * Fila de IO da ponte, **compartilhada por todas as instâncias**.
@@ -260,6 +260,7 @@ class NativeBridge(
                 subtitle = o.optString("subtitle"),
                 playing = o.optBoolean("playing"),
                 slideMode = o.optBoolean("slideMode"),
+                slideLabel = o.optString("slideLabel"),
                 wallpaper = o.optBoolean("wallpaper"),
                 positionMs = o.optLong("positionMs"),
                 durationMs = o.optLong("durationMs"),
@@ -352,6 +353,65 @@ class NativeBridge(
     fun ytDiscard(url: String) {
         if (host == null) return
         io.execute { YoutubeGrab.descartar(ctx, url) }
+    }
+
+    // ---------- apresentação (PDF / Google Apresentações) como IMAGENS ----------
+
+    /**
+     * Rasteriza uma apresentação e devolve `{ name, pages: [url] }` — uma
+     * imagem por página, servível pelo mesmo `/saf/` das pastas do dispositivo.
+     * Ver [SlideDeck] para por que o caminho é o PDF e por que ele é nativo.
+     *
+     * `origem` é o `/saf/<token>` de um PDF que chegou ao app, ou a URL de
+     * exportação de uma apresentação do Google (que o próprio Kotlin baixa: o
+     * `fetch` do WebView esbarraria no CORS do Google).
+     *
+     * Roda na fila de IO — é disco, rede e rasterização —, e o andamento vai
+     * por `window.__avDeckProgress(id, feitas, total)`: uma apresentação de
+     * dezenas de páginas leva segundos, e um cartão parado não diz se está
+     * andando.
+     */
+    @JavascriptInterface
+    fun deckPages(callId: String, origem: String, nome: String) {
+        if (host == null) { resolve(callId, "null"); return }   // telão não importa nada
+        io.execute {
+            val r = try {
+                SlideDeck.paginas(ctx, origem, nome) { feitas, total ->
+                    deckProgresso(callId, feitas, total)
+                }
+            } catch (_: Exception) { null }
+            resolve(callId, r?.toString() ?: "null")
+        }
+    }
+
+    /**
+     * A URL de exportação em PDF de uma apresentação do Google, ou `""` se o
+     * link não for uma. Quem decide é o Kotlin porque é ele que sabe o que
+     * consegue abrir — o lado web só pergunta.
+     */
+    @JavascriptInterface
+    fun deckExportUrl(link: String): String = SlideDeck.urlDeExportacao(link) ?: ""
+
+    /**
+     * Apaga as páginas intermediárias depois que o lado web as copiou para a
+     * biblioteca. Mesmo motivo do [ytDiscard]: sem isto a apresentação ficaria
+     * duas vezes no aparelho.
+     */
+    @JavascriptInterface
+    fun deckDiscard(url: String) {
+        if (host == null) return
+        io.execute { SlideDeck.descartar(ctx, url) }
+    }
+
+    private fun deckProgresso(callId: String, feitas: Int, total: Int) {
+        val web = webRef() ?: return
+        val id = JSONObject.quote(callId)
+        web.post {
+            web.evaluateJavascript(
+                "window.__avDeckProgress && window.__avDeckProgress($id, $feitas, $total);",
+                null,
+            )
+        }
     }
 
     private fun ytProgresso(callId: String, lidos: Long, total: Long) {

@@ -1514,6 +1514,11 @@ main {
    destrutiva não pode ser a maior das duas. O rótulo QUEBRA em duas linhas em
    vez de virar reticências: "Remover do disposi…" esconde justamente a palavra
    que diz o alcance da ação. */
+/* A dica de como entra uma apresentação, no fim do Cronograma. Menor e mais
+   apagada que uma linha de aviso: ela não é resposta a nada que o operador
+   acabou de fazer — é uma instrução que fica ali para quando ele precisar. */
+.import-dica { padding: .5rem .2rem 0; font-size: .76rem; opacity: .8; }
+
 .coll-opts-acoes { display: flex; gap: .5rem; }
 .coll-opts-acoes .new-folder-btn {
   flex: 1 1 0; min-width: 0; width: auto;
