@@ -1217,6 +1217,27 @@ Rodar local: `./gradlew assembleDebug` (exige Android SDK instalado).
   git push origin main          # ← sem isto, nada chega aos aparelhos
   ```
 
+- **SEMPRE gerar uma Release quando o SHELL mudar.** O merge em `main` só
+  entrega a **base web** — o OTA carrega `assets/web/` e mais nada. Tudo o que
+  está fora dela (`app/src/main/java/`, `AndroidManifest.xml`, `res/`,
+  `build.gradle.kts`, os workflows) **só chega ao aparelho instalando um APK**.
+  Sem a Release, a mudança fica publicada no repositório e ausente do celular —
+  e o pior caso é silencioso: um método novo da ponte faz o lado web se
+  comportar de um jeito no código e de outro no culto, porque lá o
+  `SHELL_VERSION` ainda é o antigo.
+
+  Então o fluxo acima ganha uma última linha quando o diff tocou o shell:
+
+  ```bash
+  # depois do push em main, com o Actions → "Build APK" → Run workflow,
+  # input `release_tag` = a próxima tag (v1.24 → v1.25 → v1.26 …)
+  ```
+
+  A tag é criada pelo próprio workflow a partir de `main` (ver "Build"), então
+  não é preciso empurrar tag à mão. **Não esperar o operador pedir**: mudou o
+  shell, sai Release — e a mensagem que anuncia a mudança precisa dizer que ela
+  exige instalar o APK, porque o OTA não vai levá-la.
+
 - **Nunca perder funcionalidades existentes ao refatorar.** A base web tem
   todo o sistema de culto (coleções LouvorJA, letra sincronizada, Bíblia,
   Camada de Texto, playlist, fades) — ver `docs/ARQUITETURA-WEB.md`.
