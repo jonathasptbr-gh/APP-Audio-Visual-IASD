@@ -26,10 +26,46 @@ terceiro que pode sumir no meio de um culto.
 > `API_KEY` — ou seja, também exige uma instância — e, sendo Node (`axios`,
 > `fs`, `dotenv`, `ytdl-core`), não roda dentro do WebView do app.
 
+## O app procura uma instância sozinho (v5.80)
+
+Com o campo de endereço **em branco** — que é como ele vem —, a primeira
+importação de um link do YouTube dispara uma busca automática: o app baixa a
+lista pública da comunidade
+([instances.cobalt.best](https://instances.cobalt.best/)), descarta as
+candidatas que não servem e **sonda** as restantes em paralelo. Fica com a
+primeira que responder, e guarda a escolha por 24 h.
+
+**A desconfiança é o projeto.** O formato dessa lista não é contrato de
+ninguém — o endpoint já mudou uma vez —, então ela serve para uma coisa só:
+dar *nomes* de candidatas. Quem decide se uma candidata presta é o `GET /` do
+próprio Cobalt, que é documentado: versão, `youtube` em `services` e **ausência
+de `turnstileSitekey`**. Se a lista mudar de forma, a leitura devolve zero
+candidatas, o link vira item de player e nada quebra.
+
+Descartadas antes mesmo de sondar: `online: false`, instância sem CORS (o
+`fetch` do WebView nem leria a resposta), instância com autenticação declarada
+(não temos chave para ela), sem `youtube` nos serviços, e qualquer uma que não
+seja `https` — o WebView roda em contexto seguro e não faz `fetch` para `http`.
+
+- **A instância automática que falhar é descartada na hora.** Ela foi escolhida
+  pelo app, não por você; insistir numa que não responde faria a importação
+  seguinte falhar igual. A digitada à mão fica — ali a escolha é sua.
+- **Uma varredura que não acha nada não se repete por 30 minutos.** São ~13 s
+  de espera para chegar ao mesmo lugar; o segundo link não paga a conta do
+  primeiro.
+- **O que você digita vence sempre.** Preencher o campo desliga a busca
+  automática.
+- **"Procurar/testar instância"** faz as duas coisas: com o campo vazio,
+  procura; com o campo preenchido, testa aquele endereço.
+
+> Ainda assim, **subir a sua** continua sendo o único caminho que não depende
+> de terceiros — as instâncias públicas vão e voltam, e várias limitam o número
+> de downloads. Se um culto depende disso, veja a receita abaixo.
+
 ## O que o app faz com a instância
 
-Configurada uma vez em **Configurações → Baixar vídeos do YouTube (Cobalt)**,
-todo o resto é automático e não se toca mais nele:
+Achada (ou configurada à mão), todo o resto é automático e não se toca mais
+nele:
 
 - **compartilhar um link do YouTube com o app** já baixa o vídeo e cria o item
   no Cronograma como arquivo local — nenhum passo a mais;
