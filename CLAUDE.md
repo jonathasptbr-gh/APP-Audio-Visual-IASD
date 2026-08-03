@@ -250,7 +250,7 @@ Além disso, `native.js` publica **quatro globais** lidas direto (sem Promise):
 o `versionName` do APK, que é o **índice de versão do shell exibido ao
 operador**. Ele não se confunde com `__SHELL_VERSION__`: base web e shell
 atualizam por caminhos independentes (OTA × instalar APK), então o rodapé de
-**Configurações** mostra os dois (`Web v5.88 · Shell v<versionName do APK>`,
+**Configurações** mostra os dois (`Web v5.89 · Shell v<versionName do APK>`,
 montado em `renderVersionLabel`; até a v5.48 ficava no cabeçalho do Cronograma —
 saiu de lá porque metadado de diagnóstico pertence à mesma tela do estado do
 telão, não a uma faixa de navegação). Num shell antigo (sem
@@ -846,7 +846,7 @@ contextos.
 | Recuperação de áudio bloqueado | segue tocando mudo + retentativas | **desativada já no `onBlocked`** — sem política de gesto, qualquer `NotAllowedError` só pode ser falso positivo, e mutar antes de descobrir isso deixava o telão sem som sem armar recuperação nenhuma |
 | Pastas do dispositivo | `showDirectoryPicker()` | **SAF** — a File System Access API **não existe no Android**; este recurso era letra morta no celular e passa a funcionar |
 | Compartilhamento | **não existe mais** — vinha do `share_target` do manifest com o POST interceptado pelo SW, e os dois saíram do bundle; sobra a leitura do estado `pending-share`, que hoje ninguém escreve | **`intent-filter` nativo** (`ShareIntake.kt`), que só aceita `content://` de outro app (ver abaixo) |
-| Onde o share ATERRISSA | idem ao nativo (o caminho é o mesmo `importShare`) | **`focarImportado`** (v5.77): fecha os popups abertos e a seleção, e então **projeta na hora** no simplificado ou **vai para o Cronograma** no avançado. A preview em tela cheia só é encerrada se houver telão — sem ele, ela É a projeção |
+| Onde o share ATERRISSA | idem ao nativo (o caminho é o mesmo `importShare`) | **`focarImportado`** (v5.77): fecha os popups abertos e a seleção, e então **projeta na hora** no simplificado ou **vai para o Cronograma** no avançado — e no simplificado o item NÃO entra em lista visível nenhuma (v5.89: vai para a prateleira `avulsos`), porque aquela tela não tem Cronograma nem playlist. A preview em tela cheia só é encerrada se houver telão — sem ele, ela É a projeção |
 | Estado do telão (rodapé de Configurações) | atalho `window.open('../display/')`, útil só para desenvolver | **indicador ao vivo** (desabilitado como botão) — a Presentation é criada sozinha |
 | Botão de cast da preview | oculto | `AVNative.openCast()` → seletor de **espelhamento de tela** (ver abaixo) |
 | Vídeo do YouTube | player embutido (IFrame API) | **arquivo de vídeo baixado PELO APARELHO** (`YoutubeGrab.kt` + `AVNative.ytFetch`) — o embed pausa sozinho com o app minimizado, e a extração no próprio celular sai do IP do chip, que é o que o YouTube não bloqueia. Sem configurar nada. Cobalt continua como segunda opção para quem já mantém uma instância; falhando os dois, o link vira item de player |
@@ -1288,7 +1288,7 @@ aparelho nenhum.
 O `versionCode`/`versionName` do APK vêm do CI (ver "Build") e não se tocam à
 mão.
 
-**Versão atual: v5.88** (base web) · `SHELL_VERSION` **18**, e o bundle segue com
+**Versão atual: v5.89** (base web) · `SHELL_VERSION` **18**, e o bundle segue com
 `minShell: 2` — ele funciona igual num shell antigo, só sem os recursos que são
 nativos por construção (a escada do voltar, os botões de volume, a notificação de
 controles), que **só chegam instalando o APK novo**, não pelo OTA.

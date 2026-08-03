@@ -156,7 +156,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.88';
+const WEB_VERSION = '5.89';
 
 // Escrita UMA vez, na carga: o indicador mora no rodapé de Configurações desde
 // a v5.49 e não depende mais de qual aba está aberta (no cabeçalho ele
@@ -8146,12 +8146,20 @@ async function ytArquivo(alvo, opts) {
 // Sai o mais ANTIGO (a lista guarda ordem de chegada), e quem sai passa pelo
 // `listRemove`, que decide sozinho se o blob morre: ele fica inteiro se o
 // Cronograma, a playlist ou um Favorito também o tiverem.
+//
+// Aceita um LOTE, e o lote nunca é podado: um share pode trazer cinco arquivos
+// de uma vez, e com o limite aplicado item a item os primeiros seriam apagados
+// pelos últimos DA MESMA LEVA — inclusive o que vai ser projetado, que é o
+// primeiro. Quem cede lugar é sempre o que já estava aqui de antes.
 const AVULSO_MAX = 3;
-async function fixarAvulso(id) {
+async function fixarAvulso(novos) {
+  const lote = (Array.isArray(novos) ? novos : [novos]).filter(Boolean);
+  if (!lote.length) return;
   const ids = await AVDB.listIds('avulsos');
-  if (!ids.includes(id)) await AVDB.listAdd('avulsos', id);
-  const outros = ids.filter((x) => x !== id);
-  const excedente = outros.slice(0, Math.max(0, outros.length + 1 - AVULSO_MAX));
+  for (const id of lote) if (!ids.includes(id)) await AVDB.listAdd('avulsos', id);
+  const outros = ids.filter((x) => !lote.includes(x));
+  const cabem = Math.max(0, AVULSO_MAX - lote.length);
+  const excedente = outros.slice(0, Math.max(0, outros.length - cabem));
   for (const velho of excedente) await AVDB.listRemove('avulsos', velho);
 }
 
@@ -8213,9 +8221,10 @@ function simplificado() { return appMode === 'simple'; }
 function destinoDoShare() { return simplificado() ? 'avulsos' : 'imports'; }
 async function guardarShare(rec) {
   if (!rec) return rec;
-  if (simplificado()) await fixarAvulso(rec.id);
-  else {
-    // O registro pode ser um REAPROVEITADO que estava só no slot avulso.
+  // No simplificado quem prende o registro na prateleira é o `importShare`, de
+  // uma vez só para todo o lote (ver `fixarAvulso`). Aqui só resta o avançado.
+  if (!simplificado()) {
+    // O registro pode ser um REAPROVEITADO que estava só na prateleira avulsa.
     await AVDB.listAdd('imports', rec.id);
     await AVDB.listRemove('avulsos', rec.id);
   }
@@ -8240,6 +8249,12 @@ async function importShare(pending) {
   await sairDasCamadas();
 
   const files = pending.files || [];
+  // No simplificado NADA de um share vai para lista visível — arquivo inclusive
+  // (v5.89): a tela não tem Cronograma nem playlist, e o que chega ali chega
+  // para ir ao telão. Os ids do lote são fixados JUNTOS no fim, senão o quinto
+  // arquivo empurraria o primeiro para fora — e o primeiro é justamente o que
+  // vai ser projetado.
+  const lote = [];
   let ok = 0;
   for (const item of files) {
     let blob = null;
@@ -8262,8 +8277,11 @@ async function importShare(pending) {
     const type = guessMediaType(name) || blob.type;
     const kind = AVDB.kindFromType(type);
     const thumb = await makeThumb(blob, kind);
-    const rec = await AVDB.addMedia(blob, { name: name.replace(/\.[^.]+$/, ''), type, kind, thumb });
+    const rec = await AVDB.addMedia(blob, {
+      name: name.replace(/\.[^.]+$/, ''), type, kind, thumb, list: destinoDoShare(),
+    });
     if (rec && !primeiro) primeiro = rec.id;
+    if (rec) lote.push(rec.id);
     ok++;
   }
   if (ok > 0) added = true;
@@ -8271,8 +8289,12 @@ async function importShare(pending) {
   if (pending.url) {
     const rec = await handleSharedUrl(pending.url, pending.title);
     if (rec && !primeiro) primeiro = rec.id;
+    if (rec) lote.push(rec.id);
     added = true;
   }
+  // Um share traz arquivos OU um link, mas a fixação é uma só de propósito: se
+  // um dia vierem os dois, duas chamadas fariam a segunda expulsar a primeira.
+  if (simplificado()) await fixarAvulso(lote);
   if (added) await focarImportado(primeiro);
   return added;
 }
