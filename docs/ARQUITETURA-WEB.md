@@ -2967,11 +2967,14 @@ pesquisar de novo, compartilhar de volta, esperar. Agora é digitar uma vez.
   - **No SIMPLIFICADO não há folha nenhuma: o toque toca.** As outras duas
     opções são listas que aquela tela nem mostra, e abrir três escolhas seria
     devolver ao operador exatamente a decisão que esse modo poupa — é a mesma
-    regra do toque numa música ali (`simplePlaySong`). Vale também para um link
-    compartilhado: no simplificado ele vai para `avulsos` e projeta, sem passar
-    pelo Cronograma. Só para LINK — um share de ARQUIVOS pode trazer vários de
-    uma vez, e com uma prateleira de três cada um apagaria os anteriores; ali o
-    Cronograma continua sendo o destino nos dois modos.
+    regra do toque numa música ali (`simplePlaySong`). Vale para TUDO o que é
+    compartilhado com o app nesse modo — link e arquivo (v5.89): a tela não tem
+    Cronograma nem playlist, e o que chega ali chega para ir ao telão.
+    A prateleira nunca poda o LOTE que acabou de entrar: um share de cinco
+    arquivos com o limite aplicado item a item faria o quinto expulsar o
+    primeiro — e o primeiro é justamente o que vai ser projetado. Quem cede
+    lugar é sempre o que já estava lá de antes, e a fixação é UMA só por share
+    (duas chamadas fariam a segunda expulsar a primeira).
   - **Onde o aviso aparece tem TRÊS destinos, não dois.** Tocar: cartão sobre a
     preview. Cronograma: linha provisória na lista (a regra da v5.84). Playlist:
     **nenhum dos dois** — ela mora dentro de uma bandeja fechada, não há linha
