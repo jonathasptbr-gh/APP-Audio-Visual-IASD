@@ -2007,13 +2007,18 @@ main {
   border-bottom: 1px solid var(--line); flex-shrink: 0;
 }
 .popup-header-icon { font-size: var(--icon-sm); color: var(--accent); }
-.popup-title { font-size: .95rem; font-weight: 700; flex: 1; }
+.popup-title { font-size: .95rem; font-weight: 700; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .popup-count {
   background: var(--accent-fill); color: var(--on-accent);
   font-size: .72rem; font-weight: 700;
   border-radius: var(--radius-pill); padding: 0 .45rem; min-width: 20px; text-align: center;
 }
+/* `flex-shrink: 0` NÃO é decoração: o cabeçalho é uma linha flex, e o ✕ é o
+   último item dela. Sem isto, um vizinho que se recusa a encolher (era o caso
+   do `.popup-total`) empurra o ✕ para fora do sheet e a única saída da tela
+   inteira some — foi o que um status de lote com o nome do álbum fazia. */
 .popup-close {
+  flex-shrink: 0;
   width: var(--hit); height: var(--hit); border: none; border-radius: var(--radius-btn);
   background: var(--surface-2); color: var(--muted);
   display: flex; align-items: center; justify-content: center; cursor: pointer;
@@ -2021,8 +2026,17 @@ main {
 .popup-close .msym { font-size: var(--icon-sm); }
 /* "Baixar todo o acervo" no cabeçalho: contador + botão, os MESMOS elementos
    (`.coll-group-count` / `.coll-group-btn`) que a barra tinha na lista — só
-   que fixos no alto. */
-.popup-total { display: flex; align-items: center; gap: .4rem; flex-shrink: 0; }
+   que fixos no alto.
+   ELE É O QUE ENCOLHE nesta linha. O texto aqui não tem largura previsível (é
+   o status do lote), e o `flex-shrink: 0` que ele tinha transformava qualquer
+   frase comprida em espaço roubado do ✕ ao lado. Agora ele cede primeiro e o
+   texto corta em reticências — o `.coll-group-count` dentro dele já sabe fazer
+   isso, só faltava o pai deixar.
+   O `max-width` guarda a outra ponta: sem ele o status podia levar a linha
+   inteira e o TÍTULO do popup ("Acervo") é que sumia — o ✕ ficava salvo e a
+   tela perdia o nome. Nenhuma das frases de hoje chega perto do teto; ele é
+   para a próxima. */
+.popup-total { display: flex; align-items: center; gap: .4rem; flex: 0 1 auto; min-width: 0; max-width: 58%; }
 
 .popup-list {
   flex: 1; overflow-y: auto;
@@ -2512,12 +2526,11 @@ body.mode-simple .bottombar { display: none; }
 .simple.locked #simpleCastBtn {
   padding: 1.5rem 1rem; gap: .5rem;
   background: var(--accent-fill); border-color: var(--accent-fill); color: var(--on-accent);
-  /* O halo segue a MATIZ do accent (`--accent-glow`), não o `--accent-fill`:
-     um halo na cor do preenchimento — que é escuro por definição — sobre o
-     fundo escuro do app seria invisível, e a sombra existe justamente para
-     separar o botão do teclado embaçado atrás dele. O valor literal que estava
-     aqui era o azul de duas paletas atrás. */
-  box-shadow: 0 12px 34px var(--accent-glow);
+  /* SEM HALO (v5.75). Havia aqui uma sombra em `--accent-glow` para "separar o
+     botão do teclado embaçado atrás dele" — mas quem separa é a CORTINA: o
+     `backdrop-filter` já apaga tudo que está atrás, e o botão é a única coisa
+     nítida e a única coisa preenchida da tela. O halo não estava resolvendo um
+     problema de leitura, estava só espalhando luz âmbar num salão escuro. */
 }
 .simple.locked #simpleCastBtn svg { color: var(--on-accent); width: 44px; height: 44px; }
 .simple.locked #simpleCastBtn .simple-key-label { font-size: 1.08rem; font-weight: 800; }
