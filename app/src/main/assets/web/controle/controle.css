@@ -1324,6 +1324,16 @@ main {
    nos CONTADORES DE GRUPO, que somam várias coleções e ali ainda respondem
    alguma coisa.) */
 .coll-bar-sync.busy { color: var(--accent); font-weight: 600; font-size: .7rem; max-width: 42%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* O peso do álbum COMPLETO, no lugar que era do botão de baixar (v5.93).
+   Mesmo tom e mesmo peso do resumo de sincronização que ele substitui — é a
+   mesma coluna da mesma lista, e duas tipografias ali fariam parecer que os
+   dois números falam de coisas diferentes. `tabular-nums` para a coluna não
+   dançar de linha em linha. */
+.coll-bar-peso {
+  flex-shrink: 0; font-size: .78rem; font-weight: 700;
+  color: var(--muted); font-variant-numeric: tabular-nums;
+  padding-left: .35rem;
+}
 
 /* ----- Coleção aberta no próprio card (acordeão do acervo, v5.45) ----- */
 /* Baixar/cancelar a coleção, na barra. Alvo próprio (`--hit`) e `stopPropagation`

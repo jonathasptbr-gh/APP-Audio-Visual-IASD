@@ -156,7 +156,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.92';
+const WEB_VERSION = '5.93';
 
 // Escrita UMA vez, na carga: o indicador mora no rodapé de Configurações desde
 // a v5.49 e não depende mais de qual aba está aberta (no cabeçalho ele
@@ -473,14 +473,12 @@ async function syncGroup(key, label, colls, opts) {
     for (const c of colls) {
       const pend = collSongs(c.id).filter((x) => !x.fileIdFull).length;
       songs += pend;
-      est += estimatePendingBytes(c, pend);
+      est += estimatePendingBytes(c);
     }
     if (songs === 0) { setGroupStatus(key, 'Já completo', 5000); return; }
     const ok = await appConfirm({
       title: 'Baixar todo o acervo?',
-      // O tamanho sai do peso REAL do que já está no disco (mesma base do
-      // álbum avulso). Sem nada baixado ainda não há de onde estimar, e a
-      // frase omite o número em vez de inventar um.
+      // O tamanho sai da mesma medida do álbum avulso (ver `medirColecao`).
       message: 'São ' + colls.length + ' coleções, com ' + songs
         + ' música(s) ainda não baixada(s)'
         + (est ? ', aproximadamente ' + fmtBytes(est) : '') + '.'
@@ -493,14 +491,10 @@ async function syncGroup(key, label, colls, opts) {
 
   let allowMobile = true;
   if (!isConfirmedWifi()) {
-    // Estimativa do lote a partir do que JÁ está no disco (mesma base do
-    // álbum avulso) — sem nada baixado ainda não há de onde tirar, e o
-    // diálogo omite o tamanho em vez de inventar um.
+    // Estimativa do lote pela mesma medida do álbum avulso (ver
+    // `medirColecao`): duração do que falta × a taxa medida no aparelho.
     let est = 0;
-    for (const coll of colls) {
-      const pend = collSongs(coll.id).filter((x) => !x.fileIdFull).length;
-      est += estimatePendingBytes(coll, pend);
-    }
+    for (const coll of colls) est += estimatePendingBytes(coll);
     allowMobile = await appConfirm({
       title: 'Baixar usando dados móveis?',
       message: 'Você não está numa rede Wi-Fi confirmada. Baixar "' + label + '" são '
@@ -601,9 +595,138 @@ async function updateCollBytes(id) {
     const recs = await AVDB.filesByFolder(id);
     const total = recs.reduce((sum, r) => sum + (r.size || 0), 0);
     const u = ui(id);
-    if (total !== u.bytes) { u.bytes = total; refreshCollectionsIfVisible(); }
+    pesoConferido.add(id);
+    if (total !== u.bytes) { u.bytes = total; salvarPesos(); refreshCollectionsIfVisible(); }
   } catch (_) { /* sem catálogo ainda — peso fica 0 */ }
 }
+
+// O peso medido PERSISTE (v5.93). `collUI` é estado de sessão, e até aqui o
+// peso de um álbum só existia depois de o operador abrir as opções dele —
+// bastava fechar o app para o número sumir. Agora ele aparece na barra do card
+// de todo álbum completo, e recontar o catálogo de cada um a cada abertura é
+// caro do jeito descrito acima (um `getAll` que desserializa thumbnail e letra
+// de centenas de registros). Guardado em `state`, ele nasce pronto.
+const PESO_KEY = 'coll-bytes';
+const pesoConferido = new Set();   // ids já recontados nesta sessão
+let pesoTimer = null;
+
+async function carregarPesos() {
+  const mapa = (await AVDB.getState(PESO_KEY)) || {};
+  for (const id of Object.keys(mapa)) {
+    const n = mapa[id];
+    if (typeof n === 'number' && n > 0) ui(id).bytes = n;
+  }
+}
+// Escrita coalescida: o contador sobe a cada arquivo baixado, e gravar o mapa
+// inteiro por música seria uma transação de IDB por download.
+function salvarPesos() {
+  clearTimeout(pesoTimer);
+  pesoTimer = setTimeout(() => {
+    const mapa = {};
+    for (const id of Object.keys(collUI)) {
+      const n = collUI[id].bytes;
+      if (n > 0) mapa[id] = n;
+    }
+    AVDB.setState(PESO_KEY, mapa);
+  }, 1500);
+}
+// Conferência sob demanda: um álbum com músicas no aparelho e peso zerado é ou
+// um aparelho que baixou antes da v5.93, ou um mapa que ficou para trás. A
+// recontagem roda UMA vez por sessão e por álbum — o `pesoConferido` é o que
+// impede o `refreshCollectionsIfVisible` de dentro dela de virar laço.
+function conferirPesoSeFaltar(id) {
+  if (pesoConferido.has(id)) return;
+  if (ui(id).bytes > 0 || countDownloaded(id) === 0) return;
+  pesoConferido.add(id);
+  updateCollBytes(id);
+}
+// ===== MEDIÇÃO DO PESO DE UM ÁLBUM =====
+// São DUAS perguntas, e só uma delas tem resposta exata:
+//
+//   1. quanto já está NO APARELHO — soma dos `size` do catálogo OPFS da pasta
+//      da coleção. É EXATO, e inclui tudo o que o download traz: os áudios
+//      Cantado e Playback, a capa e as imagens de fundo da letra.
+//   2. quanto pesa o ÁLBUM INTEIRO — o que falta ainda não veio, então é
+//      ESTIMATIVA. O "~" na tela é parte da informação, não enfeite.
+//
+// A estimativa é por DURAÇÃO, não por contagem de faixas (que era o método até
+// a v5.92). Áudio é bytes por segundo: num hinário as faixas têm durações
+// parecidas e os dois métodos empatam, mas num álbum com um louvor de 2 min ao
+// lado de um louvor de 9 a média por faixa erra feio, e erra logo na pergunta
+// que o operador faz antes de gastar dados móveis. A duração vem do índice que
+// o app já tem (`duration`, "HH:MM:SS" — ver docs/FONTE-DE-DADOS-LOUVORJA.md).
+//
+// A TAXA é MEDIDA no próprio aparelho: bytes no disco ÷ segundos baixados.
+// Isso amortiza sozinho o que não é áudio (capas e imagens de letra pesam, e
+// as faixas que faltam também trarão as suas) e acompanha o bitrate real do
+// acervo, em vez de fixar um número que envelhece.
+//
+// A ordem das fontes vai da mais específica para a mais genérica: a taxa DESTE
+// álbum, depois a média de tudo o que já foi baixado no aparelho, e só então a
+// constante — 128 kbps, que é o que o LouvorJA serve. Sem essa escada, um
+// álbum ainda vazio não teria tamanho nenhum a mostrar, que é exatamente
+// quando a informação é mais útil.
+const BPS_PADRAO = 16000;          // 128 kbps ≈ 16 KB/s
+const SEG_PADRAO = 210;            // 3min30 — só para faixa sem duração no índice
+
+function segundosDaMusica(s) { return parseTimeToSeconds(s && s.duration) || 0; }
+
+// O levantamento bruto de uma coleção: quantas VARIANTES (Cantado + Playback)
+// já estão no aparelho e quantas faltam, com os segundos de cada lado. As sem
+// duração no índice são contadas à parte — elas existem (índices antigos, ou
+// um `duration` vazio na origem) e somá-las como zero segundo faria o álbum
+// parecer menor do que é.
+function levantarColecao(id) {
+  const r = { segFeitos: 0, segFalta: 0, feitasSemTempo: 0, faltaSemTempo: 0, feitas: 0, falta: 0 };
+  for (const s of collSongs(id)) {
+    const d = segundosDaMusica(s);
+    // O Playback só conta quando existe: `has_instrumental_music` é o que
+    // decide se o download vai buscar a segunda variante. A duração dele não
+    // está na lista leve (só em `music_{id}`), e usar a do Cantado é a
+    // aproximação certa — é a mesma música.
+    const variantes = [!!s.fileIdFull, s.has_instrumental_music ? !!s.fileIdPlayback : null];
+    for (const tem of variantes) {
+      if (tem === null) continue;
+      if (tem) { r.feitas++; if (d) r.segFeitos += d; else r.feitasSemTempo++; }
+      else { r.falta++; if (d) r.segFalta += d; else r.faltaSemTempo++; }
+    }
+  }
+  return r;
+}
+
+// Bytes por segundo medidos no aparelho (ver a escada acima).
+function bytesPorSegundo(id) {
+  const u = ui(id);
+  const meu = levantarColecao(id);
+  if (u.bytes && meu.segFeitos) return u.bytes / meu.segFeitos;
+  let bytes = 0, seg = 0;
+  for (const c of allCollections()) {
+    const cu = collUI[c.id];
+    if (!cu || !cu.bytes) continue;
+    const l = levantarColecao(c.id);
+    if (!l.segFeitos) continue;
+    bytes += cu.bytes; seg += l.segFeitos;
+  }
+  return (bytes && seg) ? bytes / seg : BPS_PADRAO;
+}
+
+// A medida completa de um álbum: `{ noAparelho, falta, total, exato }`.
+// `exato` só é verdadeiro quando NÃO falta nada — é ele que decide se a tela
+// escreve "48 MB" ou "~48 MB", e essa diferença é a honestidade do número.
+function medirColecao(id) {
+  const u = ui(id);
+  const l = levantarColecao(id);
+  const bps = bytesPorSegundo(id);
+  const falta = Math.round(bps * (l.segFalta + l.faltaSemTempo * SEG_PADRAO));
+  const noAparelho = u.bytes || 0;
+  return { noAparelho, falta, total: noAparelho + falta, exato: l.falta === 0 };
+}
+
+// Quanto, mais ou menos, falta baixar. Mantida como função própria porque é a
+// pergunta dos diálogos de confirmação (rede e escala), onde o número precisa
+// bater com o que o painel do álbum mostra.
+function estimatePendingBytes(coll) { return medirColecao(coll.id).falta; }
+
 // Downloads de música em andamento ("<coll.id>:<id_music>" -> Promise) — evita
 // disparar dois downloads da mesma música em paralelo (tocar duas vezes rápido).
 const songDownloadInFlight = new Map();
@@ -4452,6 +4575,21 @@ function renderCollectionCard(coll, ctx) {
     dl.innerHTML = u.syncBusy ? closeIconSvg() : downloadAllIconSvg();
     dl.addEventListener('click', (e) => { e.stopPropagation(); syncCollection(coll); });
     bar.appendChild(dl);
+  } else {
+    // ÁLBUM COMPLETO: no lugar do botão de baixar, QUANTO ELE OCUPA (v5.93).
+    // O botão saiu daqui na v5.63 por não ter mais o que fazer, e o "24/24"
+    // saiu na v5.70 por não dizer nada que a lista já não dissesse. O peso é
+    // outra coisa: é o único número desta tela que não se deduz olhando — e é
+    // a pergunta que se faz justamente sobre o que está completo, na hora de
+    // decidir o que apagar num aparelho sem espaço. Aqui ele é EXATO (soma do
+    // catálogo), então não leva "~".
+    const peso = document.createElement('span');
+    peso.className = 'coll-bar-peso';
+    peso.textContent = u.bytes ? fmtBytes(u.bytes) : '';
+    peso.title = 'Espaço ocupado no aparelho';
+    bar.appendChild(peso);
+    // Aparelho que baixou antes desta versão (ou mapa perdido): reconta uma vez.
+    conferirPesoSeFaltar(coll.id);
   }
 
   // Sem índice ainda não há lista para abrir — o toque abre o card já com as
@@ -4746,7 +4884,17 @@ function buildCollectionOptions(coll, collOptsEl) {
 
   // O peso à DIREITA: é o número curto e secundário da linha, e ancorá-lo na
   // borda oposta dá ao chip de sincronização toda a largura de que ele precisa.
-  stats.appendChild(hymnalStat('Peso', u.bytes ? fmtBytes(u.bytes) : '—', 'right'));
+  //
+  // E ele diz as DUAS medidas (v5.93): o que está no aparelho e o que o álbum
+  // inteiro vai ocupar. Só o primeiro número não responde a pergunta que se faz
+  // antes de baixar — "quanto isto vai custar" —, e só o segundo esconde o que
+  // já foi gasto. Completo, os dois seriam o mesmo número dito duas vezes,
+  // então fica um só, sem o "~": ali a medida é exata.
+  const m = medirColecao(coll.id);
+  const pesoTxt = m.exato
+    ? (m.noAparelho ? fmtBytes(m.noAparelho) : '—')
+    : (m.noAparelho ? fmtParBytes(m.noAparelho, m.total) : '~' + fmtBytes(m.total));
+  stats.appendChild(hymnalStat('Peso', pesoTxt, 'right'));
   collOptsEl.appendChild(stats);
 
   // O MESMO botão dispara e cancela — o download de um álbum grande leva
@@ -4953,11 +5101,30 @@ function renderStorageUsage(alvo, valido) {
   }).catch(() => {});
 }
 
+// Vírgula decimal (v5.93): o app é em português e o número aparece ao lado de
+// texto em português — "1.5 GB" lia como mil e quinhentos em pt-BR.
+//
+// Uma casa só até 10, nenhuma acima: "1,4 GB" é informação, "148,3 MB" é uma
+// precisão que a medida não tem (a estimativa varia mais que essa casa) e que
+// ainda faz o número balançar de largura a cada música baixada.
 function fmtBytes(n) {
-  if (n >= 1073741824) return (n / 1073741824).toFixed(1) + ' GB';
-  if (n >= 1048576) return (n / 1048576).toFixed(1) + ' MB';
+  const num = (v) => (v < 10 ? v.toFixed(1) : String(Math.round(v))).replace('.', ',');
+  if (n >= 1073741824) return num(n / 1073741824) + ' GB';
+  if (n >= 1048576) return num(n / 1048576) + ' MB';
   if (n >= 1024) return Math.round(n / 1024) + ' KB';
   return n + ' B';
+}
+
+// "3,7 de ~18 MB": a unidade só aparece uma vez quando ela é a mesma nos dois
+// números — repeti-la rouba metade da largura do chip sem acrescentar nada. Se
+// as unidades divergirem (800 KB de ~1,2 GB), as duas ficam: dizer "800 de
+// ~1,2 GB" seria simplesmente falso.
+function fmtParBytes(a, b) {
+  const fa = fmtBytes(a);
+  const fb = fmtBytes(b);
+  const [va, ua] = fa.split(' ');
+  const ub = fb.split(' ')[1];
+  return (ua === ub ? va : fa) + ' de ~' + fb;
 }
 
 function renderSelbar() {
@@ -6044,6 +6211,7 @@ async function loadCollections() {
   const states = await Promise.all(cols.map((c) => AVDB.getState('coll:' + c.id)));
   collState = {};
   cols.forEach((c, i) => { collState[c.id] = states[i] || { indexSyncedAt: 0, songs: [] }; });
+  await carregarPesos();
   await loadLyricStore();
 }
 
@@ -6216,17 +6384,6 @@ async function autoRefreshCollections() {
 // grava áudio Cantado + Playback (se houver) + capa/letra no OPFS/catálogo
 // (mesma pasta `folders/<coll.id>/`). Aditiva e resumível: interromper e
 // sincronizar de novo continua de onde parou, sem duplicar.
-// Quanto, mais ou menos, falta baixar — calculado a partir do peso REAL do
-// que já está no disco desta coleção (não de uma média chutada). Sem nada
-// baixado ainda não há de onde tirar, e o diálogo omite o tamanho em vez de
-// inventar um.
-function estimatePendingBytes(coll, pendingCount) {
-  const u = ui(coll.id);
-  const done = countDownloaded(coll.id);
-  if (!u.bytes || done <= 0 || pendingCount <= 0) return 0;
-  return Math.round((u.bytes / done) * pendingCount);
-}
-
 // `opts.allowMobile`: a pergunta de rede já foi feita para o LOTE (ver
 // syncGroup) — não repetir por álbum.
 // `opts.fromGroup`: a chamada é PROGRAMÁTICA (o laço do lote), não um toque do
@@ -6291,7 +6448,7 @@ async function syncCollection(coll, opts) {
     // sincronização deste álbum**: não vira uma preferência do app, e o
     // próximo álbum pergunta de novo.
     if (!isConfirmedWifi() && !allowMobile) {
-      const est = estimatePendingBytes(coll, pending.length);
+      const est = estimatePendingBytes(coll);
       const proceed = await appConfirm({
         title: 'Baixar usando dados móveis?',
         message: 'Você não está numa rede Wi-Fi confirmada. Baixar ' + pending.length
@@ -6460,6 +6617,7 @@ async function downloadCollectionFile(coll, s, urlPath, variantLabel, thumb, lyr
   // `filesByFolder` a cada arquivo baixado significava um getAll do catálogo
   // inteiro (registros COM thumb e letra) por música — ver updateCollBytes.
   ui(coll.id).bytes += blob.size || 0;
+  salvarPesos();
   return id;
 }
 
@@ -6572,6 +6730,8 @@ async function deleteCollection(coll) {
   collState[coll.id] = { indexSyncedAt: 0, songs: [] };
   await AVDB.setState('coll:' + coll.id, collState[coll.id]);
   const u = ui(coll.id); u.bytes = 0;
+  pesoConferido.add(coll.id);   // zerado por exclusão, não por falta de medida
+  salvarPesos();
   if (currentFolder && currentFolder.id === coll.id) currentFolder = null;
   load();
 }
