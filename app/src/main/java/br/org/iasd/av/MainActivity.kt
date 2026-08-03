@@ -541,6 +541,35 @@ class MainActivity : ComponentActivity(), BridgeHost {
      * `resolveActivity` só enxerga esses alvos por causa do bloco `<queries>`
      * no AndroidManifest (visibilidade de pacotes do Android 11+).
      */
+    /**
+     * Abre uma URL fora do app. Hoje o único chamador é o "Pesquisar … no
+     * YouTube" do fim da busca do acervo: o acervo é o LouvorJA e não tem
+     * tudo, e o caminho de volta para uma música que falta já existe (o
+     * `intent-filter` de share). Faltava a ida.
+     *
+     * `ACTION_VIEW` sem escolher pacote: quem reivindica `youtube.com` no
+     * aparelho abre — o app do YouTube, se instalado; o navegador, se não. O
+     * esquema já foi restringido a `https` em [NativeBridge.openExternal].
+     *
+     * `FLAG_ACTIVITY_NEW_TASK` porque isto sai de uma thread do WebView por
+     * um `post`, e o alvo tem de virar tarefa própria: o app de projeção
+     * continua na dele, com a `Presentation` viva na TV.
+     */
+    override fun openExternalUrl(url: String) {
+        runOnUiThread {
+            try {
+                startActivity(
+                    Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                )
+            } catch (e: Exception) {
+                // Aparelho sem nada que abra http(s) é improvável, mas um
+                // `ActivityNotFoundException` aqui derrubaria o app inteiro.
+                Log.w(TAG, "nada abriu a URL externa", e)
+            }
+        }
+    }
+
     override fun openCastPicker() {
         runOnUiThread {
             val chosen = pickCastIntent()

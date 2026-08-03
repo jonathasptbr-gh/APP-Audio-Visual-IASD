@@ -156,7 +156,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.75';
+const WEB_VERSION = '5.76';
 
 // Escrita UMA vez, na carga: o indicador mora no rodapé de Configurações desde
 // a v5.49 e não depende mais de qual aba está aberta (no cabeçalho ele
@@ -6887,10 +6887,12 @@ function renderSearchResults(query) {
   if (totalIndexed === 0) {
     hymnResultsEl.innerHTML = '<li class="empty">Índice do acervo ainda não carregado.'
       + '<br>Precisa de internet na primeira vez.</li>';
+    appendYoutubeSearch(query);
     return;
   }
   if (matches.length === 0) {
     hymnResultsEl.innerHTML = '<li class="empty">Nenhuma música encontrada.</li>';
+    appendYoutubeSearch(query);
     return;
   }
   // Teto na busca: ela varre milhares de músicas de todos os álbuns, e
@@ -6903,6 +6905,59 @@ function renderSearchResults(query) {
     li.textContent = '+' + (matches.length - LIMIT) + ' resultado(s). Refine a busca.';
     hymnResultsEl.appendChild(li);
   }
+  appendYoutubeSearch(query);
+}
+
+// ===== "Pesquisar <texto> no YouTube", no fim da busca do acervo =====
+// O acervo é o LouvorJA, e ele não tem tudo: um louvor especial gravado pelo
+// coral da igreja, um clipe, um hino numa versão específica. Hoje a saída é
+// sair do app, abrir o YouTube, digitar tudo de novo e compartilhar de volta —
+// e o "digitar tudo de novo" acontece com o texto já digitado aqui, na tela em
+// que se acabou de descobrir que a música não está no acervo. Esta linha é o
+// atalho desse caminho: leva a busca pronta e devolve o operador ao ponto em
+// que o compartilhamento (`ShareIntake`) já sabe receber o vídeo.
+//
+// Ela fecha o fim da lista em TODOS os desfechos da busca — inclusive (e
+// principalmente) "Nenhuma música encontrada", que é justamente quando a
+// pergunta "e agora?" aparece.
+function appendYoutubeSearch(texto) {
+  const termo = (texto || '').trim();
+  if (!termo) return;
+  // Num shell antigo `AVNative.openExternal` não existe: a navegação para fora
+  // do origin é BLOQUEADA no WebView (WebViewFactory.shouldOverrideUrlLoading)
+  // e nada aconteceria ao tocar. Um botão morto no meio de um culto é pior que
+  // botão nenhum, então ele só aparece onde de fato funciona — e volta sozinho
+  // quando o APK novo for instalado. No navegador é sempre `window.open`.
+  if (window.__NATIVE__ && (window.__SHELL_VERSION__ | 0) < 15) return;
+
+  const li = document.createElement('li');
+  const btn = document.createElement('button');
+  btn.className = 'yt-search-btn';
+  btn.innerHTML = searchIconSvg();
+  const txt = document.createElement('span');
+  txt.className = 'yt-search-txt';
+  // O termo entre aspas é o que diz que a busca vai levar ISTO, e não abrir o
+  // YouTube na página inicial. Como `textContent`, nunca `innerHTML`: aqui
+  // entra texto digitado pelo operador.
+  txt.textContent = 'Pesquisar “' + termo + '” no YouTube';
+  btn.appendChild(txt);
+  btn.addEventListener('click', () => openYoutubeSearch(termo));
+  li.appendChild(btn);
+  hymnResultsEl.appendChild(li);
+}
+
+function openYoutubeSearch(termo) {
+  const url = 'https://www.youtube.com/results?search_query=' + encodeURIComponent(termo);
+  if (!window.__NATIVE__) { window.open(url, '_blank', 'noopener'); return; }
+  AVNative.openExternal(url);
+}
+
+// SVG inline (fora do subset da fonte): lupa. Deliberadamente NÃO é o logotipo
+// do YouTube — o que este botão faz é uma BUSCA, e desenhar a marca de outro
+// app num botão do nosso promete que ele abre lá dentro em algum lugar
+// específico. Quem nomeia o destino é o texto ao lado.
+function searchIconSvg() {
+  return '<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="21" y2="21"/></svg>';
 }
 
 // Linha compacta: [▶] [nome / subtítulo] [+]. DOIS botões, e cada um abre uma

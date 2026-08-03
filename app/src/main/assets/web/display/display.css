@@ -16,7 +16,7 @@
    passarem a mostrar coisas diferentes.
    O Display usa daí, e só daí: `--gold` (marca), `--wallpaper` (a cortina),
    `--lyrics-frame-bg` (a faixa da letra), os tokens `--stage-*` (o preto de
-   verdade e o branco pleno da projeção), `--live-text` (o timer estourado),
+   verdade e o branco pleno da projeção), `--live-strong` (o timer estourado),
    `--bg` (o texto sobre o dourado da pílula) e `--accent-glow` (o halo dessa
    mesma pílula). A lista existe para ser conferida: se ela e o
    `grep var(--` desta folha divergirem, é a lista que está errada. (A única
@@ -308,10 +308,12 @@ html, body {
 /* Timer estourado (passou do alvo, contando em negativo): vermelho. Aqui a cor
    É a informação — "acabou" e "acabou há 4 minutos" precisam se distinguir de
    longe, e o sinal de menos sozinho é pequeno demais para isso.
-   `--live-text` (o vermelho CLARO da paleta) e não `--danger`: este número é
-   TEXTO sobre o preto do telão, e o vermelho cheio existe para ser fundo —
-   como texto ele daria 3,72:1 contra o preto, contra 10,98:1 deste. */
-.text-content.mode-chrono.chrono-over .text-main { color: var(--live-text); }
+   `--live-strong` (o vermelho SATURADO da paleta) e não `--danger`: este
+   número é TEXTO sobre o preto do telão, e o vermelho cheio existe para ser
+   fundo — como texto ele daria 3,72:1 contra o preto. O saturado dá 5,8:1 e,
+   ao contrário do salmão que estava aqui até a v5.75, é inconfundivelmente
+   vermelho a dez metros, que é a distância em que este número é lido. */
+.text-content.mode-chrono.chrono-over .text-main { color: var(--live-strong); }
 
 /* Sorteio: mesmo cartão, mesmo dimensionamento pelo conteúdo — um nome longo
    ("Maria Aparecida") e um número de dois dígitos não podem sair do mesmo

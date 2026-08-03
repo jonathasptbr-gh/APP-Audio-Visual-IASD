@@ -94,7 +94,7 @@ git push origin main
   MENOR que o já publicado — caso em que `WebUpdater.compareVersions` ignora o
   bundle em silêncio. Para saber onde a base está, leia `version.json`.
 
-  No app nativo o rótulo mostra os **dois índices** — `Web v5.75 · Shell v1.24`
+  No app nativo o rótulo mostra os **dois índices** — `Web v5.76 · Shell v1.24`
   —, porque base web e shell atualizam por caminhos independentes (OTA ×
   instalar APK); no navegador sai só `Controle v<versão>`. **Ele mora no rodapé
   do popup de Configurações** desde a v5.49 (antes ficava no cabeçalho da lista,
@@ -894,6 +894,15 @@ recalcular play/pause e mudo: se a regra mudar lá, muda aqui junto.
 arrastar. Quem usa este modo costuma estar de pé, com o celular numa mão só —
 mirar um alvo fino ali é o pior formato possível.
 
+**Sem contorno, desde a v5.76.** As teclas (e a caixa da letra) tinham um
+filete em `--line` "para parecer botão físico" — uma ideia de que o resto do
+app já tinha desistido: cards, teclas e linhas de lista são superfícies sólidas.
+Numa tela em que TUDO é tecla o filete não distinguia nada, só devolvia a grade
+de molduras que a v5.71 tirou do acervo. Quem diz "isto é tocável" aqui é o
+fundo mais claro que o do app e o `:active` que afunda. Os dois estados da tecla
+grande (mudo, áudio bloqueado) já eram fundo-suave + cor e continuam legíveis
+sem a borda — o mudo, aliás, passou ao vermelho **saturado**.
+
 | Elemento | O que faz |
 |---|---|
 | **Conectar a tela** (`#simpleCastBtn`) | `AVNative.openCast()` — o seletor de espelhamento do Android. **Só existe SEM tela conectada**, e ali é o único botão da tela (ver o bloqueio abaixo); conectado, ele dá lugar à preview. No navegador vira o atalho para a tela do Display |
@@ -903,7 +912,7 @@ mirar um alvo fino ali é o pior formato possível.
 | **Letra** (`#simpleLyrics`) | a letra INTEIRA da música em cena, com o mesmo destaque e o mesmo acompanhamento da leitura auxiliar do modo avançado |
 | **Play/pause, parar e mudo** | `.click()` em `#playpause` / `#stop` / `#muteToggle`. O **parar** entrou na v5.72, ao lado do play: é a outra metade do transporte, e sem ele tirar a mídia do telão obrigava a ir ao modo avançado — justamente o que se faz no fim de cada louvor. A fileira passou a ter três colunas |
 | **Volume** (`#simpleVolDown` / `#simpleVolUp`) | teclas **−** e **+** com o número no meio (`.simple-vol-read`), não um slider |
-| **Modo avançado** (`#simpleFullBtn`, `.mode-switch`) | `setAppMode('full')` — a tela completa de sempre. Era texto `--muted` sobre `--surface`: dentro do mínimo de contraste, mas lido como **legenda**, não como botão. Desde a v5.40 é texto pleno (`--text`) sobre `--surface-2` com borda de `--accent` — **7,03:1** na paleta atual — e desde a v5.49 leva a **seta** e divide a classe `.mode-switch` com o gêmeo do modo avançado (`#fullSimpleBtn`) |
+| **Modo avançado** (`#simpleFullBtn`, `.mode-switch`) | `setAppMode('full')` — a tela completa de sempre. Era texto `--muted` sobre `--surface`: dentro do mínimo de contraste, mas lido como **legenda**, não como botão. Desde a v5.40 é texto pleno (`--text`) sobre `--surface-2` — **7,03:1** na paleta atual — e desde a v5.49 leva a **seta** e divide a classe `.mode-switch` com o gêmeo do modo avançado (`#fullSimpleBtn`). **A borda em `--accent` saiu na v5.76**: ela desenhava, nos dois cabeçalhos, a moldura mais forte da tela em volta do botão que menos se usa num culto — trocar de modo é decisão de configuração, não de operação. Quem separa o botão do fundo é a superfície; o accent ficou onde informa, na seta, que é o que diz para que lado se vai |
 
 **Sem escolha de variante.** No simplificado o toque na linha da busca — e o
 toque no ▶ dela — chamam `simplePlaySong()`, que toca o **Cantado** e pronto:
@@ -2791,6 +2800,32 @@ tocar/adicionar/baixar sob demanda, e o subtítulo mostra a coleção de origem.
 ficaram de fora: ela varre milhares de músicas de todos os álbuns e renderizar
 tudo a cada tecla travaria o campo. Folhear uma coleção INTEIRA não passa por
 aqui — é o acordeão do card, que lista tudo.
+
+### "Pesquisar <texto> no YouTube", no fim da busca (v5.76)
+
+O acervo é o LouvorJA, e ele não tem tudo: um louvor gravado pelo coral da
+igreja, um clipe, um hino numa versão específica. Até aqui a saída era sair do
+app, abrir o YouTube, **digitar tudo de novo** e compartilhar de volta — e o
+"digitar tudo de novo" acontecia com o texto já digitado na tela em que se
+acabou de descobrir que a música não está no acervo. `appendYoutubeSearch` fecha
+esse caminho: leva a busca pronta e devolve o operador ao ponto em que o
+`intent-filter` de share (`ShareIntake.kt`) já sabe receber o vídeo. A ida
+passou a existir; a volta já existia.
+
+- **Em todos os desfechos da busca**, inclusive (e principalmente) "Nenhuma
+  música encontrada" — que é exatamente quando a pergunta "e agora?" aparece.
+  Não aparece enquanto se FOLHEIA o acervo (sem texto não há o que pesquisar).
+- **O texto vai entre aspas** porque é ele que diz que o toque leva ISTO, e não
+  abre o YouTube na página inicial. Entra por `textContent`, nunca `innerHTML`:
+  é texto digitado pelo operador. Termo comprido corta em reticências.
+- **Uma LUPA, não o logotipo do YouTube.** O que o botão faz é uma busca;
+  desenhar a marca de outro app promete que ele abre lá dentro em algum lugar
+  específico. Quem nomeia o destino é o texto ao lado.
+- **Ele exige shell ≥ 15** (`AVNative.openExternal`), e por isso **não é
+  desenhado** num shell mais antigo: o WebView recusa navegar para fora do
+  origin, então ali o toque não faria nada — nem erro no console. Um botão morto
+  no meio de um culto é pior que botão nenhum. No navegador é `window.open`, sem
+  condição nenhuma.
 
 Diferente dos demais popups (bottom-sheets), a bandeja **desliza a partir do
 TOPO** (CSS: `#hymnSearchPopup` com `align-items:flex-start`, `.popup-sheet` com
@@ -5014,7 +5049,8 @@ fundo real de cada contexto).
 | `--gold` / `--gold-soft` / `--gold-text` | `#dba849` / `rgba(219,168,73,.16)` / `#eed9a8` | marca secundária ("IASD"): logo, capa da letra, pill "Ligar Sistema", rótulo de estrofe, destaque da busca por letra |
 | `--live` | `#b34134` | **só** preenchimento/borda de "está no ar agora" |
 | `--on-live` | `#f3e9e8` | o que se escreve sobre `--live` — 4,74:1 |
-| `--live-text` | `#f0aaa2` | texto, ícone e borda de "no ar" — 9,78:1 sobre o fundo |
+| `--live-text` | `#f0aaa2` | corrida de TEXTO de "no ar" quando ela pousa direto num painel elevado, sem fundo próprio — 9,78:1 sobre o fundo, 5,18:1 sobre `--panel-2`. É um salmão: legível em qualquer lugar, e por isso mesmo pouco vermelho |
+| `--live-strong` / `--danger-strong` | `#f4564a` | **o vermelho que se lê como vermelho** (v5.76): ícone, borda e marca preenchida. Mesma matiz (~4°) de `--live`, com a saturação de volta. Medido: 5,59:1 sobre `--bg`, 4,68:1 sobre `--live-soft`/`--danger-soft`, 3,78:1 sobre `--panel`, **2,96:1 sobre `--panel-2`** — este reprova até o piso de borda, e é por isso que quem veste este vermelho veste junto o fundo suave da própria família |
 | `--live-soft` | `rgba(179,65,52,.22)` | fundo suave de "no ar" |
 | `--danger` / `--danger-text` / `--danger-soft` | mesmos valores do par `--live` | o destrutivo. `--danger` **não tem uso hoje, e isso é intencional**: pela regra R2 ação destrutiva é sempre CONTORNADA, e contorno/texto usam `--danger-text`. Ele fica para o dia em que existir uma superfície destrutiva preenchida — e para deixar explícito qual dos dois tons é o de fundo, que é a distinção que o código antigo não fazia |
 | `--warn` / `--warn-text` / `--warn-soft` | `#e5aa78` / `#eec49a` / `rgba(218,135,64,.16)` | aviso: borda/ícone (4,89:1 sobre o próprio suave), texto (6,13:1), fundo |

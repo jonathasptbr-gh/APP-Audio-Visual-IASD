@@ -100,6 +100,27 @@
   --on-live: #f3e9e8;                    /* 4,74:1 sobre --live */
   --live-text: #f0aaa2;                  /* 9,78:1 sobre o fundo · 5,74:1 sobre --live-soft */
   --live-soft: rgba(179, 65, 52, .22);
+  /* O VERMELHO QUE SE LÊ COMO VERMELHO (v5.76). `--live-text`/`--danger-text`
+     são claros o bastante para qualquer corrida de texto, e é isso mesmo que
+     os tira do vermelho: #f0aaa2 é um salmão, e num ÍCONE de 24px sobre um
+     preview escuro ele chega como "um tom quente", não como alarme. Esta é a
+     mesma matiz (~4°) com a saturação de volta.
+     MEDIDO (Chromium, composto sobre a pilha real de superfícies): 5,59:1
+     sobre `--bg`, 4,68:1 sobre `--live-soft`/`--danger-soft`, 3,78:1 sobre
+     `--panel` e **2,96:1 sobre `--panel-2`** — este último REPROVA até o piso
+     de 3:1 de uma borda.
+     A consequência prática é uma regra, não uma exceção: quem veste este
+     vermelho veste junto o fundo suave da própria família (`--live-soft` /
+     `--danger-soft`). Foi o que a mensagem no ar e o versículo no ar passaram
+     a fazer na v5.76 — os dois estavam em `--panel-2` e caíam no 2,96 —, e é o
+     que `.misc-project.live` e os botões destrutivos já faziam.
+     Depois disso `--live-text`/`--danger-text` ficaram SEM NENHUM CONSUMIDOR,
+     e (como `--danger`, acima) eles ficam: são a saída para o dia em que um
+     vermelho precisar pousar direto num painel elevado, sem fundo próprio —
+     ali o saturado reprova e o salmão passa com folga (5,18:1). O que não pode
+     é usá-los "porque são o vermelho de texto": o padrão é o saturado. */
+  --live-strong: #f4564a;
+  --danger-strong: #f4564a;
   /* `--danger` é o par ESCURO do destrutivo — mesmo valor de `--live`, token
      próprio porque os dois papéis podem divergir um dia. Hoje ele não tem
      nenhum uso na folha, e isso é intencional, não esquecimento: pela regra

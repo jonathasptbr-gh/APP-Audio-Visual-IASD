@@ -32,6 +32,13 @@ interface BridgeHost {
     /** Rótulo do alvo de espelhamento disponível neste aparelho. */
     fun describeCastTarget(): String
 
+    /**
+     * Abre uma URL `https` FORA do app (navegador, ou o app que a reivindicar).
+     * O WebView do Controle recusa navegar para outro origin — ver
+     * [WebViewFactory] —, então sem esta rota um link externo não faz nada.
+     */
+    fun openExternalUrl(url: String)
+
     /** Interceptar os botões físicos de volume e mandá-los para o app. */
     fun setCaptureVolumeKeys(on: Boolean)
 
@@ -69,7 +76,7 @@ class NativeBridge(
          * exijam mais do que o shell instalado oferece (ver [WebUpdater]).
          * Subir SEMPRE que a superfície da ponte mudar.
          */
-        const val SHELL_VERSION = 14
+        const val SHELL_VERSION = 15
 
         /**
          * Fila de IO da ponte, **compartilhada por todas as instâncias**.
@@ -271,6 +278,27 @@ class NativeBridge(
     @JavascriptInterface
     fun openCast() {
         host?.openCastPicker()
+    }
+
+    /**
+     * Abre uma URL fora do app — hoje a busca do YouTube oferecida no fim da
+     * busca do acervo, quando a música não está no LouvorJA.
+     *
+     * **Só `https`, e a decisão é aqui.** Este método é chamado de JavaScript,
+     * e um `ACTION_VIEW` aceita muito mais do que web: `intent://`,
+     * `content://`, esquemas de outros apps. Deixar o esquema livre
+     * transformaria a ponte num disparador genérico de intents a partir de
+     * qualquer script que rodasse no WebView. O `native.js` também filtra, mas
+     * ali é conveniência — a guarda que vale é esta, porque `__AVBridge` é
+     * alcançável sem passar por ele.
+     *
+     * O WebView do telão recebe a ponte com `host = null` e não chega aqui.
+     */
+    @JavascriptInterface
+    fun openExternal(url: String) {
+        val u = try { Uri.parse(url) } catch (_: Exception) { return }
+        if (!u.scheme.equals("https", ignoreCase = true) || u.host.isNullOrBlank()) return
+        host?.openExternalUrl(u.toString())
     }
 
     /**
