@@ -155,8 +155,19 @@ silêncio:
 YouTube dividem o mesmo processo.
 
 > O WebView do telão usa outro `WebChromeClient` (`MicChromeClient`, para o
-> microfone) e **não recebe** o handler `/saf/` — ver "Microfone ao vivo" e "A
-> ponte".
+> microfone), **não recebe** o handler `/saf/` e é a única instância criada com
+> `keepVisible = true` — ver "Microfone ao vivo" e "A ponte".
+
+**`KeepVisibleWebView` (só o telão).** O Chromium marca a página como `hidden`
+quando a janela da View some, e é isso que acontece com a `Presentation` no
+instante em que o app é minimizado. Um `<video>` local não liga; o **embed do
+YouTube pausa sozinho** ao ver `document.hidden`. `onWindowVisibilityChanged`
+reporta sempre `VISIBLE` para tirar esse gatilho. **Não bastou** para o YouTube
+(a solução real é baixar o vídeo — ver a tabela de divergências), mas fica: o
+telão é a projeção, ele continua no ar com o app minimizado de propósito, e não
+há razão para o renderer dele ser desacelerado. O WebView do **Controle** segue
+o ciclo normal — ali ser estrangulado em segundo plano é o comportamento certo,
+e é justamente o que o `snoopDisplayStatus` existe para contornar.
 
 **Reconexão vem de graça:** quando o dongle cai e volta, o Android destrói e
 recria a Presentation, o WebView recarrega `/display/` e dispara
@@ -234,7 +245,7 @@ Além disso, `native.js` publica **quatro globais** lidas direto (sem Promise):
 o `versionName` do APK, que é o **índice de versão do shell exibido ao
 operador**. Ele não se confunde com `__SHELL_VERSION__`: base web e shell
 atualizam por caminhos independentes (OTA × instalar APK), então o rodapé de
-**Configurações** mostra os dois (`Web v5.77 · Shell v<versionName do APK>`,
+**Configurações** mostra os dois (`Web v5.78 · Shell v<versionName do APK>`,
 montado em `renderVersionLabel`; até a v5.48 ficava no cabeçalho do Cronograma —
 saiu de lá porque metadado de diagnóstico pertence à mesma tela do estado do
 telão, não a uma faixa de navegação). Num shell antigo (sem
@@ -832,6 +843,7 @@ contextos.
 | Onde o share ATERRISSA | idem ao nativo (o caminho é o mesmo `importShare`) | **`focarImportado`** (v5.77): fecha os popups abertos e a seleção, e então **projeta na hora** no simplificado ou **vai para o Cronograma** no avançado. A preview em tela cheia só é encerrada se houver telão — sem ele, ela É a projeção |
 | Estado do telão (rodapé de Configurações) | atalho `window.open('../display/')`, útil só para desenvolver | **indicador ao vivo** (desabilitado como botão) — a Presentation é criada sozinha |
 | Botão de cast da preview | oculto | `AVNative.openCast()` → seletor de **espelhamento de tela** (ver abaixo) |
+| Vídeo do YouTube | player embutido (IFrame API) | **player embutido OU arquivo baixado** — o embed pausa sozinho com o app minimizado (regra do player deles, num iframe de outra origem), então com uma instância [Cobalt](https://cobalt.tools) configurada em Configurações o link vira um **arquivo de vídeo local** e passa a ser mídia comum. Ver `cobaltBaixarVideo` e a seção "A via do arquivo baixado" em `docs/ARQUITETURA-WEB.md` |
 | Link para fora do app ("Pesquisar … no YouTube") | `window.open` numa aba nova | **`AVNative.openExternal(url)`** → `ACTION_VIEW` numa tarefa própria. O WebView RECUSA navegar para outro origin (invariante 2), então sem esse método um link externo não faz absolutamente nada — nem erro no console |
 | "Conectar a tela" (modo simplificado) | abre a tela do Display (`window.open`) — e é ela que conta como "conectado" | mesmo `AVNative.openCast()`, com o nome da tela conectada no subtítulo |
 | Simplificado sem tela conectada | mesmo bloqueio, com a janela do Display no lugar da `Presentation` | **modo bloqueado**: cortina embaçada sobre tudo, só o botão de conectar — preenchido no accent, no centro da tela — e a saída para o avançado na frente |
@@ -1239,7 +1251,7 @@ aparelho nenhum.
 O `versionCode`/`versionName` do APK vêm do CI (ver "Build") e não se tocam à
 mão.
 
-**Versão atual: v5.77** (base web) · `SHELL_VERSION` **15**, e o bundle segue com
+**Versão atual: v5.78** (base web) · `SHELL_VERSION` **15**, e o bundle segue com
 `minShell: 2` — ele funciona igual num shell antigo, só sem os recursos que são
 nativos por construção (a escada do voltar, os botões de volume, a notificação de
 controles), que **só chegam instalando o APK novo**, não pelo OTA.

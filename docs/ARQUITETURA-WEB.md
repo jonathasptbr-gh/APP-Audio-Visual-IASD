@@ -94,7 +94,7 @@ git push origin main
   MENOR que o já publicado — caso em que `WebUpdater.compareVersions` ignora o
   bundle em silêncio. Para saber onde a base está, leia `version.json`.
 
-  No app nativo o rótulo mostra os **dois índices** — `Web v5.77 · Shell v1.25`
+  No app nativo o rótulo mostra os **dois índices** — `Web v5.78 · Shell v1.26`
   —, porque base web e shell atualizam por caminhos independentes (OTA ×
   instalar APK); no navegador sai só `Controle v<versão>`. **Ele mora no rodapé
   do popup de Configurações** desde a v5.49 (antes ficava no cabeçalho da lista,
@@ -4639,7 +4639,8 @@ anterior) sofria.
   `onReady` **e de novo no primeiro `PLAYING`**: o módulo de legenda costuma
   entrar junto com a faixa de vídeo, ou seja, depois do ready — descarregar só
   ali deixava a legenda voltar no primeiro quadro.
-- **O vídeo não para porque o app saiu da frente** (`ytWatchResume`, v5.77).
+- **O vídeo não para porque o app saiu da frente** (`ytWatchResume`, v5.77 —
+  **não resolveu; ver "A via do arquivo baixado", abaixo**).
   Com o app minimizado o telão segue projetando (a `Presentation` não morre com
   a Activity) e um `<video>` local continua tocando; o embed do YouTube, não —
   o player dele **pausa sozinho** quando a página passa a "oculta", que é o que
@@ -4654,7 +4655,67 @@ anterior) sofria.
   **Limitado a 4 tentativas**, e não um laço eterno: se o vídeo parar por um
   motivo real e permanente (um erro do embed), insistir para sempre seria uma
   briga invisível com o player. A cota zera a cada `PLAYING`, então uma sessão
-  longa com várias idas ao segundo plano é recuperada todas as vezes. O wrapper tem
+  longa com várias idas ao segundo plano é recuperada todas as vezes.
+  **Em aparelho, não resolveu.** O `playVideo()` chega, e o player do YouTube
+  pausa de novo — ele não obedece enquanto a página estiver oculta. O vigia
+  ficou: ele não custa nada e continua sendo a resposta certa para uma pausa
+  espúria por qualquer outro motivo. Mas a solução do problema é outra, abaixo.
+
+### A via do arquivo baixado (Cobalt) — v5.78
+
+O embed do YouTube **pausa sozinho quando a página fica oculta**, e é isso que o
+Android faz com o telão no instante em que o operador minimiza o app. A regra
+roda dentro de um iframe de **outra origem**: nenhum código nosso a alcança.
+Foram tentadas as duas únicas saídas de fora, e as duas falharam em aparelho:
+
+1. **Mandar tocar de novo** (`ytWatchResume`, v5.77) — o comando chega, o player
+   pausa outra vez.
+2. **Impedir o WebView do telão de se declarar oculto**
+   (`WebViewFactory.KeepVisibleWebView`, v1.26 do shell: `onWindowVisibilityChanged`
+   sempre reporta `VISIBLE`). Ficou no código — é correto por si só e barato —,
+   mas não bastou.
+
+A resposta que não depende de vencer o player deles é **não usar o player
+deles**: o link vira um **arquivo de vídeo no aparelho**, e daí em diante é uma
+mídia como qualquer outra — o mesmo `<video>` dos arquivos importados, com fade,
+seek, playlist, cortina, `MediaSession` e reprodução em segundo plano que já
+funcionam há versões. De quebra: sem anúncio, sem legenda, sem UI de terceiro no
+telão e **sem depender da rede durante o culto**, que num salão de igreja é o
+ganho maior de todos.
+
+A conversão é feita pelo [Cobalt](https://cobalt.tools) por HTTP puro (`fetch` +
+JSON) — **nenhuma dependência entra no projeto**, como manda a regra.
+
+- **A instância NÃO vem embutida.** Ela é digitada em **Configurações**
+  (`cobaltApi`, `cobaltKey`, mais a qualidade), e sem ela a via nova
+  simplesmente não existe: o link do YouTube continua virando item de player,
+  exatamente como antes. Instância pública vai e volta, costuma exigir chave, e
+  não é nossa para prometer.
+- **`youtubeVideoCodec: 'h264'`, sempre.** H.264 em MP4 é o que o WebView do
+  Android toca em qualquer aparelho; AV1/VP9 num `.webm` depende do modelo, e um
+  vídeo que não abre no telão no meio do culto é pior que um arquivo maior.
+  `alwaysProxy: true` pelo mesmo motivo prático: os bytes vêm pelo túnel do
+  Cobalt, que responde com CORS — um redirect para o CDN do YouTube seria
+  bloqueado no `fetch`.
+- **Os bytes são lidos pelo `body`**, não por um `res.blob()` direto: um vídeo de
+  culto tem centenas de MB e o percentual no cartão da preview é a única coisa
+  que separa "baixando" de "travado". O download roda dentro de `withBgWork`,
+  então o serviço em primeiro plano segura o processo se o app for minimizado.
+- **Falhar não perde o link.** Instância fora do ar, chave vencida, vídeo
+  restrito: cai de volta no item de player de sempre. E o motivo fica **guardado**
+  na tela de Configurações (`cobaltUltimo`) — o download acontece com o popup
+  FECHADO, e um recado escrito num nó que ninguém está vendo seria apagado no
+  próximo render. Quem vai lá para entender por que não baixou precisa achar a
+  resposta, não a frase genérica.
+- **Um item de player que já existe pode ser convertido**: com instância
+  configurada, o selo `YT` da linha do Cronograma ganha um botão de download ao
+  lado. O arquivo **toma o lugar do link na mesma posição** (`listSet` com a
+  substituição — `addMedia` já pendurou o novo no fim, então a troca é "tira a
+  cópia do fim, substitui no lugar do antigo"); duas linhas com o mesmo nome
+  deixariam o operador adivinhando qual das duas toca em segundo plano. O link
+  antigo some por `AVDB.gc`, que só apaga o que não estiver referenciado em
+  outra lista nem num Favorito — se ele também estiver na playlist, fica lá,
+  inteiro. O wrapper tem
   `pointer-events:none` (CSS) — toque/hover no telão nunca invoca overlays;
   todo o transporte vem do Controle. `allow="autoplay; fullscreen;
   encrypted-media; picture-in-picture"` é aplicado programaticamente no

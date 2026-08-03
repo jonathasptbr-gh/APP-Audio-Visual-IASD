@@ -78,7 +78,10 @@ class StagePresentation(
         // Controle e copiam tudo para o OPFS antes de o telão ver qualquer
         // coisa. Ver [WebViewFactory.assetLoader].
         val loader = WebViewFactory.assetLoader(context, withSaf = false)
-        val w = WebViewFactory.create(context, loader) {
+        // `keepVisible = true`: o telão não pode se declarar oculto quando o
+        // app é minimizado — é o que fazia o embed do YouTube pausar sozinho.
+        // Ver WebViewFactory.KeepVisibleWebView.
+        val w = WebViewFactory.create(context, loader, keepVisible = true) {
             web = null
             root.post { buildWebView(root) }
         }
