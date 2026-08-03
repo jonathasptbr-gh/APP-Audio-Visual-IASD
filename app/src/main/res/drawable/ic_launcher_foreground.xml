@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ÍCONE DO APP: o mixer de três faixas, nas cores da paleta "Sala Escura".
+
+     Até a v1.33 ele era um PNG com o botão AZUL, sobra da paleta azul que a
+     base web abandonou na v5.47 (ver o comentário do âmbar em
+     shared/tokens.css). O app não tem azul em lugar nenhum desde então, e o
+     fundo do ícone era o verde do wallpaper, que é a cortina da TV e nunca
+     aparece no celular. O ícone não representava nenhuma tela deste app.
+
+     VETOR, e não PNG: o `minSdk` é 26, então o ícone adaptativo é o ÚNICO que
+     chega a ser desenhado. Os cinco PNGs por densidade eram peso morto e mais
+     cinco lugares para a cor divergir da paleta. Aqui ela é literal e
+     greppável, como nos outros vetores de res/drawable.
+
+     Os valores são os tokens `text` (trilha) e `accent` (botão) da paleta,
+     escritos à mão pelo mesmo motivo de values/colors.xml: recurso de Android
+     não enxerga custom property de CSS. Se a paleta mudar, mudam junto.
+
+     O desenho mora no miolo de 72dp dos 108dp (a zona segura do recorte do
+     launcher), e os círculos são dois semiarcos em vez de um arco de 360 graus
+     com início igual ao fim: a forma degenerada depende do parser, e é a única
+     coisa aqui que não dá para conferir sem aparelho. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- As três trilhas -->
+    <path
+        android:fillColor="#d6cfc3"
+        android:pathData="M32.5,35.5 L75.5,35.5 A2.5,2.5 0 0 1 75.5,40.5 L32.5,40.5 A2.5,2.5 0 0 1 32.5,35.5 Z M32.5,51.5 L75.5,51.5 A2.5,2.5 0 0 1 75.5,56.5 L32.5,56.5 A2.5,2.5 0 0 1 32.5,51.5 Z M32.5,67.5 L75.5,67.5 A2.5,2.5 0 0 1 75.5,72.5 L32.5,72.5 A2.5,2.5 0 0 1 32.5,67.5 Z" />
+    <!-- Os três botões do fader -->
+    <path
+        android:fillColor="#dba849"
+        android:pathData="M38,38 a8,8 0 1,0 16,0 a8,8 0 1,0 -16,0 Z M58,54 a8,8 0 1,0 16,0 a8,8 0 1,0 -16,0 Z M34,70 a8,8 0 1,0 16,0 a8,8 0 1,0 -16,0 Z" />
+</vector>

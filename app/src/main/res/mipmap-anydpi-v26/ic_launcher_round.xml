@@ -1,6 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Ícone adaptativo: o launcher recorta em círculo/esquadria, então o desenho
+     do primeiro plano respeita a zona segura (o miolo de 72dp dos 108dp).
+     `minSdk` é 26, logo ESTE é o único ícone que chega a ser desenhado — não
+     há mais PNG por densidade (ver ic_launcher_foreground.xml). -->
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
     <background android:drawable="@color/ic_launcher_background" />
-    <foreground android:drawable="@mipmap/ic_launcher_foreground" />
-    <monochrome android:drawable="@mipmap/ic_launcher_foreground" />
+    <foreground android:drawable="@drawable/ic_launcher_foreground" />
+    <monochrome android:drawable="@drawable/ic_launcher_mono" />
 </adaptive-icon>
