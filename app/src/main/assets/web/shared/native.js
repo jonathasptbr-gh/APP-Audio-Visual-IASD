@@ -264,6 +264,16 @@
     // biblioteca — senão o vídeo fica DUAS vezes no aparelho.
     ytDiscard(url) { try { B.ytDiscard(String(url)); } catch (_) { /* shell antigo */ } },
 
+    // Escolhe UM PDF pelo seletor do sistema e resolve `{ url, name }` — a
+    // `url` é servível (`/saf/`), que é o que o shell sabe abrir para
+    // rasterizar. O `<input type="file">` da página não serve aqui: ele devolve
+    // um `File` (bytes já lidos), e quem desenha o PDF é o Kotlin, que precisa
+    // do ARQUIVO — ver NativeBridge.pickDoc.
+    //
+    // SEM PRAZO, como o `pickFolder`: quem responde é uma PESSOA escolhendo um
+    // arquivo, e um timeout resolveria null com o seletor ainda aberto.
+    pickDoc: () => call((id) => B.pickDoc(id)),
+
     // ---- apresentação (PDF / Google Apresentações) ----
     // Rasteriza uma apresentação e resolve `{ name, pages: [url] }`: uma imagem
     // por página, em URLs servíveis — daqui para a frente o caminho é o de

@@ -3,6 +3,7 @@ package br.org.iasd.av
 import android.content.Context
 import android.net.Uri
 import android.provider.DocumentsContract
+import android.provider.OpenableColumns
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import org.json.JSONArray
@@ -16,6 +17,14 @@ import java.util.concurrent.Executors
 interface BridgeHost {
     /** Abre o seletor de pasta do sistema (ACTION_OPEN_DOCUMENT_TREE). */
     fun requestFolderPick(onResult: (Uri?) -> Unit)
+
+    /**
+     * Abre o seletor de DOCUMENTO do sistema (hoje: o PDF de uma
+     * apresentação) e devolve o `content://` escolhido, ou `null` se o
+     * operador desistir. Ver o porquê de não ser o `<input type="file">` em
+     * `MainActivity.docPicker`.
+     */
+    fun requestDocPick(mimes: Array<String>, onResult: (Uri?) -> Unit)
 
     /**
      * Declara ao sistema que há download em andamento, para o processo não
@@ -82,7 +91,7 @@ class NativeBridge(
          * exijam mais do que o shell instalado oferece (ver [WebUpdater]).
          * Subir SEMPRE que a superfície da ponte mudar.
          */
-        const val SHELL_VERSION = 19
+        const val SHELL_VERSION = 20
 
         /**
          * Fila de IO da ponte, **compartilhada por todas as instâncias**.
@@ -516,6 +525,49 @@ class NativeBridge(
                 resolve(callId, obj.toString())
             }
         }
+    }
+
+    /**
+     * Abre o seletor do sistema para escolher UM PDF e devolve
+     * `{ url, name }` — com `url` servível pelo mesmo `/saf/` das pastas do
+     * dispositivo, que é o que o [SlideDeck] sabe abrir.
+     *
+     * Por que não o `<input type="file">` da página: ele entrega ao JavaScript
+     * um `File` (bytes já lidos), e quem desenha o PDF é o shell, que precisa
+     * do ARQUIVO. Devolver os bytes pela ponte inverteria o princípio dela e
+     * faria uma apresentação de dezenas de MB passar pela memória do WebView
+     * sem necessidade.
+     *
+     * SEM PRAZO no lado web: quem responde aqui é uma PESSOA escolhendo um
+     * arquivo, e um timeout resolveria null com o seletor ainda aberto — a
+     * mesma regra do [pickFolder] e do [requestMic].
+     */
+    @JavascriptInterface
+    fun pickDoc(callId: String) {
+        val h = host
+        if (h == null) { resolve(callId, "null"); return }
+        h.requestDocPick(arrayOf("application/pdf")) { uri ->
+            if (uri == null) {
+                resolve(callId, "null")
+            } else {
+                val obj = JSONObject()
+                    .put("url", SafRegistry.urlFor(uri))
+                    .put("name", nomeDoDocumento(uri))
+                resolve(callId, obj.toString())
+            }
+        }
+    }
+
+    /** O nome de exibição do documento, ou "Apresentação" se o provedor não o der. */
+    private fun nomeDoDocumento(uri: Uri): String {
+        val nome = try {
+            ctx.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+                ?.use { c ->
+                    val i = c.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                    if (i >= 0 && c.moveToFirst()) c.getString(i) else null
+                }
+        } catch (_: Exception) { null }
+        return (nome ?: uri.lastPathSegment ?: "Apresentação").substringAfterLast('/')
     }
 
     /**
