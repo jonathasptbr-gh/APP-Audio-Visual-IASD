@@ -156,7 +156,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.86';
+const WEB_VERSION = '5.87';
 
 // Escrita UMA vez, na carga: o indicador mora no rodapé de Configurações desde
 // a v5.49 e não depende mais de qual aba está aberta (no cabeçalho ele
@@ -3941,7 +3941,12 @@ function renderLibrary() {
           if (ytDl.disabled) return;
           ytDl.disabled = true;
           // A linha JÁ existe: o aviso vai nela, com a chave do próprio item.
-          const rec = await ytBaixarNativo(item.url, item.name, { chave: item.id });
+          // Se o arquivo desse vídeo já existir (baixado por outro caminho), o
+          // `ytArquivo` o devolve e não há download nenhum.
+          const rec = await ytArquivo(
+            { id: item.youtubeId || extractYouTubeId(item.url), url: item.url, name: item.name },
+            { chave: item.id, lista: 'imports' },
+          );
           if (!rec) { ytDl.disabled = false; return; }
           // O arquivo TOMA O LUGAR do link, NA MESMA POSIÇÃO: duas linhas com o
           // mesmo nome deixariam o operador adivinhando qual das duas é a que
@@ -3954,6 +3959,9 @@ function renderLibrary() {
             if (i >= 0) sem[i] = rec.id; else sem.push(rec.id);
             return sem;
           });
+          // Agora o Cronograma o segura: sai do slot avulso (no-op se ele nunca
+          // esteve lá).
+          await AVDB.listRemove('avulsos', rec.id);
           // `gc` decide sozinho se o link some: ele só apaga o que não estiver
           // referenciado em nenhuma outra lista nem num Favorito — se o item
           // antigo também estiver na playlist, ele fica lá, inteiro.
@@ -4965,7 +4973,13 @@ function renderSelbar() {
 async function send(id) {
   currentId = id;
   // Atualiza cache do item atual para renderNowPlaying funcionar mesmo fora da aba ativa.
-  currentItem = [...plItems, ...libItems].find((m) => m.id === id) || currentItem;
+  // Fora das duas listas carregadas, o registro vem do IDB: uma mídia AVULSA
+  // (v5.87 — "Tocar agora" num vídeo do YouTube) não está em nenhuma delas, e
+  // sem esta leitura o `|| currentItem` deixava no ar o nome do item ANTERIOR,
+  // que é pior que nome nenhum.
+  currentItem = [...plItems, ...libItems].find((m) => m.id === id)
+    || (await AVDB.getMedia(id))
+    || currentItem;
   // Independência áudio × texto: um ÁUDIO (música de fundo) NÃO encerra o texto
   // manual em cena (Bíblia/Mensagem/cronômetro); qualquer VISUAL (vídeo/imagem/
   // YouTube) encerra. Um louvor de fundo sob a contagem regressiva de abertura
@@ -5633,7 +5647,9 @@ async function deleteSelected() {
       const rec = await AVDB.fileGet(id);
       if (rec && rec.opfsPath) await AVDB.opfsDeleteFile(rec.opfsPath);
       await AVDB.fileDelete(id);
-      for (const l of ['imports', 'playlist']) await AVDB.listRemove(l, id);
+      // TODAS as listas, inclusive a invisível: um id que sobra em qualquer
+      // uma delas segura o registro vivo para o gc.
+      for (const l of ['imports', 'playlist', 'avulsos']) await AVDB.listRemove(l, id);
     }
     await refreshOpfsFolderCount(currentFolder.id);
   } else if (activeTab === 'folders' && currentFolder) {
@@ -5976,7 +5992,7 @@ function openOpfsFolder(f) {
 async function purgeCatalogRecords(recs) {
   for (const r of recs) {
     await AVDB.fileDelete(r.id);
-    for (const l of ['imports', 'playlist']) await AVDB.listRemove(l, r.id);
+    for (const l of ['imports', 'playlist', 'avulsos']) await AVDB.listRemove(l, r.id);
   }
 }
 
@@ -7067,6 +7083,21 @@ function appendYoutubeSearch(texto) {
       return;
     }
     ytBuscaItens.forEach((r) => hymnResultsEl.appendChild(ytResultRow(r)));
+    marcarYtProntos(ytBuscaItens);
+  }
+}
+
+// O resultado que JÁ está no aparelho nasce marcado como concluído. O ✓ passa
+// a dizer as duas coisas ao mesmo tempo — "acabou de baixar" e "já estava
+// aqui" —, que é a informação de que o operador precisa antes de escolher o
+// destino: tocar agora não vai custar um download. Assíncrono de propósito: a
+// lista não espera pelo IDB, e o estado mora no Map (`ytEstado`), então
+// sobrevive ao próximo render.
+async function marcarYtProntos(itens) {
+  for (const r of itens) {
+    if (!r || !r.id || ytEstado.has(r.id)) continue;
+    const rec = await AVDB.mediaByYoutube(r.id);
+    if (rec && rec.blob) setYtEstado(r.id, 'pronto');
   }
 }
 
@@ -7098,10 +7129,12 @@ function openYtMenu(r) {
   songMenuFor = { yt: r, variant: 'full' };
   songMenuTitleEl.textContent = r.name || 'Vídeo do YouTube';
   songMenuListEl.innerHTML = '';
+  // O subtítulo do "Tocar agora" DIZ que o Cronograma fica de fora: é a
+  // diferença entre as três opções, e ela não se adivinha olhando o ícone.
   songMenuListEl.appendChild(songMenuItem(msym(ICON.play), 'Tocar agora',
-    'Baixa e projeta em seguida', () => ytAcao(r, 'tocar')));
+    'Projeta em seguida, sem entrar no Cronograma', () => ytAcao(r, 'tocar')));
   songMenuListEl.appendChild(songMenuItem(msym(ICON.queue), 'Adicionar à playlist',
-    'Entra na fila do que está tocando agora', () => ytAcao(r, 'playlist')));
+    'Entra na fila, sem entrar no Cronograma', () => ytAcao(r, 'playlist')));
   songMenuListEl.appendChild(songMenuItem(msym(ICON.plAdd), 'Adicionar ao Cronograma',
     'A lista do culto', () => ytAcao(r, 'cronograma')));
   songMenuPopupEl.classList.add('open');
@@ -7115,25 +7148,49 @@ function openYtMenu(r) {
 // de uma busca e provavelmente vai pegar mais de um; ali o aviso é a própria
 // linha, que fica marcada como concluída em vez de voltar ao estado inicial —
 // era essa volta silenciosa que fazia parecer que nada tinha acontecido.
+//
+// Cada escolha vai para O SEU lugar, e só para ele. Até a v5.86 as três caíam
+// no Cronograma, porque `addMedia` era quem escolhia a lista e ela era sempre
+// "imports": pedir "Tocar agora" enchia a lista do culto de vídeo que o
+// operador só quis ver uma vez. A lista de destino agora é decidida AQUI e
+// entregue ao `addMedia`, que continua gravando registro e lista na mesma
+// transação.
+const YT_LISTA = { tocar: 'avulsos', playlist: 'playlist', cronograma: 'imports' };
 async function ytAcao(r, destino) {
   const tocar = destino === 'tocar';
   if (tocar) closeHymnSearch();
   setYtEstado(r.id, 'baixando');
-  const rec = await ytBaixarNativo(r.url, r.name, {
+  const lista = YT_LISTA[destino] || 'imports';
+  const rec = await ytArquivo(r, {
+    lista,
     naPreview: tocar,
+    aviso: destino === 'playlist' ? 'nenhum' : (tocar ? 'preview' : 'lib'),
     onPct: (pct) => setYtEstado(r.id, 'baixando', pct),
   });
   if (!rec) { setYtEstado(r.id, null); return; }
   setYtEstado(r.id, 'pronto');
-  // `addMedia` já pendura o item no Cronograma — é onde toda mídia importada
-  // entra —, então "Adicionar ao Cronograma" não tem passo extra nenhum.
+  // O registro REAPROVEITADO pode estar em outra lista (ou só no slot avulso):
+  // o download novo já nasceu na lista certa, mas este não. `listAdd` é
+  // idempotente, então vale para os dois casos sem perguntar qual é.
+  if (!tocar) {
+    await AVDB.listAdd(lista, rec.id);
+    // Promovido a lista de verdade, sai do slot avulso — que existe só para
+    // segurar o que não tem outro dono. A ordem importa: primeiro entra na
+    // lista nova, senão o `listRemove` coletaria o blob.
+    await AVDB.listRemove('avulsos', rec.id);
+  } else {
+    await fixarAvulso(rec.id);
+  }
   if (destino === 'playlist') {
-    await AVDB.listAdd('playlist', rec.id);
     plItems = await AVDB.listItems('playlist');
     renderPlaylist();
   }
   await load();
-  if (tocar) await send(rec.id);
+  if (tocar) {
+    // A mídia avulsa não está em `libItems` nem em `plItems`, então quem
+    // resolve o nome dela é o `send` (que cai no `getMedia`).
+    await send(rec.id);
+  }
 }
 
 // Uma linha de resultado do YouTube. Mesma anatomia das linhas de música do
@@ -7170,9 +7227,14 @@ function ytResultRow(r) {
   row.append(thumb, info, pct);
   li.appendChild(row);
   pintarYtLinha(li, ytEstado.get(r.id));
-  // O toque abre a MESMA folha de três escolhas das músicas do acervo.
+  // O toque abre a MESMA folha de três escolhas das músicas do acervo — menos
+  // no SIMPLIFICADO, onde ele toca e pronto: abrir uma folha com três opções
+  // seria devolver ao operador exatamente a decisão que este modo poupa, e
+  // duas delas (playlist, Cronograma) são listas que essa tela nem mostra. É a
+  // mesma regra do toque numa música ali (`simplePlaySong`).
   li.addEventListener('click', () => {
     if (li.classList.contains('baixando')) return;
+    if (appMode === 'simple') { ytAcao(r, 'tocar'); return; }
     openYtMenu(r);
   });
   return li;
@@ -7997,9 +8059,15 @@ async function ytBaixarNativo(link, nome, opts) {
   if (!window.__NATIVE__ || (window.__SHELL_VERSION__ | 0) < 16) return null;
   const rotulo = nome || 'Vídeo do YouTube';
   const naPreview = !!(opts && opts.naPreview);
-  const bg = naPreview
-    ? previewBusy('Preparando vídeo', rotulo)
-    : libBusy(rotulo, opts && opts.chave);
+  // Três destinos de aviso, não dois. O terceiro (`aviso: 'nenhum'`) é a
+  // playlist: ela mora dentro de uma bandeja fechada, então não há linha para
+  // marcar — e desenhar a linha provisória no CRONOGRAMA prometeria um item
+  // que nunca vai aparecer lá. Ali quem mostra o andamento é a própria linha
+  // do resultado (`onPct`) mais a notificação do sistema.
+  const aviso = (opts && opts.aviso) || (naPreview ? 'preview' : 'lib');
+  const bg = aviso === 'preview' ? previewBusy('Preparando vídeo', rotulo)
+    : aviso === 'lib' ? libBusy(rotulo, opts && opts.chave)
+      : { visivel: false, atualizar() {}, soltar() {} };
   const notif = bgTaskStart('Baixando vídeo', 1);
   try {
     return await withBgWork(async () => {
@@ -8022,6 +8090,13 @@ async function ytBaixarNativo(link, nome, opts) {
           type: r.type || 'video/mp4',
           kind: 'video',
           thumb,
+          // O id do vídeo fica GRAVADO no registro: é ele que faz o próximo
+          // toque no mesmo resultado reaproveitar este arquivo em vez de
+          // baixar tudo de novo (ver `ytArquivo`).
+          youtubeId: (opts && opts.youtubeId) || null,
+          // E a lista de destino vem de quem pediu: nem todo vídeo baixado
+          // pertence ao Cronograma (ver `ytAcao`).
+          list: (opts && opts.lista) || 'imports',
         });
       } finally {
         // No `finally`: mesmo que a cópia falhe, o arquivo do cache não pode
@@ -8036,6 +8111,48 @@ async function ytBaixarNativo(link, nome, opts) {
     bgTaskEnd(notif);
     bg.soltar();
   }
+}
+
+// O arquivo do vídeo: o que JÁ está no aparelho, ou um download novo.
+//
+// Até a v5.86 cada destino baixava por conta própria — tocar agora, adicionar
+// à playlist e adicionar ao Cronograma eram três downloads do MESMO vídeo, de
+// dezenas de MB, muito provavelmente em rede de celular. O registro guarda o
+// `youtubeId` desde que é criado, então a pergunta "já tenho isto?" custa uma
+// leitura de índice (`AVDB.mediaByYoutube`), sem desserializar blob nenhum.
+//
+// Só reaproveita quem tem BLOB — arquivo de verdade no aparelho. Um item de
+// PLAYER (o link, sem bytes) carrega o mesmo `youtubeId` e é justamente o que
+// esta função existe para substituir: aceitá-lo faria o botão "baixar o vídeo"
+// da linha do Cronograma devolver o próprio link e parecer que não fez nada.
+async function ytArquivo(alvo, opts) {
+  const vid = alvo && alvo.id ? alvo.id : null;
+  const ja = vid ? await AVDB.mediaByYoutube(vid) : null;
+  if (ja && ja.blob) return ja;
+  return ytBaixarNativo(alvo.url, alvo.name, Object.assign({ youtubeId: vid }, opts || {}));
+}
+
+// A prateleira da mídia avulsa — a que está em cena sem pertencer a lista
+// nenhuma. É o que permite "Tocar agora" (e o share no simplificado) não
+// encostar no Cronograma sem deixar registro órfão, que o gc nunca alcançaria.
+//
+// Ela é PEQUENA e tem tamanho fixo, porque os dois extremos são ruins: com um
+// lugar só, voltar ao vídeo anterior baixa tudo de novo — exatamente o
+// desperdício que a v5.87 existe para acabar; sem limite, a mídia que a tela
+// não mostra vira uma pilha de centenas de MB que o operador não tem como
+// apagar (não há tela de liberar espaço). Três cobre o uso real — alternar
+// entre dois ou três vídeos num mesmo culto — e para por aí.
+//
+// Sai o mais ANTIGO (a lista guarda ordem de chegada), e quem sai passa pelo
+// `listRemove`, que decide sozinho se o blob morre: ele fica inteiro se o
+// Cronograma, a playlist ou um Favorito também o tiverem.
+const AVULSO_MAX = 3;
+async function fixarAvulso(id) {
+  const ids = await AVDB.listIds('avulsos');
+  if (!ids.includes(id)) await AVDB.listAdd('avulsos', id);
+  const outros = ids.filter((x) => x !== id);
+  const excedente = outros.slice(0, Math.max(0, outros.length + 1 - AVULSO_MAX));
+  for (const velho of excedente) await AVDB.listRemove('avulsos', velho);
 }
 
 // Devolve o registro criado — quem compartilhou precisa saber QUAL item
@@ -8053,25 +8170,56 @@ async function handleSharedUrl(url, title) {
     // justamente o que o YouTube não bloqueia.
     // No simplificado o item vai DIRETO ao telão (ver focarImportado), então o
     // aviso pertence à preview; no avançado ele só entra no Cronograma.
-    const nativo = await ytBaixarNativo(url, title || ('YouTube: ' + ytId),
-      { naPreview: appMode === 'simple' });
-    if (nativo) return nativo;
-    return await AVDB.addUrlMedia(url, {
+    // Compartilhar DE NOVO o mesmo vídeo não baixa de novo: `ytArquivo`
+    // devolve o que já está no aparelho. Ele pode estar só no slot avulso
+    // (foi tocado sem entrar em lista), e no avançado um share vai para o
+    // Cronograma — daí o `listAdd`, idempotente para o caso de já estar lá.
+    const nativo = await ytArquivo(
+      { id: ytId, url, name: title || ('YouTube: ' + ytId) },
+      { lista: destinoDoShare(), naPreview: simplificado() },
+    );
+    if (nativo) return guardarShare(nativo);
+    return guardarShare(await AVDB.addUrlMedia(url, {
       kind: 'youtube',
       type: 'video/youtube',
       name: title || ('YouTube: ' + ytId),
       thumb: 'https://img.youtube.com/vi/' + ytId + '/hqdefault.jpg',
       youtubeId: ytId,
-    });
+      list: destinoDoShare(),
+    }));
   }
   const kind = detectUrlKind(url);
   const fallbackName = url.split('/').pop().split('?')[0] || url;
-  return await AVDB.addUrlMedia(url, {
+  return guardarShare(await AVDB.addUrlMedia(url, {
     kind,
     type: kind + '/url',
     name: title || fallbackName,
     thumb: null,
-  });
+    list: destinoDoShare(),
+  }));
+}
+
+// No SIMPLIFICADO um link compartilhado só toca — não existe Cronograma nesse
+// modo, e pendurar o vídeo numa lista que a tela não mostra é guardar sem
+// pedir. É a mesma regra do toque numa música do acervo ali (`simplePlaySong`,
+// que também não abre folha de escolha) e a mesma de "Tocar agora": o destino
+// é o slot avulso, que segura a mídia enquanto ela é a cena e a solta quando
+// outra entra.
+//
+// Vale para LINK, não para arquivo. Um share de arquivos pode trazer vários de
+// uma vez, e com um slot só cada um apagaria o anterior — ali o Cronograma
+// continua sendo o destino nos dois modos.
+function simplificado() { return appMode === 'simple'; }
+function destinoDoShare() { return simplificado() ? 'avulsos' : 'imports'; }
+async function guardarShare(rec) {
+  if (!rec) return rec;
+  if (simplificado()) await fixarAvulso(rec.id);
+  else {
+    // O registro pode ser um REAPROVEITADO que estava só no slot avulso.
+    await AVDB.listAdd('imports', rec.id);
+    await AVDB.listRemove('avulsos', rec.id);
+  }
+  return rec;
 }
 
 // Importa um share já normalizado. Aceita as DUAS formas de arquivo:

@@ -11,6 +11,8 @@ import org.schabi.newpipe.extractor.downloader.Downloader
 import org.schabi.newpipe.extractor.downloader.Request
 import org.schabi.newpipe.extractor.downloader.Response
 import org.schabi.newpipe.extractor.exceptions.ReCaptchaException
+import org.schabi.newpipe.extractor.localization.ContentCountry
+import org.schabi.newpipe.extractor.localization.Localization
 import org.schabi.newpipe.extractor.search.SearchInfo
 import org.schabi.newpipe.extractor.stream.StreamInfo
 import org.schabi.newpipe.extractor.stream.StreamInfoItem
@@ -80,6 +82,24 @@ object YoutubeGrab {
     private const val CONECTA_MS = 15_000
     private const val LE_MS = 30_000
 
+    /**
+     * O idioma do pedido, e não uma preferência de exibição.
+     *
+     * `NewPipe.init(downloader)` sozinho usa a localização padrão da
+     * biblioteca — **en-GB**. O YouTube leva isso a sério: ele TRADUZ o título
+     * (e a descrição) para o idioma pedido quando o canal publica traduções ou
+     * quando a tradução automática está ligada, então uma busca por um louvor
+     * brasileiro voltava com títulos em inglês de vídeos cujo título original é
+     * em português — o operador procurava por um nome que não estava mais lá.
+     *
+     * Fixo em pt-BR, e não herdado do `Locale` do aparelho: o que se quer aqui
+     * é o título ORIGINAL do louvor, e um celular configurado em inglês (não é
+     * raro) traria a tradução de volta. `ContentCountry` acompanha porque é ele
+     * que decide o acervo regional dos resultados.
+     */
+    private val IDIOMA = Localization("pt", "BR")
+    private val PAIS = ContentCountry("BR")
+
     /** `NewPipe.init` é global e só pode acontecer uma vez por processo. */
     @Volatile
     private var pronto = false
@@ -87,7 +107,7 @@ object YoutubeGrab {
     @Synchronized
     private fun garantirInit() {
         if (pronto) return
-        NewPipe.init(NpDownloader)
+        NewPipe.init(NpDownloader, IDIOMA, PAIS)
         pronto = true
     }
 
