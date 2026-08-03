@@ -259,6 +259,18 @@ liberar espaço; o rodapé de uso é só informativo). Três cobre o uso real �
 alternar entre dois ou três vídeos num mesmo culto. O que ele quiser guardar,
 guarda pelas outras duas opções da mesma folha.
 
+**Subir o `DB_VERSION` tem um preço, e ele não é o upgrade — é a VOLTA.**
+`open` com uma versão MENOR do que a do banco lança `VersionError`, e a base
+web ANTERIOR é exatamente para onde o watchdog do OTA volta quando um bundle
+não confirma (e é a que o APK instalado embute até a Release seguinte). Um
+bundle que sobe o `DB_VERSION`, é servido uma vez e depois é descartado deixa a
+base antiga sem conseguir ABRIR o banco: um lançamento inteiro sem playlist,
+sem Cronograma e sem biblioteca. O caso se cura sozinho — o `check()` seguinte
+rebaixa o bundle de novo —, mas o lançamento estragado é real, e num domingo
+ele é o culto. Por isso a regra: só subir junto com uma Release, e só quando o
+ganho não couber numa chave de `state`, que é onde uma estrutura auxiliar deve
+morar.
+
 **O índice `youtubeId` (v5.87)** responde "este vídeo já está no aparelho?"
 sem desserializar blob nenhum (`getAllKeys` no índice). Registros com
 `youtubeId: null` ficam de fora dele — `null` não é chave IDB válida —, então

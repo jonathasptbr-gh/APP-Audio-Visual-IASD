@@ -21,6 +21,17 @@
 
   const DB_NAME = 'av-iasd';
   // 3: índice `youtubeId` em "media" (v5.87) — ver `mediaByYoutube`.
+  //
+  // SUBIR ISTO TEM UM PREÇO, e ele não é o upgrade: é a VOLTA. `open` com uma
+  // versão MENOR do que a do banco lança VersionError, e a base web anterior é
+  // exatamente para onde o watchdog do OTA volta quando um bundle não confirma
+  // (e é o que o APK instalado embute até a Release seguinte). Um bundle que
+  // sobe o DB_VERSION, é servido uma vez e depois é descartado deixa a base
+  // antiga sem conseguir ABRIR o banco: um lançamento inteiro sem playlist,
+  // sem Cronograma e sem biblioteca. O caso se cura sozinho (o `check()`
+  // seguinte rebaixa o bundle de novo), mas o lançamento estragado é real.
+  // Portanto: só suba junto com uma Release, e só quando o ganho não couber
+  // numa chave de `state` — que é onde uma estrutura auxiliar deve morar.
   const DB_VERSION = 3;
   const STORE_MEDIA = 'media';
   const STORE_STATE = 'state';
