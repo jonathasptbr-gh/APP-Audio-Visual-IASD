@@ -104,6 +104,16 @@ object WebViewFactory {
         override fun onWindowVisibilityChanged(visibility: Int) {
             super.onWindowVisibilityChanged(View.VISIBLE)
         }
+
+        /**
+         * A visibilidade que o Chromium calcula tem DOIS componentes — a da
+         * janela e a da View —, e mentir só sobre o primeiro deixava o segundo
+         * derrubar a página do mesmo jeito. Foi por isso que a v1.26 não
+         * resolveu nada: a metade que faltava é esta.
+         */
+        override fun onVisibilityChanged(changedView: View, visibility: Int) {
+            super.onVisibilityChanged(changedView, View.VISIBLE)
+        }
     }
 
     /**
@@ -116,6 +126,14 @@ object WebViewFactory {
         onRendererGone: (() -> Unit)? = null,
     ): WebView {
         val web = if (keepVisible) KeepVisibleWebView(ctx) else WebView(ctx)
+        if (keepVisible) {
+            // O renderer do telão NÃO pode ser rebaixado quando o app sai da
+            // frente: `waivedWhenNotVisible = false` é literalmente "não abra
+            // mão da prioridade só porque esta View não está visível", e é a
+            // diferença entre um vídeo que continua e um que engasga ou morre
+            // sob pressão de memória — com a `Presentation` ainda no ar na TV.
+            web.setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, false)
+        }
         web.setBackgroundColor(Color.BLACK)
         // O telão e a UI do operador nunca rolam a página inteira — o layout
         // web já é 100vh com áreas roláveis próprias.

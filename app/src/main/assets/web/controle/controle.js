@@ -86,7 +86,7 @@ const mixerEl = document.getElementById('mixer');
 const volToggleEl = document.getElementById('volToggle');
 const volCloseEl = document.getElementById('volClose');
 const settingsBtnEl = document.getElementById('settingsBtn');
-const standaloneSegEl = document.getElementById('standaloneSeg');
+const pvSoundBtnEl = document.getElementById('pvSoundBtn');
 const lyricsViewBtnEl = document.getElementById('lyricsViewBtn');
 const lyricsPopupEl = document.getElementById('lyricsPopup');
 const lyricsPopupTitleEl = document.getElementById('lyricsPopupTitle');
@@ -156,7 +156,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.81';
+const WEB_VERSION = '5.82';
 
 // Escrita UMA vez, na carga: o indicador mora no rodapé de Configurações desde
 // a v5.49 e não depende mais de qual aba está aberta (no cabeçalho ele
@@ -195,11 +195,8 @@ const lyricsBgSegEl = document.getElementById('lyricsBgSeg');
 const wallFileEl = document.getElementById('wallFile');
 const wallPickEl = document.getElementById('wallPick');
 const wallResetEl = document.getElementById('wallReset');
-const cobaltApiEl = document.getElementById('cobaltApi');
-const cobaltKeyEl = document.getElementById('cobaltKey');
-const cobaltQualSegEl = document.getElementById('cobaltQualSeg');
-const cobaltHintEl = document.getElementById('cobaltHint');
-const cobaltTestEl = document.getElementById('cobaltTest');
+const diagBoxEl = document.getElementById('diagBox');
+const diagCopyEl = document.getElementById('diagCopy');
 const songMenuPopupEl = document.getElementById('songMenuPopup');
 const songMenuTitleEl = document.getElementById('songMenuTitle');
 const songMenuListEl = document.getElementById('songMenuList');
@@ -987,15 +984,22 @@ async function setStandalone(v) {
   renderStandaloneSeg();
 }
 
-// O estado da mesa de som vive num SEGMENTADO de Configurações desde a v5.49
-// (era o botão `#standaloneToggle` do mixer). Um render próprio, e não um
-// `classList.toggle` solto: o segmento também precisa nascer certo quando o
-// popup abre pela primeira vez.
+// A mesa de som é um ÍCONE SOBRE A PREVIEW desde a v5.82 (foi botão do mixer,
+// depois segmento em Configurações). Ela é a única preferência daquela lista
+// que se mexe DURANTE o culto — chega-se, liga-se a caixa, e ou há som no
+// aparelho ou não —, e o lugar de decidir isso é olhando para a preview, que é
+// justamente onde o som está sendo julgado. Dois toques num popup para uma
+// decisão dessa frequência era atrito puro.
+//
+// O ÍCONE mostra o ESTADO (alto-falante inteiro = há som no celular; riscado =
+// não há), pela mesma convenção do botão de mudo e da cortina: o riscado é o
+// corte. Quem nomeia a ação é o `title`.
 function renderStandaloneSeg() {
-  const want = standalone ? 'on' : 'off';
-  standaloneSegEl.querySelectorAll('.fit-opt').forEach((btn) => {
-    btn.classList.toggle('active', btn.dataset.standalone === want);
-  });
+  if (!pvSoundBtnEl) return;
+  pvSoundBtnEl.classList.toggle('on', standalone);
+  pvSoundBtnEl.title = standalone
+    ? 'Som no celular LIGADO — tocar para desligar'
+    : 'Som no celular desligado — tocar para ligar (mesa de som)';
 }
 
 // Fundo da letra sincronizada (Hinário 2022): 'black' (padrão) ignora as
@@ -3896,14 +3900,14 @@ function renderLibrary() {
     const name = document.createElement('span'); name.className = 'row-name'; name.textContent = item.name;
     // Badge for URL-based items
     let badge = null;
-    // Item de player do YouTube COM instância Cobalt configurada: o selo vira
-    // botão e converte o link num arquivo local (ver cobaltBaixarVideo). É o
+    // Item de player do YouTube num shell que sabe baixar: o selo vira botão e
+    // converte o link num arquivo local (ver ytBaixarNativo). É o
     // mesmo lugar e o mesmo símbolo — quem já sabe que "YT" quer dizer "isto
     // depende do YouTube" descobre no toque que dá para tirar essa dependência.
     let ytDl = null;
     if (item.kind === 'youtube') {
       badge = document.createElement('span'); badge.className = 'url-badge yt-badge'; badge.textContent = 'YT';
-      const podeBaixar = (window.__NATIVE__ && (window.__SHELL_VERSION__ | 0) >= 16) || cobaltReady();
+      const podeBaixar = window.__NATIVE__ && (window.__SHELL_VERSION__ | 0) >= 16;
       if (podeBaixar && item.url && activeTab === 'imports') {
         ytDl = document.createElement('button');
         ytDl.className = 'row-btn';
@@ -3913,8 +3917,7 @@ function renderLibrary() {
           e.stopPropagation();
           if (ytDl.disabled) return;
           ytDl.disabled = true;
-          const rec = (await ytBaixarNativo(item.url, item.name))
-            || (await cobaltBaixarVideo(item.url, item.name));
+          const rec = await ytBaixarNativo(item.url, item.name);
           if (!rec) { ytDl.disabled = false; return; }
           // O arquivo TOMA O LUGAR do link, NA MESMA POSIÇÃO: duas linhas com o
           // mesmo nome deixariam o operador adivinhando qual das duas é a que
@@ -7526,115 +7529,40 @@ function openFadePopup() {
   renderFitSeg();
   renderLyricsBgSeg();
   renderWallSeg();
-  renderCobaltSeg();
+  pedirDiag();
   fadePopupEl.classList.add('open');
 }
 function closeFadePopup() {
   fadePopupEl.classList.remove('open');
 }
 
-// ===== Configurações do Cobalt (ver cobaltBaixarVideo) =====
-function renderCobaltSeg() {
-  cobaltApiEl.value = cobaltCfg.api;
-  cobaltKeyEl.value = cobaltCfg.key;
-  cobaltQualSegEl.querySelectorAll('.fit-opt').forEach((btn) => {
-    btn.classList.toggle('active', btn.dataset.cq === cobaltCfg.quality);
-  });
-  cobaltDica();
-}
-// A ÚNICA janela para o que aconteceu na última tentativa. Sem ela, uma
-// instância fora do ar ou uma chave vencida se manifestam como "o botão não fez
-// nada" — e o operador não tem console para descobrir por quê.
-//
-// O recado FICA GUARDADO (`cobaltUltimo`) em vez de viver só no nó: o download
-// acontece com o popup de Configurações FECHADO, e um texto escrito num
-// elemento que ninguém está vendo é apagado no próximo `renderCobaltSeg`. Quem
-// vai lá justamente para entender por que não baixou tem de encontrar a
-// resposta, não a frase genérica.
-let cobaltUltimo = null;
-function cobaltDica(texto, classe) {
-  if (texto != null) cobaltUltimo = { texto, classe: classe || '' };
-  const manual = /^https:\/\//i.test(cobaltCfg.api);
-  const d = cobaltUltimo || {
-    classe: '',
-    texto: manual
-      ? 'Links do YouTube compartilhados viram arquivo de vídeo.'
-      : (cobaltAuto && cobaltAuto.api
-        ? 'Automático: usando ' + cobaltAuto.api.replace(/^https:\/\//, '') + '. Deixe em branco para o app continuar escolhendo.'
-        : 'Deixe em branco: o app procura uma instância pública sozinho na primeira importação.'),
-  };
-  cobaltHintEl.className = 'fade-hint' + (d.classe ? ' ' + d.classe : '');
-  cobaltHintEl.textContent = d.texto;
-}
-// Os dois handlers limpam a dica ANTES de qualquer `await`: tocar em "Testar"
-// dispara o `change` do campo (o toque tira o foco dele) e, com a limpeza
-// depois das escritas assíncronas, ela chegava DEPOIS do resultado do teste e
-// apagava justamente a resposta que o operador tinha acabado de pedir.
-cobaltApiEl.addEventListener('change', async () => {
-  cobaltCfg.api = cobaltApiEl.value.trim();
-  cobaltUltimo = null;   // instância nova, histórico velho não vale mais
-  cobaltDica();
-  await saveCobaltCfg();
-  await load();   // o botão de converter aparece/some nas linhas do Cronograma
-});
-cobaltKeyEl.addEventListener('change', async () => {
-  cobaltCfg.key = cobaltKeyEl.value.trim();
-  cobaltUltimo = null;   // uma chave nova invalida o "401" de antes
-  cobaltDica();
-  await saveCobaltCfg();
-});
-// Confere a instância NA HORA, sem gastar um vídeo para descobrir. `GET /` é o
-// endpoint de informação do Cobalt: não é autenticado, não entra no limite de
-// taxa e responde `{ cobalt: { version, services, turnstileSitekey } }`. Com
-// isso dá para distinguir os três motivos de falha que na tela seriam o mesmo
-// "não baixou": endereço errado, instância sem YouTube, e instância protegida
-// por Turnstile — que o app NÃO tem como resolver (não há widget aqui), e cuja
-// única saída é uma chave de API.
-async function cobaltTestar() {
-  // Lê o CAMPO, não a config gravada: quem digita e toca em "Testar" sem sair
-  // do campo espera testar o que está na tela.
-  const digitado = cobaltApiEl.value.trim();
-  if (digitado !== cobaltCfg.api) { cobaltCfg.api = digitado; await saveCobaltCfg(); }
-  // Campo VAZIO não é erro: é o modo automático. O botão então faz a busca —
-  // que é justamente o que o operador quer conferir antes de um culto.
-  if (!digitado) {
-    cobaltDica('Procurando uma instância…');
-    cobaltAuto = null;
-    cobaltSemInstanciaAte = 0;   // pedido explícito ignora a desistência anterior
-    const achou = await cobaltDescobrir();
-    if (!achou) { cobaltDica('Nenhuma instância pública respondeu agora.', 'erro'); return; }
-    cobaltDica('Automático: ' + achou.api.replace(/^https:\/\//, '') + ' respondeu e serve para YouTube.', 'ok');
-    await load();
+// ===== A caixa-preta do telão, lida em Configurações =====
+// Ver o comentário de `diag()` em display.js: é a única janela para o que
+// acontece com a projeção enquanto o celular está fora da frente — não há
+// console, não há logcat, e este WebView está estrangulado justamente nesse
+// intervalo. O despejo é pedido ao ABRIR esta tela, não continuamente: o telão
+// guarda o anel dele e entrega quando alguém pergunta.
+let diagLinhas = [];
+function renderDiag() {
+  if (!diagBoxEl) return;
+  if (!diagLinhas.length) {
+    diagBoxEl.textContent = displayActive()
+      ? 'Sem registros ainda. Minimize o app com um vídeo tocando e volte aqui.'
+      : 'Sem telão conectado.';
     return;
   }
-  const base = cobaltBase();
-  if (!/^https:\/\//i.test(base)) { cobaltDica('O endereço precisa começar com https://', 'erro'); return; }
-  cobaltDica('Testando…');
-  try {
-    const res = await fetch(base + '/', { headers: { Accept: 'application/json' } });
-    const j = await res.json();
-    const c = j && j.cobalt;
-    if (!c || !c.version) throw new Error('não respondeu como uma instância Cobalt');
-    const temYt = Array.isArray(c.services) && c.services.includes('youtube');
-    const turnstile = !!c.turnstileSitekey;
-    const partes = ['Instância v' + c.version];
-    if (!temYt) partes.push('SEM YouTube nesta instância');
-    if (turnstile) partes.push('exige Turnstile — o app não resolve esse desafio, use uma chave de API');
-    if (temYt && !turnstile) partes.push('YouTube disponível');
-    cobaltDica(partes.join(' · '), temYt && !turnstile ? 'ok' : 'erro');
-  } catch (e) {
-    cobaltDica('Não respondeu: ' + ((e && e.message) || 'erro de rede'), 'erro');
-  }
+  const hora = (t) => new Date(t).toLocaleTimeString('pt-BR', { hour12: false });
+  diagBoxEl.textContent = diagLinhas
+    .slice(-14)
+    .map((l) => hora(l.t) + '  ' + l.ev + (l.oculto ? ' [oculto]' : '')
+      + (l.t2 != null ? '  ' + l.t2 + 's' : ''))
+    .join('\n');
 }
-cobaltTestEl.addEventListener('click', cobaltTestar);
-
-cobaltQualSegEl.addEventListener('click', async (e) => {
-  const btn = e.target.closest('.fit-opt');
-  if (!btn) return;
-  cobaltCfg.quality = btn.dataset.cq;
-  await saveCobaltCfg();
-  renderCobaltSeg();
-});
+function pedirDiag() {
+  diagLinhas = [];
+  renderDiag();
+  if (displayActive()) AVDB.sendCommand({ type: 'diag-ask' });
+}
 
 function renderFitSeg() {
   fitSegEl.querySelectorAll('.fit-opt').forEach((btn) => {
@@ -7690,324 +7618,14 @@ function detectUrlKind(url) {
   return mime ? AVDB.kindFromType(mime) : 'url';
 }
 
-// ===== Vídeo do YouTube BAIXADO (Cobalt) =====
-//
-// POR QUE ISTO EXISTE. O embed do YouTube **pausa sozinho quando a página fica
-// oculta** — e é exatamente isso que o Android faz com o telão no instante em
-// que o operador minimiza o app. A regra roda dentro de um iframe de outra
-// origem: nenhum código nosso alcança. Tentamos as duas saídas possíveis do
-// lado de fora (retomar a reprodução na marra — `ytWatchResume` no Display — e
-// impedir o WebView do telão de se declarar oculto — `KeepVisibleWebView` no
-// shell) e o louvor continuou parando no meio.
-//
-// A resposta que não depende de vencer o player deles é NÃO USAR o player
-// deles: o link vira um ARQUIVO DE VÍDEO no aparelho, e daí em diante ele é uma
-// mídia como qualquer outra — o mesmo `<video>` dos arquivos importados, com
-// fade, seek, playlist, letra, cortina e reprodução em segundo plano que já
-// funcionam há versões. De quebra: sem anúncio, sem legenda, sem UI de
-// terceiro no telão e **sem depender da rede durante o culto**, que num salão
-// de igreja é o ganho maior de todos.
-//
-// A conversão é feita pelo [Cobalt](https://cobalt.tools), por HTTP puro
-// (`fetch` + JSON) — nenhuma dependência entra no projeto. A instância NÃO vem
-// embutida: quem opera escolhe a sua em Configurações, porque instância pública
-// vai e volta, costuma exigir chave e não é nossa para prometer.
-const COBALT_QUALIDADES = ['720', '1080', '1440', 'max'];
-let cobaltCfg = { api: '', key: '', quality: '1080' };
-
-// ---- DESCOBERTA AUTOMÁTICA DE INSTÂNCIA ----
-// A pergunta "por que eu preciso configurar isso?" tem uma resposta ruim: não
-// existe API pública do Cobalt para embutir (ver docs/COBALT.md). O que existe
-// é uma LISTA da comunidade, e é dela que o app tira candidatas sozinho — o
-// operador não configura nada e, quando dá certo, nem fica sabendo que houve
-// uma escolha.
-//
-// A DESCONFIANÇA É O PROJETO. O formato dessa lista não é contrato de ninguém
-// (o endpoint mudou uma vez e pode mudar de novo), então ela serve para UMA
-// coisa só: dar nomes de candidatas. Quem decide se uma candidata presta é o
-// `GET /` do próprio Cobalt — esse sim documentado —, e a checagem é a mesma do
-// botão "Testar instância": versão, `youtube` em `services` e ausência de
-// Turnstile. Se a lista mudar de forma, a leitura devolve zero candidatas, o
-// app cai no player embutido e nada quebra.
-const COBALT_LISTAS = [
-  'https://instances.cobalt.best/instances.json',
-  'https://instances.cobalt.best/api/instances.json',   // caminho antigo, em remoção
-];
-const COBALT_LISTA_MS = 8000;    // prazo para baixar a lista
-const COBALT_PROVA_MS = 5000;    // prazo de cada sondagem
-const COBALT_CANDIDATAS = 6;     // quantas sondar de uma vez
-// Uma instância boa hoje pode estar fora amanhã, e uma escolhida por acaso não
-// pode virar permanente. Um dia é curto o bastante para se corrigir sozinho e
-// longo o bastante para não sondar a cada culto.
-const COBALT_TTL_MS = 24 * 60 * 60 * 1000;
-// Uma varredura que não achou nada não pode se repetir a cada link
-// compartilhado: são ~13 s de espera para chegar ao mesmo lugar. Meia hora é
-// curto o bastante para uma instância que voltou ser reaproveitada no mesmo
-// culto, e longo o bastante para o segundo link não pagar a conta do primeiro.
-const COBALT_FALHA_MS = 30 * 60 * 1000;
-let cobaltAuto = null;           // { api, quando } — a instância descoberta
-let cobaltSemInstanciaAte = 0;   // até quando desistir sem nem tentar
-let cobaltDescobrindo = null;    // promessa em voo (não descobrir duas vezes)
-
-async function loadCobaltCfg() {
-  const a = await AVDB.getState('cobaltAuto');
-  if (a && a.api) cobaltAuto = { api: String(a.api), quando: Number(a.quando) || 0 };
-  const c = await AVDB.getState('cobalt');
-  if (c && typeof c === 'object') {
-    cobaltCfg = {
-      api: String(c.api || ''),
-      key: String(c.key || ''),
-      quality: COBALT_QUALIDADES.includes(c.quality) ? c.quality : '1080',
-    };
-  }
-}
-async function saveCobaltCfg() { await AVDB.setState('cobalt', cobaltCfg); }
-
-// A instância em uso: o que o operador digitou VENCE sempre (é escolha
-// explícita), e só na ausência dela entra a descoberta automática.
-function cobaltBase() {
-  if (/^https:\/\/\S+/i.test(cobaltCfg.api)) return cobaltCfg.api.replace(/\/+$/, '');
-  if (cobaltAuto && cobaltAuto.api) return cobaltAuto.api.replace(/\/+$/, '');
-  return '';
-}
-// Síncrono de propósito: é consultado no meio do render das linhas do
-// Cronograma. Por isso a instância descoberta é PERSISTIDA — depois da primeira
-// vez ela já está aqui na abertura seguinte, sem esperar rede nenhuma.
-function cobaltReady() { return !!cobaltBase(); }
-
-// `fetch` com prazo. Sem isto, uma instância que aceita a conexão e não
-// responde segura o import inteiro — e o import é um gesto do operador
-// esperando resposta.
-async function fetchPrazo(url, ms, opts) {
-  const ac = new AbortController();
-  const t = setTimeout(() => ac.abort(), ms);
-  try { return await fetch(url, Object.assign({ signal: ac.signal }, opts || {})); }
-  finally { clearTimeout(t); }
-}
-
-// Extrai candidatas da lista da comunidade. TOLERANTE por obrigação: o formato
-// não é contrato, então tudo aqui é "se vier, uso; se não vier, sigo". Um campo
-// ausente nunca elimina uma candidata — quem elimina é a sondagem.
-function cobaltCandidatas(json) {
-  const lista = Array.isArray(json) ? json
-    : (json && (Array.isArray(json.instances) ? json.instances
-      : (Array.isArray(json.data) ? json.data : [])));
-  const out = [];
-  for (const it of lista || []) {
-    if (!it || typeof it !== 'object') continue;
-    if (it.online === false) continue;
-    // `api` costuma vir SEM esquema ("api.cobalt.exemplo"), com o esquema num
-    // campo à parte. Só https serve: o WebView roda em contexto seguro e não
-    // faz fetch para http.
-    let api = String(it.api || it.url || '').trim();
-    if (!api) continue;
-    if (!/^https?:\/\//i.test(api)) api = (String(it.protocol || 'https') + '://' + api);
-    if (!/^https:\/\//i.test(api)) continue;
-    // Sem CORS o `fetch` do WebView nem chega a ler a resposta.
-    const info = it.info || {};
-    if (info.cors === 0 || info.cors === false) continue;
-    // Autenticação declarada = inútil aqui (não temos chave para ela). Campo
-    // ausente não elimina: a sondagem descobre.
-    const auth = info.auth;
-    if (auth && auth !== 'none' && auth !== false) continue;
-    // `services` pode ser objeto ({youtube:true}) ou array (['youtube']).
-    const sv = it.services;
-    if (sv && !Array.isArray(sv) && typeof sv === 'object' && sv.youtube === false) continue;
-    if (Array.isArray(sv) && sv.length && !sv.includes('youtube')) continue;
-    out.push({ api: api.replace(/\/+$/, ''), score: Number(it.score) || 0 });
-  }
-  // Melhor pontuada primeiro — e sem duplicatas, que a lista às vezes traz.
-  const vistas = new Set();
-  return out
-    .filter((c) => (vistas.has(c.api) ? false : vistas.add(c.api)))
-    .sort((a, b) => b.score - a.score);
-}
-
-// Sonda UMA instância pelo contrato documentado do Cobalt (`GET /`). Devolve o
-// objeto `cobalt` quando ela serve, ou null.
-async function cobaltSondar(base) {
-  try {
-    const res = await fetchPrazo(base + '/', COBALT_PROVA_MS, { headers: { Accept: 'application/json' } });
-    const j = await res.json();
-    const c = j && j.cobalt;
-    if (!c || !c.version) return null;
-    if (c.turnstileSitekey) return null;                       // desafio que o app não resolve
-    if (Array.isArray(c.services) && !c.services.includes('youtube')) return null;
-    return c;
-  } catch (_) { return null; }
-}
-
-// Acha uma instância sozinho. Uma execução por vez (`cobaltDescobrindo`): dois
-// links compartilhados em sequência não podem disparar duas varreduras.
-function cobaltDescobrir() {
-  if (cobaltDescobrindo) return cobaltDescobrindo;
-  cobaltDescobrindo = (async () => {
-    for (const lista of COBALT_LISTAS) {
-      let candidatas = [];
-      try {
-        const res = await fetchPrazo(lista, COBALT_LISTA_MS, { headers: { Accept: 'application/json' } });
-        candidatas = cobaltCandidatas(await res.json());
-      } catch (_) { continue; }
-      if (!candidatas.length) continue;
-      // EM PARALELO: sondar uma a uma somaria os prazos, e o operador está
-      // esperando um vídeo. Entre as que responderem, fica a mais bem pontuada
-      // — e a ordem já vem certa da lista.
-      const lote = candidatas.slice(0, COBALT_CANDIDATAS);
-      const provas = await Promise.all(lote.map(async (c) => ({ c, ok: await cobaltSondar(c.api) })));
-      const boa = provas.find((x) => x.ok);
-      if (!boa) continue;
-      cobaltAuto = { api: boa.c.api, quando: Date.now() };
-      await AVDB.setState('cobaltAuto', cobaltAuto);
-      return cobaltAuto;
-    }
-    return null;
-  })().finally(() => { cobaltDescobrindo = null; });
-  return cobaltDescobrindo;
-}
-
-// Garante uma instância antes de um download. Redescobre quando a guardada
-// venceu: uma instância boa hoje pode estar fora amanhã, e uma escolhida por
-// acaso não pode virar permanente.
-async function cobaltGarantirBase() {
-  if (/^https:\/\/\S+/i.test(cobaltCfg.api)) return cobaltBase();   // manual manda
-  if (cobaltAuto && cobaltAuto.api && (Date.now() - (cobaltAuto.quando || 0)) < COBALT_TTL_MS) {
-    return cobaltBase();
-  }
-  if (Date.now() < cobaltSemInstanciaAte) return '';   // já procurou há pouco e não achou
-  cobaltDica('Procurando uma instância…');
-  await cobaltDescobrir();
-  if (!cobaltBase()) cobaltSemInstanciaAte = Date.now() + COBALT_FALHA_MS;
-  return cobaltBase();
-}
-
-// Pergunta ao Cobalt QUAL arquivo baixar. Devolve `{ url, filename }`.
-async function cobaltResolve(link) {
-  const base = cobaltBase();
-  const headers = { 'Content-Type': 'application/json', Accept: 'application/json' };
-  if (cobaltCfg.key) {
-    // A chave é colada como o operador a recebeu: algumas instâncias entregam
-    // "Api-Key xxx" pronto, outras só o valor. Aceitar as duas formas evita um
-    // erro 401 cuja causa é invisível na tela.
-    headers.Authorization = /^(Api-Key|Bearer)\s/i.test(cobaltCfg.key)
-      ? cobaltCfg.key : 'Api-Key ' + cobaltCfg.key;
-  }
-  const res = await fetch(base + '/', {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({
-      url: link,
-      videoQuality: cobaltCfg.quality,
-      // H.264 em MP4 é o que o WebView do Android toca SEMPRE. AV1/VP9 num
-      // .webm depende de aparelho, e um vídeo que não abre no telão no meio do
-      // culto é pior do que um arquivo maior.
-      youtubeVideoCodec: 'h264',
-      downloadMode: 'auto',
-      filenameStyle: 'basic',
-      alwaysProxy: true,   // o arquivo vem pelo túnel do Cobalt, com CORS
-    }),
-  });
-  const j = await res.json().catch(() => null);
-  if (!j) throw new Error('resposta ilegível da instância');
-  // `tunnel`/`redirect` (API v10) e `stream` (v7) são a mesma coisa para nós:
-  // uma URL de onde puxar os bytes.
-  if (j.url && (j.status === 'tunnel' || j.status === 'redirect' || j.status === 'stream')) {
-    return { url: j.url, filename: j.filename || '' };
-  }
-  // `picker` = o link tem várias faixas (uma foto, um carrossel). Fica com a
-  // primeira de vídeo; sem nenhuma, a primeira que houver.
-  if (j.status === 'picker' && Array.isArray(j.picker) && j.picker.length) {
-    const escolha = j.picker.find((x) => x && x.type === 'video') || j.picker[0];
-    if (escolha && escolha.url) return { url: escolha.url, filename: '' };
-  }
-  throw new Error((j.error && j.error.code) || j.status || 'sem arquivo');
-}
-
-// Baixa os bytes reportando o andamento. Lê pelo `body` em vez de um
-// `res.blob()` direto porque um vídeo de culto tem centenas de MB e a barra é
-// a única coisa que separa "baixando" de "travado".
-async function cobaltFetchBlob(url, onProgresso) {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error('HTTP ' + res.status);
-  const total = Number(res.headers.get('content-length')) || 0;
-  if (!res.body || !res.body.getReader) return await res.blob();
-  const reader = res.body.getReader();
-  const partes = [];
-  let lidos = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    partes.push(value);
-    lidos += value.length;
-    if (onProgresso) onProgresso(lidos, total);
-  }
-  return new Blob(partes, { type: res.headers.get('content-type') || 'video/mp4' });
-}
-
-// O caminho inteiro: link → arquivo local no Cronograma. Devolve o registro
-// criado, ou null se não deu (a decisão do que fazer nesse caso é do chamador —
-// quem importa um share cai de volta no item de player, para não perder o link).
-async function cobaltBaixarVideo(link, nome) {
-  const rotulo = nome || 'Vídeo do YouTube';
-  // O cartão acende ANTES da busca por instância: a varredura leva alguns
-  // segundos e é a primeira coisa que acontece depois do compartilhamento —
-  // sem ele, esse tempo é indistinguível de "o app não fez nada".
-  const bg = previewBusy('Preparando vídeo', rotulo);
-  const usandoAuto = !/^https:\/\//i.test(cobaltCfg.api);
-  let notif = 0;
-  try {
-    // Sem instância à mão, procura uma AGORA — é isto que faz o operador não
-    // precisar configurar nada. Não achando, devolve null e o chamador cai no
-    // player embutido.
-    if (!(await cobaltGarantirBase())) {
-      cobaltDica('Nenhuma instância pública respondeu — o link ficou como player.', 'erro');
-      return null;
-    }
-    bg.atualizar('Baixando vídeo', rotulo);
-    notif = bgTaskStart('Baixando vídeo', 1);
-    return await withBgWork(async () => {
-      cobaltDica('Baixando ' + rotulo + '…');
-      const alvo = await cobaltResolve(link);
-      const blob = await cobaltFetchBlob(alvo.url, (lidos, total) => {
-        bg.atualizar(total
-          ? 'Baixando vídeo · ' + Math.floor((lidos / total) * 100) + '%'
-          : 'Baixando vídeo · ' + fmtBytes(lidos));
-      });
-      if (!blob || !blob.size) throw new Error('arquivo vazio');
-      const thumb = await makeThumb(blob, 'video');
-      cobaltDica('Baixado: ' + rotulo + ' (' + fmtBytes(blob.size) + ')', 'ok');
-      return await AVDB.addMedia(blob, {
-        name: rotulo,
-        type: blob.type && blob.type.startsWith('video/') ? blob.type : 'video/mp4',
-        kind: 'video',
-        thumb,
-      });
-    });
-  } catch (e) {
-    console.warn('[cobalt] falhou:', e && e.message);
-    // O motivo fica GUARDADO na tela de Configurações, não num console que o
-    // operador não tem: "não baixou" sem porquê é indistinguível de "não fez
-    // nada", e as causas prováveis (instância fora do ar, chave vencida, vídeo
-    // restrito) têm respostas diferentes.
-    cobaltDica('Falhou: ' + ((e && e.message) || 'erro desconhecido'), 'erro');
-    // A instância AUTOMÁTICA que falhou é descartada na hora: ela foi escolhida
-    // pelo app, não pelo operador, e insistir numa que já não responde faria a
-    // próxima importação falhar igual. A digitada à mão fica — ali a escolha é
-    // de quem opera, e trocá-la por conta própria seria desfazer uma decisão.
-    if (usandoAuto) { cobaltAuto = null; await AVDB.setState('cobaltAuto', null); }
-    return null;
-  } finally {
-    bgTaskEnd(notif);
-    bg.soltar();
-  }
-}
-
 // ===== A via NATIVA: o aparelho extrai e baixa o vídeo sozinho =====
 //
 // É o caminho principal desde a v5.81, e o que finalmente cumpre "sem
 // configurar nada": quem extrai é o shell (`YoutubeGrab.kt`), com a
 // requisição saindo do IP do próprio celular. Servidor público — Cobalt,
 // Invidious, Piped — roda em IP de datacenter, que é exatamente o que o
-// YouTube bloqueia; foi por isso que a via anterior não funcionou.
+// YouTube bloqueia; foi por isso que a via anterior não funcionou, e é por isso
+// que ela saiu do app na v5.82 em vez de ficar como alternativa morta.
 //
 // O nativo entrega uma URL SERVÍVEL (`/saf/<token>`), não bytes: daqui para a
 // frente o caminho é o mesmo de um arquivo compartilhado — `fetch` + `Blob` +
@@ -8015,8 +7633,8 @@ async function cobaltBaixarVideo(link, nome) {
 // ficaria duas vezes no aparelho.
 //
 // Exige shell ≥ 16. Num anterior o método não existe e a função devolve null
-// na hora, sem custo: o fluxo segue para o Cobalt e, na falta dele, para o
-// player embutido.
+// na hora, sem custo: o link vira item de player embutido, que é o
+// comportamento de sempre e continua sendo o plano B.
 async function ytBaixarNativo(link, nome) {
   if (!window.__NATIVE__ || (window.__SHELL_VERSION__ | 0) < 16) return null;
   const rotulo = nome || 'Vídeo do YouTube';
@@ -8063,21 +7681,15 @@ async function handleSharedUrl(url, title) {
   if (!url) return null;
   const ytId = extractYouTubeId(url);
   if (ytId) {
-    // Com uma instância Cobalt configurada, o link vira ARQUIVO — é a via que
-    // toca em segundo plano e não depende da rede durante o culto. Falhando
-    // (instância fora do ar, chave vencida, vídeo restrito), cai no item de
-    // player de sempre: um link compartilhado nunca se perde por causa disso.
-    // PRIMEIRO a via NATIVA — extração no próprio aparelho, sem servidor
-    // nenhum no meio (ver `ytBaixarNativo` e YoutubeGrab.kt). Ela não pede
-    // configuração, não depende de instância de terceiro e sai do IP do chip do
-    // operador, que é justamente o que o YouTube não bloqueia.
+    // O link vira ARQUIVO — é a via que toca em segundo plano e não depende da
+    // rede durante o culto. Falhando (vídeo restrito, shell antigo), cai no
+    // item de player de sempre: um link compartilhado nunca se perde.
+    // A via NATIVA — extração no próprio aparelho, sem servidor nenhum no meio
+    // (ver `ytBaixarNativo` e YoutubeGrab.kt). Não pede configuração, não
+    // depende de instância de terceiro e sai do IP do chip do operador, que é
+    // justamente o que o YouTube não bloqueia.
     const nativo = await ytBaixarNativo(url, title || ('YouTube: ' + ytId));
     if (nativo) return nativo;
-    // Depois o Cobalt, se o operador tiver configurado um. Ele deixou de ser o
-    // caminho principal, mas quem já mantém uma instância própria não perde
-    // nada — e ela cobre o caso de um vídeo que a extração nativa recusar.
-    const baixado = await cobaltBaixarVideo(url, title || ('YouTube: ' + ytId));
-    if (baixado) return baixado;
     return await AVDB.addUrlMedia(url, {
       kind: 'youtube',
       type: 'video/youtube',
@@ -8768,9 +8380,11 @@ muteToggleEl.addEventListener('click', toggleMute);
 // miniatura, e uma configuração escondida atrás de um estado de UI é a que
 // ninguém acha.
 settingsBtnEl.addEventListener('click', openFadePopup);
-standaloneSegEl.addEventListener('click', (e) => {
-  const btn = e.target.closest('.fit-opt');
-  if (btn) setStandalone(btn.dataset.standalone === 'on');
+pvSoundBtnEl.addEventListener('click', (e) => {
+  // A preview inteira tem gestos próprios (arrastar o volume, tocar para tela
+  // cheia): sem isto, ligar o som também disparava o gesto de baixo.
+  e.stopPropagation();
+  setStandalone(!standalone);
 });
 lyricsViewBtnEl.addEventListener('click', openLyricsPopup);
 // Letra × Bíblia (só aparece com as duas em cena — ver renderLyricsView).
@@ -9970,6 +9584,11 @@ function resendSceneToDisplay() {
 AVDB.onCommand((msg) => {
   if (!msg) return;
   if (msg.type === 'display-ready') { resendSceneToDisplay(); return; }
+  if (msg.type === 'diag-dump') {
+    diagLinhas = Array.isArray(msg.linhas) ? msg.linhas : [];
+    renderDiag();
+    return;
+  }
   // Áudio bloqueado no Display (política de autoplay): avisa o OPERADOR —
   // nada é exibido no telão; a recuperação automática roda no Display e o
   // botão de mudo do mixer vira indicador/atalho para liberar.
@@ -10069,9 +9688,7 @@ document.addEventListener('visibilitychange', () => {
   setAppMode(appMode);
   // Wallpaper escolhido pelo operador (a preview espelha o telão).
   await applyPvWallpaper();
-  await loadCobaltCfg();
-  // processa share pendente (Web Share Target via SW) — DEPOIS da config do
-  // Cobalt: um share que chega na abertura já cai na via nova.
+  // processa share pendente (Web Share Target via SW)
   await checkPendingShare();
   // Índices das coleções em segundo plano (fire-and-forget): não atrasa a
   // abertura do app, só deixa a busca/os cards prontos assim que a resposta chegar.

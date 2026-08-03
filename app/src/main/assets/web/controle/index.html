@@ -350,6 +350,22 @@
                mais — ver setupPreviewGestures), com uma exceção: ficam ocultos
                em TELA CHEIA, que é o que vai ao telão quando não há TV
                conectada — um botão sobreposto seria projetado junto. -->
+          <!-- MESA DE SOM (áudio saindo pelo próprio celular). Saiu de
+               Configurações na v5.82: é a única coisa daquela lista que se liga
+               e desliga DURANTE o culto — o operador chega, liga a caixa, e
+               precisa do som no aparelho ou não. Um ajuste dessa frequência
+               atrás de dois toques num popup é atrito; aqui ele mora sobre a
+               preview, que é onde o som está sendo julgado. Canto INFERIOR
+               ESQUERDO: a coluna direita já é do cast e do tela cheia. -->
+          <button id="pvSoundBtn" class="pv-fab pv-fab--bl" title="Som no celular (mesa de som)">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M4 9.5h3.2L12 5.4v13.2L7.2 14.5H4z"/>
+              <path class="pv-sound-on" d="M16 9.2a4 4 0 0 1 0 5.6"/>
+              <path class="pv-sound-on" d="M18.6 6.6a7.6 7.6 0 0 1 0 10.8"/>
+              <path class="pv-sound-off" d="M16.5 10l5 4"/>
+              <path class="pv-sound-off" d="M21.5 10l-5 4"/>
+            </svg>
+          </button>
           <div class="pv-fabs" id="pvFabs">
             <button id="pvCastBtn" class="pv-fab" title="Espelhar na TV" hidden>
               <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -538,18 +554,10 @@
             <button type="button" class="fit-opt" data-mode="full">Avançado</button>
           </div>
         </div>
-        <!-- Mesa de som: a saída de áudio do próprio celular (a preview deixa
-             de ser sempre muda). Era o botão #standaloneToggle no mixer — ver o
-             comentário do mixer para o porquê da mudança. Não é persistido:
-             cada abertura começa desligada, para nenhuma sessão nova soltar som
-             no aparelho sem alguém ter pedido. -->
-        <div class="fade-row fade-row--fit">
-          <span>Mesa de som (áudio no celular)</span>
-          <div class="fit-seg" id="standaloneSeg">
-            <button type="button" class="fit-opt" data-standalone="off">Desligado</button>
-            <button type="button" class="fit-opt" data-standalone="on">Ligado</button>
-          </div>
-        </div>
+        <!-- (A "Mesa de som" saiu daqui na v5.82: virou o ícone de alto-falante
+             no canto inferior esquerdo da preview. É a única preferência desta
+             lista que se mexe DURANTE o culto, e o lugar de decidir se há som
+             no celular é olhando para a preview, não dentro de um popup.) -->
         <div class="fade-row fade-row--fit">
           <span>Preenchimento da mídia</span>
           <div class="fit-seg" id="fitSeg">
@@ -580,28 +588,14 @@
             <button type="button" class="fit-opt" id="wallReset">Padrão</button>
           </div>
         </div>
-        <!-- Vídeo do YouTube BAIXADO. O embed do YouTube pausa sozinho quando a
-             página fica oculta (o app minimizado), e a regra roda num iframe de
-             outra origem — não há como vencê-la de fora. Com uma instância do
-             Cobalt configurada, o link vira um ARQUIVO de vídeo no aparelho e
-             passa a ser mídia comum: toca em segundo plano, sem anúncio, sem
-             legenda e sem depender da rede durante o culto.
-             A instância NÃO vem embutida de propósito: as públicas vão e voltam
-             e costumam exigir chave, e não são nossas para prometer. -->
+        <!-- CAIXA-PRETA DO TELÃO. Três versões seguidas tentaram consertar
+             "o vídeo para quando o app é minimizado" por hipótese, e as três
+             erraram — porque ninguém vê o que acontece com a projeção enquanto
+             o celular está fora da frente. Isto é o registro do próprio telão,
+             pedido ao abrir esta tela (ver `diag()` em display.js). -->
         <div class="fade-row fade-row--col">
-          <span>Baixar vídeos do YouTube (Cobalt)</span>
-          <input id="cobaltApi" class="lib-search" type="url" inputmode="url"
-                 placeholder="Automático — ou https://sua-instancia-cobalt" autocomplete="off" spellcheck="false">
-          <input id="cobaltKey" class="lib-search" type="text"
-                 placeholder="Chave da API (se a instância exigir)" autocomplete="off" spellcheck="false">
-          <div class="fit-seg" id="cobaltQualSeg">
-            <button type="button" class="fit-opt" data-cq="720">720p</button>
-            <button type="button" class="fit-opt" data-cq="1080">1080p</button>
-            <button type="button" class="fit-opt" data-cq="1440">1440p</button>
-            <button type="button" class="fit-opt" data-cq="max">Máx.</button>
-          </div>
-          <button type="button" class="fit-opt" id="cobaltTest">Procurar/testar instância</button>
-          <span class="fade-hint" id="cobaltHint"></span>
+          <span>Registro do telão</span>
+          <pre class="diag-box" id="diagBox"></pre>
         </div>
       </div>
       <!-- Estado do telão. Não há mais "Abrir Display": o Display é a
@@ -621,7 +615,7 @@
              METADADO de diagnóstico e o lugar onde se procura diagnóstico é
              junto do estado do telão e do alvo de espelhamento, não numa faixa
              de navegação. Preenchido por `renderVersionLabel`. -->
-        <span id="appVersion" class="app-version">Controle v5.81</span>
+        <span id="appVersion" class="app-version">Controle v5.82</span>
       </div>
     </div>
   </div>

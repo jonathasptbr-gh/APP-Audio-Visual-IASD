@@ -393,8 +393,9 @@ body {
 }
 /* Em tela cheia a preview É a projeção (quando não há TV conectada): nada de
    UI por cima, ou o botão iria junto para o telão. */
-.preview:fullscreen .pv-fabs,
-.preview:-webkit-full-screen .pv-fabs { display: none !important; }
+.preview:fullscreen .pv-fabs, .preview:fullscreen .pv-fab--bl,
+.preview:-webkit-full-screen .pv-fabs,
+.preview:-webkit-full-screen .pv-fab--bl { display: none !important; }
 
 /* ---------- "Baixando…" NA PREVIEW ----------
    Tocar uma música que ainda não está no aparelho abre um download de dezenas
@@ -2528,6 +2529,31 @@ body.mode-simple .bottombar { display: none; }
    A liberação de TESTE segue em âmbar de aviso: ali não há tela para
    desconectar, e o que o toque faz é trancar de volta. */
 .pv-fab.connected { color: var(--danger-strong); }
+
+/* Mesa de som: o mesmo `.pv-fab` dos outros dois, no canto INFERIOR ESQUERDO —
+   a coluna da direita já é do cast (em cima) e do tela cheia (embaixo). Fora do
+   `.pv-fabs` porque aquele contêiner é uma coluna à direita; este é um ponto
+   fixo no canto oposto. */
+.pv-fab--bl { position: absolute; left: 2px; bottom: 2px; z-index: 5; }
+/* LIGADO acende no accent. O ícone carrega o ESTADO (alto-falante inteiro ×
+   riscado), pela mesma convenção da cortina e do mudo: o riscado é o corte. */
+.pv-fab--bl.on { color: var(--accent); }
+.pv-fab--bl .pv-sound-on { display: none; }
+.pv-fab--bl.on .pv-sound-on { display: inline; }
+.pv-fab--bl.on .pv-sound-off { display: none; }
+/* (Em tela cheia ele some junto com os outros — a regra é a mesma dos
+   `.pv-fabs`, lá em cima: ali a preview É a projeção.) */
+
+/* A caixa-preta do telão, em Configurações. `pre` porque cada linha é um
+   registro e a ordem/alinhamento são a informação. */
+.diag-box {
+  margin: 0; max-height: 190px; overflow: auto;
+  background: var(--surface); border-radius: var(--radius-btn);
+  padding: .5rem .6rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: .68rem; line-height: 1.5; color: var(--muted);
+  white-space: pre; -webkit-user-select: text; user-select: text;
+}
 .pv-fab.testing { color: var(--warn); }
 /* Sem tela conectada a faixa não existe — a tela inteira é o bloqueio, e o
    botão de conectar volta ao centro dela. */
