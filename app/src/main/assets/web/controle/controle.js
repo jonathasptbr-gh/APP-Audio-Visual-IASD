@@ -156,7 +156,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.93';
+const WEB_VERSION = '5.94';
 
 // Escrita UMA vez, na carga: o indicador mora no rodapé de Configurações desde
 // a v5.49 e não depende mais de qual aba está aberta (no cabeçalho ele
@@ -638,8 +638,13 @@ function conferirPesoSeFaltar(id) {
   if (pesoConferido.has(id)) return;
   if (ui(id).bytes > 0 || countDownloaded(id) === 0) return;
   pesoConferido.add(id);
-  updateCollBytes(id);
+  // UM DE CADA VEZ. Na primeira abertura depois da atualização, todos os álbuns
+  // com download entram aqui no mesmo render — e cada recontagem é um `getAll`
+  // do catálogo, com thumbnail e letra de centenas de registros. Em série isso
+  // vira trabalho de fundo; em paralelo, um engasgo na lista.
+  filaPeso = filaPeso.then(() => updateCollBytes(id)).catch(() => {});
 }
+let filaPeso = Promise.resolve();
 // ===== MEDIÇÃO DO PESO DE UM ÁLBUM =====
 // São DUAS perguntas, e só uma delas tem resposta exata:
 //
@@ -726,6 +731,49 @@ function medirColecao(id) {
 // pergunta dos diálogos de confirmação (rede e escala), onde o número precisa
 // bater com o que o painel do álbum mostra.
 function estimatePendingBytes(coll) { return medirColecao(coll.id).falta; }
+
+// A FRAÇÃO QUE SE LÊ ANTES DE BAIXAR É DE PESO, NÃO DE FAIXAS (v5.94).
+//
+// "2/4" e "137/600" respondem "quantas já tenho", que é a pergunta de DEPOIS.
+// Antes de tocar no botão a pergunta é outra — quanto isto vai custar de dados
+// e de espaço —, e para ela a contagem não serve: quatro faixas podem ser 8 MB
+// ou 80 MB, e é justamente essa diferença que decide esperar o Wi-Fi. A
+// contagem não se perde: ela continua no chip "Sincronizados" das opções do
+// álbum, que é onde mora o detalhe.
+//
+// Serve os três contadores da tela (o card do álbum, o cabeçalho de categoria e
+// "Todo o acervo") porque a pergunta é a mesma nos três, e um deles em faixas e
+// outro em MB seria a pior das versões.
+function fracaoPeso(ids) {
+  let no = 0, total = 0, temIndice = false, completo = true;
+  for (const id of ids) {
+    const faixas = collSongs(id).length;
+    if (faixas) temIndice = true;
+    if (!faixas || countDownloaded(id) < faixas) completo = false;
+    const m = medirColecao(id);
+    no += m.noAparelho; total += m.total;
+  }
+  if (!temIndice || !total) return null;      // sem índice não há o que medir
+  // "Completo" é a MESMA definição do resto da tela (`countDownloaded`), senão
+  // a barra escreveria "~" ao lado de um chip dizendo "Completo offline" —
+  // divergem quando um Playback falhou, e duas respostas para a mesma pergunta
+  // na mesma tela é pior do que a imprecisão que isso esconde. Com o peso ainda
+  // desconhecido (a recontagem de fundo não terminou), cai na estimativa.
+  if (completo && no > 0) return fmtBytes(no);
+  if (!no) return '~' + fmtBytes(total);      // nada baixado: só o que vai custar
+  return fmtFracBytes(no, total);
+}
+
+// "3,7/~18 MB" — a forma curta, para as barras. A unidade só aparece uma vez
+// quando é a mesma nos dois números (ver `fmtParBytes`, a forma por extenso do
+// chip de opções, que tem largura para o "de").
+function fmtFracBytes(a, b) {
+  const fa = fmtBytes(a);
+  const fb = fmtBytes(b);
+  const [va, ua] = fa.split(' ');
+  const ub = fb.split(' ')[1];
+  return (ua === ub ? va : fa) + '/~' + fb;
+}
 
 // Downloads de música em andamento ("<coll.id>:<id_music>" -> Promise) — evita
 // disparar dois downloads da mesma música em paralelo (tocar duas vezes rápido).
@@ -4384,7 +4432,7 @@ function renderCollectionsList(alvo, redesenhar, opts) {
 
       const info = document.createElement('span');
       info.className = 'coll-group-count' + (g.busy ? ' busy' : (complete ? ' done' : ''));
-      info.textContent = g.status || (total ? downloaded + '/' + total : '—');
+      info.textContent = g.status || fracaoPeso(colls.map((c) => c.id)) || '—';
       li.appendChild(info);
 
       const btn = document.createElement('button');
@@ -4405,7 +4453,7 @@ function renderCollectionsList(alvo, redesenhar, opts) {
       for (const c of colls) { downloaded += countDownloaded(c.id); total += collSongs(c.id).length; }
       const info = document.createElement('span');
       info.className = 'coll-group-count' + (total > 0 && downloaded >= total ? ' done' : '');
-      info.textContent = total ? downloaded + '/' + total : '—';
+      info.textContent = fracaoPeso(colls.map((c) => c.id)) || '—';
       li.appendChild(info);
     }
     alvo.appendChild(li);
@@ -4515,17 +4563,18 @@ function renderCollectionCard(coll, ctx) {
   // por eliminação: "não sincron." quando não há índice, uma fração quando
   // falta algo, nada quando está completo. O detalhe (peso, "✓ Completo
   // offline") segue na engrenagem dentro do card aberto.
-  if (!complete || u.syncBusy) {
-    const summary = document.createElement('span'); summary.className = 'coll-bar-sync';
-    if (u.syncBusy && u.status) {
-      summary.classList.add('busy'); summary.textContent = u.status;
-    } else if (total > 0) {
-      summary.textContent = downloaded + '/' + total;
-    } else {
-      summary.textContent = coll.kind === 'album' ? 'não sincron.' : '—';
-    }
-    bar.appendChild(summary);
+  const summary = document.createElement('span'); summary.className = 'coll-bar-sync';
+  const peso = fracaoPeso([coll.id]);
+  if (u.syncBusy && u.status) {
+    summary.classList.add('busy'); summary.textContent = u.status;
+  } else if (peso) {
+    summary.textContent = peso;
+  } else {
+    summary.textContent = coll.kind === 'album' ? 'não sincron.' : '—';
   }
+  bar.appendChild(summary);
+  // Peso desconhecido com música no aparelho (baixou antes da v5.93): reconta.
+  conferirPesoSeFaltar(coll.id);
 
   // A BARRA INTEIRA é o alvo do acordeão: o toque nela abre a coleção ali
   // mesmo. Houve uma seta anunciando isso; ela saiu na v5.71, porque numa lista
@@ -4575,21 +4624,6 @@ function renderCollectionCard(coll, ctx) {
     dl.innerHTML = u.syncBusy ? closeIconSvg() : downloadAllIconSvg();
     dl.addEventListener('click', (e) => { e.stopPropagation(); syncCollection(coll); });
     bar.appendChild(dl);
-  } else {
-    // ÁLBUM COMPLETO: no lugar do botão de baixar, QUANTO ELE OCUPA (v5.93).
-    // O botão saiu daqui na v5.63 por não ter mais o que fazer, e o "24/24"
-    // saiu na v5.70 por não dizer nada que a lista já não dissesse. O peso é
-    // outra coisa: é o único número desta tela que não se deduz olhando — e é
-    // a pergunta que se faz justamente sobre o que está completo, na hora de
-    // decidir o que apagar num aparelho sem espaço. Aqui ele é EXATO (soma do
-    // catálogo), então não leva "~".
-    const peso = document.createElement('span');
-    peso.className = 'coll-bar-peso';
-    peso.textContent = u.bytes ? fmtBytes(u.bytes) : '';
-    peso.title = 'Espaço ocupado no aparelho';
-    bar.appendChild(peso);
-    // Aparelho que baixou antes desta versão (ou mapa perdido): reconta uma vez.
-    conferirPesoSeFaltar(coll.id);
   }
 
   // Sem índice ainda não há lista para abrir — o toque abre o card já com as
@@ -4810,7 +4844,7 @@ function renderAcervoTotal(redesenhar) {
 
   const info = document.createElement('span');
   info.className = 'coll-group-count' + (g.busy ? ' busy' : (complete ? ' done' : ''));
-  info.textContent = g.status || (total ? downloaded + '/' + total : '—');
+  info.textContent = g.status || fracaoPeso(todas.map((c) => c.id)) || '—';
   hymnSearchTotalEl.appendChild(info);
 
   const btn = document.createElement('button');
@@ -4891,9 +4925,12 @@ function buildCollectionOptions(coll, collOptsEl) {
   // já foi gasto. Completo, os dois seriam o mesmo número dito duas vezes,
   // então fica um só, sem o "~": ali a medida é exata.
   const m = medirColecao(coll.id);
-  const pesoTxt = m.exato
-    ? (m.noAparelho ? fmtBytes(m.noAparelho) : '—')
-    : (m.noAparelho ? fmtParBytes(m.noAparelho, m.total) : '~' + fmtBytes(m.total));
+  // Mesma definição de "completo" da barra do card (ver `fracaoPeso`): os dois
+  // números estão a dois centímetros um do outro na mesma tela.
+  const pesoTxt = (complete && m.noAparelho) ? fmtBytes(m.noAparelho)
+    : !m.total ? '—'
+      : m.noAparelho ? fmtParBytes(m.noAparelho, m.total)
+        : '~' + fmtBytes(m.total);
   stats.appendChild(hymnalStat('Peso', pesoTxt, 'right'));
   collOptsEl.appendChild(stats);
 

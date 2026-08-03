@@ -1318,22 +1318,19 @@ main {
 }
 .coll-bar-icon .msym { font-size: var(--icon-sm); }
 .coll-bar-name { font-size: .95rem; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.coll-bar-sync { flex-shrink: 0; font-size: .78rem; font-weight: 700; color: var(--muted); font-variant-numeric: tabular-nums; }
+/* O resumo passou a ser o PESO (v5.94), que é bem mais largo que o "2/4" de
+   antes — e ele divide a linha com o NOME do álbum, que é a informação
+   principal. Meio ponto de fonte a menos devolve um caractere de nome sem
+   comprometer a leitura de um número secundário. */
+.coll-bar-sync { flex-shrink: 0; font-size: .73rem; font-weight: 700; color: var(--muted); font-variant-numeric: tabular-nums; }
 /* (`.coll-bar-sync.done` saiu na v5.70: com o álbum completo o resumo não é
    mais desenhado — ver renderCollectionCard. O verde de "concluído" continua
    nos CONTADORES DE GRUPO, que somam várias coleções e ali ainda respondem
    alguma coisa.) */
 .coll-bar-sync.busy { color: var(--accent); font-weight: 600; font-size: .7rem; max-width: 42%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-/* O peso do álbum COMPLETO, no lugar que era do botão de baixar (v5.93).
-   Mesmo tom e mesmo peso do resumo de sincronização que ele substitui — é a
-   mesma coluna da mesma lista, e duas tipografias ali fariam parecer que os
-   dois números falam de coisas diferentes. `tabular-nums` para a coluna não
-   dançar de linha em linha. */
-.coll-bar-peso {
-  flex-shrink: 0; font-size: .78rem; font-weight: 700;
-  color: var(--muted); font-variant-numeric: tabular-nums;
-  padding-left: .35rem;
-}
+/* (`.coll-bar-peso` durou uma versão: na v5.94 o resumo da barra PASSOU A SER o
+   peso em todos os estados — ver `fracaoPeso` —, e um segundo elemento só para
+   o álbum completo virou a mesma coisa com outro nome.) */
 
 /* ----- Coleção aberta no próprio card (acordeão do acervo, v5.45) ----- */
 /* Baixar/cancelar a coleção, na barra. Alvo próprio (`--hit`) e `stopPropagation`

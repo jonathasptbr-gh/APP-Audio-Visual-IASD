@@ -2514,28 +2514,41 @@ aberto, que é onde se procura depois de abrir o álbum. Enquanto o download
 segue a regra — ali não existe engrenagem, e sumir com ele tiraria a única rota
 de re-sincronizar o grupo.
 
-**E o CONTADOR sai junto** (v5.70). `24/24` não pede nada nem informa nada de
-novo — é ruído repetido em cada linha de uma lista de dezenas de álbuns, e o
-estado que o operador procura ali é justamente o oposto: o que ainda **falta**.
-Numa lista toda baixada, o silêncio é a resposta certa, e ela continua legível
-por eliminação: `não sincron.` quando não há índice, uma fração quando falta
-algo, **nada** quando está completo. Enquanto o download roda o resumo volta,
-mostrando o progresso ao vivo.
+**O contador saiu na v5.70 e VOLTOU na v5.94 — em outra moeda.** O que saíra
+era `24/24`: uma contagem de faixas que não pedia nada nem informava nada de
+novo, repetida em cada linha de uma lista de dezenas de álbuns. O que está lá
+agora é o **peso** (`fracaoPeso`), e ele responde a pergunta que se faz com o
+dedo sobre o botão de baixar: *quanto isto vai me custar*. Quatro faixas podem
+ser 8 MB ou 80 MB, e é essa diferença — não o número de faixas — que decide
+esperar o Wi-Fi ou apagar um álbum para caber outro.
 
-**E no lugar vazio entra o PESO** (v5.93, `.coll-bar-peso`). O botão saiu por
-não ter mais o que fazer e o contador por não dizer nada de novo — os dois
-argumentos valiam para eles, e nenhum vale para o tamanho: ele é o único número
-daquela linha que **não se deduz olhando**, e é a pergunta que se faz
-justamente sobre o que já está completo, na hora de decidir o que apagar num
-aparelho sem espaço. Ali ele é EXATO (soma do catálogo), então não leva "~".
-Mesmo tom, peso e `tabular-nums` do resumo que ele substitui: é a mesma coluna
-da mesma lista, e duas tipografias fariam parecer que os dois números falam de
-coisas diferentes.
+São quatro estados, e a leitura continua por eliminação:
+
+| Estado | Barra |
+|---|---|
+| sem índice | `não sincron.` |
+| nada baixado | `~230 MB` — só o que vai custar |
+| parcial | `19/~249 MB` |
+| completo | `2,3 GB`, exato (soma do catálogo, sem `~`) |
+
+Enquanto o download roda, o resumo dá lugar ao progresso ao vivo. A contagem de
+faixas não se perde: ela continua no chip **Sincronizados** das opções do
+álbum, que é onde mora o detalhe. E os três contadores da tela — card,
+cabeçalho de categoria e "Todo o acervo" — usam a MESMA função: um deles em
+faixas e outro em MB seria a pior das versões.
+
+O número é bem mais largo que o `2/4` de antes e divide a linha com o **nome**
+do álbum, que é a informação principal — daí meio ponto de fonte a menos em
+`.coll-bar-sync`, que devolve um caractere de nome sem comprometer a leitura de
+um número secundário. (`.coll-bar-peso`, criado na v5.93 só para o álbum
+completo, durou uma versão: com o resumo virando peso em todos os estados, ele
+era a mesma coisa com outro nome.)
 
 Os **contadores de GRUPO** (`.coll-group-count`, no cabeçalho de categoria e em
 "Todo o acervo") ficam mesmo completos: eles somam várias coleções, e ali o
 número ainda responde alguma coisa — é o único lugar que diz que o grupo inteiro
-está no aparelho. É também o último uso do verde de "concluído" nesse contexto:
+está no aparelho. Desde a v5.94 eles somam PESOS, pela mesma razão dos cards
+(e "Todo o acervo" é onde a soma mais importa: são vários GB). É também o último uso do verde de "concluído" nesse contexto:
 `.coll-bar-sync.done` saiu com o contador do card.
 
 **Uma coleção aberta por vez** (abrir uma fecha as demais): duas listas de
