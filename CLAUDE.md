@@ -210,6 +210,7 @@ window.AVNative = {
   onDisplayChange(cb),
   openCast(),          // seletor de ESPELHAMENTO DE TELA do Android (≠ Google Cast)
   castTarget(),        // → string: rótulo do alvo de espelhamento deste aparelho
+  openExternal(url),   // abre uma URL https FORA do app (só o Controle)
   captureVolumeKeys(bool), // botões físicos de volume vão para o app
   systemVolume(step),  // devolve um passo ao volume do sistema (fader no limite)
   requestMic(),        // → bool: permissão RECORD_AUDIO (push-to-talk)
@@ -220,7 +221,7 @@ window.AVNative = {
 }
 ```
 
-São **catorze métodos**, e essa é a superfície inteira que o resto do lado web
+São **quinze métodos**, e essa é a superfície inteira que o resto do lado web
 tem direito de usar: fora do `native.js`, tocar em `__AVBridge` direto é
 acoplamento indevido. O próprio `native.js` chama mais cinco coisas no
 `__AVBridge`, e nenhuma delas é API para o app — `shellVersion()`, `role()` e
@@ -233,7 +234,7 @@ Além disso, `native.js` publica **quatro globais** lidas direto (sem Promise):
 o `versionName` do APK, que é o **índice de versão do shell exibido ao
 operador**. Ele não se confunde com `__SHELL_VERSION__`: base web e shell
 atualizam por caminhos independentes (OTA × instalar APK), então o rodapé de
-**Configurações** mostra os dois (`Web v5.75 · Shell v<versionName do APK>`,
+**Configurações** mostra os dois (`Web v5.76 · Shell v<versionName do APK>`,
 montado em `renderVersionLabel`; até a v5.48 ficava no cabeçalho do Cronograma —
 saiu de lá porque metadado de diagnóstico pertence à mesma tela do estado do
 telão, não a uma faixa de navegação). Num shell antigo (sem
@@ -281,9 +282,17 @@ esperam uma **pessoa** e ficam sem prazo, porque um timeout ali resolveria null
 com o operador ainda escolhendo a pasta.
 
 `NativeBridge.SHELL_VERSION` identifica a versão da casca — **subir sempre que
-a superfície da ponte mudar**. Hoje vale **14**; a v5.48 não a mexeu, porque
-nenhum método foi acrescentado ou teve assinatura alterada (as mudanças do lote
-foram restrições de quem pode chamar o quê, que nunca exigem shell mais novo).
+a superfície da ponte mudar**. Hoje vale **15** — a v5.76 acrescentou
+`openExternal`. (A v5.48 não a mexeu: nenhum método foi acrescentado ou teve
+assinatura alterada, e as mudanças do lote foram restrições de quem pode chamar
+o quê, que nunca exigem shell mais novo.)
+
+**Um método novo NÃO chega por OTA.** O bundle segue com `minShell: 2` de
+propósito — subi-lo recusaria a atualização inteira em todo aparelho com shell
+antigo, que é muito pior do que um recurso a menos. Quem depende de um método
+novo pergunta antes: `appendYoutubeSearch` não desenha o botão quando
+`__SHELL_VERSION__ < 15`, porque um botão que não faz nada no meio de um culto é
+pior que botão nenhum. Ele aparece sozinho depois que o APK novo for instalado.
 
 ---
 
@@ -822,6 +831,7 @@ contextos.
 | Compartilhamento | **não existe mais** — vinha do `share_target` do manifest com o POST interceptado pelo SW, e os dois saíram do bundle; sobra a leitura do estado `pending-share`, que hoje ninguém escreve | **`intent-filter` nativo** (`ShareIntake.kt`), que só aceita `content://` de outro app (ver abaixo) |
 | Estado do telão (rodapé de Configurações) | atalho `window.open('../display/')`, útil só para desenvolver | **indicador ao vivo** (desabilitado como botão) — a Presentation é criada sozinha |
 | Botão de cast da preview | oculto | `AVNative.openCast()` → seletor de **espelhamento de tela** (ver abaixo) |
+| Link para fora do app ("Pesquisar … no YouTube") | `window.open` numa aba nova | **`AVNative.openExternal(url)`** → `ACTION_VIEW` numa tarefa própria. O WebView RECUSA navegar para outro origin (invariante 2), então sem esse método um link externo não faz absolutamente nada — nem erro no console |
 | "Conectar a tela" (modo simplificado) | abre a tela do Display (`window.open`) — e é ela que conta como "conectado" | mesmo `AVNative.openCast()`, com o nome da tela conectada no subtítulo |
 | Simplificado sem tela conectada | mesmo bloqueio, com a janela do Display no lugar da `Presentation` | **modo bloqueado**: cortina embaçada sobre tudo, só o botão de conectar — preenchido no accent, no centro da tela — e a saída para o avançado na frente |
 | Fullscreen da preview | `requestFullscreen` + Screen Orientation API | idem, com trava de paisagem **nativa** (`onShowCustomView`) |
@@ -1228,7 +1238,7 @@ aparelho nenhum.
 O `versionCode`/`versionName` do APK vêm do CI (ver "Build") e não se tocam à
 mão.
 
-**Versão atual: v5.75** (base web) · `SHELL_VERSION` **14**, e o bundle segue com
+**Versão atual: v5.76** (base web) · `SHELL_VERSION` **15**, e o bundle segue com
 `minShell: 2` — ele funciona igual num shell antigo, só sem os recursos que são
 nativos por construção (a escada do voltar, os botões de volume, a notificação de
 controles), que **só chegam instalando o APK novo**, não pelo OTA.

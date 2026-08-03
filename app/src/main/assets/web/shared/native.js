@@ -240,6 +240,22 @@
     // método, não faz nada em vez de quebrar.
     openCast() { try { B.openCast(); } catch (_) { /* shell antigo */ } },
 
+    // Abre uma URL FORA do app (navegador ou o app que a reivindicar). O
+    // WebView do Controle recusa navegar para qualquer coisa que não seja o
+    // próprio origin — é a invariante que impede conteúdo estranho de entrar
+    // num WebView que injeta `__AVBridge` em toda página —, então sem este
+    // método um link externo simplesmente não faz nada. Só `https`, e a
+    // validação é repetida no Kotlin: aqui ela é conveniência, lá é a guarda.
+    // Num shell antigo o método não existe e o `try` engole; quem chama já não
+    // oferece o botão nesse caso (ver appendYoutubeSearch).
+    openExternal(url) {
+      try {
+        const u = String(url || '');
+        if (!/^https:\/\//i.test(u)) return;
+        B.openExternal(u);
+      } catch (_) { /* shell antigo */ }
+    },
+
     // Para onde o botão vai abrir, em texto — os alvos variam por fabricante
     // e não são API documentada, então o popup de Exibição mostra isso.
     // (num shell sem o método, `call` já resolve null — isto vira string vazia)

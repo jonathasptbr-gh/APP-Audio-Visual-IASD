@@ -824,12 +824,14 @@ body {
    (O botão do fundo da letra saiu do mixer: virou o segmento "Imagens dos
    slides" no popup de Exibição, e o lugar dele é a leitura da letra completa —
    um botão que ABRE algo, sem estado próprio a pintar.) */
-/* A borda é `--danger-text`, não `--danger`: o vermelho cheio da paleta é
+/* A borda é `--danger-strong`, não `--danger`: o vermelho cheio da paleta é
    ESCURO por construção (existe para receber `--on-live` por cima), então como
-   contorno sobre fundo escuro ele praticamente desaparece. Texto, ícone e
-   borda de estado vermelho usam sempre o par claro. */
+   contorno sobre fundo escuro ele praticamente desaparece. E `--danger-strong`
+   e não o `--danger-text` pálido (v5.76): sobre o próprio `--danger-soft` ele
+   mede 4,68:1 — passa como texto — e é o único dos dois que se lê como
+   VERMELHO num rótulo de botão. */
 .view-btn.view-blocked, .mute-btn.muted, .coll-opts .new-folder-btn.danger {
-  border-color: var(--danger-text); background: var(--danger-soft); color: var(--danger-text);
+  border-color: var(--danger-strong); background: var(--danger-soft); color: var(--danger-strong);
 }
 /* Sem áudio no Display (bloqueio do navegador): AVISO pulsante; o clique pede
    a liberação do som (comando audio-retry). Em `--warn`, e não mais em
@@ -913,7 +915,13 @@ main {
      no mesmo canto, ou deixa de ser um par. */
   flex-shrink: 0; margin-left: auto;
   display: inline-flex; align-items: center; gap: .3rem;
-  border: 1px solid var(--accent); border-radius: var(--radius-btn);
+  /* SEM MOLDURA (v5.76). O contorno em `--accent` desenhava, nos dois
+     cabeçalhos, a moldura mais forte da tela em volta do botão que menos se
+     usa num culto — trocar de modo é decisão de configuração, não de operação.
+     Quem o separa do fundo é a superfície (`--surface-2`), a mesma receita das
+     outras teclas; o accent fica onde ele informa, no ícone da seta, que é o
+     que diz para que lado se vai. */
+  border: none; border-radius: var(--radius-btn);
   background: var(--surface-2); color: var(--text);
   font-size: .8rem; font-weight: 600; font-family: inherit;
   padding: .42rem .6rem; cursor: pointer;
@@ -1111,7 +1119,7 @@ main {
 .sel-spacer { flex: 1; }
 .sel-btn { width: var(--hit); height: var(--hit); border: none; border-radius: var(--radius-btn); background: var(--surface-2); color: var(--text); display: flex; align-items: center; justify-content: center; cursor: pointer; }
 .sel-btn:disabled { opacity: .35; }
-.sel-btn.danger { color: var(--danger-text); }
+.sel-btn.danger { color: var(--danger-strong); }
 .sel-btn .msym { font-size: var(--icon-sm); }
 
 /* A tela que SAI durante a troca de aba: os nós antigos são movidos para cá
@@ -1369,6 +1377,25 @@ main {
    visível para os casos em que a espera acontece mesmo assim — e aí precisa
    dizer que algo está vindo, e quanto ainda falta. */
 .coll-more { display: flex; }
+
+/* "Pesquisar <texto> no YouTube", no fim da busca do acervo. É uma SAÍDA, não
+   um resultado: fundo de superfície e texto apagado, para não competir com as
+   músicas de verdade logo acima — mas de largura inteira e com o alvo de uma
+   linha de lista, porque quando ele importa (nenhum resultado) ele é a única
+   coisa que sobrou na tela. */
+.yt-search-btn {
+  width: 100%; min-height: 44px;
+  display: flex; align-items: center; gap: .5rem;
+  border: none; border-radius: var(--radius-btn);
+  background: var(--surface); color: var(--muted);
+  font-family: inherit; font-size: .82rem; text-align: left;
+  padding: .5rem .7rem; cursor: pointer;
+  appearance: none; -webkit-appearance: none;
+}
+.yt-search-btn svg { flex-shrink: 0; color: var(--accent); }
+/* O termo digitado não tem tamanho previsível — corta em reticências em vez de
+   esticar a linha ou quebrar em três. */
+.yt-search-txt { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .coll-more-btn {
   --dl-ring: 15px;
   flex: 1; min-height: var(--hit);
@@ -1683,15 +1710,17 @@ main {
 .misc-tab.active { background: var(--accent-fill); color: var(--on-accent); }
 /* Ponto = está PROJETANDO. Trocar de ferramenta não tira do telão a que estava
    no ar; sem o ponto, descobrir qual é exigiria visitar cada uma.
-   Em `--live-text`, não em `--live`: o ponto é um GRÁFICO que carrega
+   Em `--live-strong`, não em `--live`: o ponto é um GRÁFICO que carrega
    informação (piso de 3:1) e tem 7px — o vermelho cheio da paleta, que é
    escuro, dava 2,50:1 contra a superfície do trilho e 2,54:1 contra o segmento
    ativo. Era por isso que existia um anel claro só no segmento ativo; com o
-   tom claro o ponto passa nos dois fundos (7,4:1 e 3,3:1) e o anel — que sobre
-   um ponto claro não separa nada — saiu. */
+   tom claro o ponto passa nos dois fundos e o anel — que sobre um ponto claro
+   não separa nada — saiu. (Era o `--live-text` salmão até a v5.76; num ponto
+   de 7px a diferença entre salmão e vermelho é justamente o que decide se ele
+   é lido como alarme.) */
 .misc-tab-live {
   flex-shrink: 0; width: 7px; height: 7px; border-radius: 50%;
-  background: var(--live-text);
+  background: var(--live-strong);
 }
 /* O painel da ferramenta ativa ocupa toda a altura restante.
    `touch-action: pan-y` PRECISA estar aqui, e não bastava na `.lib-list`: o
@@ -1733,7 +1762,7 @@ main {
   font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1;
   padding: .2rem 0;
 }
-.chrono-read.over { color: var(--danger-text); }
+.chrono-read.over { color: var(--danger-strong); }
 .chrono-presets, .misc-opts { display: flex; flex-wrap: wrap; gap: .35rem; justify-content: center; }
 .misc-chip {
   padding: .34rem .7rem;
@@ -1770,10 +1799,11 @@ main {
   font-size: .95rem; font-weight: 800; cursor: pointer;
   appearance: none; -webkit-appearance: none;
 }
-/* No ar: a família do "está no telão agora". Borda em `--live-text` porque
+/* No ar: a família do "está no telão agora". Borda em `--live-strong` porque
    `--live` é escuro por construção e como contorno sobre fundo escuro
-   sumiria — o preenchimento suave é que carrega a matiz. */
-.misc-project.live { background: var(--live-soft); border-color: var(--live-text); color: var(--live-text); }
+   sumiria — e o preenchimento suave da mesma família é o que dá ao saturado a
+   base que ele precisa (4,68:1). */
+.misc-project.live { background: var(--live-soft); border-color: var(--live-strong); color: var(--live-strong); }
 /* Sem mensagem selecionada não há o que projetar daqui — a escolha é na lista.
    Desabilitado e não escondido: o botão é um ponto fixo da tela, e sumir faria
    o microfone pular de largura a cada troca de ferramenta. */
@@ -1850,8 +1880,14 @@ main {
    outros quatro componentes diziam a mesma coisa em vermelho, na mesma tela;
    e verde, neste mesmo app, também significa "download concluído" e "telão
    conectado". Não havia regra que o operador pudesse aprender. */
-.msg-item.active { border-color: var(--live-text); background: var(--panel-2); }
-.msg-item.active .msg-text { color: var(--live-text); }
+/* O fundo é `--live-soft`, não `--panel-2` (v5.76). Sobre o painel elevado, o
+   vermelho saturado media 2,96:1 — abaixo do piso de 3:1 de uma borda —, e
+   pintar a borda de pálido devolveria o "tom quente" que a v5.76 veio tirar. O
+   fundo suave da PRÓPRIA família resolve os dois: ele escurece a base (4,68:1
+   para a borda e para o texto) e ainda alinha esta linha com o resto do "no
+   ar" (`.misc-project.live` já era assim). */
+.msg-item.active { border-color: var(--live-strong); background: var(--live-soft); }
+.msg-item.active .msg-text { color: var(--live-strong); }
 .msg-text {
   flex: 1; min-width: 0; font-size: .92rem; line-height: 1.4; cursor: pointer; white-space: pre-line;
   overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
@@ -1875,8 +1911,8 @@ main {
 .bible-vsec.cur { border-color: var(--accent); background: var(--panel-2); opacity: 1; }
 /* central EM EXIBIÇÃO ("no ar") — a MESMA cor de "no ar" do resto do app (ver
    `.msg-item.active`); era verde, que aqui é a cor de concluído/conectado. */
-.bible-vsec.cur.live { border-color: var(--live-text); }
-.bible-vsec.cur.live .bible-vsec-ref { color: var(--live-text); }
+.bible-vsec.cur.live { border-color: var(--live-strong); background: var(--live-soft); }
+.bible-vsec.cur.live .bible-vsec-ref { color: var(--live-strong); }
 .bible-vsec.empty { opacity: .4; cursor: default; font-style: italic; }
 .bible-vsec-ref { font-size: .64rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
 .bible-vsec.cur .bible-vsec-ref { color: var(--accent); }
@@ -1928,12 +1964,12 @@ main {
 }
 /* Timer estourado: EXATAMENTE o token do gêmeo no telão
    (`.text-content.mode-chrono.chrono-over .text-main` em display.css usa
-   `--live-text`). Ficou em `--danger-text` na primeira passada de tokens: hoje
-   os dois valem o mesmo #f0aaa2 e nada aparece na tela, mas `--danger-text` é
-   o par do DESTRUTIVO (excluir, cancelar) e um ajuste nele mudaria a preview
-   sem mudar a projeção — a preview existe para ESPELHAR o telão, e é essa
-   divergência silenciosa que a folha compartilhada foi criada para matar. */
-.pv-text-content.mode-chrono.chrono-over .pv-text-main { color: var(--live-text); }
+   `--live-strong`). Ficou no par do DESTRUTIVO na primeira passada de tokens:
+   os dois valem o mesmo e nada aparecia na tela, mas um ajuste no destrutivo
+   mudaria a preview sem mudar a projeção — e a preview existe para ESPELHAR o
+   telão. É essa divergência silenciosa que a folha compartilhada foi criada
+   para matar. */
+.pv-text-content.mode-chrono.chrono-over .pv-text-main { color: var(--live-strong); }
 /* Sorteio — espelha .mode-draw do Display (display.css), inclusive o estado
    "rolando" (esmaecido/dourado até assentar). */
 .pv-text-content.mode-draw .pv-text-main {
@@ -2416,10 +2452,16 @@ body.mode-simple .bottombar { display: none; }
 .simple-brand { flex: 1; min-width: 0; font-size: .9rem; font-weight: 800; letter-spacing: .03em; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .simple-brand b { color: var(--gold); }
 
-/* Tecla: a peça única deste modo. Borda + fundo próprio para parecer botão
-   físico, e alvo grande o bastante para o polegar sem mirar. */
+/* Tecla: a peça única deste modo. Fundo próprio e alvo grande o bastante para
+   o polegar sem mirar.
+   SEM BORDA (v5.76). Ela tinha um filete em `--line` "para parecer botão
+   físico", e o resto do app já tinha desistido dessa ideia — cards, teclas e
+   linhas de lista são superfícies sólidas sem contorno. Numa tela em que TUDO
+   é tecla, o filete não distinguia nada: só devolvia a grade de molduras que a
+   v5.71 tirou do acervo. O que diz "isto é tocável" aqui é o fundo mais claro
+   que o do app, e o `:active` que afunda. */
 .simple-key {
-  border: 1px solid var(--line); border-radius: var(--radius-card);
+  border: none; border-radius: var(--radius-card);
   background: var(--panel); color: var(--text);
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .25rem;
   font-family: inherit; cursor: pointer; min-width: 0;
@@ -2466,13 +2508,15 @@ body.mode-simple .bottombar { display: none; }
 /* CONECTADO ele fica VERMELHO, e isso não é o estado — é a AÇÃO. Quem já diz
    que há uma tela recebendo é a própria preview, que só existe aqui quando há;
    o que o ícone tem a dizer, então, é o que o toque faz, e o que ele faz é
-   DESCONECTAR. Em `--danger-text` (o vermelho contornado, da família de ação
-   destrutiva) e nunca no `--danger` cheio: preenchido, o vermelho deste app
-   significa "está no ar agora", e um botão preenchido nesse tom competiria com
-   a mídia que a miniatura está justamente mostrando.
+   DESCONECTAR. Em `--danger-strong` (a família de ação destrutiva, no tom
+   SATURADO — 6,28:1 sobre a miniatura escura) e nunca no `--danger` cheio:
+   preenchido, o vermelho deste app significa "está no ar agora", e um botão
+   preenchido nesse tom competiria com a mídia que a miniatura está justamente
+   mostrando. Até a v5.75 ele usava o par pálido `--danger-text`, e num ícone
+   de 24px aquele salmão chegava como "um tom quente", não como vermelho.
    A liberação de TESTE segue em âmbar de aviso: ali não há tela para
    desconectar, e o que o toque faz é trancar de volta. */
-.pv-fab.connected { color: var(--danger-text); }
+.pv-fab.connected { color: var(--danger-strong); }
 .pv-fab.testing { color: var(--warn); }
 /* Sem tela conectada a faixa não existe — a tela inteira é o bloqueio, e o
    botão de conectar volta ao centro dela. */
@@ -2525,7 +2569,7 @@ body.mode-simple .bottombar { display: none; }
    possível da tela não pode disputar atenção com o que está bloqueado. */
 .simple.locked #simpleCastBtn {
   padding: 1.5rem 1rem; gap: .5rem;
-  background: var(--accent-fill); border-color: var(--accent-fill); color: var(--on-accent);
+  background: var(--accent-fill); color: var(--on-accent);
   /* SEM HALO (v5.75). Havia aqui uma sombra em `--accent-glow` para "separar o
      botão do teclado embaçado atrás dele" — mas quem separa é a CORTINA: o
      `backdrop-filter` já apaga tudo que está atrás, e o botão é a única coisa
@@ -2582,7 +2626,8 @@ body.mode-simple .bottombar { display: none; }
   position: relative;            /* offsetParent das linhas (ver lvScroll) */
   flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
   display: flex; flex-direction: column; gap: .5rem;
-  padding: .7rem .6rem; border: 1px solid var(--line); border-radius: var(--radius-card);
+  /* Mesma regra das teclas: superfície sólida, sem contorno. */
+  padding: .7rem .6rem; border: none; border-radius: var(--radius-card);
   background: var(--panel);
 }
 .simple-lyrics .lv-empty { margin: auto; color: var(--muted); font-size: .85rem; text-align: center; line-height: 1.5; }
@@ -2597,10 +2642,12 @@ body.mode-simple .bottombar { display: none; }
 .simple-key--big .msym { font-size: 34px; }
 /* Os mesmos dois estados do mixer, na tecla grande — e nos mesmos tokens (ver
    `.mute-btn.muted`/`.mute-btn.blocked`): mudo é alerta, áudio bloqueado no
-   telão é aviso. Borda no par CLARO de cada família, porque os tons cheios
-   (`--danger`/`--live`) são escuros e como contorno desapareceriam. */
-.simple-key--big.muted { border-color: var(--danger-text); background: var(--danger-soft); color: var(--danger-text); }
-.simple-key--big.blocked { border-color: var(--warn); background: var(--warn-soft); color: var(--warn-text); animation: mute-blocked-pulse 1.2s ease-in-out infinite; }
+   telão é aviso. Sem a borda (v5.76) quem carrega o estado é o par
+   fundo-suave + cor, que já estava aqui e é o que o resto do app usa; o mudo
+   passou ao vermelho SATURADO (`--danger-strong`), que é o alarme que a cor
+   pálida não dava. */
+.simple-key--big.muted { background: var(--danger-soft); color: var(--danger-strong); }
+.simple-key--big.blocked { background: var(--warn-soft); color: var(--warn-text); animation: mute-blocked-pulse 1.2s ease-in-out infinite; }
 /* Volume: − e + são teclas iguais às outras; o indicador no meio mostra o
    número e, embaixo, a mesma leitura do fader (quanto do curso está usado). */
 .simple-volrow { display: grid; grid-template-columns: 1fr 1.1fr 1fr; gap: .6rem; align-items: stretch; }
