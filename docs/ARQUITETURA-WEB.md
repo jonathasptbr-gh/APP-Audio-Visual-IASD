@@ -300,8 +300,21 @@ importação consertava, por acidente: ela termina em `load()`, que chama
 como em qualquer outro alvo de slide. O comando é um `page` próprio, e não um
 `load` novo — recarregar a mídia para trocar uma imagem que já está na mão
 faria o telão piscar preto a cada slide. A `MediaSession` acompanha: o rótulo
-dos botões passou a dizer "(página)" em vez de "(estrofe)" quando é uma
-apresentação que está no ar (`slideLabel`).
+dos botões diz "(página)" em vez de "(estrofe)" quando é uma apresentação que
+está no ar (`slideLabel`).
+
+> **O `slideLabel` só chegou de fato à notificação na v5.102.** Ele nasceu na
+> v5.97 no `pushNowPlaying` e o `SessionService` já o lia desde então — mas
+> `shared/native.js` monta o objeto da ponte **campo a campo**, e este ficou de
+> fora: a notificação escreveu "(estrofe)" durante toda a rodada das
+> apresentações, sem erro em lugar nenhum. É a forma de falhar típica dessa
+> função — um campo esquecido ali some em silêncio, e o lado nativo lê o
+> `optString` vazio como "use o padrão". Ao acrescentar um campo em
+> `pushNowPlaying`, acrescente-o também em `AVNative.nowPlaying`.
+>
+> Na mesma versão a palavra passou a sair da tabela `SLIDE_AXIS_NAME` — a
+> mesma que nomeia os botões da tela —, em vez de um ternário local que
+> respondia "estrofe" para versículo e para mensagem.
 
 **A reconexão do telão volta na página certa**, pelo mesmo motivo do tempo de
 uma mídia: um dongle que cai no meio da pregação não pode devolver o primeiro
@@ -1543,10 +1556,17 @@ Agora é **um par**, com os eixos separados pelo TEMPO do toque
   ver a música trocar é a resposta que o dedo espera —, e o `click` seguinte é
   descartado por uma flag, para a ação não sair duas vezes.
 - **O botão diz em que eixo está** (`renderTransportAxis`): contorno em
-  `--accent` (`.slide-mode`) e o `title` nomeando estrofe/versículo/mensagem. Na
-  notificação esse papel é do rótulo; aqui não cabe rótulo, e sem sinal nenhum o
-  eixo só se descobriria depois de tocar — errar isso no meio de um louvor custa
-  a música inteira.
+  `--accent` (`.slide-mode`) e o `title` nomeando estrofe/versículo/mensagem/
+  página. Na notificação esse papel é do rótulo; aqui não cabe rótulo, e sem
+  sinal nenhum o eixo só se descobriria depois de tocar — errar isso no meio de
+  um louvor custa a música inteira.
+  - **As três tabelas de rótulo (`SLIDE_AXIS_NAME`/`_PREV`/`_NEXT`) precisam
+    cobrir TODOS os alvos de `slideTarget()`.** Elas são indexadas pelo alvo, e
+    um alvo ausente não dá erro: vira `undefined` e o `title` passa a dizer
+    literalmente "undefined · segure para a próxima mídia". Faltavam `deck`
+    (desde a v5.97) e `songlyrics` até a v5.102 — justamente o alvo em que ⏮/⏭
+    são o ÚNICO jeito de passar página. Alvo novo em `slideTarget()` = três
+    linhas novas aqui.
 - **E diz quando o eixo ACABOU** (`.axis-end`, opacidade .55): na última estrofe
   o toque curto não tem para onde ir. Antes isso era óbvio, o botão de estrofe
   ficava cinza; como o mesmo botão ainda serve à mídia no toque longo, ele não

@@ -102,7 +102,7 @@ docs/
 
 **Catorze arquivos Kotlin, uma dependência de terceiros no shell** — o resto é
 AndroidX oficial (`core-ktx`, `activity-ktx`, `webkit`). Medido agora (`wc -l`):
-**4.494 linhas de Kotlin** contra **14.527 linhas de JavaScript** em
+**4.533 linhas de Kotlin** contra **14.596 linhas de JavaScript** em
 `assets/web/` (sem contar `vendor/`, que é código buildado de terceiro) — a
 proporção é o argumento, não o número absoluto. Manter o nativo pequeno respeita
 a filosofia do projeto muito melhor que Capacitor/Cordova, que arrastariam npm e
@@ -245,7 +245,7 @@ window.AVNative = {
   requestMic(),        // → bool: permissão RECORD_AUDIO (push-to-talk)
   keepAlive(bool),     // download em curso — ver "Trabalho em segundo plano"
   bgProgress({label, done, total, etaMs, items, idleMs}), // progresso na notificação
-  nowPlaying({active, title, subtitle, playing, slideMode, wallpaper, positionMs, durationMs}),
+  nowPlaying({active, title, subtitle, playing, slideMode, slideLabel, wallpaper, positionMs, durationMs}),
   onRemote(cb),        // cb('play'|'pause'|'playpause'|'prev'|'next'|'stop'|'view')
 }
 ```
@@ -577,6 +577,16 @@ Dois ganhos, e o segundo é o menos óbvio:
   (ver `attachTransportStep` em `controle.js`). O que a notificação já fazia por
   falta de espaço virou a convenção dos dois lados — e o `slideMode` que ela
   envia deixou de ser a única leitura dessa regra na tela.
+- **A PALAVRA do rótulo é `slideLabel`, e ela viaja campo a campo.** "Estrofe"
+  não serve para tudo: numa APRESENTAÇÃO o que ⏮/⏭ passam é página. O campo
+  nasceu na v5.97 e o `SessionService` sempre o leu — mas até a v5.102
+  `AVNative.nowPlaying` **não o copiava para o JSON da ponte**, e a notificação
+  escreveu "(estrofe)" durante toda a rodada das apresentações. É a forma de
+  falhar dessa função: ela remonta o objeto campo a campo, um campo esquecido
+  desaparece em silêncio e o `optString` do Kotlin lê vazio como "use o
+  padrão". **Campo novo em `pushNowPlaying` = campo novo em
+  `AVNative.nowPlaying`**, sempre — e sem subir `SHELL_VERSION`, porque o lado
+  Kotlin não muda.
 - **`play`/`pause` e `playpause` são coisas diferentes.** Tela de bloqueio, fone
   e Android Auto sabem o que querem e mandam intenção explícita; o botão da
   notificação é alternador. Tratar tudo como alternador faria um `onPlay`
@@ -650,6 +660,16 @@ Dois ganhos, e o segundo é o menos óbvio:
   chamado de uma thread do WebView, e `MediaSession` tem handler próprio e não
   promete ser thread-safe — mexer nele de fora é o tipo de coisa que funciona
   num aparelho e falha calada noutro.
+- **E esse salto de thread abre uma janela, que `running` fecha.** `update()`
+  confere na thread do WebView que o serviço existe e enfileira o `publish` na
+  main; entre uma coisa e a outra, o `onDestroy` de um `stopSelf` anterior pode
+  rodar. Sem a guarda a continuação publicava numa instância já destruída — um
+  `notify` que ninguém mais cancela (o cartão eterno que o `SyncService` já
+  aprendera a evitar) ou um `startForeground` de um serviço que não existe
+  mais. Como o lado web deduplica por chave e não reenvia o mesmo estado, essa
+  notificação órfã ficaria de pé, com os botões mortos, até o app ser fechado.
+  Pelo mesmo motivo o `onDestroy` **cancela a notificação explicitamente**: o
+  sistema só recolhe sozinho a que veio de `startForeground`.
 - **A notificação NÃO pode depender do JS do Controle estar rodando.** Com o
   app minimizado e sem áudio audível no celular (mesa de som desligada), o
   sistema estrangula aquele WebView: `pushNowPlaying` para de ser chamado e a
@@ -684,6 +704,16 @@ release de tag fixa **`web-latest`** — URL estável, porque está compilada no
 shell. O app consulta esse `version.json` na abertura, baixa quando há versão
 nova e passa a servi-la. (O tamanho do zip sai no log do próprio job, no
 `echo "Bundle: …"` — número no doc envelhece a cada push.)
+
+> **O nome do repositório aparece nos DOIS lados, e eles têm de bater**: o
+> workflow escreve a URL do zip a partir de `$GITHUB_REPOSITORY`, e o
+> `WebUpdater.REPO` é digitado à mão. Depois que o repositório foi renomeado,
+> a constante ficou apontando para o nome antigo e o OTA só continuou
+> funcionando por causa do redirecionamento do GitHub — corrigida na v1.39.
+> Renomear o repositório de novo exige mexer nesta constante **e** publicar um
+> APK, porque a URL está compilada no shell; e o modo de falhar é mudo: o
+> `check()` engole tudo em `Log.i`, então um OTA morto não dá sinal nenhum no
+> aparelho.
 
 **A identidade do bundle é `assets/web/version.json`** (`version` +
 `minShell`), versionado no repositório: o bundle carrega a própria versão,
@@ -1336,7 +1366,7 @@ aparelho nenhum.
 O `versionCode`/`versionName` do APK vêm do CI (ver "Build") e não se tocam à
 mão.
 
-**Versão atual: v5.101** (base web) · `SHELL_VERSION` **22**, e o bundle segue com
+**Versão atual: v5.102** (base web) · `SHELL_VERSION` **22**, e o bundle segue com
 `minShell: 2` — ele funciona igual num shell antigo, só sem os recursos que são
 nativos por construção (a escada do voltar, os botões de volume, a notificação de
 controles), que **só chegam instalando o APK novo**, não pelo OTA.

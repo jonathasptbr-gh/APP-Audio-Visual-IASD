@@ -156,7 +156,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.101';
+const WEB_VERSION = '5.102';
 
 // Escrita UMA vez, na carga: o indicador mora no rodapé de Configurações desde
 // a v5.49 e não depende mais de qual aba está aberta (no cabeçalho ele
@@ -1992,7 +1992,11 @@ function pushNowPlaying() {
     // "(estrofe)" sempre, e com uma APRESENTAÇÃO em cena isso é simplesmente
     // outra palavra — o que passa ali é página. Num shell antigo o campo é
     // ignorado e o rótulo volta a ser o de sempre.
-    slideLabel: who === 'deck' ? 'página' : 'estrofe',
+    //
+    // A palavra sai da MESMA tabela que nomeia os botões da tela
+    // (`SLIDE_AXIS_NAME`): são a mesma pergunta feita em dois lugares, e a
+    // cópia local respondia "estrofe" para um versículo e para uma mensagem.
+    slideLabel: SLIDE_AXIS_NAME[who] || 'estrofe',
     wallpaper: view === 'wallpaper',
     positionMs: temTempo ? Math.round((parseFloat(seekEl.value) || 0) * 1000) : 0,
     durationMs: temTempo ? Math.round((parseFloat(seekEl.max) || 0) * 1000) : 0,
@@ -5421,9 +5425,25 @@ function applySlideLimits(who) {
 // estrofe ficava CINZA. Agora o mesmo botão ainda serve à mídia no toque longo,
 // então ele não pode ser `disabled` — o que ele faz é esmaecer (`.axis-end`),
 // que é a mesma leitura de "este caminho acabou" sem tirar o outro do ar.
-const SLIDE_AXIS_NAME = { lyrics: 'estrofe', bible: 'versículo', message: 'mensagem' };
-const SLIDE_AXIS_PREV = { lyrics: 'Estrofe anterior', bible: 'Versículo anterior', message: 'Mensagem anterior' };
-const SLIDE_AXIS_NEXT = { lyrics: 'Próxima estrofe', bible: 'Próximo versículo', message: 'Próxima mensagem' };
+//
+// AS TRÊS TABELAS COBREM TODOS OS ALVOS DE `slideTarget()`, e isso não é
+// zelo: elas são indexadas pelo alvo, e um alvo que falte não dá erro nenhum —
+// vira `undefined` e o `title` do botão passa a dizer literalmente
+// "undefined · segure para a próxima mídia". Faltavam justamente os dois mais
+// novos, `deck` (v5.97) e `songlyrics` — e o da apresentação é o que mais
+// aparece, porque ali ⏮/⏭ são o único jeito de passar página.
+const SLIDE_AXIS_NAME = {
+  lyrics: 'estrofe', songlyrics: 'estrofe', bible: 'versículo',
+  message: 'mensagem', deck: 'página',
+};
+const SLIDE_AXIS_PREV = {
+  lyrics: 'Estrofe anterior', songlyrics: 'Estrofe anterior', bible: 'Versículo anterior',
+  message: 'Mensagem anterior', deck: 'Página anterior',
+};
+const SLIDE_AXIS_NEXT = {
+  lyrics: 'Próxima estrofe', songlyrics: 'Próxima estrofe', bible: 'Próximo versículo',
+  message: 'Próxima mensagem', deck: 'Próxima página',
+};
 function renderTransportAxis(who) {
   const par = [[prevEl, slidePrevBtnEl, SLIDE_AXIS_PREV[who], 'Mídia anterior', 'segure para a mídia anterior'],
     [nextEl, slideNextBtnEl, SLIDE_AXIS_NEXT[who], 'Próxima mídia', 'segure para a próxima mídia']];

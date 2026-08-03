@@ -46,7 +46,22 @@ import kotlin.concurrent.thread
 object WebUpdater {
 
     private const val TAG = "AvIasd/OTA"
-    private const val REPO = "jonathasptbr-gh/APP-Audio-Visual-IASD"
+
+    /**
+     * O repositório de onde o canal OTA é lido. **Precisa ser o nome ATUAL**,
+     * o mesmo que o workflow escreve no campo `assets` do `version.json`
+     * (`$GITHUB_REPOSITORY`).
+     *
+     * Ficou apontando para o nome ANTIGO (`APP-Audio-Visual-IASD`) depois que
+     * o repositório foi renomeado, e continuou funcionando por um acaso: o
+     * GitHub redireciona o nome antigo para o novo. É um acaso frágil, e o
+     * modo de falhar é o pior possível — se alguém criar um repositório com o
+     * nome antigo nesta conta, o redirecionamento morre e o app passa a
+     * buscar `version.json` num repositório de outra pessoa; se o
+     * redirecionamento simplesmente sumir, o `check()` engole o erro em
+     * `Log.i` e o OTA fica INERTE, sem sinal nenhum no aparelho.
+     */
+    private const val REPO = "jonathasptbr-gh/Audio-Visual-IASD"
     private const val VERSION_URL =
         "https://github.com/$REPO/releases/download/web-latest/version.json"
 

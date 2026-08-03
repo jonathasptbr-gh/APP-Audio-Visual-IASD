@@ -1240,13 +1240,19 @@ let pausaComandada = 0;
 })();
 
 AVDB.onCommand(async (cmd) => {
+  // A guarda vem PRIMEIRO: ela estava três linhas abaixo, depois de dois
+  // acessos a `cmd.type` — ou seja, o comando nulo que ela existe para barrar
+  // já teria derrubado o handler antes de chegar nela. Hoje `deliverCommand`
+  // filtra o nulo antes daqui, então isto é cinto e suspensório; a ordem
+  // errada é que não podia ficar, porque quem lê conclui que o caso está
+  // coberto.
+  if (!cmd) return;
   if (cmd.type === 'pause' || cmd.type === 'clear' || cmd.type === 'load') pausaComandada = Date.now();
   // O Controle pede a caixa-preta ao abrir Configurações.
   if (cmd.type === 'diag-ask') {
     AVDB.sendCommand({ type: 'diag-dump', linhas: diario.slice(-DIAG_MAX) });
     return;
   }
-  if (!cmd) return;
 
   // Preenchimento (object-fit): sempre vai pro stage, mesmo com YouTube ativo
   // (o iframe não usa isso) — sem esse desvio explícito, cairia em ytHandle()
