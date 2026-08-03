@@ -94,7 +94,7 @@ git push origin main
   MENOR que o já publicado — caso em que `WebUpdater.compareVersions` ignora o
   bundle em silêncio. Para saber onde a base está, leia `version.json`.
 
-  No app nativo o rótulo mostra os **dois índices** — `Web v5.85 · Shell v1.31`
+  No app nativo o rótulo mostra os **dois índices** — `Web v5.86 · Shell v1.31`
   —, porque base web e shell atualizam por caminhos independentes (OTA ×
   instalar APK); no navegador sai só `Controle v<versão>`. **Ele mora no rodapé
   do popup de Configurações** desde a v5.49 (antes ficava no cabeçalho da lista,
@@ -2865,6 +2865,32 @@ pesquisar de novo, compartilhar de volta, esperar. Agora é digitar uma vez.
   algo capaz de quebrar a lista.
 - **Digitar outro termo descarta os resultados anteriores**: uma lista de outra
   busca embaixo do campo é pior que nenhuma.
+- **Chegar no fim da lista já pesquisa** (v5.86, `armarAutoBuscaYt`). Rolar até
+  o fim do que o acervo tem É o gesto de quem não achou o que queria, e nesse
+  ponto pedir mais um toque é cerimônia. O botão fica: ele é o caminho de quem
+  decide antes de rolar, e é o que mostra que a busca está em curso.
+  A espera de 500 ms não é enfeite — a lista é reconstruída A CADA TECLA, e com
+  poucos resultados o botão nasce visível: sem ela a busca dispararia com o
+  termo pela metade ("Fir"), uma vez por letra. O termo é reconferido quando o
+  prazo vence, porque ele pode ter mudado durante a espera. E a auto-busca
+  **não** acontece num shell < 18, onde o botão abre o YouTube por fora: tirar o
+  operador do app sem ele ter pedido seria outra coisa.
+- **O toque num resultado abre a MESMA folha de três escolhas das músicas do
+  acervo** (v5.86): *Tocar agora* · *Adicionar à playlist* · *Adicionar ao
+  Cronograma*. Antes o toque baixava direto — o operador não escolhia nada e o
+  vídeo caía no Cronograma quisesse ele ou não.
+  - **"Tocar agora" FECHA o acervo**, pela mesma regra de `playSongVariant`: o
+    cartão de progresso mora na preview, e a preview está atrás desta bandeja.
+  - **As duas de "adicionar" MANTÊM o acervo aberto** — quem está buscando
+    provavelmente vai pegar mais de um. Ali o aviso é a própria linha, e ela
+    termina marcada como **concluída** (✓ verde sobre a miniatura) em vez de
+    voltar ao estado inicial: era essa volta silenciosa que fazia parecer que
+    nada tinha acontecido.
+  - O estado de cada linha vive num Map (`ytEstado`), não na classe do nó: a
+    lista é reconstruída a cada tecla e a cada redesenho, e a marca sumiria com
+    o download ainda correndo — mesma razão do `songRowBusy` das músicas.
+  - Concluído fica APAGADO, não desabilitado: o mesmo vídeo pode ser querido de
+    novo (uma vez na playlist, outra no Cronograma).
 - Num shell < 18 o botão volta a ser o que sempre foi: abre o YouTube por fora.
 
 

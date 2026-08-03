@@ -1428,14 +1428,32 @@ main {
 }
 .yt-result .yt-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .yt-result .yt-thumb .dl-ring { --dl-ring: 26px; position: absolute; inset: 0; margin: auto; display: none; }
-/* Tocada = já foi pedida. O acervo continua aberto depois do toque, e sem esta
-   marca o operador toca de novo achando que não pegou. */
+/* Baixando e CONCLUÍDO são os dois estados do mesmo canto da miniatura. O
+   segundo é o que faltava: a linha voltava ao estado inicial no fim do
+   download, e uma linha idêntica à de antes lê-se como "não aconteceu nada". */
 .yt-result.baixando .yt-thumb .dl-ring { display: flex; }
 .yt-result.baixando .yt-thumb img { opacity: .25; }
 .yt-result.baixando .row-name { color: var(--muted); }
+.yt-result .yt-ok {
+  display: none; position: absolute; inset: 0;
+  align-items: center; justify-content: center;
+  background: var(--ok-soft); color: var(--ok);
+}
+.yt-result .yt-ok svg { width: 22px; height: 22px; }
+.yt-result.pronto .yt-ok { display: flex; }
+.yt-result.pronto .yt-thumb img { opacity: .3; }
+/* Concluído fica APAGADO, não desabilitado: o operador pode querer o mesmo
+   vídeo de novo (uma vez na playlist, outra no Cronograma), e a linha continua
+   respondendo ao toque. */
+.yt-result.pronto .row-name { color: var(--muted); }
+.yt-result .dl-pct { align-self: center; }
+/* Título de vídeo é longo por natureza — duas linhas, e só então reticências.
+   O `white-space: normal` é obrigatório: a regra base de `.row-name` é
+   `nowrap` (nome de arquivo é curto), e com ela o `line-clamp` nunca chega a
+   ter uma segunda linha para clampar. */
 .yt-result .row-name {
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
-  overflow: hidden; line-height: 1.25;
+  overflow: hidden; line-height: 1.25; white-space: normal;
 }
 /* O termo digitado não tem tamanho previsível — corta em reticências em vez de
    esticar a linha ou quebrar em três. */
