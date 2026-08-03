@@ -252,7 +252,7 @@ Além disso, `native.js` publica **quatro globais** lidas direto (sem Promise):
 o `versionName` do APK, que é o **índice de versão do shell exibido ao
 operador**. Ele não se confunde com `__SHELL_VERSION__`: base web e shell
 atualizam por caminhos independentes (OTA × instalar APK), então o rodapé de
-**Configurações** mostra os dois (`Web v5.95 · Shell v<versionName do APK>`,
+**Configurações** mostra os dois (`Web v5.96 · Shell v<versionName do APK>`,
 montado em `renderVersionLabel`; até a v5.48 ficava no cabeçalho do Cronograma —
 saiu de lá porque metadado de diagnóstico pertence à mesma tela do estado do
 telão, não a uma faixa de navegação). Num shell antigo (sem
@@ -865,7 +865,7 @@ contextos.
 | Estado do telão (rodapé de Configurações) | atalho `window.open('../display/')`, útil só para desenvolver | **indicador ao vivo** (desabilitado como botão) — a Presentation é criada sozinha |
 | Botão de cast da preview | oculto | `AVNative.openCast()` → seletor de **espelhamento de tela** (ver abaixo) |
 | Vídeo do YouTube | player embutido (IFrame API) | **arquivo de vídeo baixado PELO APARELHO** (`YoutubeGrab.kt` + `AVNative.ytFetch`) — o embed pausa sozinho com o app minimizado, e a extração no próprio celular sai do IP do chip, que é o que o YouTube não bloqueia. Sem configurar nada. Cobalt continua como segunda opção para quem já mantém uma instância; falhando os dois, o link vira item de player |
-| Buscar no YouTube | não existe: o botão abre o YouTube numa aba | **a busca acontece DENTRO do acervo** (`AVNative.ytSearch`, `YoutubeGrab.pesquisar`, em **português** — no padrão en-GB da biblioteca o YouTube devolve o título TRADUZIDO de vídeos que são originalmente em português, e passar a localização ao `NewPipe.init` NÃO resolve: o serviço filtra o idioma por uma lista de suportados que hoje só tem `en-GB`. Quem resolve é o `forceLocalization` do próprio `Extractor`): os resultados entram na mesma lista e o toque abre a mesma folha de três escolhas das músicas (tocar · playlist · Cronograma), cada uma indo só para o seu lugar. Um iframe da página de resultados é recusado pelo `X-Frame-Options` do YouTube, e a API oficial exigiria chave com cota compartilhada pela frota |
+| Buscar no YouTube | não existe: o botão abre o YouTube numa aba | **a busca acontece DENTRO do acervo** — a tela que o rótulo chama de **Biblioteca** desde a v5.96, e que no código segue sendo o acervo — (`AVNative.ytSearch`, `YoutubeGrab.pesquisar`, em **português** — no padrão en-GB da biblioteca o YouTube devolve o título TRADUZIDO de vídeos que são originalmente em português, e passar a localização ao `NewPipe.init` NÃO resolve: o serviço filtra o idioma por uma lista de suportados que hoje só tem `en-GB`. Quem resolve é o `forceLocalization` do próprio `Extractor`): os resultados entram na mesma lista e o toque abre a mesma folha de três escolhas das músicas (tocar · playlist · Cronograma), cada uma indo só para o seu lugar. Um iframe da página de resultados é recusado pelo `X-Frame-Options` do YouTube, e a API oficial exigiria chave com cota compartilhada pela frota |
 | Link para fora do app ("Pesquisar … no YouTube") | `window.open` numa aba nova | **`AVNative.openExternal(url)`** → `ACTION_VIEW` numa tarefa própria. O WebView RECUSA navegar para outro origin (invariante 2), então sem esse método um link externo não faz absolutamente nada — nem erro no console |
 | "Conectar a tela" (modo simplificado) | abre a tela do Display (`window.open`) — e é ela que conta como "conectado" | mesmo `AVNative.openCast()`, com o nome da tela conectada no subtítulo |
 | Simplificado sem tela conectada | mesmo bloqueio, com a janela do Display no lugar da `Presentation` | **modo bloqueado**: cortina embaçada sobre tudo, só o botão de conectar — preenchido no accent, no centro da tela — e a saída para o avançado na frente |
@@ -1303,7 +1303,7 @@ aparelho nenhum.
 O `versionCode`/`versionName` do APK vêm do CI (ver "Build") e não se tocam à
 mão.
 
-**Versão atual: v5.95** (base web) · `SHELL_VERSION` **18**, e o bundle segue com
+**Versão atual: v5.96** (base web) · `SHELL_VERSION` **18**, e o bundle segue com
 `minShell: 2` — ele funciona igual num shell antigo, só sem os recursos que são
 nativos por construção (a escada do voltar, os botões de volume, a notificação de
 controles), que **só chegam instalando o APK novo**, não pelo OTA.
