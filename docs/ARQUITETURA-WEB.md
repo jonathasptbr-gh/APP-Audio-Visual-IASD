@@ -2519,9 +2519,18 @@ novo — é ruído repetido em cada linha de uma lista de dezenas de álbuns, e 
 estado que o operador procura ali é justamente o oposto: o que ainda **falta**.
 Numa lista toda baixada, o silêncio é a resposta certa, e ela continua legível
 por eliminação: `não sincron.` quando não há índice, uma fração quando falta
-algo, **nada** quando está completo. Um álbum completo fica só com nome e seta,
-e o detalhe (peso, "✓ Completo offline") segue na engrenagem dentro do card
-aberto. Enquanto o download roda o resumo volta, mostrando o progresso ao vivo.
+algo, **nada** quando está completo. Enquanto o download roda o resumo volta,
+mostrando o progresso ao vivo.
+
+**E no lugar vazio entra o PESO** (v5.93, `.coll-bar-peso`). O botão saiu por
+não ter mais o que fazer e o contador por não dizer nada de novo — os dois
+argumentos valiam para eles, e nenhum vale para o tamanho: ele é o único número
+daquela linha que **não se deduz olhando**, e é a pergunta que se faz
+justamente sobre o que já está completo, na hora de decidir o que apagar num
+aparelho sem espaço. Ali ele é EXATO (soma do catálogo), então não leva "~".
+Mesmo tom, peso e `tabular-nums` do resumo que ele substitui: é a mesma coluna
+da mesma lista, e duas tipografias fariam parecer que os dois números falam de
+coisas diferentes.
 
 Os **contadores de GRUPO** (`.coll-group-count`, no cabeçalho de categoria e em
 "Todo o acervo") ficam mesmo completos: eles somam várias coleções, e ali o
@@ -2655,9 +2664,15 @@ dentro do card): tudo que é manutenção — uma faixa de **dois chips**
 - **`Sincronizados`** (`.hymnal-stat.sinc`) diz as duas coisas na mesma linha:
   quantas faixas estão no aparelho e o que isso significa — `4/4 · Completo
   offline` (com ✓, em verde), `1/4 · Parcial`, `— · Não sincronizado`.
-- **`Peso`** (`fmtBytes(ui(coll.id).bytes)`), à direita (`.hymnal-stat.right`,
+- **`Peso`** (`medirColecao`), à direita (`.hymnal-stat.right`,
   `flex: 0 0 auto`): é o número curto e secundário da linha, e ancorá-lo na
-  borda oposta dá ao chip de sincronização a largura de que ele precisa.
+  borda oposta dá ao chip de sincronização a largura de que ele precisa. Ele diz
+  as DUAS medidas (v5.93) — `3,7 de ~18 MB`: só o que está no aparelho não
+  responde "quanto isto vai custar", e só o total esconde o que já foi gasto.
+  Completo, os dois seriam o mesmo número dito duas vezes, então fica um só e
+  sem "~". A unidade aparece uma vez quando é a mesma nos dois (`fmtParBytes`);
+  se divergirem (`800 KB de ~1,2 GB`), as duas ficam — "800 de ~1,2 GB" seria
+  falso.
 - **Sincronizar** (`syncCollection`), rotulado pelo que ESTE toque vai fazer
   neste álbum: **"Verificar atualizações"** com o álbum inteiro no aparelho
   (não há o que baixar — só conferir se o catálogo mudou), **"Baixar álbum"**
@@ -2720,6 +2735,47 @@ grande já é demorada por si só.
 `refreshCollectionOptions()` é
 chamado por `refreshCollectionsIfVisible()`, então o progresso da
 sincronização aparece no popup aberto sem fechar e reabrir.
+
+#### A medição do peso (v5.93)
+
+São **duas perguntas**, e só uma tem resposta exata:
+
+1. **quanto já está no aparelho** — soma dos `size` do catálogo OPFS da pasta da
+   coleção. É EXATO, e cobre tudo que o download traz: os áudios Cantado e
+   Playback, a capa e as imagens de fundo da letra.
+2. **quanto pesa o álbum inteiro** — o que falta ainda não veio, então é
+   ESTIMATIVA. O `~` na tela é parte da informação, não enfeite.
+
+**A estimativa é por DURAÇÃO, não por contagem de faixas** — era por contagem
+até a v5.92 (`bytes / baixados × pendentes`). Áudio é bytes por segundo: num
+hinário, em que as faixas têm durações parecidas, os dois métodos empatam; num
+álbum com um louvor de 2 min ao lado de um de 9, a média por faixa erra por um
+fator de quatro, e erra logo na pergunta que decide um gasto de dados móveis. A
+duração já está no índice (`duration`, `"HH:MM:SS"`).
+
+**A taxa é MEDIDA no aparelho** — bytes no disco ÷ segundos baixados —, e não
+uma constante de bitrate. Isso amortiza sozinho o que não é áudio (capas e
+imagens de letra pesam, e as faixas que faltam trarão as suas) e acompanha o
+bitrate real do acervo. A escada de fontes vai da mais específica à mais
+genérica: a taxa **deste** álbum → a média de tudo o que já foi baixado no
+aparelho → 128 kbps (`BPS_PADRAO`). Sem o último degrau, um álbum ainda vazio
+não teria tamanho nenhum a mostrar — que é exatamente quando a informação mais
+importa.
+
+Duas ressalvas honestas: o **Playback** conta com a duração do Cantado (a lista
+leve não traz `instrumental_duration`, e é a mesma música), e uma faixa **sem
+duração** no índice entra por `SEG_PADRAO` (3min30) em vez de somar zero — que
+faria o álbum parecer menor do que é.
+
+**O peso medido PERSISTE** (`state['coll-bytes']`). `collUI` é estado de
+sessão: até a v5.92 o peso de um álbum só existia depois de o operador abrir as
+opções dele, e fechar o app o apagava. Agora ele aparece na barra de todo álbum
+completo, e recontar o catálogo de cada um a cada abertura é caro pelo motivo
+logo abaixo. A escrita é coalescida (o contador sobe a cada arquivo baixado; um
+`setState` por música seria uma transação de IDB por download), e um álbum com
+músicas no aparelho e peso zerado — quem baixou antes da v5.93 — é recontado
+**uma vez por sessão** (`conferirPesoSeFaltar`, com um `Set` que impede o
+`refreshCollectionsIfVisible` de dentro da recontagem de virar laço).
 
 **O peso NÃO é recalculado durante o render.** `updateCollBytes` faz um
 `filesByFolder` — um `getAll` da index que desserializa TODOS os registros da
@@ -3278,10 +3334,10 @@ download pesado abre um diálogo de duas saídas: **"Usar dados móveis"** ou
 **"Só no Wi-Fi"**. A escolha vale **só para aquela sincronização daquele
 álbum** — não vira preferência do app, e o próximo álbum pergunta de novo.
 
-O diálogo mostra **quanto** falta, quando dá para saber: `estimatePendingBytes`
-extrapola a partir do peso REAL do que já está em disco naquela coleção
-(`bytes / baixados × pendentes`). Sem nada baixado ainda não há de onde tirar,
-e a mensagem omite o tamanho em vez de inventar um número.
+O diálogo mostra **quanto** falta: `estimatePendingBytes` devolve o mesmo
+número que o painel do álbum (`medirColecao`), que é o ponto — a estimativa que
+decide o gasto de dados móveis não pode divergir da que o operador acabou de
+ler no card.
 
 Um indicador (`.net-badge`, ícone de Wi-Fi inline — fora do subset da fonte)
 aparece nas opções da coleção, atualizado ao vivo
