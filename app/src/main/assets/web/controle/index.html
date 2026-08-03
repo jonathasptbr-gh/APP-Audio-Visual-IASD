@@ -51,25 +51,25 @@
       </button>
     </div>
 
-    <!-- Com uma tela CONECTADA, o botão de conectar dá lugar à PREVIEW: ela é
-         o sinal de conexão (não há o que dizer melhor sobre "está conectado?"
-         do que mostrar o que a TV está exibindo) e o ícone de cast no canto
-         dela é por onde se desconecta.
-         O nó da preview é O MESMO do modo avançado — ele é MOVIDO para cá e de
-         volta (ver `hostPreview` em controle.js), pelo mesmo padrão do `#selbar`
-         e do `<input type=file>`: dois nós divergiriam no primeiro ajuste, e
-         dois `createStage` decodificariam o mesmo vídeo duas vezes num aparelho
-         que já roda dois WebViews.
-         Vazio no HTML de propósito: sem tela conectada esta faixa não existe
-         (`.simple.locked .simple-stage`), e é o bloqueio que ocupa a tela. -->
-    <div class="simple-stage" id="simpleStage"></div>
-
     <!-- As duas ações no alto, lado a lado: teclas grandes de ícone + rótulo.
          Com a tela bloqueada esta faixa sai do fluxo e vai para o CENTRO da
          tela, só com o botão de conectar (ver .simple.locked .simple-actions).
          Ali o botão diz tudo sozinho — ícone e uma frase —, então não há
          mensagem separada: ver renderSimpleCast. -->
     <div class="simple-actions">
+      <!-- Com uma tela CONECTADA, o botão de conectar dá lugar à PREVIEW, NA
+           MESMA CÉLULA da grade: ela é o sinal de conexão (não há o que dizer
+           melhor sobre "está conectado?" do que mostrar o que a TV exibe) e o
+           ícone de cast no canto dela é por onde se desconecta. Os dois nunca
+           coexistem, então dividir a célula é o certo — a faixa continua sendo
+           duas colunas, com "Buscar música" ao lado, como sempre foi.
+           O nó da preview é O MESMO do modo avançado — ele é MOVIDO para cá e
+           de volta (ver `hostPreview` em controle.js), pelo mesmo padrão do
+           `#selbar` e do `<input type=file>`: dois nós divergiriam no primeiro
+           ajuste, e dois `createStage` decodificariam o mesmo vídeo duas vezes
+           num aparelho que já roda dois WebViews.
+           Vazio no HTML de propósito: quem o preenche é o `hostPreview`. -->
+      <div class="simple-stage" id="simpleStage"></div>
       <button type="button" id="simpleCastBtn" class="simple-key simple-action">
         <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M3 19a2 2 0 0 1 2 2"/>
@@ -119,6 +119,11 @@
              `load()` e de dezenas de leituras do IndexedDB — e o modo
              simplificado é a primeira tela que o operador vê. -->
         <button type="button" id="simplePlay" class="simple-key simple-key--big" title="Play/Pause"><span class="msym" aria-hidden="true">&#xe037;</span></button>
+        <!-- Parar e limpar: a outra metade do transporte. Sem ele, tirar a
+             mídia do telão obrigava a ir ao modo avançado — e é justamente o
+             que se faz no fim de cada louvor. O glifo é estático porque ele não
+             tem estado: aciona o `#stop` de sempre por `.click()`. -->
+        <button type="button" id="simpleStop" class="simple-key simple-key--big" title="Parar e limpar"><span class="msym" aria-hidden="true">&#xe047;</span></button>
         <button type="button" id="simpleMute" class="simple-key simple-key--big" title="Mutar"><span class="msym" aria-hidden="true">&#xe050;</span></button>
       </div>
       <!-- Volume por teclas (− / +) com o indicador no meio: num controle não
@@ -593,7 +598,7 @@
              METADADO de diagnóstico e o lugar onde se procura diagnóstico é
              junto do estado do telão e do alvo de espelhamento, não numa faixa
              de navegação. Preenchido por `renderVersionLabel`. -->
-        <span id="appVersion" class="app-version">Controle v5.71</span>
+        <span id="appVersion" class="app-version">Controle v5.72</span>
       </div>
     </div>
   </div>
@@ -628,19 +633,12 @@
     </div>
   </div>
 
-  <!-- Opções de uma coleção (álbum/hinário). O card em si abre a LISTA de
-       músicas ao toque; tudo que é manutenção (sincronizar, excluir, estado do
-       download) mora aqui, atrás do botão de engrenagem. -->
-  <div id="collPopup" class="popup-backdrop">
-    <div class="popup-sheet">
-      <div class="popup-header">
-        <span class="msym popup-header-icon" aria-hidden="true">&#xe2c7;</span>
-        <span class="popup-title" id="collPopupTitle">Coleção</span>
-        <button id="collPopupClose" class="popup-close" title="Fechar"><span class="msym" aria-hidden="true">&#xe14c;</span></button>
-      </div>
-      <div class="coll-opts" id="collOpts"></div>
-    </div>
-  </div>
+  <!-- (As opções de uma coleção — sincronizar, excluir, estado do download —
+       eram um bottom-sheet aqui. Desde a v5.72 elas são um PAINEL dentro do
+       próprio card do álbum, aberto pela engrenagem da barra dele; um popup
+       sobre o acervo, que já é um popup de tela cheia, era uma camada a mais
+       para ver o peso de um álbum que já estava aberto na tela. Ver
+       `buildCollectionOptions` em controle.js.) -->
 
   <!-- FAVORITOS: a GAVETA que desce do topo (v5.53). Era uma tela da lista
        (`activeTab === 'folders'`) alcançada pelo botão no fim do Cronograma, e

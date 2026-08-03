@@ -94,7 +94,7 @@ git push origin main
   MENOR que o já publicado — caso em que `WebUpdater.compareVersions` ignora o
   bundle em silêncio. Para saber onde a base está, leia `version.json`.
 
-  No app nativo o rótulo mostra os **dois índices** — `Web v5.71 · Shell v1.24`
+  No app nativo o rótulo mostra os **dois índices** — `Web v5.72 · Shell v1.24`
   —, porque base web e shell atualizam por caminhos independentes (OTA ×
   instalar APK); no navegador sai só `Controle v<versão>`. **Ele mora no rodapé
   do popup de Configurações** desde a v5.49 (antes ficava no cabeçalho da lista,
@@ -901,7 +901,7 @@ mirar um alvo fino ali é o pior formato possível.
 | **Buscar música** (`#simpleSearchBtn`) | o MESMO popup de busca do acervo (`openHymnSearch`). Um toque na linha **toca a versão Cantada direto** (ver abaixo) |
 | **Linha do tempo** (`#simpleTime`) | decorrido · barra · duração, só LEITURA — espelha a mesma `#seek` do modo avançado (que já é alimentada pela preview, pelo `display-status` e pelo polling do YouTube) e some quando o item não tem duração |
 | **Letra** (`#simpleLyrics`) | a letra INTEIRA da música em cena, com o mesmo destaque e o mesmo acompanhamento da leitura auxiliar do modo avançado |
-| **Play/pause e mudo** | `.click()` em `#playpause` / `#muteToggle` |
+| **Play/pause, parar e mudo** | `.click()` em `#playpause` / `#stop` / `#muteToggle`. O **parar** entrou na v5.72, ao lado do play: é a outra metade do transporte, e sem ele tirar a mídia do telão obrigava a ir ao modo avançado — justamente o que se faz no fim de cada louvor. A fileira passou a ter três colunas |
 | **Volume** (`#simpleVolDown` / `#simpleVolUp`) | teclas **−** e **+** com o número no meio (`.simple-vol-read`), não um slider |
 | **Modo avançado** (`#simpleFullBtn`, `.mode-switch`) | `setAppMode('full')` — a tela completa de sempre. Era texto `--muted` sobre `--surface`: dentro do mínimo de contraste, mas lido como **legenda**, não como botão. Desde a v5.40 é texto pleno (`--text`) sobre `--surface-2` com borda de `--accent` — **7,03:1** na paleta atual — e desde a v5.49 leva a **seta** e divide a classe `.mode-switch` com o gêmeo do modo avançado (`#fullSimpleBtn`) |
 
@@ -977,16 +977,33 @@ de um para posicionar o outro.
 #### A preview no lugar do botão de conectar (v5.71)
 
 Conectado, não há nada melhor a dizer sobre "está conectado?" do que **mostrar o
-que a TV está exibindo**. O botão de conectar sai e a preview ocupa o lugar
-dele, no topo; a faixa `.simple-actions` fica só com "Buscar música", em uma
-coluna. O ícone de **cast no canto** da preview faz os dois papéis que sobraram:
+que a TV está exibindo**. O botão de conectar sai e a preview ocupa **a célula
+dele** na grade de ações — mesma largura, mesma linha, ao lado de "Buscar
+música", que continua onde sempre esteve. Os dois nunca coexistem, então
+dividir a célula é o certo: a faixa segue com as duas colunas de sempre e nada
+no resto da tela se move.
 
-- **sinaliza** — verde (`--ok`) com uma tela recebendo, âmbar (`--warn`) na
-  liberação de teste. O mesmo par de cores do botão que ele substitui: o sinal
-  mudou de lugar, não de significado;
-- **é a saída** — abre o seletor do Android, que é onde se troca de tela ou se
-  desconecta. Desconectado, `onDisplayChange` rebaixa a cortina sozinho e o
-  botão de conectar volta ao centro, pelo caminho que já existia.
+A preview não tem altura própria ali: a largura é a da coluna e a altura vem da
+**proporção do telão**, que é o ponto de ela existir. Como a 16:9 nessa largura
+ela sai um pouco mais baixa que a tecla ao lado (83px contra 94px, num aparelho
+de 390px), a grade a centraliza verticalmente na célula — as bordas laterais
+das duas ficam alinhadas, que é o que se vê. Esticá-la para preencher os 11px
+que faltam custaria a fidelidade da proporção, e é justamente ela que faz a
+miniatura valer como espelho do telão.
+
+O ícone de **cast no canto** da preview faz os dois papéis que sobraram:
+
+- **é a saída, e a cor diz isso** — conectado ele fica **vermelho**
+  (`--danger-text`), porque ali o toque DESCONECTA. Quem já diz que há uma tela
+  recebendo é a própria preview, que só existe aqui quando há; o que sobra para
+  o ícone dizer é o que o toque faz. Vermelho **contornado** (a família de ação
+  destrutiva) e nunca o `--danger` cheio: preenchido, o vermelho deste app
+  significa "está no ar agora", e competiria com a mídia que a miniatura está
+  justamente mostrando. Ele abre o seletor do Android, que é onde se troca de
+  tela ou se desconecta; desconectado, `onDisplayChange` rebaixa a cortina
+  sozinho e o botão de conectar volta ao centro, pelo caminho que já existia;
+- **âmbar (`--warn`) na liberação de teste** — ali não há tela para desconectar,
+  e o que o toque faz é trancar de volta.
 - Na **liberação de teste** o toque simplesmente TRANCA de volta: não há tela
   real para desconectar, e o botão que hospedava o "segurar 5 s" some justamente
   quando a liberação fica ativa, porque a preview toma o lugar dele.
@@ -1015,7 +1032,11 @@ que a mudança de pai obriga:
 **E o cartão de "Baixando…" aparece aqui também** — é a mesma preview, então é o
 mesmo `previewBusy`. A única condição que mudou: ele volta `visivel: false` no
 simplificado **sem tela conectada**, quando a preview não está na tela e quem
-avisa continua sendo o toast.
+avisa continua sendo o toast. O cartão foi desenhado para a preview do deck, que
+é quase o dobro desta, então `.simple-stage` reduz as medidas dele (anel de
+22px, fontes menores) e reserva à direita os 38px do `.pv-fab` — sem isso ele
+transbordava a miniatura e passava por baixo do ícone de cast, que numa caixa de
+~83px de altura cruza a faixa central onde o cartão fica.
 
 **A única parte que muda por contexto é quem responde "há tela?"** — o resto do
 mecanismo é o mesmo nos dois. No app são as telas de apresentação que a ponte
@@ -2449,13 +2470,28 @@ está no aparelho. É também o último uso do verde de "concluído" nesse conte
 
 **Uma coleção aberta por vez** (abrir uma fecha as demais): duas listas de
 centenas de faixas empurrariam o acervo para fora da tela e tirariam do lugar
-exatamente o card que o operador estava mirando. Dentro do aberto vêm, nesta
-ordem, a **engrenagem larga e rotulada** ("Sincronizar e opções",
-`.coll-open-cfg`) e a lista **inteira** de músicas — sem teto, porque ali o
-operador está folheando um álbum, não filtrando o acervo, e cortar em 60
-esconderia o fim de qualquer hinário. As linhas são as mesmas `hymnResultRow`
-da busca, com `semColecao` ligado: repetir o nome do álbum nas dez faixas é
-ruído, o card em volta já diz de quem elas são.
+exatamente o card que o operador estava mirando. Dentro do aberto vem a lista
+**inteira** de músicas — sem teto, porque ali o operador está folheando um
+álbum, não filtrando o acervo, e cortar em 60 esconderia o fim de qualquer
+hinário. As linhas são as mesmas `hymnResultRow` da busca, com `semColecao`
+ligado: repetir o nome do álbum nas dez faixas é ruído, o card em volta já diz
+de quem elas são. Com as opções pedidas (abaixo), o painel delas vem ANTES da
+lista.
+
+#### A engrenagem volta para a barra, no lugar do download (v5.72)
+
+Aberto o card, a **engrenagem toma a caixa do botão de baixar** na barra
+(`.coll-bar-cfg`, herdando `.coll-bar-dl`): mesma coluna, mesmo alvo. Os dois
+nunca fazem falta ao mesmo tempo — fechado, o que se decide é "baixo isto?";
+aberto, já se está olhando o conteúdo e o que sobra é manutenção. Ela foi uma
+**barra larga rotulada** dentro do card por duas versões (`.coll-open-cfg`,
+"Sincronizar e opções"): uma linha inteira gasta com o que cabe no canto que já
+existia.
+
+**A exceção é o download EM CURSO.** Ali o botão da barra é o CANCELAR, e ele
+continua lá mesmo com o card aberto. Um álbum de centenas de faixas, uma vez
+começado, precisa poder parar num toque — esconder isso atrás da engrenagem
+devolveria exatamente o problema que o botão de cancelar veio resolver.
 
 ### Os acordeões abrem animados
 
@@ -2476,7 +2512,7 @@ linha de música.
 - **O `overflow: hidden` é devolvido no fim** (`finish` **e** `cancel`). Sem
   isso a lista de músicas ficaria presa à altura do instante em que a animação
   foi montada — e a letra que uma linha abrisse depois seria cortada.
-- **O card ganhou um invólucro** (`.coll-open`, com a engrenagem e a lista
+- **O card ganhou um invólucro** (`.coll-open`, com o painel de opções e a lista
   dentro) só para a animação ter UM nó a recortar. O `overflow` não podia ir no
   card: a barra dele é `position: sticky`, e um ancestral com overflow recortado
   a prende. As margens negativas do invólucro repetem as de `.coll-songs` (que
@@ -2509,19 +2545,34 @@ linha de música.
 > antigo com um conteúdo novo. `openCollectionSongs` e o `searchScope` que a
 > acompanhava não existem mais.
 
-**Opções da coleção** (`openCollectionOptions` → bottom-sheet `#collPopup`):
-tudo que é manutenção, fora do caminho de uso — **linha de status** (progresso
+**Opções da coleção** (`buildCollectionOptions` → painel `.coll-opts--inline`,
+dentro do card): tudo que é manutenção — **linha de status** (progresso
 via `setCollStatus`, ou "✓ Completo offline" em verde quando `downloaded ===
 total`, ou "Parcial…"/"Não sincronizado"), a faixa de **estatísticas** (chips
 `.hymnal-stat`): **Sincronizados** (`downloaded/total`), **Peso**
 (`fmtBytes(ui(coll.id).bytes)`) e **Rede** (Wi-Fi
 confirmado × "Aguardando", ícone de Wi-Fi SVG inline — ver `isConfirmedWifi`);
 e os botões **Sincronizar/Atualizar** (`syncCollection`) e **Excluir baixado**
-(`deleteCollection`). Não há "Ver músicas" aqui: a lista é o **toque no card**,
-e ter duas rotas fazia o popup competir com o gesto principal.
+(`deleteCollection`). Não há "Ver músicas" aqui: a lista é o **toque no card**.
 
-**As opções abrem ACIMA do acervo** — ver "Tela cheia, e a ação de maior
-alcance no título" para o degrau de `z-index` e a ordem em `POPUPS`.
+**Elas eram um bottom-sheet** (`#collPopup`, com degrau próprio de `z-index` e
+uma linha em `POPUPS`). Viraram um painel DENTRO do card na v5.72: um popup
+sobre o acervo — que já é um popup de tela cheia — era uma camada a mais para
+ver o peso e o estado de um álbum **que já estava aberto na tela**. No painel,
+fechar é o mesmo toque na engrenagem que abriu, e o `POPUPS`/`z-index` deixaram
+de ser necessários — um painel não é uma camada.
+
+- **`u.optsOpen`** é o estado, ao lado de `u.expanded`, em `ui(coll.id)`:
+  transitório por sessão, como o resto do estado de UI do card.
+- **Não há mais `refreshCollectionOptions`.** O painel é redesenhado junto com o
+  acervo, e o progresso da sincronização já dispara
+  `refreshCollectionsIfVisible` — não sobrou um popup com vida própria para
+  sincronizar à parte.
+- **Uma coleção SEM índice abre direto nas opções**: `openCollectionOptions`
+  liga `expanded` **e** `optsOpen`. Ali não há lista para folhear, e o que
+  resolve isso (sincronizar) está no painel — é para onde o toque na barra leva
+  quando `total === 0`. Por isso a condição de abertura do card passou a ser
+  `u.expanded && (total > 0 || u.optsOpen)`.
 
 **O botão de sincronizar é o mesmo botão de CANCELAR.** Com o download em
 curso ele vira ✕ ("Cancelar o download", em `--warn` e **sem
@@ -2734,7 +2785,7 @@ para os dois botões, com listas diferentes (`renderSongMenu`):
   `selected`, como sempre. Uma segunda lista de atalhos só para o acervo
   divergiria da primeira no dia em que alguém criasse um atalho novo.
 - **Empilhamento:** `#songMenuPopup` em `z-index: 210` (abre de dentro do
-  acervo, como `#collPopup`) e `#folderPopup` em `220` (abre de dentro dela) —
+  acervo) e `#folderPopup` em `220` (abre de dentro dela) —
   o seletor é declarado ANTES no documento, então sem o degrau a ordem do
   documento o deixaria por baixo. Na tabela `POPUPS` os dois entram nessa mesma
   ordem, porque o voltar a percorre de trás para a frente.
@@ -3386,6 +3437,9 @@ A busca ganha assim **dois níveis**, e isso muda três coisas:
     rotulada. Manutenção — sincronizar, excluir, peso — é o que se procura
     depois de já estar olhando o álbum, não antes; na barra ela era um ícone
     mudo disputando o toque com a própria linha, que agora abre a coleção.
+    *(Superado na v5.72: ela voltou para a barra, mas no lugar do botão de
+    baixar — que aberto não tem o que decidir. Ver "A engrenagem volta para a
+    barra".)*
   - **A barra da coleção aberta GRUDA no topo** (`position: sticky`). Sem isso,
     percorrer as 600 faixas de um hinário empurrava a própria barra — e a seta
     que fecha — para fora da tela: a única seta à vista passava a ser a de
@@ -3438,6 +3492,9 @@ A busca ganha assim **dois níveis**, e isso muda três coisas:
   (`z-index: 210`) e foi para o FIM de `POPUPS`, que passou a ser ordenada de
   baixo para cima: o voltar percorre a tabela de trás para a frente, então
   fechar o acervo antes das opções as deixaria órfãs no ar.
+  *(O popup em si saiu na v5.72 — as opções viraram um painel dentro do card —,
+  mas a ordenação de `POPUPS` que ele motivou ficou, e é a que o `#songMenuPopup`
+  e o `#folderPopup` usam hoje.)*
 
 #### E a aba de Álbuns saiu (v5.44)
 
@@ -4957,7 +5014,7 @@ Fora de `tokens.css`, no `:root` do Controle (não são cor):
   primeiro ajuste. **Quatro botões largos violavam a primeira metade da regra**
   e foram corrigidos na v5.49 (`.import-btn`, `.msg-add-btn`, `.new-folder-btn`
   e `.folder-pick-btn` usavam `--radius-card`): a maioria dos botões largos do
-  app — `.misc-project`, `.mic-btn`, `.chrono-btn`, `.coll-open-cfg`, `.draw-go`
+  app — `.misc-project`, `.mic-btn`, `.chrono-btn`, `.draw-go`
   — sempre usou `--radius-btn`, então eram esses quatro que destoavam, e dois
   deles ("Importar arquivos" e "+ Nova mensagem") são o mesmo tipo de botão
   tracejado em telas diferentes. Na mesma passada o tracejado de `.msg-add-btn`

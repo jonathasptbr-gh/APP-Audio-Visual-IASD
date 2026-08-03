@@ -157,7 +157,7 @@ input, textarea { user-select: text !important; -webkit-user-select: text !impor
 :is(
   .ctl-btn, .t-btn, .pv-fab, .settings-btn,
   .tab, .tab-add, .import-btn, .add-dir-btn, .back-btn, .sel-btn,
-  .row-btn, .row-handle, .popup-close, .coll-open-cfg, .new-folder-btn, .folder-pick-btn,
+  .row-btn, .row-handle, .popup-close, .new-folder-btn, .folder-pick-btn,
   .coll-bar, .coll-bar-dl, .coll-group-btn,
   .bible-cell, .bible-ref-part, .bible-vsec, .bible-ver-row,
   .hymn-row, .hymn-play-thumb, .song-menu-btn, .msg-add-btn, .msg-item,
@@ -182,7 +182,7 @@ input, textarea { user-select: text !important; -webkit-user-select: text !impor
    ícone dentro de um botão flex por 2-3px). */
 :is(
   .row-btn, .row-handle, .back-btn, .add-dir-btn, .sel-btn, .popup-close,
-  .coll-bar-dl, .coll-group-btn, .coll-open-cfg, .new-folder-btn,
+  .coll-bar-dl, .coll-group-btn, .new-folder-btn,
   .import-btn, .folder-pick-btn, .song-menu-icon, .mode-switch
 ) svg { display: block; width: var(--icon-sm); height: var(--icon-sm); }
 :is(.tab, .tab-add, .t-btn, .ctl-btn, .misc-tab, .settings-btn) svg {
@@ -1293,9 +1293,6 @@ main {
    nos CONTADORES DE GRUPO, que somam várias coleções e ali ainda respondem
    alguma coisa.) */
 .coll-bar-sync.busy { color: var(--accent); font-weight: 600; font-size: .7rem; max-width: 42%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-/* (A engrenagem saiu da barra para dentro do card aberto, em `.coll-open-cfg`.
-   As regras `.coll-bar-btn` e `.hymnal-card-btn.cfg-btn` que descreviam o
-   botão antigo não casavam com elemento nenhum e saíram.) */
 
 /* ----- Coleção aberta no próprio card (acordeão do acervo, v5.45) ----- */
 /* Baixar/cancelar a coleção, na barra. Alvo próprio (`--hit`) e `stopPropagation`
@@ -1339,22 +1336,15 @@ main {
   border-radius: var(--radius-card) var(--radius-card) 0 0;
   box-shadow: 0 6px 12px -8px rgba(0, 0, 0, .9);
 }
-/* A engrenagem desceu da barra para cá: manutenção (sincronizar, excluir, peso)
-   é o que se procura DEPOIS de já estar olhando o álbum. Larga e rotulada,
-   porque aqui há espaço — na barra ela era um ícone mudo disputando o toque
-   com a própria linha. */
-.coll-open-actions { padding: .5rem 0 .1rem; }
-.coll-open-cfg {
-  width: 100%; display: flex; align-items: center; justify-content: center; gap: .45rem;
-  border: none; appearance: none; -webkit-appearance: none;
-  border-radius: var(--radius-btn);
-  background: var(--surface); color: var(--text);
-  font-family: inherit; font-size: .8rem; font-weight: 600;
-  padding: .5rem .7rem; cursor: pointer;
-}
-.coll-open-cfg svg { color: var(--muted); }
-.coll-open-cfg.busy { background: var(--accent-soft); color: var(--accent); }
-.coll-open-cfg.busy svg { color: var(--accent); }
+/* A ENGRENAGEM VOLTOU PARA A BARRA (v5.72), no lugar exato do botão de baixar —
+   mesma caixa, mesma coluna, e os dois nunca fazem falta ao mesmo tempo (ver
+   renderCollectionCard). Ela foi uma barra larga rotulada dentro do card por
+   duas versões; uma linha inteira gasta com o que cabe no canto que já existia.
+   Herda `.coll-bar-dl`, então aqui fica só o que difere: o tom apagado de quem
+   é manutenção, e o accent quando o painel dela está aberto — o mesmo "é este"
+   que o app usa em toda parte. */
+.coll-bar-cfg { background: var(--surface); color: var(--muted); }
+.coll-bar-cfg.on { background: var(--accent-soft); color: var(--accent); }
 /* O invólucro do que a abertura revela (engrenagem + músicas). Existe só para a
    animação de altura ter UM nó para recortar — sem ele o `overflow:hidden`
    teria de ir no card, e o card tem a barra grudada no topo (`position:sticky`),
@@ -1375,8 +1365,14 @@ main {
 /* Conteúdo do bottom-sheet de mensagens. */
 .msg-list .empty { padding: 1rem 0; }
 
-/* Conteúdo do bottom-sheet de opções da coleção. */
+/* O painel de opções da coleção. Desde a v5.72 ele mora DENTRO do card, logo
+   abaixo da barra (`--inline`), e não num bottom-sheet: um popup sobre o acervo
+   — que já é um popup de tela cheia — era uma camada a mais para ver o peso de
+   um álbum que já estava aberto na tela. */
 .coll-opts { display: flex; flex-direction: column; gap: .6rem; padding: .2rem .9rem .9rem; }
+/* Sem o padding do sheet (o card já tem o seu) e separado da lista de músicas
+   pelo mesmo respiro que separa as músicas entre si. */
+.coll-opts--inline { padding: .5rem 0 .2rem; }
 .coll-opts .hymnal-card-status { white-space: normal; }
 /* O mesmo botão vira "cancelar" enquanto o download roda (ver
    renderCollectionOptions) — sem giro, e em AVISO para não se confundir nem
@@ -2414,25 +2410,46 @@ body.mode-simple .bottombar { display: none; }
    desconectar. Com isso a faixa de ações fica só com "Buscar música", que passa
    a ocupar a largura inteira.
    O nó é o MESMO do modo avançado, movido para cá por `hostPreview`. */
-.simple-stage { flex: none; display: flex; justify-content: center; height: 28vh; max-height: 210px; }
-/* A altura manda e a largura vem da proporção do telão — o inverso do deck, que
-   parte de `--deck-pv-h`. Sem isto a preview traria a largura calculada de lá,
-   estreita no meio de uma tela inteira. */
-.simple-stage .preview { height: 100%; width: auto; max-width: 100%; max-height: 100%; }
+/* Ela é UMA CÉLULA da grade de ações, no lugar exato que era do botão de
+   conectar — os dois nunca coexistem. Então nada de altura própria: a largura é
+   a da coluna e a altura vem da proporção do telão, que é o ponto de a preview
+   existir. A grade estica as duas células à mesma altura sozinha, e como a
+   preview a 16:9 nessa largura sai um pouco mais alta que a tecla ao lado, é
+   ela quem define a linha — e "Buscar música" acompanha. */
+.simple-stage { min-width: 0; display: flex; align-items: center; justify-content: center; }
+.simple-stage .preview { width: 100%; height: auto; max-width: 100%; max-height: 100%; }
+/* O cartão de "Baixando…" foi desenhado para a preview do deck, que é quase o
+   dobro desta: aqui ele transbordava a miniatura e passava por baixo do ícone
+   de cast. Mesmo cartão, medidas menores — a folga da direita continua sendo a
+   largura do `.pv-fab`, porque o cartão é centrado e o ícone fica no canto de
+   cima, mas numa caixa de ~83px de altura os dois se cruzam na vertical. */
+/* 38px = os 34px do `.pv-fab` + os 2px que a coluna dele recua do canto + 2 de
+   folga. Com 34 o cartão encostava nele por 2px. */
+.simple-stage .pv-busy { padding: .3rem 38px .3rem .3rem; }
+.simple-stage .pv-busy-card { gap: .35rem; padding: .3rem .45rem .3rem .35rem; }
+.simple-stage .pv-busy-card .dl-ring { --dl-ring: 22px; }
+.simple-stage .pv-busy-cap { font-size: .55rem; letter-spacing: .06em; }
+.simple-stage .pv-busy-label { font-size: .68rem; }
 /* Só o cast. Tela cheia aqui não faz sentido: neste modo há um telão conectado
    (é o que faz esta faixa existir), e a projeção está nele. */
 .simple-stage #pvFullBtn { display: none; }
-/* O par de cores é o mesmo que o botão substituído usava: verde = uma tela
-   recebendo; âmbar de aviso = liberação de teste, que não é conexão nenhuma. */
-.pv-fab.connected { color: var(--ok); }
+/* CONECTADO ele fica VERMELHO, e isso não é o estado — é a AÇÃO. Quem já diz
+   que há uma tela recebendo é a própria preview, que só existe aqui quando há;
+   o que o ícone tem a dizer, então, é o que o toque faz, e o que ele faz é
+   DESCONECTAR. Em `--danger-text` (o vermelho contornado, da família de ação
+   destrutiva) e nunca no `--danger` cheio: preenchido, o vermelho deste app
+   significa "está no ar agora", e um botão preenchido nesse tom competiria com
+   a mídia que a miniatura está justamente mostrando.
+   A liberação de TESTE segue em âmbar de aviso: ali não há tela para
+   desconectar, e o que o toque faz é trancar de volta. */
+.pv-fab.connected { color: var(--danger-text); }
 .pv-fab.testing { color: var(--warn); }
 /* Sem tela conectada a faixa não existe — a tela inteira é o bloqueio, e o
    botão de conectar volta ao centro dela. */
 .simple.locked .simple-stage { display: none; }
-/* Com tela conectada é o botão de conectar que sai: a preview já ocupa o lugar
-   dele, e "Buscar música" fica com a linha toda. */
+/* Com tela conectada é o botão de conectar que sai — a preview já está na
+   célula dele. A grade segue com as duas colunas de sempre. */
 .simple:not(.locked) #simpleCastBtn { display: none; }
-.simple:not(.locked) .simple-actions { grid-template-columns: 1fr; }
 
 /* ----- Bloqueio sem tela conectada (ver renderSimpleGate) ----- */
 /* A cortina cobre a tela inteira e é o que embaça: `backdrop-filter` age sobre
@@ -2543,7 +2560,10 @@ body.mode-simple .bottombar { display: none; }
 
 /* Teclado do controle: transporte em cima, volume embaixo. */
 .simple-remote { flex: none; display: flex; flex-direction: column; gap: .6rem; }
-.simple-keys { display: grid; grid-template-columns: 1fr 1fr; gap: .6rem; }
+/* TRÊS teclas: play · parar · mudo. O parar entrou na v5.72 ao lado do play —
+   é a outra metade do transporte, e sem ele tirar a mídia do telão exigia ir ao
+   modo avançado. `1fr` cada, então as três dividem a largura sozinhas. */
+.simple-keys { display: grid; grid-template-columns: repeat(3, 1fr); gap: .6rem; }
 .simple-key--big { height: 76px; }
 .simple-key--big .msym { font-size: 34px; }
 /* Os mesmos dois estados do mixer, na tecla grande — e nos mesmos tokens (ver

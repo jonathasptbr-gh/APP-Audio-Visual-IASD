@@ -37,6 +37,7 @@ const previewRowEl = document.querySelector('.preview-row');
 const pvCastBtnEl = document.getElementById('pvCastBtn');
 const simpleNpNameEl = document.getElementById('simpleNpName');
 const simplePlayEl = document.getElementById('simplePlay');
+const simpleStopEl = document.getElementById('simpleStop');
 const simpleMuteEl = document.getElementById('simpleMute');
 const simpleLyricsEl = document.getElementById('simpleLyrics');
 const simpleTimeEl = document.getElementById('simpleTime');
@@ -155,7 +156,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.71';
+const WEB_VERSION = '5.72';
 
 // Escrita UMA vez, na carga: o indicador mora no rodapé de Configurações desde
 // a v5.49 e não depende mais de qual aba está aberta (no cabeçalho ele
@@ -209,10 +210,6 @@ const hymnSearchCloseEl = document.getElementById('hymnSearchClose');
 const hymnSearchTotalEl = document.getElementById('hymnSearchTotal');
 const hymnSearchInputEl = document.getElementById('hymnSearchInput');
 const hymnResultsEl = document.getElementById('hymnResults');
-const collPopupEl = document.getElementById('collPopup');
-const collPopupTitleEl = document.getElementById('collPopupTitle');
-const collOptsEl = document.getElementById('collOpts');
-const collPopupCloseEl = document.getElementById('collPopupClose');
 const hymnSearchTitleEl = document.getElementById('hymnSearchTitle');
 const bibleVerPopupEl = document.getElementById('bibleVerPopup');
 const bibleVerListEl = document.getElementById('bibleVerList');
@@ -4318,7 +4315,28 @@ function renderCollectionCard(coll, ctx) {
   // ver o peso) é manutenção e já mora na engrenagem DENTRO do card aberto, que
   // é onde se procura depois de abrir o álbum. Enquanto o download ROLA o botão
   // continua, porque ali ele é o cancelar.
-  if (u.syncBusy || !complete) {
+  // ABERTO, a engrenagem toma o lugar do botão de baixar (v5.72). São a mesma
+  // coluna e o mesmo alvo, e nunca fazem falta ao mesmo tempo: fechado o que se
+  // decide é "baixo isto?"; aberto, já se está olhando o conteúdo, e o que
+  // sobra é manutenção. Antes ela era uma barra larga rotulada DENTRO do card —
+  // uma linha inteira gasta com o que agora cabe no canto que já existia.
+  //
+  // A exceção é o download EM CURSO: ali o botão é o CANCELAR, e ele continua
+  // na barra mesmo com o card aberto. Um álbum de centenas de faixas, uma vez
+  // começado, precisa poder parar num toque — esconder isso atrás da engrenagem
+  // devolveria o problema que o botão de cancelar veio resolver.
+  if (u.expanded && !u.syncBusy) {
+    const cfg = document.createElement('button');
+    cfg.className = 'coll-bar-dl coll-bar-cfg' + (u.optsOpen ? ' on' : '');
+    cfg.title = u.optsOpen ? 'Fechar as opções' : 'Sincronizar e opções';
+    cfg.innerHTML = gearIconSvg();
+    cfg.addEventListener('click', (e) => {
+      e.stopPropagation();   // divide a barra com o toque que fecha o acordeão
+      u.optsOpen = !u.optsOpen;
+      redesenharAcervo();
+    });
+    bar.appendChild(cfg);
+  } else if (u.syncBusy || !complete) {
     const dl = document.createElement('button');
     dl.className = 'coll-bar-dl' + (u.syncBusy ? ' busy' : '');
     dl.title = u.syncBusy ? 'Cancelar o download'
@@ -4328,8 +4346,8 @@ function renderCollectionCard(coll, ctx) {
     bar.appendChild(dl);
   }
 
-  // Sem índice ainda não há lista para abrir — o toque leva às opções, que é
-  // justamente onde está o sincronizar que resolve isso.
+  // Sem índice ainda não há lista para abrir — o toque abre o card já com as
+  // OPÇÕES à mostra, que é onde está o sincronizar que resolve isso.
   bar.addEventListener('click', () => {
     if (!total) { openCollectionOptions(coll); return; }
     // Acordeão: uma coleção aberta por vez. Duas listas de centenas de músicas
@@ -4352,8 +4370,10 @@ function renderCollectionCard(coll, ctx) {
   });
   li.appendChild(bar);
 
-  // ----- Aberto: engrenagem + as músicas da coleção -----
-  if (u.expanded && total > 0) {
+  // ----- Aberto: as opções (se pedidas) + as músicas da coleção -----
+  // `total === 0` também abre: é o caso do álbum sem índice, em que o card só
+  // tem as opções a mostrar — e é para elas que o toque na barra leva.
+  if (u.expanded && (total > 0 || u.optsOpen)) {
     li.classList.add('expanded');
 
     // Um invólucro só para os dois blocos abertos: é ele que a animação de
@@ -4363,23 +4383,26 @@ function renderCollectionCard(coll, ctx) {
     // filete durante a animação.
     const aberto = document.createElement('div'); aberto.className = 'coll-open';
 
-    const acoes = document.createElement('div'); acoes.className = 'coll-open-actions';
-    const cfg = document.createElement('button');
-    cfg.className = 'coll-open-cfg' + (u.syncBusy ? ' busy' : '');
-    cfg.title = 'Opções de sincronização';
-    cfg.innerHTML = gearIconSvg();
-    cfg.appendChild(document.createTextNode(' Sincronizar e opções'));
-    cfg.addEventListener('click', (e) => { e.stopPropagation(); openCollectionOptions(coll); });
-    acoes.appendChild(cfg);
-    aberto.appendChild(acoes);
+    // As opções ALI MESMO, logo abaixo da barra, dentro do card (v5.72). Eram
+    // um bottom-sheet (`#collPopup`), e um popup para ver o peso e o estado de
+    // sincronização de um álbum que já está aberto na tela era uma camada a
+    // mais sobre outra camada — o acervo já é um popup de tela cheia. Aqui elas
+    // ficam onde o assunto está, e fechar é o mesmo toque que abriu.
+    if (u.optsOpen) {
+      const opts = document.createElement('div'); opts.className = 'coll-opts coll-opts--inline';
+      buildCollectionOptions(coll, opts);
+      aberto.appendChild(opts);
+    }
 
     // A lista sai INTEIRA, quantos itens tenha: aqui o operador está folheando
     // um álbum, não filtrando o acervo — cortar num teto esconderia o fim de
     // qualquer hinário. É o mesmo `hymnResultRow` da busca, sem o subtítulo da
     // coleção (que é o próprio card em volta).
-    const lista = document.createElement('ul'); lista.className = 'coll-songs';
-    collSongs(coll.id).forEach((s) => lista.appendChild(hymnResultRow(coll, s, null, true)));
-    aberto.appendChild(lista);
+    if (total > 0) {
+      const lista = document.createElement('ul'); lista.className = 'coll-songs';
+      collSongs(coll.id).forEach((s) => lista.appendChild(hymnResultRow(coll, s, null, true)));
+      aberto.appendChild(lista);
+    }
     li.appendChild(aberto);
 
     // Só o toque que ABRIU anima. Um redesenho por outro motivo (o progresso do
@@ -4489,41 +4512,32 @@ function renderAcervoTotal(redesenhar) {
 // ===== Opções de uma coleção (bottom-sheet da engrenagem) =====
 // Tudo que é manutenção: estado do download, sincronizar/atualizar e excluir.
 // Fica fora da lista para que o card volte a ser só "o álbum", clicável.
-let collOptionsFor = null;
-
+// Abre o CARD já com as opções à mostra. É o caminho do toque numa coleção sem
+// índice: ali não há lista para folhear, e o que resolve isso (sincronizar)
+// mora nas opções.
 function openCollectionOptions(coll) {
-  collOptionsFor = coll;
-  collPopupTitleEl.textContent = coll.name;
+  const u = ui(coll.id);
   // Único ponto em que o peso é recontado a partir do catálogo: uma coleção,
   // uma vez, ao abrir. Durante o uso ele é mantido incrementalmente.
   updateCollBytes(coll.id);
-  renderCollectionOptions();
-  collPopupEl.classList.add('open');
+  allCollections().forEach((c) => { ui(c.id).expanded = false; });
+  u.expanded = true;
+  u.optsOpen = true;
+  u.animarAbertura = true;
+  redesenharAcervo();
 }
 
-function closeCollectionOptions() {
-  collOptionsFor = null;
-  collPopupEl.classList.remove('open');
-}
-
-// Re-renderiza o popup se ele estiver aberto na coleção dada — é o que faz o
-// progresso da sincronização aparecer sem fechar e reabrir.
-function refreshCollectionOptions(id) {
-  if (collOptionsFor && (!id || collOptionsFor.id === id) && collPopupEl.classList.contains('open')) {
-    renderCollectionOptions();
-  }
-}
-
-function renderCollectionOptions() {
-  const coll = collOptionsFor;
-  if (!coll) return;
+// Preenche `alvo` com o painel de opções da coleção. Não abre nada: quem decide
+// ONDE ele aparece é o card (`.coll-opts--inline`), e quem o mantém em dia é o
+// redesenho do acervo, que o progresso da sincronização já dispara
+// (`refreshCollectionsIfVisible`) — não há mais um popup com vida própria para
+// sincronizar à parte.
+function buildCollectionOptions(coll, collOptsEl) {
   const total = collSongs(coll.id).length;
   const downloaded = countDownloaded(coll.id);
   const complete = total > 0 && downloaded >= total;
   const wifiOk = isConfirmedWifi();
   const u = ui(coll.id);
-
-  collOptsEl.innerHTML = '';
 
   const status = document.createElement('div'); status.className = 'hymnal-card-status';
   if (u.status) {
@@ -4616,9 +4630,9 @@ function renderCollectionsNow() {
       && searchIsBrowsing(normalizeForSearch(hymnSearchInputEl.value).trim())) {
     renderSearchResults(hymnSearchInputEl.value);
   }
-  // O popup de opções mostra o mesmo estado (progresso, baixados/total): se
-  // estiver aberto, precisa acompanhar sem o operador fechar e reabrir.
-  refreshCollectionOptions();
+  // (O painel de opções vive DENTRO do card desde a v5.72, então ele é
+  // redesenhado junto com o acervo — não há mais um popup a sincronizar à
+  // parte.)
 }
 
 // A tela de FAVORITOS: uma seção de atalhos organizados, não um gerenciador de
@@ -8486,6 +8500,7 @@ simpleSearchBtnEl.addEventListener('click', openHymnSearch);
 // um botão `disabled` continua sendo um no-op natural, e as bordas ficam num
 // lugar só.
 simplePlayEl.addEventListener('click', () => playPauseEl.click());
+simpleStopEl.addEventListener('click', () => stopEl.click());
 simpleMuteEl.addEventListener('click', () => muteToggleEl.click());
 holdRepeat(simpleVolUpEl, () => simpleVolStep(1));
 holdRepeat(simpleVolDownEl, () => simpleVolStep(-1));
@@ -9084,9 +9099,9 @@ newFolderInPickerBtnEl.addEventListener('click', async () => {
 // popup que alguém esquecesse de acrescentar na segunda.
 // **Ordenada de BAIXO para CIMA**: o voltar percorre de trás para a frente e
 // fecha o primeiro aberto, então o que fica por último é o que está por cima.
-// `collPopup` (opções da coleção) é aberto DE DENTRO do acervo e ganhou
-// z-index próprio — por isso vem depois dele aqui: fechar o acervo primeiro
-// deixaria as opções órfãs no ar.
+// (`collPopup`, as opções da coleção, saiu na v5.72: elas viraram um painel
+// DENTRO do card do álbum, e um painel não é uma camada — quem o fecha é o
+// mesmo toque na engrenagem que o abriu, ou o toque na barra que fecha o card.)
 const POPUPS = [
   [plPopupEl, plPopupCloseEl, closePlPopup],
   // A gaveta de Favoritos vem CEDO na tabela (o voltar percorre de trás para a
@@ -9102,7 +9117,6 @@ const POPUPS = [
   // ordem aqui é a ordem em que as camadas se empilham.
   [songMenuPopupEl, songMenuCloseEl, closeSongMenu],
   [folderPopupEl, folderPopupCloseEl, closeFolderPicker],
-  [collPopupEl, collPopupCloseEl, closeCollectionOptions],
 ];
 POPUPS.forEach(([backdrop, closeBtn, close]) => {
   closeBtn.addEventListener('click', close);
