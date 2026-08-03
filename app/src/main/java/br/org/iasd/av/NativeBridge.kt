@@ -90,7 +90,7 @@ class NativeBridge(
          * exijam mais do que o shell instalado oferece (ver [WebUpdater]).
          * Subir SEMPRE que a superfície da ponte mudar.
          */
-        const val SHELL_VERSION = 21
+        const val SHELL_VERSION = 22
 
         /**
          * Fila de IO da ponte, **compartilhada por todas as instâncias**.
@@ -383,12 +383,15 @@ class NativeBridge(
     fun deckPages(callId: String, origem: String, nome: String) {
         if (host == null) { resolve(callId, "null"); return }   // telão não importa nada
         io.execute {
+            // O motivo da falha viaja junto (`{ erro }`) — ver SlideDeck.paginas.
             val r = try {
                 SlideDeck.paginas(ctx, origem, nome) { feitas, total ->
                     deckProgresso(callId, feitas, total)
                 }
-            } catch (_: Exception) { null }
-            resolve(callId, r?.toString() ?: "null")
+            } catch (e: Exception) {
+                JSONObject().put("erro", "ponte: " + e.javaClass.simpleName)
+            }
+            resolve(callId, r.toString())
         }
     }
 

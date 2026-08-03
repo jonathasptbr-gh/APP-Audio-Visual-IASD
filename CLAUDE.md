@@ -233,7 +233,7 @@ window.AVNative = {
   ytDiscard(url),      //   e apaga o arquivo depois que os bytes foram copiados
   keepAudioAlive(bool),// mesa de som ligada: este WebView não pode ser suspenso
   ytSearch(termo),     // → [{ id, url, name, author, seconds, thumb }] do YouTube
-  deckPages(origem, nome, onProg), // → { name, pages:[url] }: APRESENTAÇÃO em imagens
+  deckPages(origem, nome, onProg), // → { name, pages:[url] } ou { erro }: PDF em imagens
   deckExportUrl(link), // → URL de exportação PDF de um link do Google Apresentações
   deckDiscard(url),    //   e apaga as páginas depois da cópia
   captureVolumeKeys(bool), // botões físicos de volume vão para o app
@@ -280,6 +280,14 @@ Sobre o token (`SafRegistry`, em `SafPathHandler.kt`):
 - É **aleatório** (128 bits em base64url, `SecureRandom`), e não um contador.
   Um contador é adivinhável por construção, e as entradas **nunca expiram** —
   não custa nada deixar `/saf/1..N` fora do alcance de quem enumerar.
+- **`/saf/<token>` é uma URL `https://`** — `https://appassets.androidplatform.
+  net/saf/<token>`, o mesmo origin da base web. Parece óbvio escrito assim, e
+  não é: quem recebe uma dessas de parâmetro e pergunta
+  `origem.startsWith("https://")` para decidir "é da rede ou é local?" acerta a
+  pergunta errada e manda **todo arquivo do aparelho** para o caminho de
+  download. Foi exatamente isso que deixou o PDF sem funcionar da v5.97 à
+  v5.99 — falha silenciosa, indistinguível de "PDF com senha". A pergunta certa
+  é pelo **host** (`u.host == ORIGIN_HOST`), como manda a invariante 2.
 - O mesmo URI devolve **sempre o mesmo token**. Sem esse reaproveitamento, cada
   `listFolder` de uma pasta de 500 arquivos acrescentava 500 entradas novas para
   os MESMOS arquivos, a cada re-sincronização, num processo mantido vivo de
@@ -307,7 +315,8 @@ esperam uma **pessoa** e ficam sem prazo, porque um timeout ali resolveria null
 com o operador ainda escolhendo a pasta.
 
 `NativeBridge.SHELL_VERSION` identifica a versão da casca — **subir sempre que
-a superfície da ponte mudar**. Hoje vale **21** — a v5.99 mudou a ASSINATURA do
+a superfície da ponte mudar**. Hoje vale **22** — a v5.100 fez `deckPages`
+devolver o MOTIVO da falha (`{ erro }`) em vez de `null`, a v5.99 mudou a ASSINATURA do
 `pickDoc` (que passou a receber os mimes e a devolver uma LISTA, porque virou a
 importação inteira do app e não só o seletor de PDF), a v5.98 o acrescentou, a
 v5.97 os três métodos da
@@ -1323,7 +1332,7 @@ aparelho nenhum.
 O `versionCode`/`versionName` do APK vêm do CI (ver "Build") e não se tocam à
 mão.
 
-**Versão atual: v5.99** (base web) · `SHELL_VERSION` **21**, e o bundle segue com
+**Versão atual: v5.100** (base web) · `SHELL_VERSION` **22**, e o bundle segue com
 `minShell: 2` — ele funciona igual num shell antigo, só sem os recursos que são
 nativos por construção (a escada do voltar, os botões de volume, a notificação de
 controles), que **só chegam instalando o APK novo**, não pelo OTA.
