@@ -26,6 +26,37 @@ function sendDisplayStatus(fields) {
   AVDB.sendCommand(Object.assign({ type: 'display-status', audioBlocked }, fields));
 }
 
+// ===== CAIXA-PRETA DO TELÃO =====
+//
+// Três versões seguidas tentaram consertar "o vídeo para quando o app é
+// minimizado" com HIPÓTESES — e as três erraram, porque ninguém consegue ver o
+// que acontece com o telão enquanto o celular está fora da frente: não há
+// console, não há logcat, e o Controle está estrangulado justamente nesse
+// intervalo.
+//
+// Este anel resolve isso: o Display anota o que ACONTECE COM ELE, guarda no
+// próprio processo, e o Controle pede o despejo quando o operador abre
+// Configurações. É pouca coisa e é barato, mas é a diferença entre corrigir e
+// adivinhar.
+const DIAG_MAX = 60;
+const diario = [];
+function diag(ev, extra) {
+  diario.push(Object.assign({
+    t: Date.now(),
+    ev,
+    oculto: document.visibilityState !== 'visible',
+  }, extra || {}));
+  if (diario.length > DIAG_MAX) diario.shift();
+}
+
+// A visibilidade da PÁGINA é a peça central da investigação: se ela nunca vira
+// "oculta" e o vídeo para mesmo assim, a causa é outra (suspensão do renderer,
+// Presentation derrubada) — e isso muda inteiramente o que corrigir.
+document.addEventListener('visibilitychange', () => diag('visibilidade'));
+window.addEventListener('pagehide', () => diag('pagehide'));
+window.addEventListener('freeze', () => diag('congelou'));
+window.addEventListener('resume', () => diag('descongelou'));
+
 function sendStatus() {
   if (yt) return; // com YouTube ativo o status tem fluxo próprio (ytStatus)
   // No fim natural o stage zera o currentTime (preparando o replay) e continua
@@ -1192,7 +1223,29 @@ function ytSetView(v) {
   ytStatus();
 }
 
+// Um `pause` que o app não pediu é o EVENTO que interessa: é ele que o
+// operador vê como "o vídeo parou". `pausaComandada` é armado por quem manda
+// pausar de verdade, e zerado logo depois.
+let pausaComandada = 0;
+(function vigiarVideo() {
+  const v = document.getElementById('video');
+  if (!v) return;
+  v.addEventListener('pause', () => {
+    const meu = Date.now() - pausaComandada < 400;
+    diag(meu ? 'pausa (comando)' : 'PAUSA ESPONTÂNEA', { t2: Math.round(v.currentTime) });
+  });
+  v.addEventListener('play', () => diag('play', { t2: Math.round(v.currentTime) }));
+  v.addEventListener('stalled', () => diag('travou'));
+  v.addEventListener('emptied', () => diag('esvaziou'));
+})();
+
 AVDB.onCommand(async (cmd) => {
+  if (cmd.type === 'pause' || cmd.type === 'clear' || cmd.type === 'load') pausaComandada = Date.now();
+  // O Controle pede a caixa-preta ao abrir Configurações.
+  if (cmd.type === 'diag-ask') {
+    AVDB.sendCommand({ type: 'diag-dump', linhas: diario.slice(-DIAG_MAX) });
+    return;
+  }
   if (!cmd) return;
 
   // Preenchimento (object-fit): sempre vai pro stage, mesmo com YouTube ativo
@@ -1363,6 +1416,7 @@ async function restore() {
     // 'display-ready', decide (baseado no que ELE sabe que estava tocando,
     // não em algo persistido pelo próprio Display) se reenvia um 'load' para
     // retomar.
+    diag('telão pronto');
     AVDB.sendCommand({ type: 'display-ready' });
   }
 }

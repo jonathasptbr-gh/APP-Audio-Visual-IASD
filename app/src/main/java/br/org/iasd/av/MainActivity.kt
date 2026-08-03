@@ -342,6 +342,24 @@ class MainActivity : ComponentActivity(), BridgeHost {
         syncPresentation()
     }
 
+    /**
+     * O app saiu da frente — e é AQUI que a projeção precisa ser defendida.
+     *
+     * O Chromium suspende o WebView quando o app vai para segundo plano, e o
+     * telão é a única coisa do app que não pode parar: ele está na TV, na
+     * frente da congregação. `keepPlaying()` desfaz essa suspensão no instante
+     * exato em que ela aconteceria.
+     *
+     * O WebView do CONTROLE não recebe o mesmo tratamento de propósito: ali ser
+     * desacelerado em segundo plano é o comportamento certo (é o celular na mão
+     * de alguém), e é justamente o que o `snoopDisplayStatus` da ponte existe
+     * para contornar.
+     */
+    override fun onStop() {
+        super.onStop()
+        presentation?.keepPlaying()
+    }
+
     override fun onDestroy() {
         // O hook sai antes de tudo: ele captura esta Activity, e uma chamada
         // depois daqui mexeria num campo de uma tela que não existe mais.

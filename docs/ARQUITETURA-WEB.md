@@ -94,7 +94,7 @@ git push origin main
   MENOR que o já publicado — caso em que `WebUpdater.compareVersions` ignora o
   bundle em silêncio. Para saber onde a base está, leia `version.json`.
 
-  No app nativo o rótulo mostra os **dois índices** — `Web v5.81 · Shell v1.27`
+  No app nativo o rótulo mostra os **dois índices** — `Web v5.82 · Shell v1.28`
   —, porque base web e shell atualizam por caminhos independentes (OTA ×
   instalar APK); no navegador sai só `Controle v<versão>`. **Ele mora no rodapé
   do popup de Configurações** desde a v5.49 (antes ficava no cabeçalho da lista,
@@ -1479,7 +1479,7 @@ conectado**. CSS: `.preview:fullscreen` preenche a tela (cantos retos, sem
 borda, `touch-action:none`; as camadas internas já são `inset:0` +
 `object-fit`). O popup de **Configurações** (`#fadePopup`, aberto pelo
 `#settingsBtn` no topo do mixer) guarda o **modo do app** (`#appModeSeg`), a
-**mesa de som** (`#standaloneSeg`), o seletor de **preenchimento da mídia**
+o seletor de **preenchimento da mídia**
 (`#fitSeg` — Ajustar/Preencher/Esticar, ver `stage.setFit()`), as **imagens dos
 slides** das músicas (`#lyricsBgSeg` — Mostrar/Remover, ver "Fundo preto vs.
 imagens dos slides"), o **wallpaper do telão** e, no rodapé, o **estado do
@@ -1598,8 +1598,8 @@ está fechado), a conta dá ~0 e nada muda — os dois mecanismos convivem.
 
 ### Modo "mesa de som" (saída de áudio local)
 
-Linha **"Mesa de som (áudio no celular)"** no popup de **Configurações**
-(`#standaloneSeg`, segmentado Desligado/Ligado): liga um modo em que
+**Ícone de alto-falante no canto INFERIOR ESQUERDO da preview**
+(`#pvSoundBtn`, `.pv-fab--bl` — v5.82): liga um modo em que
 a **preview do Controle passa a tocar o áudio de verdade pelo próprio
 aparelho**, em vez de sempre muda — para quando não há intenção de exibir vídeo,
 só tocar música
@@ -1634,6 +1634,14 @@ igreja, sem precisar nem abrir o Display).
   muda), evitando som inesperado saindo do celular numa sessão nova. Por isso
   `renderStandaloneSeg()` também roda na carga: sem ela o segmento abriria com
   os dois botões apagados, sem nenhuma escolha marcada.
+- **Voltou a ser um ícone, e desta vez sobre a PREVIEW** (v5.82). Ela era a
+  única preferência da lista de Configurações que se mexe DURANTE o culto —
+  chega-se, liga-se a caixa de som, e ou há som no aparelho ou não —, e dois
+  toques num popup para uma decisão dessa frequência é atrito puro. O lugar de
+  decidir se há som no celular é olhando para a preview, que é onde o som está
+  sendo julgado. O ícone carrega o ESTADO (alto-falante inteiro × riscado), pela
+  mesma convenção da cortina e do mudo: o riscado é o corte; quem nomeia a ação
+  é o `title`. Some em tela cheia junto com os outros `.pv-fab`.
 - **Era um botão do mixer** (`#standaloneToggle`, ícone de fone de ouvido) até a
   v5.48. Virou linha de Configurações na v5.49 pelo mesmo critério que já havia
   mandado para lá as imagens dos slides e o preenchimento da mídia: é uma
@@ -4661,6 +4669,42 @@ anterior) sofria.
   ficou: ele não custa nada e continua sendo a resposta certa para uma pausa
   espúria por qualquer outro motivo. Mas a solução do problema é outra, abaixo.
 
+### O telão parava ao minimizar o app — a causa real (v1.28)
+
+Três versões atacaram isto por hipótese, e as três erraram, porque todas
+supunham que o problema era do **YouTube**. A prova de que não era veio quando
+uma mídia **local** — um arquivo baixado, tocando num `<video>` comum — parou
+exatamente do mesmo jeito.
+
+Com isso o alvo mudou: o que para é o **telão inteiro**, e as causas possíveis
+são três, todas do lado nativo. A v1.28 fecha as três de uma vez, porque
+distingui-las sem instrumentação já custou três tentativas:
+
+1. **O WebView do telão era DESTRUÍDO ao minimizar.** `StagePresentation`
+   chamava `release()` no `onStop()` — e `Presentation` é um `Dialog`, cujo
+   `onStop()` chega em situações que não são "o telão acabou", entre elas o app
+   sair da frente. Isso apagava a projeção inteira; ao voltar, o
+   `syncPresentation` encontrava a Presentation fora do ar e criava OUTRA, com
+   o telão recarregando do zero. Quem derruba o telão são os donos do ciclo de
+   vida, e eles já faziam isso explicitamente.
+2. **Metade da visibilidade continuava vazando.** O Chromium calcula a
+   visibilidade a partir da janela **e** da View; a v1.26 mentia só sobre a
+   primeira. `KeepVisibleWebView` agora cobre `onVisibilityChanged` também.
+3. **A suspensão do renderer.** `WebView.onResume()`/`resumeTimers()` chamados
+   do `onStop()` da Activity — o instante exato em que o sistema desaceleraria
+   tudo —, mais `setRendererPriorityPolicy(IMPORTANT, waivedWhenNotVisible =
+   false)`, que é literalmente "não abra mão da prioridade só porque esta View
+   não está visível".
+
+**E, desta vez, uma CAIXA-PRETA.** `diag()` em `display.js` mantém um anel dos
+últimos 60 eventos do telão (visibilidade, `pagehide`, `freeze`/`resume`, e cada
+`play`/`pause` do `<video>` — separando a pausa COMANDADA da espontânea). O
+Controle pede o despejo (`diag-ask` → `diag-dump`) ao abrir **Configurações**,
+onde ele aparece como texto. É a única janela para o que acontece com a
+projeção enquanto o celular está fora da frente: não há console, não há logcat,
+e o Controle está estrangulado justamente nesse intervalo. Se voltar a parar,
+o registro diz QUAL das três causas foi — em vez de mais uma rodada de palpite.
+
 ### A via do arquivo baixado — v5.78, e a extração NATIVA da v5.81
 
 O embed do YouTube **pausa sozinho quando a página fica oculta**, e é isso que o
@@ -4716,337 +4760,17 @@ ao lado web uma **URL servível** (`/saf/<token>`) — daí para a frente o cami
 - **Sem `PoTokenProvider`, por enquanto.** O extrator faz "o melhor esforço"
   sem ele; montá-lo exige rodar o desafio do BotGuard num WebView — o app tem
   dois, então é factível, mas é outra empreitada. Se um vídeo resistir, o app
-  cai no Cobalt (se houver) e depois no player embutido.
+  cai no player embutido, que é o plano B de sempre.
 - **Exige shell ≥ 16.** Num anterior a função devolve null na hora e o fluxo
   segue como antes.
 
-#### O Cobalt continua, como segunda opção
+#### O Cobalt saiu (v5.82)
 
-Quem já mantém uma instância própria não perde nada: ela é tentada depois da
-extração nativa, e cobre o caso de um vídeo que o extrator recusar. Tudo abaixo
-segue valendo para esse caminho. Ele é por HTTP puro (`fetch` + JSON) —
-**nenhuma dependência entra no projeto** por causa dele.
-
-- **O app PROCURA uma instância sozinho** (v5.80, `cobaltDescobrir`): com o
-  campo em branco, a primeira importação baixa a lista pública da comunidade,
-  filtra o que não serve (offline, sem CORS, com autenticação declarada, sem
-  `youtube`, sem `https`) e **sonda** até seis candidatas em PARALELO — em série
-  os prazos se somariam, e há um operador esperando um vídeo. A escolha é
-  persistida (`cobaltAuto`) por 24 h, uma varredura infrutífera não se repete
-  por 30 min, e a instância automática que falhar é descartada na hora (a
-  digitada à mão, não: ali a escolha é de quem opera).
-  **A lista serve para UMA coisa: dar nomes.** O formato dela não é contrato de
-  ninguém — o endpoint já mudou uma vez —, então quem decide se uma candidata
-  presta é o `GET /` do próprio Cobalt, que é documentado. Lista em formato
-  desconhecido ⇒ zero candidatas ⇒ item de player, sem quebrar nada.
-- **A instância NÃO vem embutida, e isso NÃO é uma escolha de comodidade** — é
-  o que a documentação do próprio Cobalt pede: *"hosted api instances (such as
-  `api.cobalt.tools`) use bot protection and are **not** intended to be used in
-  other projects without explicit permission"*. Não existe endereço público e
-  gratuito para embutir. Ela é digitada em **Configurações** (`cobaltApi`,
-  `cobaltKey`, mais a qualidade), e sem ela a via nova simplesmente não existe:
-  o link continua virando item de player, exatamente como antes. O porquê
-  completo e a receita de subir uma instância própria estão em
-  [`COBALT.md`](COBALT.md).
-- **`cobaltTestar()`** confere o endereço na hora por `GET /` (não autenticado,
-  fora do limite de taxa) e separa os três motivos de falha que na tela seriam
-  o mesmo "não baixou": endereço errado, instância **sem YouTube** na lista de
-  `services`, e instância com **`turnstileSitekey`** — desafio que o app não tem
-  como resolver (não há widget aqui), e cuja única saída é uma chave de API.
-  Sem esse teste, descobrir qual dos três era custava um vídeo e um palpite.
-- **`youtubeVideoCodec: 'h264'`, sempre.** H.264 em MP4 é o que o WebView do
-  Android toca em qualquer aparelho; AV1/VP9 num `.webm` depende do modelo, e um
-  vídeo que não abre no telão no meio do culto é pior que um arquivo maior.
-  `alwaysProxy: true` pelo mesmo motivo prático: os bytes vêm pelo túnel do
-  Cobalt, que responde com CORS — um redirect para o CDN do YouTube seria
-  bloqueado no `fetch`.
-- **Os bytes são lidos pelo `body`**, não por um `res.blob()` direto: um vídeo de
-  culto tem centenas de MB e o percentual no cartão da preview é a única coisa
-  que separa "baixando" de "travado". O download roda dentro de `withBgWork`,
-  então o serviço em primeiro plano segura o processo se o app for minimizado.
-- **Falhar não perde o link.** Instância fora do ar, chave vencida, vídeo
-  restrito: cai de volta no item de player de sempre. E o motivo fica **guardado**
-  na tela de Configurações (`cobaltUltimo`) — o download acontece com o popup
-  FECHADO, e um recado escrito num nó que ninguém está vendo seria apagado no
-  próximo render. Quem vai lá para entender por que não baixou precisa achar a
-  resposta, não a frase genérica.
-- **Um item de player que já existe pode ser convertido**: com instância
-  configurada, o selo `YT` da linha do Cronograma ganha um botão de download ao
-  lado. O arquivo **toma o lugar do link na mesma posição** (`listSet` com a
-  substituição — `addMedia` já pendurou o novo no fim, então a troca é "tira a
-  cópia do fim, substitui no lugar do antigo"); duas linhas com o mesmo nome
-  deixariam o operador adivinhando qual das duas toca em segundo plano. O link
-  antigo some por `AVDB.gc`, que só apaga o que não estiver referenciado em
-  outra lista nem num Favorito — se ele também estiver na playlist, fica lá,
-  inteiro. O wrapper tem
-  `pointer-events:none` (CSS) — toque/hover no telão nunca invoca overlays;
-  todo o transporte vem do Controle. `allow="autoplay; fullscreen;
-  encrypted-media; picture-in-picture"` é aplicado programaticamente no
-  iframe (`getIframe().setAttribute('allow', …)`, logo após criar o player e
-  de novo em `onPlayerReady`), já que a API não garante esse atributo por
-  conta própria. Usa a sessão logada do navegador (mesmo domínio
-  `youtube.com`) — conta **Premium** é detectada automaticamente (sem
-  anúncios).
-  - **Truque de escala para minimizar a marca do YouTube** (`.yt-frame
-    iframe` em `display.css`, mesmo em `.pv-yt-frame` do Controle — ver
-    seção da preview): o que sobra de UI própria do YouTube (logo, botão de
-    play do estado "cued", spinner de buffering) tem um piso de tamanho que
-    não é exposto por `playerVars` — não escala pra baixo conforme o iframe
-    encolhe. O iframe é renderizado a **400% do wrapper**
-    (`width/height:400%`, centralizado) e depois encolhido de volta com
-    `transform: scale(.25)`: como o CSS transform só afeta a composição
-    final (não o layout interno que o iframe usa pra decidir o tamanho da
-    própria UI), o iframe "pensa" que está com 4x o tamanho — bem dentro da
-    faixa onde essa UI fica proporcional ao vídeo — e só depois a imagem já
-    pronta (vídeo + UI) é encolhida de volta pra caber no wrapper. Aplicado
-    tanto no Display (já em tela cheia — aqui o objetivo é minimizar ainda
-    mais a marca, não corrigir desproporção) quanto na preview do Controle
-    (onde a caixa é bem menor que o mínimo recomendado pelo YouTube — 480×270
-    pra 16:9 — e por isso a UI ficava visivelmente grande demais antes desse
-    truque).
-- **Reveal do wrapper independe da view**: o wrapper (`ytShow()`) fica oculto
-  só até o primeiro estado `PLAYING` (1) — os estados de carregamento/cued
-  mostram título e botão grande, que nunca chegam ao telão (safety: revela às
-  cegas em 5 s se nenhum evento tiver chegado ainda). Quem decide se isso
-  aparece de fato na tela é a **cortina compartilhada do wallpaper**
-  (`stage.coverIn()`/`coverOut()` — ver "Modelo de camadas" na seção do
-  motor de renderização), não o wrapper: ao entrar no estado `PLAYING`,
-  `onPlayerStateChange()` chama `stage.coverOut()` **só se** `yt.view` for
-  `'visual'`; se for `'wallpaper'`, o wrapper já revelado continua tocando
-  (com áudio) por baixo da cortina, e `ytSetView('visual')` (chamado depois,
-  quando o operador desligar o wallpaper) só precisa abrir a cortina — o vídeo
-  já está pronto e visível por baixo. Antes dessa separação, o wrapper só se
-  revelava se `view==='visual'` no momento do `PLAYING`; um vídeo que
-  começasse com o wallpaper ligado nunca satisfazia essa condição e ficava
-  preso atrás do wallpaper para sempre (o áudio tocava normalmente, só o
-  vídeo nunca aparecia ao desligar o wallpaper depois).
-- **Fim do vídeo** (estado `ENDED`, 0): `ytShield(true)` cobre instantaneamente
-  a tela final de "vídeos relacionados" e `stage.instantCover(true)` garante
-  o wallpaper já pronto (opaco) por baixo do escudo. Se nenhum `load` de
-  avanço automático chegar em ~400 ms, o Display **derruba o player**
-  (`destroy()`) e o escudo esmaece (`ytFadeOutPlayer()`), revelando o
-  wallpaper já coberto — sem o escudo, o wallpaper (agora por cima de tudo)
-  ficaria escondido atrás da tela de "vídeos relacionados" em vez de cobri-la;
-  o `#ytShield` por isso tem z-index **acima** do wallpaper. O Controle marca
-  `ytEnded` e o ▶ recarrega o item (novo `load`).
-- **Pausa e seek seguem o padrão de player normal**: quadro congelado no
-  telão; a UI que o YouTube desenhar nesses estados é aceita (sem tela preta).
-  `stop`/`clear`/troca **não pausam** o player antes do fade (pausa desenharia
-  UI): o fade-out visual corre com **rampa de volume** via `setVolume`
-  (`ytRampVolume`) e o player é derrubado ao final.
-- **Stop/clear manual com fade out ativo**: o player do Display continua tocando
-  (estado `PLAYING`) durante toda a rampa de volume do fade-out. `stopYoutube()`
-  marca `yt.stopping=true` e limpa `yt.timeLoop` **antes** de aguardar o fade, e
-  `ytStatus()` não envia `display-status` enquanto esse flag estiver ativo —
-  evita reportar `playing:true` no meio do stop. No Controle, `stopClear()` marca
-  `ytEnded=true` para itens `kind==='youtube'`, garantindo que o próximo ▶ chame
-  `send(currentId)` (recarga completa) em vez do `cmd({type:'play'})` genérico
-  (no-op sem player vivo). A antiga corrida do `ytStopping` (um `display-status`
-  atrasado em trânsito reportando `playing:true` e desfazendo o `ytEnded`,
-  exigindo apertar stop duas vezes) foi resolvida de outra forma: o
-  `display-status` só zera `ytEnded` junto com um `playing` fresco do item atual
-  e o `stopClear()` não é mais desfeito por status em trânsito da mesma forma —
-  a flag `ytStopping` foi removida (ver a seção de sincronização da preview do
-  YouTube para o modelo Display-como-fonte/preview-fallback).
-- **Status e progresso**: ao contrário do protocolo antigo (que empurrava
-  `infoDelivery` continuamente), a API oficial só notifica em transições
-  discretas de estado — por isso `ytStartTimeLoop()` faz um polling leve
-  (a cada 500 ms, via `getCurrentTime()`/`getDuration()`/`getPlayerState()`)
-  enquanto o player existir, alimentando `display-status` para a barra de
-  progresso do Controle.
-- **Recuperação de mudo via fato real, não heurística de tempo**: autoplay com
-  som em conteúdo de terceiros exige um gesto do usuário na página (ver
-  `#startBtn` acima) — antes desse gesto, o player pode ignorar o `unMute()`
-  inicial e ficar mudo mesmo com `yt.muted===false` (intenção do operador é
-  som). Diferente da antiga tentativa (removida por gerar falsos positivos:
-  media unstarted/cued por tempo demais **não prova** bloqueio, só pode ser
-  buffering lento), `ytStartTimeLoop()` (a cada 500 ms) chama
-  `player.isMuted()` — um **fato real** relatado pelo player agora, não uma
-  suposição — e só reage (reenvia `unMute()` + `setVolume()`) quando isso
-  realmente diverge da intenção. Converge assim que a página tiver um gesto
-  real: o toque em `#startBtn` (se ainda visível) resolve na hora; sem ele,
-  o próprio polling resolve em até ~500 ms depois do primeiro gesto (toque,
-  tecla) em qualquer lugar do Display. `onPlayerReady()` ainda faz a
-  tentativa inicial de `mute`/`unMute` + `setVolume` + `playVideo` uma vez,
-  conforme `yt.muted`, e nunca muta o vídeo por conta própria (fora dessa
-  resincronização). `loadYoutube()` encerra qualquer recuperação de áudio do
-  **stage** que tenha ficado presa (`endAudioRecovery()`) — sem isso, um
-  bloqueio de um vídeo local anterior ficava "grudado" e o indicador de mudo
-  do mixer aparecia aceso durante o YouTube sem motivo real.
-- **Preto (não wallpaper) enquanto o vídeo carrega**: `loadYoutube()` calcula
-  a view desejada (`desiredView`) antes de decidir a cortina —
-  `stage.instantCover(desiredView === 'wallpaper')`. Carregar um vídeo do
-  YouTube depende de rede e é bem mais lento que mídia local; cobrir com o
-  wallpaper **de propósito** (`view='wallpaper'`) continua correto, mas usar
-  o wallpaper só porque o vídeo ainda não carregou (`view='visual'`) fazia a
-  marca aparecer por vários segundos a cada troca, parecendo que o sistema
-  tinha parado em vez de só carregando — por isso, nesse caso, a cortina fica
-  fora (preto simples, nada cobrindo) até o vídeo entrar em `PLAYING` e
-  `ytShow()`/`stage.coverOut()` revelarem-no.
-- **Início garantido sem mexer no mudo**: o primeiro `playVideo()` (em
-  `onPlayerReady()`) pode chegar antes do player interno aceitar o comando e
-  o vídeo fica parado em unstarted/cued. `ytWatchStart()` reenvia
-  `playVideo()` a cada ~2 s (até 4 tentativas) enquanto o estado não avança
-  para playing/paused/buffering — sem tocar em mute/volume, só um empurrão
-  para o play pegar.
-- **Host novo a cada troca (`ytDrop()`)**: em vez de só trocar o `src` de um
-  iframe fixo (abordagem antiga, que mantinha o mesmo `contentWindow` entre
-  vídeos), cada `loadYoutube()` cria um elemento host novo e a API instancia
-  um `<iframe>` novo dentro dele; `ytDrop()` chama `player.destroy()` e limpa
-  o wrapper (`innerHTML = ''`). Isso garante que uma mensagem do player
-  anterior ainda em trânsito nunca seja confundida com o estado do vídeo
-  novo (causa de reinícios/travamentos esporádicos na versão com
-  `postMessage` manual) — cada instância de `YT.Player` só entrega eventos
-  para os callbacks fechados sobre ela mesma (`if (yt === cur) …`).
-- **Transições**: com fade ativo, o reveal do **wrapper** no estado `PLAYING`
-  usa fade próprio (opacidade do wrapper); a cortina do wallpaper (se
-  aplicável) usa sua própria transição via `stage.coverOut()`/`coverIn()` —
-  as duas são independentes. `stop`/`clear`/troca esmaecem o player antes de
-  derrubá-lo. `ytSeq` guarda operações assíncronas obsoletas (equivalente ao
-  `loadSeq` do stage) — inclusive o carregamento assíncrono da própria API
-  (`loadYtApi()`) na primeira vez.
-  - **Cancelar um `loadYoutube` em curso quando `yt` ainda é `null`:**
-    `loadYoutube()` fica entre `await`s (o `fadeOutToBlack`, que pode durar
-    `fadeTime` até 5 s, e o `loadYtApi()`) antes de atribuir `yt`. Um
-    `stop`/`clear`/`load` de mídia comum que chegue nessa janela **bumpa
-    `ytSeq`** mesmo com `yt` nulo (`if (yt) stopYoutube(); else ++ytSeq;` no
-    stop/clear; o `else { ++ytSeq; ytDrop(); }` no load comum) — assim o
-    `if (seq !== ytSeq) return` do `loadYoutube` em curso o descarta. Sem isso,
-    o player nasceria por cima do novo estado (vídeo tocando depois de um stop,
-    ou por cima da mídia comum que entrou) alguns segundos depois. Se falhar o
-    `loadYtApi()` (rede), o `try/catch` aborta o load em vez de pendurar.
-- **No Controle, a preview do YouTube é um SEGUNDO `YT.Player` independente**
-  (`controle.js`: `loadYtPreview()`/`ytPreviewHandle()`/`dropYtPreview()`),
-  não uma captura do que está no Display — inevitável, já que o iframe do
-  YouTube é cross-origin e não pode ser espelhado por `captureStream()`/canvas
-  (bloqueado pela mesma-origin policy), e a Screen Capture API
-  (`getDisplayMedia()`) não é confiável no Chrome Android, que é onde o
-  Display sempre roda. O player da preview:
-  - Vive dentro de `#pvYoutube` (wrapper `.pv-layer` no `#preview`, mesmo
-    padrão do `#youtube` do Display: a API cria o `<iframe>` real dentro
-    dele). `stage.js` continua tratando `kind='youtube'` só como thumbnail
-    (`img.src = rec.thumb`) — `preview.handle()` roda normalmente em paralelo
-    (mantém `preview.getCurrent()` em dia, usado pela lógica de play/pause do
-    botão de transporte) e serve de placeholder visual até o player real
-    assumir por cima (mesmo z-index, depois no DOM).
-  - **Sempre mudo** (`mute:1` no `playerVars` + `player.mute()` em
-    `onReady`) e pede a **menor qualidade disponível**
-    (`setPlaybackQuality('tiny')`) — reforçada em três pontos:
-    `onReady`, `onPlaybackQualityChange` (o YouTube pode ignorar o pedido
-    inicial) e um **polling a cada 1,5s** enquanto o player existir
-    (`ytPreviewForceLowQuality`, limpo por `dropYtPreview()`). O polling
-    existe especificamente por causa do truque de escala da UI (acima): como
-    o iframe agora é renderizado a 400% do wrapper — bem maior do que o
-    tamanho visual de ~130px de altura —, o YouTube decide a qualidade
-    padrão pelo tamanho QUE ELE enxerga (400%), então sem reforço contínuo
-    esse truque puramente visual poderia silenciosamente puxar uma
-    qualidade mais alta (e mais consumo de rede) do que antes dele existir.
-  - **Independente do player do Display** (não é o mesmo vídeo "espelhado"
-    frame a frame): os dois recebem os mesmos comandos (`cmd()` despacha para
-    `AVDB.sendCommand` E para a preview) e por isso tocam/pausam/buscam em
-    paralelo, mas cada um busca o stream por conta própria — pequenas
-    diferenças de buffering entre os dois são esperadas e não indicam
-    problema real no Display.
-  - **Custo consciente**: dois players do YouTube tocando ao mesmo tempo (um
-    no aparelho do Display, outro no celular do operador) dobram o consumo de
-    rede/bateria do celular durante toda a sessão — troca deliberada para
-    ganhar a preview de verdade; a qualidade "tiny" existe justamente para
-    reduzir esse custo o quanto der.
-  - `dropYtPreview()` (`player.destroy()` + limpa `#pvYoutube`) roda em
-    `stop`/`clear` e ao trocar para outro item (YouTube ou mídia comum) —
-    mesmo padrão de "host novo a cada troca" do Display (`ytDrop()`), evita
-    que uma mensagem do player anterior seja confundida com a do novo.
-  - Comandos `play`/`pause`/`seek` vão para o player real
-    (`ytPreviewHandle()`); `mute`/`volume` só valem no modo **"mesa de som"**
-    (fora dele a preview é sempre muda, como já era pra mídia local) e seguem a
-    MESMA orquestração do `ytHandle` do Display: mutar desce em rampa
-    (`ytPreviewRampVolume`) e só então chama `player.mute()`, no fim
-    (`ytPreviewMuteApplyTimer`, que reconfere a intenção — um mute/unmute mais
-    recente não pode ser desfeito pela aplicação atrasada); desmutar chama
-    `unMute()` na hora e sobe em rampa; e um `volume` do operador **cancela a
-    rampa em curso**. Sem isso, no modo mesa de som — em que esse é o áudio que
-    sai na caixa da igreja — o mudo cortava no talo, e arrastar o fader durante
-    a rampa de entrada era desfeito pelos passos restantes (o fader "voltava"
-    sozinho). `view` continua indo para `preview.handle()` sempre — é a mesma cortina do wallpaper
-    compartilhada com a mídia local, e `stage.js` só pula a revelação
-    automática no fim de `load()` para `kind='youtube'` (retorna cedo, só
-    marca a thumbnail) — por isso `cmd()` chama
-    `preview.instantCover(view === 'wallpaper')` à parte em `loadYtPreview()`,
-    igual o Display faz para o player real.
-  - **Sincronização do play/pause, progresso e avanço dos itens YouTube: o
-    DISPLAY é a fonte de verdade quando presente; a preview é o fallback.** O
-    player do Display (a projeção real) manda enquanto envia `display-status`;
-    se ele não existir / estiver estrangulado ou fechado (nenhum status há mais
-    de `DISPLAY_TIMEOUT`=2,5 s → `ytDisplayActive()` falso), a preview local
-    assume. Isso resolve os dois casos opostos:
-    - **Controle em 1º plano, Display em 2º** (Display espelhado/estrangulado):
-      o status remoto rareia → `ytDisplayActive()` falso → a preview (na tela
-      do operador, nunca estrangulada) dirige o ▶/⏸ e o progresso.
-    - **Controle minimizado, Display tocando**: a preview é que fica
-      estrangulada; o Display segue enviando status → dirige a UI e, via
-      `ytResyncPreviewToDisplay()`, **re-alinha a preview** (casa play/pause e,
-      se o tempo divergir mais que `SYNC_DRIFT`=1,6 s, busca o instante do
-      Display) — sem isso a preview voltava dessincronizada da projeção.
-    Mecanismo: `displayStatusAt` marca o último status do item atual
-    (`send()` zera para a preview dirigir até o Display confirmar o item novo);
-    o player da preview expõe `onStateChange` (▶/⏸ na hora) e um polling de
-    500 ms (`ytPreviewTick`) para o progresso — **ambos retornam cedo quando
-    `ytDisplayActive()`** (só agem na ausência do Display); o fim natural
-    (`ENDED`) dispara `autoAdvance()` só quando a preview é a fonte, senão é o
-    `media-ended` remoto que avança. `ytResyncPreviewToDisplay()` não busca em
-    "mesa de som" (evita salto audível), só casa play/pause.
-
-**O mesmo princípio vale para mídia comum (áudio/vídeo do `stage.js`), não só
-YouTube** — `displayStatusAt`/`DISPLAY_TIMEOUT`/`SYNC_DRIFT` são
-compartilhados entre os dois casos (`displayActive()` genérico, sem checar o
-`kind`); o que muda é só qual player é re-alinhado: `resyncPreviewToDisplay()`
-faz o equivalente de `ytResyncPreviewToDisplay()` pro stage local (`preview`)
-— casa play/pause e corrige o tempo via `preview.seek()` se o drift passar de
-`SYNC_DRIFT`, também sem buscar em "mesa de som". Isso existe porque o
-Display e a preview são **dois decodificadores de áudio/vídeo independentes**
-(dois elementos `<audio>`/`<video>` distintos, um em cada app) — mesmo
-recebendo o mesmo comando `load` no mesmo instante, cada um tem sua própria
-latência de buffering, e o `currentTime` dos dois diverge aos poucos; sem
-essa correção periódica, a letra sincronizada (baseada em fronteiras de
-tempo) acaba trocando de slide em momentos ligeiramente diferentes no
-Display e na preview. `previewTick()` (o `onTime` local do stage da preview)
-retorna cedo sempre que `displayActive()` — nesse caso é o handler de
-`display-status` em `AVDB.onCommand` que atualiza a UI/letra a partir do
-tempo reportado pelo Display (`lastDisplayTime`). `stepSlide()`/
-`renderSlideNav()` (navegação manual de estrofe) usam `authoritativeTime()` —
-não `preview.getTime()` direto — para calcular o slide atual a partir da
-posição "oficial" (a do Display quando ele for a fonte, senão a da própria
-preview); sem isso, "estrofe anterior/próxima" calcularia a partir de um
-tempo local já desatualizado em relação ao que está de fato no telão.
-
-O **avanço automático de fim de faixa** segue o mesmo princípio: o `onEnded`
-do stage da preview também **retorna cedo quando `displayActive()`** — quando
-o Display está presente, quem avança é só o `media-ended` remoto (com guarda
-de `mediaId`). Sem esse early-return, se o Display chegasse ao fim antes da
-preview (drift até `SYNC_DRIFT`), os dois disparariam `autoAdvance()` e uma
-faixa seria pulada. É o mesmo padrão de `previewTick`/`ytPreviewTick` aplicado
-ao fim natural.
-
----
-
-## Como esta base é servida
-
-Não há servidor nem service worker neste repositório. Os arquivos são servidos
-pelo shell nativo via `WebViewAssetLoader`, em
-`https://appassets.androidplatform.net/` (contexto seguro — é o que faz OPFS e
-IndexedDB funcionarem), e a atualização chega por **OTA**, não por cache-first.
-Ver `CLAUDE.md` (seções "Invariantes do shell" e "OTA da base web").
-
-O que isso substituiu, do tempo dos dois PWAs: um `server.js` em Node puro para
-desenvolvimento, dois `sw.js` com cache-first + versão de cache por app, o
-auto-reload no `controllerchange` e o POST em `share-target` interceptado pelo
-SW (hoje um `intent-filter` — ver "Compartilhamento").
-
-Para abrir a base no navegador durante o desenvolvimento basta qualquer
-servidor estático apontado para `app/src/main/assets/web/` (`python3 -m
-http.server`, por exemplo). Sem o shell, `window.__NATIVE__` fica indefinido e
-todo o caminho nativo vira no-op — que é exatamente a regra de escrita do
-projeto.
+Ele foi a tentativa das versões 5.78–5.80 e **não funcionou em aparelho**, pelo
+motivo que está no começo desta seção: IP de datacenter. Ficar como "segunda
+opção" seria manter uma tela de configuração que não leva a lugar nenhum e um
+caminho de código que ninguém exercita — os dois envelhecem calados. O plano B
+é o player embutido, que já existia e é honesto sobre o que faz.
 
 ### O que o watchdog do OTA exige DESTA base (`shared/native.js`)
 
@@ -5606,7 +5330,7 @@ usa-se um `<svg>` inline direto no HTML, com `fill/stroke: currentColor` (herda
 a cor do botão). Hoje: o botão de **volume** do mixer (`#volToggle`, ícone de
 faders/mixer), a **lupa** da busca do acervo (`#hymnSearchBtn`), a antena de
 **Wi-Fi** dos cards de coleção (`wifiIconEl`), o **fone de ouvido** da mesa de
-som (`#standaloneSeg`, hoje em Configurações), a **folha com linhas** da leitura
+som (`#pvSoundBtn`, hoje sobre a preview), a **folha com linhas** da leitura
 auxiliar (`#lyricsViewBtn`, que substituiu a flor do antigo botão de fundo da
 letra), a **engrenagem** de Configurações (`#settingsBtn`, no topo do mixer), as
 **setas** do par de troca de modo (`.mode-switch`), o

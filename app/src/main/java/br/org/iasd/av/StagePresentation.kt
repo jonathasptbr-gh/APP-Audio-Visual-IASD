@@ -116,9 +116,42 @@ class StagePresentation(
         w.loadUrl(WebViewFactory.URL_DISPLAY)
     }
 
+    /**
+     * **NÃO derruba mais o WebView aqui** (v1.28).
+     *
+     * `Presentation` é um `Dialog`, e `Dialog.onStop()` chega em situações que
+     * NÃO são "o telão acabou" — entre elas o app sair da frente. Destruir o
+     * WebView nesse momento apagava a projeção inteira toda vez que o operador
+     * minimizava o app: nada tocava até ele voltar, e ao voltar o
+     * `syncPresentation` encontrava a Presentation fora do ar, criava OUTRA, e
+     * o telão recarregava do zero. Era isso que se via como "o vídeo pausa ao
+     * minimizar" — inclusive com mídia LOCAL, que é o que provou que o problema
+     * nunca foi do YouTube.
+     *
+     * Quem derruba o telão são os donos do ciclo de vida, e eles já faziam
+     * isso explicitamente: `syncPresentation` (tela trocou ou sumiu),
+     * `onDestroy` da Activity e a morte do renderer. `onStop` não é nenhum
+     * deles.
+     */
     override fun onStop() {
         super.onStop()
-        release()
+    }
+
+    /**
+     * Desfaz a suspensão que o Chromium aplica quando o app sai da frente.
+     *
+     * `WebView.onResume()`/`resumeTimers()` não são só "o inverso de pausar":
+     * são o único jeito, pela API pública, de dizer ao motor que ESTE WebView
+     * deve continuar trabalhando com o app em segundo plano. Chamado do
+     * `onStop` da Activity — o instante exato em que o sistema decidiria
+     * desacelerar tudo. Vale só para o telão: ele É a projeção.
+     */
+    fun keepPlaying() {
+        val w = web ?: return
+        try {
+            w.onResume()
+            w.resumeTimers()
+        } catch (_: Exception) { /* WebView já destruído */ }
     }
 
     /** Derruba o WebView do telão sem deixar o barramento com cliente morto. */
