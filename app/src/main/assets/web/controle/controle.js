@@ -156,7 +156,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.90';
+const WEB_VERSION = '5.91';
 
 // Escrita UMA vez, na carga: o indicador mora no rodapé de Configurações desde
 // a v5.49 e não depende mais de qual aba está aberta (no cabeçalho ele
@@ -7061,36 +7061,67 @@ function appendYoutubeSearch(texto) {
   // quando o APK novo for instalado. No navegador é sempre `window.open`.
   if (window.__NATIVE__ && (window.__SHELL_VERSION__ | 0) < 15) return;
 
+  // Onde o shell sabe pesquisar, o BOTÃO SAIU (v5.91). Ele existia para quem
+  // decidisse antes de rolar — mas chegar no fim da lista já dispara a busca
+  // sozinho, e as duas coisas juntas viraram um botão que quase sempre era
+  // apertado depois de a busca já ter começado, ou que simplesmente não tinha
+  // mais função. No lugar dele fica uma LINHA DE ESTADO: ela é a sentinela que
+  // o observador vigia (precisa de altura de verdade), o sinal de que a busca
+  // está em curso e, depois, o rótulo que separa o acervo dos resultados do
+  // YouTube. O botão continua onde ele é a ÚNICA saída: navegador e shell < 18,
+  // que não sabem pesquisar de dentro do app e abrem o YouTube por fora.
+  const aquiDentro = window.__NATIVE__ && (window.__SHELL_VERSION__ | 0) >= 18;
   const li = document.createElement('li');
-  const btn = document.createElement('button');
-  btn.className = 'yt-search-btn';
-  btn.innerHTML = ytBuscando ? '<span class="dl-ring"></span>' : searchIconSvg();
-  const txt = document.createElement('span');
-  txt.className = 'yt-search-txt';
-  // O termo entre aspas é o que diz que a busca vai levar ISTO, e não abrir o
-  // YouTube na página inicial. Como `textContent`, nunca `innerHTML`: aqui
-  // entra texto digitado pelo operador.
-  txt.textContent = ytBuscando
-    ? 'Procurando “' + termo + '” no YouTube…'
-    : 'Pesquisar “' + termo + '” no YouTube';
-  btn.appendChild(txt);
-  btn.addEventListener('click', () => buscarNoYoutube(termo));
-  li.appendChild(btn);
+  if (aquiDentro) {
+    const buscou = ytBuscaItens && ytBuscaTermo === termo;
+    li.className = 'empty yt-auto';
+    if (buscou) {
+      li.textContent = ytBuscaItens.length ? 'Resultados do YouTube' : 'Nada encontrado no YouTube.';
+    } else {
+      // Ainda não buscou, ou está buscando: os dois estados desenham a mesma
+      // coisa de propósito. A linha só é VISTA quando a lista chega ao fim, e
+      // ver a linha é o que dispara a busca — o intervalo entre uma coisa e
+      // outra é o antirruído de 500 ms, não uma promessa em falso.
+      const anel = document.createElement('span');
+      anel.className = 'dl-ring';
+      const txt = document.createElement('span');
+      // Sem repetir o termo entre aspas: ele era necessário no BOTÃO, que
+      // prometia levar AQUELE texto para fora do app. Numa linha de estado logo
+      // abaixo do campo em que o operador acabou de digitar, ele só faz a
+      // frase quebrar em duas linhas e desalinhar o anel.
+      txt.textContent = 'Procurando no YouTube…';
+      li.append(anel, txt);
+    }
+  } else {
+    const btn = document.createElement('button');
+    btn.className = 'yt-search-btn';
+    btn.innerHTML = searchIconSvg();
+    const txt = document.createElement('span');
+    txt.className = 'yt-search-txt';
+    // O termo entre aspas é o que diz que a busca vai levar ISTO, e não abrir o
+    // YouTube na página inicial.
+    txt.textContent = 'Pesquisar “' + termo + '” no YouTube';
+    btn.appendChild(txt);
+    btn.addEventListener('click', () => buscarNoYoutube(termo));
+    li.appendChild(btn);
+  }
   hymnResultsEl.appendChild(li);
   // CHEGAR NO FIM DA LISTA JÁ PESQUISA. Rolar até o fim do que o acervo tem é
-  // exatamente o gesto de quem não achou o que queria — e nesse ponto pedir mais
-  // um toque num botão é cerimônia. O botão fica: ele é o caminho de quem
-  // decidiu antes de rolar, e é o que mostra que a busca está em curso.
+  // exatamente o gesto de quem não achou o que queria.
   armarAutoBuscaYt(li, termo);
 
   // Os RESULTADOS, na mesma lista — é isto que dispensa sair do app. Só do
   // termo atual: uma lista de outra busca embaixo do campo é pior que nenhuma.
   if (ytBuscaItens && ytBuscaTermo === termo) {
+    // Vazio: quem já disse isso foi a própria linha de estado (ou, no caminho
+    // do botão, a linha abaixo).
     if (!ytBuscaItens.length) {
-      const vazio = document.createElement('li');
-      vazio.className = 'empty';
-      vazio.textContent = 'Nada encontrado no YouTube.';
-      hymnResultsEl.appendChild(vazio);
+      if (!aquiDentro) {
+        const vazio = document.createElement('li');
+        vazio.className = 'empty';
+        vazio.textContent = 'Nada encontrado no YouTube.';
+        hymnResultsEl.appendChild(vazio);
+      }
       return;
     }
     ytBuscaItens.forEach((r) => hymnResultsEl.appendChild(ytResultRow(r)));

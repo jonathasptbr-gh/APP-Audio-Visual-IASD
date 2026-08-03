@@ -2880,15 +2880,36 @@ marca o operador toca de novo achando que não pegou.
 Isso encurta um caminho que era absurdo: sair do app, abrir o YouTube,
 pesquisar de novo, compartilhar de volta, esperar. Agora é digitar uma vez.
 
-- **O pedido sai em pt-BR** (`NewPipe.init(downloader, Localization("pt","BR"),
-  ContentCountry("BR"))`, v1.32). Sozinho, o `init` usa a localização padrão da
-  biblioteca — **en-GB** —, e o YouTube leva isso a sério: ele TRADUZ o título
-  quando o canal publica traduções ou quando a tradução automática está ligada.
-  O resultado era uma busca por louvor brasileiro voltando com títulos em
-  inglês de vídeos cujo título original é em português — o operador procurava
-  por um nome que não estava mais ali. Fixo, e não herdado do `Locale` do
-  aparelho: o que se quer é o título ORIGINAL, e um celular configurado em
-  inglês traria a tradução de volta.
+- **O pedido sai em português** — e o caminho para isso não é o óbvio.
+  A localização padrão da biblioteca é **en-GB**, e o YouTube leva isso a
+  sério: ele TRADUZ o título quando o canal publica traduções ou quando a
+  tradução automática está ligada. O resultado era uma busca por louvor
+  brasileiro voltando com títulos em inglês de vídeos cujo título original é em
+  português — o operador procurava por um nome que não estava mais ali.
+  - A v1.32 passou `Localization("pt","BR")` para o `NewPipe.init`, **e não
+    adiantou**: `StreamingService.getLocalization()` FILTRA o pedido pela lista
+    de idiomas suportados do serviço, e a do YouTube no `NewPipeExtractor`
+    v0.26.1 tem um item só — `"en-GB"`, com o resto da lista **comentado** no
+    fonte. Qualquer outro idioma cai no `Localization.DEFAULT`, que é o mesmo
+    en-GB, em silêncio e sem erro nenhum: o código PARECIA certo. O país
+    escapava do filtro (a lista de países é completa e tem "BR"), então só
+    metade do pedido chegava.
+  - A saída (v1.33) é `forceLocalization`/`forceContentCountry` no próprio
+    `Extractor`, que é a válvula que a biblioteca oferece para exatamente isto
+    — `getExtractorLocalization()` lê o forçado ANTES da lista de suportados.
+    Ela exige montar o extrator à mão nos dois caminhos (`getStreamExtractor` e
+    `getSearchExtractor`) em vez dos atalhos `getInfo(service, …)`, e no da
+    busca **chamar `fetchPage()`**: `SearchInfo.getInfo(extractor)` é o único
+    dos `getInfo` que NÃO busca a página sozinho, e sem isso a lista volta
+    vazia, sem erro.
+  - O código é `"pt"`, não `"pt-BR"`: a lista (comentada) que a própria
+    biblioteca guarda como os `hl` que o YouTube aceita tem "pt" e "pt-PT". Com
+    o `gl=BR` do `ContentCountry`, "pt" é o português do Brasil.
+  - `Accept-Language` acompanha no `NpDownloader`, fixo no mesmo código: quem
+    manda de fato é o `hl` do corpo InnerTube, mas nem toda requisição da
+    biblioteca é InnerTube, e nas páginas HTML é o cabeçalho que decide.
+  - Fixo, e não herdado do `Locale` do aparelho: o que se quer é o título
+    ORIGINAL, e um celular configurado em inglês traria a tradução de volta.
 - **Quem pesquisa é o Kotlin** (`YoutubeGrab.pesquisar`, o mesmo
   `NewPipeExtractor` da extração), e não o WebView: ali não existe CORS, e a
   requisição sai do IP do aparelho. As duas alternativas não serviam — um
@@ -2915,14 +2936,27 @@ pesquisar de novo, compartilhar de volta, esperar. Agora é digitar uma vez.
   busca embaixo do campo é pior que nenhuma.
 - **Chegar no fim da lista já pesquisa** (v5.86, `armarAutoBuscaYt`). Rolar até
   o fim do que o acervo tem É o gesto de quem não achou o que queria, e nesse
-  ponto pedir mais um toque é cerimônia. O botão fica: ele é o caminho de quem
-  decide antes de rolar, e é o que mostra que a busca está em curso.
+  ponto pedir mais um toque é cerimônia.
   A espera de 500 ms não é enfeite — a lista é reconstruída A CADA TECLA, e com
-  poucos resultados o botão nasce visível: sem ela a busca dispararia com o
+  poucos resultados a sentinela nasce visível: sem ela a busca dispararia com o
   termo pela metade ("Fir"), uma vez por letra. O termo é reconferido quando o
   prazo vence, porque ele pode ter mudado durante a espera. E a auto-busca
   **não** acontece num shell < 18, onde o botão abre o YouTube por fora: tirar o
   operador do app sem ele ter pedido seria outra coisa.
+- **O botão manual SAIU onde o shell sabe pesquisar** (v5.91). Ele existia para
+  quem decidisse antes de rolar; com a busca disparando sozinha ao chegar no
+  fim, virou um botão que quase sempre era apertado depois de a busca já ter
+  começado. No lugar dele fica uma **linha de estado** (`.yt-auto`), que faz os
+  três papéis que ele fazia e nenhum a mais: é a SENTINELA que o observador
+  vigia (por isso precisa de altura de verdade — um `li` de altura zero é uma
+  aposta na forma como o navegador trata a interseção de área nula), é o sinal
+  de que a busca está em curso (anel + "Procurando no YouTube…") e, depois, o
+  rótulo que separa o acervo dos resultados ("Resultados do YouTube", ou "Nada
+  encontrado no YouTube."). O termo entre aspas saiu junto com o botão: ele
+  dizia "vou levar ISTO para fora do app", e numa linha de estado logo abaixo
+  do campo em que o operador acabou de digitar ele só quebrava a frase em duas
+  linhas. **O botão continua onde é a única saída**: navegador e shell < 18, que
+  não sabem pesquisar de dentro do app.
 - **O toque num resultado abre a MESMA folha de três escolhas das músicas do
   acervo** (v5.86): *Tocar agora* · *Adicionar à playlist* · *Adicionar ao
   Cronograma*. Antes o toque baixava direto — o operador não escolhia nada e o

@@ -1458,6 +1458,15 @@ main {
 /* O termo digitado não tem tamanho previsível — corta em reticências em vez de
    esticar a linha ou quebrar em três. */
 .yt-search-txt { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A linha de estado que substituiu o botão onde o shell sabe pesquisar (v5.91).
+   É `.empty` (o tom das linhas de aviso da lista) com o anel de progresso ao
+   lado — e precisa de ALTURA de verdade: é ela a sentinela do observador que
+   dispara a busca ao chegar no fim da lista. */
+.yt-auto {
+  --dl-ring: 16px;
+  display: flex; align-items: center; justify-content: center; gap: .45rem;
+  min-height: var(--hit);
+}
 .coll-more-btn {
   --dl-ring: 15px;
   flex: 1; min-height: var(--hit);
