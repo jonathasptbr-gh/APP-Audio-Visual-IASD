@@ -45,8 +45,8 @@
   // aborta só AQUELE script, o `load` dispara do mesmo jeito, `AVDB` continua
   // lá — e o bundle quebrado era carimbado como bom e servido PARA SEMPRE,
   // exatamente o oposto do que este mecanismo existe para fazer. Como o OTA
-  // publica a cada push em `main` e o controle.js (8 mil linhas) é de longe o
-  // que mais muda, esse era justamente o caso provável.
+  // publica a cada push em `main` e o controle.js (o maior arquivo do bundle,
+  // de longe) é o que mais muda, esse era justamente o caso provável.
   //
   // O sinal agora é "o app está DE PÉ", e cada peça dele cobre um trecho da
   // cadeia que a anterior não cobre:
@@ -59,8 +59,10 @@
   //      confirma é sempre o Controle, que é quem precisa funcionar.
   //   2. `AVDB` (db.js) e `createStage` (stage.js) — os dois módulos
   //      compartilhados, cada um publicando seu global no fim do arquivo.
-  //   3. `__avBack` (controle.js, ~linha 8017 de 8222) — só existe se o
+  //   3. `__avBack` (controle.js, perto do FIM do arquivo) — só existe se o
   //      controle.js foi PARSEADO por inteiro e EXECUTADO até quase o fim.
+  //      (Sem número de linha de propósito: o arquivo cresce a cada versão e
+  //      um número aqui envelhece no push seguinte.)
   //      É a mesma função que o `MainActivity.handleBack()` consulta, ou
   //      seja, um contrato que já existe, não um marcador inventado aqui.
   //   4. um `<li>` dentro de `#playlist` — o HTML entrega esse `<ul>` VAZIO;
@@ -172,6 +174,42 @@
     });
   }
 
+  // ---- progresso das chamadas longas ----
+  // Download do YouTube e rasterização da apresentação levam minutos, e o
+  // nativo empurra o andamento por `__avYtProgress`/`__avDeckProgress`
+  // passando o ID DA CHAMADA. Guardar o callback num MAPA por id — e não numa
+  // variável só, como era até aqui — é o que mantém dois trabalhos separados:
+  // com uma variável, a segunda chamada sobrescrevia o callback da primeira e
+  // as duas passavam a alimentar o MESMO cartão (o do último a começar),
+  // enquanto o outro ficava parado no percentual em que estava. O `id` já
+  // viajava na ponte desde sempre e era simplesmente ignorado aqui.
+  const progresso = new Map();
+
+  function rotaDeProgresso(nome) {
+    global[nome] = function (id, a, b) {
+      const cb = progresso.get(id);
+      if (!cb) return;
+      try { cb(Number(a) || 0, Number(b) || 0); } catch (_) { /* callback do chamador */ }
+    };
+  }
+  rotaDeProgresso('__avYtProgress');
+  rotaDeProgresso('__avDeckProgress');
+
+  // Como o `call`, mas com um callback de andamento amarrado ao id da chamada.
+  // A entrada sai do mapa quando a promise resolve — e ela SEMPRE resolve
+  // (`call` devolve null em qualquer falha), então não há vazamento possível.
+  function callComProgresso(invoke, onProgresso) {
+    let meuId = null;
+    return call((id) => {
+      meuId = id;
+      if (onProgresso) progresso.set(id, onProgresso);
+      invoke(id);
+    }).then((r) => {
+      if (meuId) progresso.delete(meuId);
+      return r;
+    });
+  }
+
   // ---- barramento de comandos (relay nativo) ----
   // Roda SEMPRE em paralelo ao BroadcastChannel: cada comando sai pelos dois
   // caminhos e `shared/db.js` descarta a cópia repetida pelo campo `__mid`.
@@ -247,12 +285,9 @@
     // leva o que tiver de levar, e um timeout aqui abortaria justamente o
     // download que estava indo bem.
     // `onProgresso(lidos, total)` é opcional; o nativo empurra por
-    // `__avYtProgress` a cada megabyte.
+    // `__avYtProgress` a cada megabyte, com o id desta chamada.
     ytFetch(url, onProgresso) {
-      global.__avYtProgress = function (id, lidos, total) {
-        if (onProgresso) { try { onProgresso(Number(lidos) || 0, Number(total) || 0); } catch (_) {} }
-      };
-      return call((id) => B.ytFetch(id, String(url)));
+      return callComProgresso((id) => B.ytFetch(id, String(url)), onProgresso);
     },
     // Busca no YouTube DENTRO do app: devolve
     // `[{ id, url, name, author, seconds, thumb }]`. Lista vazia num shell
@@ -289,10 +324,10 @@
     // justamente a apresentação grande. `onProgresso(feitas, total)` é
     // opcional; o nativo empurra por `__avDeckProgress` a cada página.
     deckPages(origem, nome, onProgresso) {
-      global.__avDeckProgress = function (id, feitas, total) {
-        if (onProgresso) { try { onProgresso(Number(feitas) || 0, Number(total) || 0); } catch (_) {} }
-      };
-      return call((id) => B.deckPages(id, String(origem), String(nome || '')));
+      return callComProgresso(
+        (id) => B.deckPages(id, String(origem), String(nome || '')),
+        onProgresso,
+      );
     },
     // A URL de exportação em PDF de um link do Google Apresentações, ou ''. É
     // SÍNCRONO de propósito: quem chama precisa da resposta para decidir o
@@ -367,8 +402,7 @@
           // bgItemStart/bgPacerTick em controle.js. Não é rodízio entre os
           // itens em voo: o rodízio trazia o mesmo nome de volta várias vezes
           // e a lista não ia a lugar nenhum; a fila consome cada nome UMA
-          // vez, em ordem. (O mesmo texto errado sobre "rodízio" ainda está
-          // em NativeBridge.kt — corrigir junto ao mexer lá.)
+          // vez, em ordem.
           items: (p && Array.isArray(p.items) ? p.items : []).map(String).slice(0, 6),
           // Há quanto tempo nada acontece. Um shell anterior ignora o campo e
           // a notificação simplesmente não distingue travado de lento.
@@ -390,6 +424,15 @@
           playing: !!(s && s.playing),
           // ⏮/⏭ passam ESTROFE em vez de mídia (letra, versículo, mensagem).
           slideMode: !!(s && s.slideMode),
+          // COMO o operador chama o que ⏮/⏭ passam agora ("estrofe",
+          // "versículo", "página"). O campo existe desde a v5.97 no
+          // `pushNowPlaying` e é lido pelo `SessionService` desde então — mas
+          // ele NUNCA chegava lá: este objeto é montado campo a campo, e quem
+          // esquece de um aqui o descarta em silêncio, sem erro em lugar
+          // nenhum. Resultado: a notificação escrevia "(estrofe)" também
+          // durante uma APRESENTAÇÃO, onde o que passa é página. Num shell
+          // antigo o campo é ignorado e o rótulo volta ao de sempre.
+          slideLabel: String((s && s.slideLabel) || ''),
           wallpaper: !!(s && s.wallpaper),
           positionMs: Math.max(0, (s && s.positionMs) | 0),
           durationMs: Math.max(0, (s && s.durationMs) | 0),

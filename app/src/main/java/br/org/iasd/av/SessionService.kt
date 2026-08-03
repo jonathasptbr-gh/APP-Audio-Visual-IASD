@@ -143,14 +143,27 @@ class SessionService : Service() {
     }
 
     override fun onDestroy() {
+        // `running` cai ANTES de tudo: uma publicação já enfileirada na main
+        // (ver a guarda em [publish]) não pode ressuscitar a notificação
+        // depois daqui.
+        running = false
         session?.let {
             it.isActive = false
             it.release()
         }
         session = null
         instance = null
-        running = false
         foregrounded = false
+        // O sistema remove a notificação de um serviço em primeiro plano ao
+        // destruí-lo, mas [publish] também usa `notify` quando o serviço já
+        // está publicado — e um `notify` não tem relação nenhuma com o ciclo
+        // de vida do Service. O cancelamento explícito é o que garante que
+        // nada sobre na gaveta, do mesmo jeito que no [SyncService].
+        try {
+            getSystemService(NotificationManager::class.java)?.cancel(NOTIF_ID)
+        } catch (e: Exception) {
+            Log.w(TAG, "não foi possível remover a notificação de controles", e)
+        }
         super.onDestroy()
     }
 
@@ -166,6 +179,17 @@ class SessionService : Service() {
             mainHandler.post { publish() }
             return
         }
+        // O SALTO DE THREAD ACIMA ABRE UMA JANELA, e é dentro dela que o
+        // serviço pode morrer: `update` roda na thread do WebView, confere
+        // `running` lá e enfileira isto; entre uma coisa e outra o `onDestroy`
+        // (de um `stopSelf` anterior) roda na main e derruba o serviço. Sem
+        // esta guarda a continuação publicava numa instância já destruída —
+        // ou um `notify` que ninguém mais cancela (o mesmo cartão eterno que o
+        // [SyncService] aprendeu a evitar), ou um `startForeground` de um
+        // serviço que não existe mais. O lado web deduplica por chave e não
+        // reenviaria o estado, então a notificação órfã ficaria de pé com os
+        // botões mortos até o app ser fechado.
+        if (!running) return
         val s = scene ?: Scene()
         session?.let { ms ->
             ms.setMetadata(
