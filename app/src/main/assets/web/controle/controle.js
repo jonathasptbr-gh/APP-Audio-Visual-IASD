@@ -156,7 +156,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.100';
+const WEB_VERSION = '5.101';
 
 // Escrita UMA vez, na carga: o indicador mora no rodapé de Configurações desde
 // a v5.49 e não depende mais de qual aba está aberta (no cabeçalho ele
@@ -3362,6 +3362,7 @@ function projectChrono() {
   cmd({ type: 'text', mode: 'chrono', chrono: chronoDescriptor(), sub: chrono.label || '', view: 'visual' });
   renderControls();
   renderNowPlaying();
+  renderSlideNav();
   refreshDiversos();
 }
 
@@ -3374,6 +3375,7 @@ function hideChrono() {
   cmd({ type: 'text-hide' });
   renderControls();
   renderNowPlaying();
+  renderSlideNav();
   refreshDiversos();
 }
 
@@ -3381,6 +3383,7 @@ function clearChronoSession() {
   if (!chronoSession) return;
   chronoSession = null;
   renderNowPlaying();
+  renderSlideNav();
   refreshDiversos();
 }
 
@@ -3721,6 +3724,7 @@ function projectDraw() {
   cmd({ type: 'text', mode: 'draw', draw: drawDescriptor(), sub: draw.label || '', view: 'visual' });
   renderControls();
   renderNowPlaying();
+  renderSlideNav();
   refreshDiversos();
 }
 
@@ -3730,6 +3734,7 @@ function hideDraw() {
   cmd({ type: 'text-hide' });
   renderControls();
   renderNowPlaying();
+  renderSlideNav();
   refreshDiversos();
 }
 
@@ -3737,6 +3742,7 @@ function clearDrawSession() {
   if (!drawSession) return;
   drawSession = null;
   renderNowPlaying();
+  renderSlideNav();
   refreshDiversos();
 }
 
@@ -5263,6 +5269,17 @@ async function send(id) {
   // re-render leve de estados ativos
   document.querySelectorAll('.lib-item,.row-item').forEach((el) => el.classList.toggle('active', el.dataset.id === id));
   renderNowPlaying();
+  // E o EIXO DOS BOTÕES, que muda com o item (v5.101). Sem esta linha, trocar
+  // de mídia deixava ⏮/⏭ com o estado da mídia ANTERIOR — e para uma
+  // APRESENTAÇÃO isso é permanente: quem repunha os limites era o pulso de
+  // `timeupdate` da preview, que só existe em áudio/vídeo. Um deck é imagem
+  // parada, então nada mais rodava: o nome já dizia "1/9" (ele sai de
+  // `renderNowPlaying`, que É chamado) e os botões continuavam apagados,
+  // sem passar página. Parecia intermitente porque dependia do que estava em
+  // cena ANTES — vindo de uma música com letra os botões já estavam acesos e
+  // funcionavam; vindo de uma imagem, não. Só uma importação consertava, e por
+  // acidente: ela termina em `load()`, que chama isto.
+  renderSlideNav();
   if (currentItem && currentItem.kind === 'youtube') {
     // Zera a UI de transporte; o display-status remoto assume em seguida.
     seekEl.value = 0; seekEl.max = 0; seekEl.disabled = true;
@@ -5291,6 +5308,18 @@ function step(delta) {
 // aparecer ficava sem controle de estrofe. A ordem abaixo é a mesma da
 // precedência visual: texto manual cobre a letra, e a letra volta a mandar
 // assim que o texto sai.
+// REGRA: tudo o que muda a resposta desta função precisa chamar
+// `renderSlideNav()` — e não só `renderNowPlaying()`. As duas descrevem a MESMA
+// cena (o nome e o eixo dos botões), e quem atualiza uma sozinha deixa a outra
+// mentindo. O nome tem muito mais caminhos de atualização que o eixo, então a
+// divergência aparece sempre do mesmo jeito: cabeçalho certo, botões errados.
+//
+// Foi assim o defeito da v5.100: projetar o cronômetro (ou o sorteio) sobre uma
+// APRESENTAÇÃO derrubava o alvo para `null`, e ao tirá-lo o nome voltava a
+// dizer "1/9" enquanto ⏮/⏭ continuavam apagados. Para uma apresentação isso era
+// PERMANENTE, porque quem repunha os limites de tempos em tempos era o pulso de
+// `timeupdate` da preview — e um deck é imagem parada. Só uma importação
+// consertava, por acidente: ela termina em `load()`, que chama isto.
 function slideTarget() {
   // O cronômetro não tem slides. Sem esta guarda, os botões de estrofe cairiam
   // na letra do áudio de fundo — que está ESCONDIDO atrás do cartão: o operador

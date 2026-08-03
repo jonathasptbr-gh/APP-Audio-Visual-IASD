@@ -250,6 +250,18 @@ pediriam uma faxina paralela, que é o tipo de bookkeeping duplicado que vaza
 espaço em silêncio. O IndexedDB guarda Blob por referência: ler o registro não
 traz os bytes de dezenas de páginas para a memória.
 
+**O nome e o eixo dos botões descrevem a MESMA cena** — e por isso andam
+juntos (v5.101). Tudo o que muda a resposta de `slideTarget()` precisa chamar
+`renderSlideNav()`, não só `renderNowPlaying()`. O nome tem muito mais caminhos
+de atualização que o eixo, então a divergência aparece sempre igual: cabeçalho
+certo, botões errados. Foi o defeito da v5.100 — projetar o **cronômetro** ou o
+**sorteio** sobre uma apresentação derruba o alvo para `null`, e ao tirá-los o
+nome voltava a dizer "1/9" com ⏮/⏭ apagados. Numa mídia com tempo o pulso de
+`timeupdate` repunha os limites sozinho e o defeito passava despercebido; **um
+deck é imagem parada**, então nada mais rodava e ele ficava permanente. Só uma
+importação consertava, por acidente: ela termina em `load()`, que chama
+`renderSlideNav()`.
+
 **A navegação é o par ⏮/⏭ que já passa estrofe** (`slideTarget()` devolve
 `'deck'`): cada toque passa uma página, e os botões desabilitam nos extremos
 como em qualquer outro alvo de slide. O comando é um `page` próprio, e não um
