@@ -100,16 +100,20 @@ docs/
 └── FONTE-DE-DADOS-LOUVORJA.md   # referência do banco LouvorJA (hinos/Bíblia)
 ```
 
-**Treze arquivos Kotlin, uma dependência de terceiros** — só AndroidX oficial
-(`core-ktx`, `activity-ktx`, `webkit`). Medido agora (`wc -l`): **3.330 linhas
-de Kotlin** contra **11.445 linhas de JavaScript** em `assets/web/` — a
+**Catorze arquivos Kotlin, uma dependência de terceiros no shell** — o resto é
+AndroidX oficial (`core-ktx`, `activity-ktx`, `webkit`). Medido agora (`wc -l`):
+**4.494 linhas de Kotlin** contra **14.527 linhas de JavaScript** em
+`assets/web/` (sem contar `vendor/`, que é código buildado de terceiro) — a
 proporção é o argumento, não o número absoluto. Manter o nativo pequeno respeita
 a filosofia do projeto muito melhor que Capacitor/Cordova, que arrastariam npm e
 um build system inteiro e ainda assim exigiriam código nativo próprio para a
 Presentation.
 
-> Esses dois números envelhecem a cada commit. Meça antes de citá-los:
-> `wc -l app/src/main/java/br/org/iasd/av/*.kt`.
+> Esses números envelhecem a cada commit. Meça antes de citá-los:
+> ```bash
+> wc -l app/src/main/java/br/org/iasd/av/*.kt
+> find app/src/main/assets/web -name '*.js' -not -path '*/vendor/*' | xargs wc -l
+> ```
 
 ---
 
