@@ -117,17 +117,25 @@ object SlideDeck {
             // aparelho para o ramo de DOWNLOAD, que tentava buscar pela rede um
             // host que só existe DENTRO do WebView. Falhava sempre, e o
             // operador via "não deu para abrir" num arquivo perfeito.
-            val fd = if (u.host == WebViewFactory.ORIGIN_HOST) {
-                val token = u.lastPathSegment ?: return erro("url /saf/ sem token")
-                val uri = SafRegistry.get(token) ?: return erro("token /saf/ desconhecido")
-                ctx.contentResolver.openFileDescriptor(uri, "r")
-            } else if (u.scheme == "https") {
-                val baixado = baixar(ctx, origem) ?: return erro("download falhou")
-                temporario = baixado
-                ParcelFileDescriptor.open(baixado, ParcelFileDescriptor.MODE_READ_ONLY)
-            } else {
-                return erro("origem não é nem /saf/ nem https")
-            } ?: return erro("o sistema não abriu o arquivo")
+            //
+            // Em DUAS etapas de propósito: o `when` escolhe a origem e pode
+            // devolver nulo, e só a linha seguinte tira o nulo. Encadear o
+            // `?: return` no fim do bloco deixa o descritor anulável para o
+            // compilador — e aí é o `PdfRenderer` que não compila.
+            val bruto: ParcelFileDescriptor? = when {
+                u.host == WebViewFactory.ORIGIN_HOST -> {
+                    val token = u.lastPathSegment ?: return erro("url /saf/ sem token")
+                    val uri = SafRegistry.get(token) ?: return erro("token /saf/ desconhecido")
+                    ctx.contentResolver.openFileDescriptor(uri, "r")
+                }
+                u.scheme == "https" -> {
+                    val baixado = baixar(ctx, origem) ?: return erro("download falhou")
+                    temporario = baixado
+                    ParcelFileDescriptor.open(baixado, ParcelFileDescriptor.MODE_READ_ONLY)
+                }
+                else -> return erro("origem não é nem /saf/ nem https")
+            }
+            val fd: ParcelFileDescriptor = bruto ?: return erro("o sistema não abriu o arquivo")
 
             fd.use { descritor ->
                 PdfRenderer(descritor).use { pdf ->
