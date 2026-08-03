@@ -76,7 +76,7 @@ class NativeBridge(
          * exijam mais do que o shell instalado oferece (ver [WebUpdater]).
          * Subir SEMPRE que a superfície da ponte mudar.
          */
-        const val SHELL_VERSION = 15
+        const val SHELL_VERSION = 16
 
         /**
          * Fila de IO da ponte, **compartilhada por todas as instâncias**.
@@ -299,6 +299,50 @@ class NativeBridge(
         val u = try { Uri.parse(url) } catch (_: Exception) { return }
         if (!u.scheme.equals("https", ignoreCase = true) || u.host.isNullOrBlank()) return
         host?.openExternalUrl(u.toString())
+    }
+
+    // ---------- vídeo do YouTube como ARQUIVO ----------
+
+    /**
+     * Baixa um vídeo do YouTube no aparelho e devolve
+     * `{ url, name, size, type }` — com `url` servível pelo mesmo `/saf/` das
+     * pastas do dispositivo. O lado web faz `fetch` + `Blob` sem saber de onde
+     * veio; ver [YoutubeGrab] para o porquê de a extração ser NATIVA.
+     *
+     * Roda na fila de IO: é rede e parsing, e um vídeo leva minutos. O
+     * andamento vai por `window.__avYtProgress(id, lidos, total)` — sem isso o
+     * operador ficaria olhando um cartão parado durante todo o download.
+     */
+    @JavascriptInterface
+    fun ytFetch(callId: String, url: String) {
+        if (host == null) { resolve(callId, "null"); return }   // telão não baixa nada
+        io.execute {
+            val r = try {
+                YoutubeGrab.buscar(ctx, url) { lidos, total -> ytProgresso(callId, lidos, total) }
+            } catch (_: Exception) { null }
+            resolve(callId, r?.toString() ?: "null")
+        }
+    }
+
+    /**
+     * Apaga o arquivo intermediário depois que o lado web copiou os bytes para
+     * a biblioteca. Sem isto o vídeo ficaria duas vezes no aparelho.
+     */
+    @JavascriptInterface
+    fun ytDiscard(url: String) {
+        if (host == null) return
+        io.execute { YoutubeGrab.descartar(ctx, url) }
+    }
+
+    private fun ytProgresso(callId: String, lidos: Long, total: Long) {
+        val web = webRef() ?: return
+        val id = JSONObject.quote(callId)
+        web.post {
+            web.evaluateJavascript(
+                "window.__avYtProgress && window.__avYtProgress($id, $lidos, $total);",
+                null,
+            )
+        }
     }
 
     /**

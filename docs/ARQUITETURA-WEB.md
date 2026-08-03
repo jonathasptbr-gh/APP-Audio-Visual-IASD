@@ -94,7 +94,7 @@ git push origin main
   MENOR que o já publicado — caso em que `WebUpdater.compareVersions` ignora o
   bundle em silêncio. Para saber onde a base está, leia `version.json`.
 
-  No app nativo o rótulo mostra os **dois índices** — `Web v5.80 · Shell v1.26`
+  No app nativo o rótulo mostra os **dois índices** — `Web v5.81 · Shell v1.27`
   —, porque base web e shell atualizam por caminhos independentes (OTA ×
   instalar APK); no navegador sai só `Controle v<versão>`. **Ele mora no rodapé
   do popup de Configurações** desde a v5.49 (antes ficava no cabeçalho da lista,
@@ -4661,7 +4661,7 @@ anterior) sofria.
   ficou: ele não custa nada e continua sendo a resposta certa para uma pausa
   espúria por qualquer outro motivo. Mas a solução do problema é outra, abaixo.
 
-### A via do arquivo baixado (Cobalt) — v5.78
+### A via do arquivo baixado — v5.78, e a extração NATIVA da v5.81
 
 O embed do YouTube **pausa sozinho quando a página fica oculta**, e é isso que o
 Android faz com o telão no instante em que o operador minimiza o app. A regra
@@ -4683,8 +4683,49 @@ funcionam há versões. De quebra: sem anúncio, sem legenda, sem UI de terceiro
 telão e **sem depender da rede durante o culto**, que num salão de igreja é o
 ganho maior de todos.
 
-A conversão é feita pelo [Cobalt](https://cobalt.tools) por HTTP puro (`fetch` +
-JSON) — **nenhuma dependência entra no projeto**, como manda a regra.
+#### Quem extrai é o APARELHO (v5.81)
+
+A v5.78 pedia isso a um servidor [Cobalt](https://cobalt.tools). **Não
+funcionou**, e o motivo não é o Cobalt — é a categoria: Cobalt, Invidious e
+Piped rodam em **IP de datacenter**, que é exatamente o que o YouTube bloqueia.
+Nenhuma lista de instâncias, por melhor que seja, muda isso; foi por isso que
+nem a instância digitada à mão nem a descoberta automática (v5.80) entregaram o
+vídeo.
+
+Escrever o extrator à mão também não serve: os **PO Tokens** de hoje são
+atrelados a cada vídeo e assinados por BotGuard/DroidGuard, e o atalho
+`android_sdkless` que os dispensava foi removido. Seria manutenção semanal,
+quebrando sempre num domingo.
+
+O que funciona é extrair **no aparelho**: a requisição sai do IP do chip do
+operador, que o YouTube não bloqueia — é por isso que o NewPipe funciona no
+celular enquanto os servidores públicos apanham. `YoutubeGrab.kt` faz isso com
+o `NewPipeExtractor` (a única dependência de terceiro do projeto, e a exceção
+está declarada no `CLAUDE.md`), e `AVNative.ytFetch(url, onProgresso)` entrega
+ao lado web uma **URL servível** (`/saf/<token>`) — daí para a frente o caminho
+é o mesmo de um arquivo compartilhado: `fetch` + `Blob` + `addMedia`, e
+`ytDiscard` apaga o intermediário para o vídeo não ficar duas vezes no aparelho.
+
+- **Some o problema de CORS**: o `fetch` do WebView nunca alcançaria o
+  `googlevideo.com`, que não manda os cabeçalhos — era por isso que o caminho do
+  Cobalt precisava de `alwaysProxy`.
+- **MP4 progressivo**, com teto prático de 720p: o YouTube reserva as
+  resoluções altas para faixas separadas de vídeo e áudio, que só servem
+  remuxadas, e remuxar exigiria um ffmpeg embarcado. Num telão de igreja 720p
+  basta, e é infinitamente melhor que um vídeo que para no meio.
+- **Sem `PoTokenProvider`, por enquanto.** O extrator faz "o melhor esforço"
+  sem ele; montá-lo exige rodar o desafio do BotGuard num WebView — o app tem
+  dois, então é factível, mas é outra empreitada. Se um vídeo resistir, o app
+  cai no Cobalt (se houver) e depois no player embutido.
+- **Exige shell ≥ 16.** Num anterior a função devolve null na hora e o fluxo
+  segue como antes.
+
+#### O Cobalt continua, como segunda opção
+
+Quem já mantém uma instância própria não perde nada: ela é tentada depois da
+extração nativa, e cobre o caso de um vídeo que o extrator recusar. Tudo abaixo
+segue valendo para esse caminho. Ele é por HTTP puro (`fetch` + JSON) —
+**nenhuma dependência entra no projeto** por causa dele.
 
 - **O app PROCURA uma instância sozinho** (v5.80, `cobaltDescobrir`): com o
   campo em branco, a primeira importação baixa a lista pública da comunidade,

@@ -82,6 +82,7 @@ app/src/main/
 │   ├── SessionService.kt        # MediaSession + notificação com os controles de transporte
 │   ├── WebUpdater.kt            # OTA da base web (watchdog, minShell, sha256)
 │   ├── WebPathHandler.kt        # serve o bundle OTA, com fallback pro APK
+│   ├── YoutubeGrab.kt           # extrai e baixa o vídeo do YouTube NO APARELHO
 │   ├── MicChromeClient.kt       # onPermissionRequest: microfone no WebView do telão
 │   └── MessageBus.kt            # relay de comandos entre os dois WebViews
 └── res/
@@ -222,6 +223,8 @@ window.AVNative = {
   openCast(),          // seletor de ESPELHAMENTO DE TELA do Android (≠ Google Cast)
   castTarget(),        // → string: rótulo do alvo de espelhamento deste aparelho
   openExternal(url),   // abre uma URL https FORA do app (só o Controle)
+  ytFetch(url, onProg),// → { url, name, size, type }: baixa um vídeo do YouTube
+  ytDiscard(url),      //   e apaga o arquivo depois que os bytes foram copiados
   captureVolumeKeys(bool), // botões físicos de volume vão para o app
   systemVolume(step),  // devolve um passo ao volume do sistema (fader no limite)
   requestMic(),        // → bool: permissão RECORD_AUDIO (push-to-talk)
@@ -232,7 +235,7 @@ window.AVNative = {
 }
 ```
 
-São **quinze métodos**, e essa é a superfície inteira que o resto do lado web
+São **dezessete métodos**, e essa é a superfície inteira que o resto do lado web
 tem direito de usar: fora do `native.js`, tocar em `__AVBridge` direto é
 acoplamento indevido. O próprio `native.js` chama mais cinco coisas no
 `__AVBridge`, e nenhuma delas é API para o app — `shellVersion()`, `role()` e
@@ -245,7 +248,7 @@ Além disso, `native.js` publica **quatro globais** lidas direto (sem Promise):
 o `versionName` do APK, que é o **índice de versão do shell exibido ao
 operador**. Ele não se confunde com `__SHELL_VERSION__`: base web e shell
 atualizam por caminhos independentes (OTA × instalar APK), então o rodapé de
-**Configurações** mostra os dois (`Web v5.80 · Shell v<versionName do APK>`,
+**Configurações** mostra os dois (`Web v5.81 · Shell v<versionName do APK>`,
 montado em `renderVersionLabel`; até a v5.48 ficava no cabeçalho do Cronograma —
 saiu de lá porque metadado de diagnóstico pertence à mesma tela do estado do
 telão, não a uma faixa de navegação). Num shell antigo (sem
@@ -293,8 +296,8 @@ esperam uma **pessoa** e ficam sem prazo, porque um timeout ali resolveria null
 com o operador ainda escolhendo a pasta.
 
 `NativeBridge.SHELL_VERSION` identifica a versão da casca — **subir sempre que
-a superfície da ponte mudar**. Hoje vale **15** — a v5.76 acrescentou
-`openExternal`. (A v5.48 não a mexeu: nenhum método foi acrescentado ou teve
+a superfície da ponte mudar**. Hoje vale **16** — a v5.81 acrescentou
+`ytFetch`/`ytDiscard`; a v5.76 tinha acrescentado `openExternal`. (A v5.48 não a mexeu: nenhum método foi acrescentado ou teve
 assinatura alterada, e as mudanças do lote foram restrições de quem pode chamar
 o quê, que nunca exigem shell mais novo.)
 
@@ -843,7 +846,7 @@ contextos.
 | Onde o share ATERRISSA | idem ao nativo (o caminho é o mesmo `importShare`) | **`focarImportado`** (v5.77): fecha os popups abertos e a seleção, e então **projeta na hora** no simplificado ou **vai para o Cronograma** no avançado. A preview em tela cheia só é encerrada se houver telão — sem ele, ela É a projeção |
 | Estado do telão (rodapé de Configurações) | atalho `window.open('../display/')`, útil só para desenvolver | **indicador ao vivo** (desabilitado como botão) — a Presentation é criada sozinha |
 | Botão de cast da preview | oculto | `AVNative.openCast()` → seletor de **espelhamento de tela** (ver abaixo) |
-| Vídeo do YouTube | player embutido (IFrame API) | **player embutido OU arquivo baixado** — o embed pausa sozinho com o app minimizado (regra do player deles, num iframe de outra origem), então com uma instância [Cobalt](https://cobalt.tools) configurada em Configurações o link vira um **arquivo de vídeo local** e passa a ser mídia comum. Ver `cobaltBaixarVideo` e a seção "A via do arquivo baixado" em `docs/ARQUITETURA-WEB.md` |
+| Vídeo do YouTube | player embutido (IFrame API) | **arquivo de vídeo baixado PELO APARELHO** (`YoutubeGrab.kt` + `AVNative.ytFetch`) — o embed pausa sozinho com o app minimizado, e a extração no próprio celular sai do IP do chip, que é o que o YouTube não bloqueia. Sem configurar nada. Cobalt continua como segunda opção para quem já mantém uma instância; falhando os dois, o link vira item de player |
 | Link para fora do app ("Pesquisar … no YouTube") | `window.open` numa aba nova | **`AVNative.openExternal(url)`** → `ACTION_VIEW` numa tarefa própria. O WebView RECUSA navegar para outro origin (invariante 2), então sem esse método um link externo não faz absolutamente nada — nem erro no console |
 | "Conectar a tela" (modo simplificado) | abre a tela do Display (`window.open`) — e é ela que conta como "conectado" | mesmo `AVNative.openCast()`, com o nome da tela conectada no subtítulo |
 | Simplificado sem tela conectada | mesmo bloqueio, com a janela do Display no lugar da `Presentation` | **modo bloqueado**: cortina embaçada sobre tudo, só o botão de conectar — preenchido no accent, no centro da tela — e a saída para o avançado na frente |
@@ -1244,8 +1247,17 @@ Rodar local: `./gradlew assembleDebug` (exige Android SDK instalado).
 - **Todo código novo em `assets/web/` precisa continuar rodando no navegador.**
   Caminhos nativos entram sempre como `if (!window.__NATIVE__) { …web… }`.
 - Não introduzir dependências externas — Kotlin puro + AndroidX oficial no
-  shell; JavaScript puro no web. (Exceção já existente: a IFrame Player API do
-  YouTube, carregada em runtime.)
+  shell; JavaScript puro no web. **Duas exceções, e as duas são declaradas:** a
+  IFrame Player API do YouTube (carregada em runtime) e o
+  **`NewPipeExtractor`** (v5.81), que existe porque extrair a URL de um vídeo do
+  YouTube significa acompanhar as defesas deles — os PO Tokens de hoje são
+  atrelados a cada vídeo e assinados por BotGuard/DroidGuard, e escrever isso à
+  mão seria assinar um contrato de manutenção semanal que quebraria sempre num
+  domingo. A alternativa sem dependência era um servidor público, e ela FALHOU
+  em aparelho: eles rodam em IP de datacenter, que é exatamente o que o YouTube
+  bloqueia. Ver `YoutubeGrab.kt`. Uma terceira exceção precisa do mesmo tipo de
+  justificativa: um problema que não se resolve de outro jeito, e a conta da
+  manutenção paga por quem publica a biblioteca.
 - Toda operação IDB multi-passo que precise de atomicidade usa `storeTx()`.
 - Ao mudar a superfície da ponte, subir `NativeBridge.SHELL_VERSION` **e**
   atualizar a seção "A ponte" acima.
@@ -1272,7 +1284,7 @@ aparelho nenhum.
 O `versionCode`/`versionName` do APK vêm do CI (ver "Build") e não se tocam à
 mão.
 
-**Versão atual: v5.80** (base web) · `SHELL_VERSION` **15**, e o bundle segue com
+**Versão atual: v5.81** (base web) · `SHELL_VERSION` **16**, e o bundle segue com
 `minShell: 2` — ele funciona igual num shell antigo, só sem os recursos que são
 nativos por construção (a escada do voltar, os botões de volume, a notificação de
 controles), que **só chegam instalando o APK novo**, não pelo OTA.
