@@ -234,6 +234,14 @@ O palco de renderização fica `position:fixed; left:-99999px`, e não
   silêncio ali leria como "importou". É o uso do diálogo em modo AVISO
   (`cancelText: null` esconde o botão de cancelar: ele não pergunta nada), e o
   texto é um só (`avisarNaoAbriu`) para as duas portas de entrada.
+- **E o aviso diz POR QUE** (v5.100), num parêntese no fim: `deckUltimoErro`
+  carrega o motivo do ponto que falhou até o diálogo — inclusive o do lado
+  Kotlin, já que `deckPages` passou a devolver `{ erro }` em vez de `null`.
+  Sem isso, todo defeito deste caminho chegava como a mesma frase, e a primeira
+  causa real (o ramo de `https` que engolia o `/saf/`, ver o CLAUDE.md)
+  sobreviveu a duas versões parecendo "PDF com senha". Este código roda no
+  aparelho do operador, num domingo de manhã, e quem desenvolve não tem o
+  aparelho na mão: o diagnóstico precisa caber na tela.
 
 **O registro** é `kind: 'deck'` com `pages: [Blob]` — as páginas ficam DENTRO
 do próprio registro de mídia, não em arquivos soltos no OPFS, para que o gc que

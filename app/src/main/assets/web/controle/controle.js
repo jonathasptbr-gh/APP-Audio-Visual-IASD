@@ -156,7 +156,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.99';
+const WEB_VERSION = '5.100';
 
 // Escrita UMA vez, na carga: o indicador mora no rodapé de Configurações desde
 // a v5.49 e não depende mais de qual aba está aberta (no cabeçalho ele
@@ -8457,14 +8457,30 @@ function ehPptx(item) {
 // O que o app sabe transformar em páginas: PDF (pelo shell) e PPTX (aqui).
 function ehApresentacao(item) { return ehPdf(item) || ehPptx(item); }
 
+// O MOTIVO da última falha de importação de documento, para o aviso poder
+// dizê-lo. Uma variável só, escrita logo antes de quem avisa ler: o aviso
+// aparece uma vez por lote, e é sempre do último arquivo que falhou.
+//
+// Existe porque este código roda no aparelho do operador, num domingo de
+// manhã, e quem desenvolve não tem o aparelho na mão. Sem o motivo na tela,
+// todo defeito daqui chega como a mesma frase e o diagnóstico vira palpite.
+let deckUltimoErro = '';
+
 // Arquivo que o app aceitou mas não conseguiu abrir. DIÁLOGO, e não um aviso
 // que some sozinho: o operador acabou de escolher (ou compartilhar) um arquivo,
 // e nada acontecer leria como "importou".
 function avisarNaoAbriu(nome) {
+  const motivo = deckUltimoErro;
+  deckUltimoErro = '';
   return appConfirm({
     title: 'Não deu para abrir',
     message: '"' + nome + '" não pôde ser lido. Um PDF com senha precisa de uma cópia '
-      + 'sem proteção; um PowerPoint muito antigo (.ppt) precisa ser salvo como .pptx.',
+      + 'sem proteção; um PowerPoint muito antigo (.ppt) precisa ser salvo como .pptx.'
+      // O detalhe técnico fica no FIM e entre parênteses: quem só quer resolver
+      // lê as duas frases acima e ignora esta; quem está diagnosticando (às
+      // vezes por mensagem, sem o aparelho em mãos) tem o que precisa sem
+      // logcat.
+      + (motivo ? '\n\n(detalhe: ' + motivo + ')' : ''),
     okText: 'Entendi', cancelText: null,
   });
 }
@@ -8598,7 +8614,7 @@ async function pptxImportar(file, nome, opts) {
         const pct = total ? Math.floor((feitas / total) * 100) : -1;
         bg.atualizar('Preparando página ' + feitas + (total ? ' de ' + total : '') + '…', null, pct);
       });
-      if (!pages) return null;
+      if (!pages) { deckUltimoErro = 'pptx: nenhuma página desenhada'; return null; }
       const thumb = await makeThumb(pages[0], 'image');
       return await AVDB.addDeck(pages, {
         name: rotulo, thumb, list: (opts && opts.lista) || 'imports',
@@ -8606,6 +8622,7 @@ async function pptxImportar(file, nome, opts) {
     });
   } catch (e) {
     console.warn('[pptx] falhou:', e && e.message);
+    deckUltimoErro = 'pptx: ' + ((e && e.message) || 'erro sem mensagem');
     return null;
   } finally {
     bgTaskEnd(notif);
@@ -8628,16 +8645,21 @@ async function deckImportar(origem, nome, opts) {
         const pct = total ? Math.floor((feitas / total) * 100) : -1;
         bg.atualizar('Preparando página ' + feitas + (total ? ' de ' + total : '') + '…', null, pct);
       });
-      if (!r || !Array.isArray(r.pages) || !r.pages.length) return null;
+      if (!r || !Array.isArray(r.pages) || !r.pages.length) {
+        // Num shell < 22 não vem `erro` nenhum: o aviso sai sem detalhe, que é
+        // exatamente o que ele já fazia.
+        deckUltimoErro = (r && r.erro) ? String(r.erro) : 'o shell não devolveu páginas';
+        return null;
+      }
       primeira = r.pages[0];
       // Uma página de cada vez: as imagens já estão no cache do aparelho, e
       // buscar as dezenas de uma vez só encheria a memória sem ganhar tempo.
       const pages = [];
       for (const u of r.pages) {
         const res = await fetch(u);
-        if (!res.ok) return null;
+        if (!res.ok) { deckUltimoErro = 'página ' + (pages.length + 1) + ': HTTP ' + res.status; return null; }
         const b = await res.blob();
-        if (!b.size) return null;
+        if (!b.size) { deckUltimoErro = 'página ' + (pages.length + 1) + ' veio vazia'; return null; }
         pages.push(b);
       }
       const thumb = await makeThumb(pages[0], 'image');
@@ -8647,6 +8669,7 @@ async function deckImportar(origem, nome, opts) {
     });
   } catch (e) {
     console.warn('[apresentação] falhou:', e && e.message);
+    deckUltimoErro = 'web: ' + ((e && e.message) || 'erro sem mensagem');
     return null;
   } finally {
     // No `finally`, como o `ytDiscard`: mesmo que a cópia falhe, as páginas do
@@ -8826,7 +8849,14 @@ async function importShare(pending) {
     if (ehApresentacao(item)) {
       const nome = nomeSemExtensao((item && item.name) || 'Apresentação');
       let rec = null;
-      if (ehPdf(item) && item.url) {
+      if (ehPdf(item) && !item.url) {
+        // PDF sem URL servível: veio como `File` (o `<input type="file">` do
+        // navegador, ou de um shell antigo). Quem desenha o PDF é o shell, e
+        // ele precisa do ARQUIVO — não há caminho daqui.
+        deckUltimoErro = window.__NATIVE__
+          ? 'PDF precisa do seletor de arquivos do app (instale a versão nova)'
+          : 'o navegador não desenha PDF; use o app';
+      } else if (ehPdf(item)) {
         // PDF: quem desenha é o shell, e ele precisa do ARQUIVO (a URL `/saf/`),
         // não de uma cópia já lida — por isso o desvio acontece ANTES da leitura.
         rec = await deckImportar(item.url, nome, {
@@ -8840,7 +8870,11 @@ async function importShare(pending) {
           try {
             const res = await fetch(item.url);
             if (res.ok) arquivo = await res.blob();
-          } catch (_) { arquivo = null; }
+            else deckUltimoErro = 'não deu para ler o arquivo (HTTP ' + res.status + ')';
+          } catch (e) {
+            arquivo = null;
+            deckUltimoErro = 'não deu para ler o arquivo: ' + ((e && e.message) || 'erro');
+          }
         }
         if (arquivo) rec = await pptxImportar(arquivo, nome, {
           naPreview: simplificado(), lista: destinoDoShare(),
@@ -9457,7 +9491,11 @@ fileEl.addEventListener('change', async () => {
     // não de um `File` já lido — e é justamente por isso que, no app, este
     // botão abre o seletor do sistema.
     if (ehApresentacao(file)) {
-      const rec = ehPptx(file) ? await pptxImportar(file, nomeSemExtensao(file.name), {}) : null;
+      let rec = null;
+      if (ehPptx(file)) rec = await pptxImportar(file, nomeSemExtensao(file.name), {});
+      else deckUltimoErro = window.__NATIVE__
+        ? 'PDF precisa do seletor de arquivos do app (instale a versão nova)'
+        : 'o navegador não desenha PDF; use o app';
       if (!rec) naoAbriu = nomeSemExtensao(file.name);
       continue;
     }

@@ -84,9 +84,15 @@ object SlideDeck {
     }
 
     /**
-     * Rasteriza a apresentação e devolve `{ name, pages: [url] }`, ou `null` em
-     * qualquer falha (quem chama volta ao comportamento de antes: o arquivo
-     * entra como mídia comum, ou o link vira item de URL).
+     * Rasteriza a apresentação e devolve `{ name, pages: [url] }`.
+     *
+     * Em qualquer falha devolve `{ erro: "<motivo>" }` — um objeto, e nunca
+     * `null`. O motivo NÃO é decoração: este código roda no aparelho do
+     * operador, a projeção é num domingo de manhã e quem desenvolve não tem o
+     * aparelho na mão. Sem ele, todo defeito daqui chega como a mesma frase
+     * ("não deu para abrir") e o diagnóstico vira adivinhação — foi exatamente
+     * assim que o ramo errado de `https` (ver abaixo) sobreviveu a duas
+     * versões.
      *
      * `origem` aceita as duas portas de entrada:
      *  - `/saf/<token>` — o PDF que chegou por compartilhamento ou pelo seletor
@@ -100,28 +106,38 @@ object SlideDeck {
         origem: String,
         nomeSugerido: String?,
         onProgresso: (Int, Int) -> Unit,
-    ): JSONObject? {
+    ): JSONObject {
         var temporario: File? = null
         return try {
-            val fd = if (origem.startsWith("https://")) {
-                val baixado = baixar(ctx, origem) ?: return null
+            val u = Uri.parse(origem)
+            // O ARQUIVO LOCAL VEM PRIMEIRO, e a pergunta é pelo HOST — não por
+            // "começa com https". `/saf/` É uma URL https
+            // (`https://appassets.androidplatform.net/saf/<token>`, ver
+            // SafRegistry.urlFor): testar o prefixo mandava todo PDF do
+            // aparelho para o ramo de DOWNLOAD, que tentava buscar pela rede um
+            // host que só existe DENTRO do WebView. Falhava sempre, e o
+            // operador via "não deu para abrir" num arquivo perfeito.
+            val fd = if (u.host == WebViewFactory.ORIGIN_HOST) {
+                val token = u.lastPathSegment ?: return erro("url /saf/ sem token")
+                val uri = SafRegistry.get(token) ?: return erro("token /saf/ desconhecido")
+                ctx.contentResolver.openFileDescriptor(uri, "r")
+            } else if (u.scheme == "https") {
+                val baixado = baixar(ctx, origem) ?: return erro("download falhou")
                 temporario = baixado
                 ParcelFileDescriptor.open(baixado, ParcelFileDescriptor.MODE_READ_ONLY)
             } else {
-                val token = Uri.parse(origem).lastPathSegment ?: return null
-                val uri = SafRegistry.get(token) ?: return null
-                ctx.contentResolver.openFileDescriptor(uri, "r")
-            } ?: return null
+                return erro("origem não é nem /saf/ nem https")
+            } ?: return erro("o sistema não abriu o arquivo")
 
             fd.use { descritor ->
                 PdfRenderer(descritor).use { pdf ->
                     val total = minOf(pdf.pageCount, MAX_PAGINAS)
-                    if (total <= 0) return null
+                    if (total <= 0) return erro("PDF sem páginas")
                     val destino = pasta(ctx, chaveDe(origem))
                     val urls = JSONArray()
                     for (i in 0 until total) {
                         val arquivo = File(destino, "%03d.png".format(i))
-                        if (!renderizar(pdf, i, arquivo)) return null
+                        if (!renderizar(pdf, i, arquivo)) return erro("falha ao gravar a página ${i + 1}")
                         urls.put(SafRegistry.urlFor(Uri.fromFile(arquivo)))
                         onProgresso(i + 1, total)
                     }
@@ -132,13 +148,17 @@ object SlideDeck {
             }
         } catch (e: Exception) {
             // PDF protegido por senha, arquivo corrompido, link sem permissão:
-            // todos chegam aqui, e todos têm a mesma resposta.
+            // todos chegam aqui. A CLASSE da exceção vai junto porque é ela que
+            // separa "senha" de "não é PDF" de "sem memória" — a mensagem sozinha
+            // costuma vir vazia.
             Log.w(TAG, "não deu para abrir a apresentação: $origem", e)
-            null
+            erro(e.javaClass.simpleName + (e.message?.let { ": $it" } ?: ""))
         } finally {
             temporario?.delete()
         }
     }
+
+    private fun erro(motivo: String) = JSONObject().put("erro", motivo)
 
     /**
      * Rasteriza UMA página. O bitmap é criado e reciclado dentro da função de
