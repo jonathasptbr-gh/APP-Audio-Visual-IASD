@@ -163,26 +163,18 @@
            que era a outra dona dele, virou a gaveta `#favPopup` e levou junto o
            próprio voltar, a busca da pasta e o botão de sincronizar. -->
       <button id="backBtn" class="back-btn" title="Voltar" aria-label="Voltar" hidden><span class="msym" aria-hidden="true">&#xe5c4;</span></button>
-      <span class="list-title" id="listTitle">Cronograma</span>
-      <!-- FAVORITOS, no cabeçalho FIXO (v5.103). A porta era o botão no fim da
-           lista do Cronograma — e só ele: para chegar a um atalho era preciso
-           rolar o cronograma inteiro, e de dentro da Bíblia, do acervo ou das
-           Ferramentas não havia caminho nenhum. Um "acesso rápido" que exige
-           rolar até o fim de outra lista não é acesso rápido. O botão do fim do
-           Cronograma continua onde estava: ali ele é o par de "Importar
-           arquivos" ("de onde vem a mídia?"), e as duas portas levam à mesma
-           gaveta. -->
-      <button id="favHeadBtn" class="head-fav-btn" title="Favoritos">
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true">
-          <path d="M12 3.4l2.7 5.47 6.03.88-4.36 4.25 1.03 6.01L12 17.17l-5.4 2.84 1.03-6.01L3.27 9.75l6.03-.88z"/>
-        </svg>
-        <span>Favoritos</span>
-      </button>
-      <!-- A volta para o modo simplificado. Mesmo componente, mesmo canto e a
-           seta invertida do botão que traz o operador para cá (ver a
-           `.simple-head`). Está no CABEÇALHO, e não numa configuração, porque
-           entrar no avançado é o toque de curiosidade que qualquer um dá — e
-           sair precisa custar o mesmo tanto que entrar.
+      <!-- A ORDEM DA FAIXA É saída · lugar · destino (v5.107): "Modo Fácil" à
+           esquerda, o nome da tela no meio, "Favoritos" à direita. A seta do
+           botão de modo aponta para a esquerda, e um botão que aponta para fora
+           da tela precisa estar do lado para onde aponta — encostado à direita
+           ele apontava para o meio do próprio cabeçalho. O título ao centro é o
+           que sobra: ele é o único elemento que não é ação, e no meio ele deixa
+           de disputar a leitura com o botão que estivesse ao lado. -->
+      <!-- A volta para o modo simplificado. Mesmo componente e a seta invertida
+           do botão que traz o operador para cá (ver a `.simple-head`). Está no
+           CABEÇALHO, e não numa configuração, porque entrar no avançado é o
+           toque de curiosidade que qualquer um dá — e sair precisa custar o
+           mesmo tanto que entrar.
            O indicador de versão saiu daqui e foi para o rodapé de
            Configurações: ele é METADADO, o cabeçalho é navegação, e a faixa
            não comportava os dois (o texto completo — "Web vX · Shell vY" —
@@ -193,13 +185,38 @@
         </svg>
         <span>Modo Fácil</span>
       </button>
+      <span class="list-title" id="listTitle">Cronograma</span>
+      <!-- FAVORITOS, no cabeçalho FIXO (v5.103). A porta era o botão no fim da
+           lista do Cronograma — e só ele: para chegar a um atalho era preciso
+           rolar o cronograma inteiro, e de dentro da Bíblia, do acervo ou das
+           Ferramentas não havia caminho nenhum. Um "acesso rápido" que exige
+           rolar até o fim de outra lista não é acesso rápido. -->
+      <button id="favHeadBtn" class="head-fav-btn" title="Favoritos">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true">
+          <path d="M12 3.4l2.7 5.47 6.03.88-4.36 4.25 1.03 6.01L12 17.17l-5.4 2.84 1.03-6.01L3.27 9.75l6.03-.88z"/>
+        </svg>
+        <span>Favoritos</span>
+      </button>
     </div>
 
     <ul id="library" class="lib-list"></ul>
+    <!-- RODAPÉ DA CAIXA DA LISTA (v5.107): fora do `<ul>` rolável, então o que
+         estiver aqui fica SEMPRE à vista, encostado na caixa de controles.
+         Dois inquilinos, nunca ao mesmo tempo:
+           · "Importar arquivos", que estava no fim da lista e sumia de vista
+             com trinta itens no Cronograma — a ação mais frequente da tela
+             exigindo rolar até o fim para ser alcançada;
+           · a barra de seleção múltipla (`#selbar`), que antes tomava o lugar
+             da faixa de ABAS na caixa de controles — trocar a navegação de
+             lugar para mostrar as ações da lista é mexer no que não é da
+             seleção, e a faixa some justamente quando o operador pode querer
+             sair da tela. Aqui ela ocupa a fatia da própria lista a que
+             pertence, e as abas ficam onde sempre estiveram. -->
+    <div id="listFoot" class="list-foot"></div>
     <!-- Seletor de arquivos: mora aqui, solto, e é MOVIDO para dentro da
-         linha "Importar arquivos" no fim do Cronograma a cada render (ver
-         appendImportRow em controle.js) — assim sobrevive ao innerHTML=''
-         que reconstrói a lista, sem perder o listener de `change`. -->
+         linha "Importar arquivos" do rodapé a cada render (ver
+         renderListFoot em controle.js) — assim sobrevive à reconstrução do
+         rodapé, sem perder o listener de `change`. -->
     <input id="file" type="file"
            accept="image/*,video/*,audio/*,.pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation"
            multiple hidden>
@@ -645,7 +662,7 @@
              METADADO de diagnóstico e o lugar onde se procura diagnóstico é
              junto do estado do telão e do alvo de espelhamento, não numa faixa
              de navegação. Preenchido por `renderVersionLabel`. -->
-        <span id="appVersion" class="app-version">Controle v5.106</span>
+        <span id="appVersion" class="app-version">Controle v5.107</span>
       </div>
     </div>
   </div>

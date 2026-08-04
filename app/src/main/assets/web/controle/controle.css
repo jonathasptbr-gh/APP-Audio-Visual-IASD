@@ -53,9 +53,13 @@ input, textarea { user-select: text !important; -webkit-user-select: text !impor
      de duas medidas render quatro tamanhos na mesma tela.
      `--hit` é o piso de qualquer botão só-de-ícone; `--hit-nav` é a faixa de
      navegação (abas e acervo), maior de propósito — ali o alvo é percorrido
-     de relance, não mirado numa lista densa. */
+     de relance, não mirado numa lista densa. `--hit-foot` é a fatia do rodapé
+     FIXO da lista, dividida por "Importar arquivos" e pela barra de seleção
+     múltipla: os dois PRECISAM medir o mesmo, ou a caixa da lista muda de
+     tamanho ao entrar e sair da seleção e a lista pula debaixo do dedo. */
   --hit: 34px;
   --hit-nav: 38px;
+  --hit-foot: 44px;
 
   /* Altura da faixa da preview na grade do .deck. É token porque a largura da
      preview é calculada a partir dela (altura × proporção do telão) — se as
@@ -924,19 +928,24 @@ main {
    o subtítulo de qualquer linha da lista. Segue em `--muted` e em caixa alta:
    é um rótulo de seção, não um cabeçalho de conteúdo. */
 /* `min-width: 0` + reticências: dentro de uma pasta o título é o NOME dela, de
-   comprimento imprevisível, e o cabeçalho tem um vizinho de largura fixa à
-   direita (a troca de modo, 177px com o rótulo "Modo simplificado"). Sem isto
-   um nome longo empurraria o botão para fora da tela — o padrão de um item flex
-   é `min-width: auto`, que se recusa a encolher abaixo do conteúdo.
+   comprimento imprevisível, e o cabeçalho tem vizinhos de largura fixa dos DOIS
+   lados. Sem isto um nome longo empurraria um dos botões para fora da tela — o
+   padrão de um item flex é `min-width: auto`, que se recusa a encolher abaixo
+   do conteúdo.
    MEDIDO: numa tela de 360px a única combinação que aperta é a RAIZ DOS
    FAVORITOS, o único cabeçalho com quatro elementos (voltar + título +
    sincronizar + troca de modo) — ali "FAVORITOS" sai com reticências por ~17px.
    É troca assumida: encolher o botão a ponto de caber deixaria o rótulo menor
    que o resto da UI, e reduzi-lo a só a seta o tornaria uma segunda seta
    apontando para a esquerda na mesma faixa que já tem o voltar. Em 390px (e em
-   qualquer outra tela do app) o título cabe inteiro. */
+   qualquer outra tela do app) o título cabe inteiro.
+   AO CENTRO desde a v5.107: ele é o único elemento da faixa que não é ação,
+   ladeado pela saída (Modo Fácil) e pelo destino (Favoritos). Centrado no
+   ESPAÇO QUE SOBRA, não na tela — os dois botões não têm a mesma largura, e
+   posicioná-lo pelo eixo da tela exigiria tirá-lo do fluxo e arriscar
+   sobreposição justamente com o nome comprido de um atalho. */
 .list-title {
-  flex: 1; min-width: 0;
+  flex: 1; min-width: 0; text-align: center;
   font-size: .84rem; font-weight: 700; color: var(--muted);
   text-transform: uppercase; letter-spacing: .06em;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
@@ -962,12 +971,14 @@ main {
    discreto (não é a ação principal de ninguém) e o anuncia como controle.
    A seta é o que faltava: sem ela o rótulo nomeava um destino sem dizer que
    sair dali é ir para OUTRA tela. */
+/* SEM `margin-left: auto` desde a v5.107: no cabeçalho da lista o botão foi
+   para a ESQUERDA — a seta dele aponta para lá, e um botão que aponta para fora
+   da tela precisa estar do lado para onde aponta. No modo Fácil ele continua à
+   direita (a seta é a inversa, apontando para o avançado), e ali quem o empurra
+   é a marca em `flex: 1`; a regra abaixo garante o canto mesmo se a marca um dia
+   deixar de crescer. */
 .mode-switch {
-  /* `margin-left: auto` e não a posição no DOM: na aba Bíblia o título fica
-     oculto (a grade fala por si) e, sem ele empurrando, o botão escorregava
-     para a esquerda do cabeçalho — o par de troca de modo tem de estar SEMPRE
-     no mesmo canto, ou deixa de ser um par. */
-  flex-shrink: 0; margin-left: auto;
+  flex-shrink: 0;
   display: inline-flex; align-items: center; gap: .3rem;
   /* SEM MOLDURA (v5.76). O contorno em `--accent` desenhava, nos dois
      cabeçalhos, a moldura mais forte da tela em volta do botão que menos se
@@ -982,15 +993,16 @@ main {
   appearance: none; -webkit-appearance: none;
 }
 .mode-switch svg { color: var(--accent); }
+.simple-head .mode-switch { margin-left: auto; }
 /* O voltar continua "chapado" (sem fundo) — só o alvo cresceu. */
 .back-btn { background: none; color: var(--accent); }
 .add-dir-btn .msym, .back-btn .msym { font-size: var(--icon-sm); }
 
-/* FAVORITOS no cabeçalho (v5.103): a mesma caixa de toque dos outros botões de
-   ícone da faixa, chapada como o voltar. Fica ANTES da troca de modo (que tem
-   `margin-left: auto` e continua colada à direita), então a ordem visual é
-   voltar · título · estrela · modo — a estrela ao lado do título, que é o
-   contexto dela, e não disputando o canto com o par de troca de modo.
+/* FAVORITOS no cabeçalho (v5.103), no CANTO DIREITO desde a v5.107: a ordem da
+   faixa é voltar · modo · título · favoritos, isto é, saída à esquerda, lugar no
+   meio, destino à direita. Os dois botões ficam nos cantos opostos porque levam
+   a lugares opostos; empilhados do mesmo lado (como estavam) eles se liam como
+   um par, e não são.
    Em ouro, e não em `--muted`: ela é a única porta permanente para uma tela
    inteira, e apagada seria lida como decoração do título. */
 /* COM RÓTULO (v5.104), e não só a estrela. O ícone sozinho, num cabeçalho que
@@ -1149,13 +1161,27 @@ main {
    acima). Aqui fica só o que pertence ao botão — a cor do ícone. */
 .tab.active { color: var(--accent); }
 
-/* Fim da lista do Cronograma: "Importar arquivos" e "Pastas" lado a lado — as
-   duas respondem à mesma pergunta ("de onde vem a mídia?") e ficam onde o
-   resultado delas aparece. Tracejado para se lerem como "espaço a preencher",
-   não como mais um item da lista.
-   A margem de cima separa da última mídia: sem ela o botão encostava na lista
-   e parecia mais um item dela. */
+/* ---------- Rodapé FIXO da caixa da lista (v5.107) ---------- */
+/* Fora do `<ul>` rolável: o que está aqui não some de vista, e é isso que o
+   justifica. "Importar arquivos" era o último item da lista — com um culto
+   montado (trinta itens, o normal) a ação mais frequente da tela exigia rolar
+   até o fim para ser alcançada, e depois rolar de volta.
+   Ele divide o rodapé com a barra de seleção múltipla, NUNCA ao mesmo tempo:
+   uma é "acrescentar à lista", a outra é "o que fazer com o que já está nela".
+   Vazio, o rodapé não existe — `:empty` some com ele e com o `gap` do `<main>`
+   junto, senão sobraria uma faixa de ar acima da caixa de controles nas abas
+   que não têm rodapé nenhum. */
+.list-foot { flex-shrink: 0; display: flex; flex-direction: column; }
+.list-foot:empty { display: none; }
+
+/* Fim da lista do Cronograma: "Importar arquivos" — tracejado para se ler como
+   "espaço a preencher", não como mais um item da lista. (A mesma receita serve
+   ao "Novo atalho" da gaveta de Favoritos, que continua sendo um `<li>` no fim
+   daquela lista.)
+   A margem de cima só vale DENTRO de uma lista, onde ele precisa se separar da
+   última mídia; no rodapé quem dá o respiro é o `gap` do `<main>`. */
 .import-row { flex-shrink: 0; display: flex; gap: .5rem; margin-top: .85rem; }
+.list-foot > .import-row { margin-top: 0; }
 /* Cabeçalho de origem na tela de Favoritos ("Atalhos" / "Pastas do
    dispositivo"): rótulo discreto, não um item da lista — por isso sem fundo,
    sem borda e sem feedback de toque. */
@@ -1169,8 +1195,11 @@ main {
    #2f81f7 aposentado há versões — dois azuis diferentes lado a lado, com o
    mesmo papel (ação secundária contornada), congelados um no token e outro
    numa cópia que nenhuma troca de paleta alcançaria. */
+/* `min-height: var(--hit-foot)` e não só o padding: é ele que fixa a altura da
+   fatia do rodapé, para a barra de seleção poder ocupar exatamente a mesma
+   caixa quando toma o lugar dele. */
 .import-btn {
-  flex: 1; min-width: 0; padding: .75rem .5rem;
+  flex: 1; min-width: 0; min-height: var(--hit-foot); padding: .5rem;
   background: transparent; border: 1px dashed var(--accent);
   border-radius: var(--radius-btn); color: var(--accent); font-size: .9rem;
   display: flex; align-items: center; justify-content: center; gap: .45rem;
@@ -1192,22 +1221,6 @@ main {
    se distingue dela pela cor: accent cheio é ação, o vazado é lugar. */
 .tab-add { background: var(--accent-fill); color: var(--on-accent); }
 
-/* barra de seleção */
-/* NA CAIXA DE CONTROLES ELA É O MESMO RECORTE DA ABA ATIVA (v5.106): a mesma
-   tinta (`--bg`, o corpo da tela), a mesma geometria de borda a borda
-   (`margin: 0 -.7rem`) e o mesmo raio só EMBAIXO — o preto desce do conteúdo
-   para dentro da caixa e os botões flutuam nele. Ela substitui a faixa de abas,
-   então parecer a faixa de abas é o comportamento certo.
-   E OCUPA EXATAMENTE A MESMA CAIXA: `--hit-nav` de altura, a mesma das células
-   de aba, sem margem em cima. Antes ela era mais alta (padding próprio + meio
-   rem de respiro) e a caixa de controles inteira PULAVA de altura ao entrar e
-   sair da seleção — com a preview e o transporte junto. */
-.bottombar > .selbar {
-  margin: 0 -.7rem; padding: 0 .8rem;
-  height: var(--hit-nav);
-  background: var(--bg);
-  border-radius: 0 0 var(--radius-btn) var(--radius-btn);
-}
 /* ---------- Barra de seleção múltipla ---------- */
 /* SEM O ÂMBAR E SEM BORDA (v5.105). Ela era um bloco em `--accent-soft` com
    contorno em `--accent` — a mancha âmbar mais forte da tela, e num app cuja
@@ -1216,15 +1229,25 @@ main {
    SELECIONADO da lista logo acima, e lia-se como mais uma linha marcada em vez
    de como a barra de ações delas.
    O fundo agora é PRETO (`--bg`, o corpo da tela) com os botões `--surface-2`
-   flutuando nele — nenhuma borda. Na caixa de controles isso vira o mesmo
-   recorte da aba ativa (ver `.bottombar > .selbar`); na gaveta dos Favoritos é
-   uma barra preta sobre o painel.
+   flutuando nele — nenhuma borda. No rodapé da lista o preto é o do próprio
+   corpo, e o que se vê são só as teclas; na gaveta dos Favoritos é uma barra
+   preta sobre o painel.
    O que segura o sinal de "você está em outro modo" é o CONTADOR em accent:
    uma cor de texto, não uma placa. */
 .selbar {
   flex-shrink: 0; display: flex; align-items: center; gap: .6rem;
   background: var(--bg); border: none; border-radius: var(--radius-card);
   padding: .35rem .6rem;
+}
+/* NO RODAPÉ DA LISTA (v5.107) ela ocupa exatamente a fatia do "Importar
+   arquivos" que substitui: mesma altura (`--hit-foot`), sem padding lateral
+   próprio (o `<main>` já dá o dele) e sem raio — não é um cartão, é a faixa de
+   ações da lista. Sem a altura fixa a caixa da lista mudava de tamanho ao
+   entrar e sair da seleção, e a lista inteira dava um pulo debaixo do dedo que
+   estava segurando um item. */
+.list-foot > .selbar {
+  min-height: var(--hit-foot);
+  padding: 0; border-radius: 0;
 }
 .sel-count { font-weight: 700; color: var(--accent); }
 .sel-spacer { flex: 1; }

@@ -124,10 +124,15 @@ const plPackEl = document.getElementById('plPack');
 
 const fileEl = document.getElementById('file');
 const mainEl = document.querySelector('main');
-const bottombarEl = document.querySelector('.bottombar');
-const deckEl = document.querySelector('.deck');
+// `.bottombar` e `.deck` eram as âncoras da barra de seleção enquanto ela morava
+// na caixa de controles (v5.107 a mudou para o rodapé da lista). Ninguém mais
+// os consulta.
 const tabsEl = document.querySelector('.tabs');
 const libraryEl = document.getElementById('library');
+// O rodapé FIXO da caixa da lista: fora do `<ul>` rolável, e por isso sempre à
+// vista. Hospeda "Importar arquivos" e, durante a seleção múltipla, a `#selbar`
+// (ver `renderListFoot` e `hostSelbar`) — nunca os dois ao mesmo tempo.
+const listFootEl = document.getElementById('listFoot');
 // Favoritos: a gaveta do topo (ver `openFavorites`). A lista dela é um segundo
 // HOST para as MESMAS funções de render — não uma segunda implementação.
 const favPopupEl = document.getElementById('favPopup');
@@ -157,7 +162,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.106';
+const WEB_VERSION = '5.107';
 
 // Escrita UMA vez, na carga: o indicador mora no rodapé de Configurações desde
 // a v5.49 e não depende mais de qual aba está aberta (no cabeçalho ele
@@ -4537,6 +4542,11 @@ function renderLibrary() {
   // lista ligada, a página inteira voltaria a rolar e o microfone sairia da
   // base — que é justamente o que o acordeão veio resolver.
   libraryEl.classList.toggle('lib-misc', activeTab === 'mic');
+  // ANTES do desvio por aba, e não no fim: Bíblia, Ferramentas e a raiz dos
+  // Favoritos saem por `return` daqui, e o rodapé é da CAIXA da lista, não da
+  // lista — deixado para o fim, o "Importar arquivos" do Cronograma continuava
+  // desenhado embaixo da grade de livros da Bíblia.
+  renderListFoot();
 
   if (activeTab === 'bible') {
     renderBible();
@@ -4576,7 +4586,6 @@ function renderLibrary() {
           : '<li class="empty">Atalho vazio.<br>Segure itens no Cronograma para selecioná-los'
             + '<br>e use "Adicionar a um atalho".</li>'))
       : '<li class="empty">Cronograma vazio.</li>';
-    appendImportRow();
     return;
   }
 
@@ -4714,18 +4723,36 @@ function renderLibrary() {
   // As linhas PROVISÓRIAS vão no fim, que é para onde o item vai quando
   // existir: `addMedia` sempre pendura no fim do Cronograma.
   provisorias.forEach(([chave, reg]) => host.appendChild(libBusyRow(chave, reg)));
-
-  appendImportRow();
 }
 
-// Importar arquivos vive NO FIM DO CRONOGRAMA, não mais numa aba: é uma ação
-// sobre esta lista específica, e ficando no lugar onde os arquivos vão cair
-// (o fim da lista) a relação fica óbvia. A faixa de abas volta a ser só
-// navegação. O `<input type="file">` continua dentro de um <label>, que é o
-// que dispensa JS pra abrir o seletor.
-function appendImportRow() {
-  if (activeTab !== 'imports' || currentFolder || selectionMode) return;
-  const li = document.createElement('li');
+// Importar arquivos é uma ação sobre ESTA lista, não uma aba — mas até a v5.106
+// ele era o último `<li>` do `<ul>` rolável, e com trinta itens no Cronograma
+// (que é o culto normal) alcançá-lo exigia rolar a lista inteira. Agora mora no
+// RODAPÉ FIXO da caixa da lista (`#listFoot`), fora da rolagem: continua junto
+// do lugar onde os arquivos vão cair e está sempre a um toque.
+// O `<input type="file">` continua dentro de um <label>, que é o que dispensa
+// JS pra abrir o seletor.
+//
+// A função reconstrói só o que é DELA: o rodapé é dividido com a barra de
+// seleção (ver `hostSelbar`), e um `innerHTML = ''` aqui tiraria a `#selbar` do
+// documento — o nó é um só, movido, e perdê-lo significa perder os listeners.
+function renderListFoot() {
+  const antiga = listFootEl.querySelector('.import-row');
+  // O seletor de arquivos mora DENTRO da linha antiga; tirá-lo antes de
+  // descartá-la é o que preserva o listener de `change` (mesmo cuidado do
+  // fantasma da troca de aba).
+  if (fileEl.parentElement && fileEl.parentElement.closest('.import-row')) mainEl.appendChild(fileEl);
+  if (antiga) antiga.remove();
+  // O rodapé some quando não tem inquilino nenhum. Não dá para deixar isso com
+  // um `:empty` no CSS: a `#selbar` MORA aqui mesmo fora da seleção (escondida
+  // pelo `hidden`), então o rodapé nunca fica de fato vazio — e um filho de
+  // altura zero ainda consome o `gap` do `<main>`, que viraria uma faixa de ar
+  // acima da caixa de controles em toda aba sem rodapé.
+  const temImport = activeTab === 'imports' && !currentFolder && !selectionMode;
+  const temSelbar = selectionMode && selbarEl.parentElement === listFootEl;
+  listFootEl.hidden = !temImport && !temSelbar;
+  if (!temImport) return;
+  const li = document.createElement('div');
   li.className = 'import-row';
 
   // UM botão só, para TODO arquivo — inclusive apresentação (v5.99). O que
@@ -4767,7 +4794,7 @@ function appendImportRow() {
   // e "Importar arquivos" fica com a linha inteira, que é o que ele sempre
   // quis (o nome do botão cabe sem reticências em qualquer tela).
   li.appendChild(label);
-  libraryEl.appendChild(li);
+  listFootEl.appendChild(li);
 }
 
 // Os tipos que o seletor do sistema oferece. PDF e PPTX entram na MESMA lista
@@ -5807,7 +5834,11 @@ function fmtParBytes(a, b) {
 function renderSelbar() {
   hostSelbar();
   selbarEl.hidden = !selectionMode;
-  tabsEl.hidden = selectionMode;
+  // As ABAS NÃO SOMEM MAIS durante a seleção (v5.107): a barra passou a ocupar
+  // o rodapé da lista, não a faixa de navegação. Quem cede o lugar é o
+  // "Importar arquivos", e é `renderListFoot` (pela guarda de `selectionMode`)
+  // que cuida disso.
+  renderListFoot();
   if (!selectionMode) return;
   selCountEl.textContent = String(selected.size);
   selRenameEl.disabled = selected.size !== 1;
@@ -6770,20 +6801,23 @@ function closeFavorites() {
   switchTab(favVoltarPara || 'imports', true);
 }
 
-// A barra de seleção múltipla vive na caixa de controles, ATRÁS da gaveta — com
-// ela aberta, selecionar itens dentro de uma pasta deixaria a barra invisível.
-// Então ela MUDA de casa junto com a lista, pelo mesmo padrão que o
-// `<input type="file">` já usa (ver appendImportRow): um nó só, movido, em vez
-// de dois que divergem.
-// Em casa o lugar dela é ANTES do `.deck`, porque é ali que fica a faixa de
-// abas que ela substitui — daí o `insertBefore` em vez de um `appendChild`,
-// que a jogaria para depois do transporte.
+// A barra de seleção múltipla vive no RODAPÉ DA LISTA, e some atrás da gaveta
+// de Favoritos quando ela abre — selecionar itens dentro de uma pasta deixaria
+// a barra invisível. Então ela MUDA de casa junto com a lista, pelo mesmo
+// padrão que o `<input type="file">` já usa (ver renderListFoot): um nó só,
+// movido, em vez de dois que divergem.
+//
+// A casa dela era a caixa de controles, no lugar da faixa de ABAS (v5.107 tirou
+// de lá). As ações são da LISTA; trocar a navegação de lugar para mostrá-las
+// mexe no que não é da seleção, e some com as abas justamente quando o operador
+// pode querer sair da tela. No rodapé ela ocupa a fatia do "Importar arquivos",
+// que é a única coisa da tela que a seleção múltipla de fato substitui.
 function hostSelbar() {
   if (favPopupEl.classList.contains('open')) {
     if (selbarEl.parentElement !== favSheetEl) favSheetEl.appendChild(selbarEl);
     return;
   }
-  if (selbarEl.parentElement !== bottombarEl) bottombarEl.insertBefore(selbarEl, deckEl);
+  if (selbarEl.parentElement !== listFootEl) listFootEl.appendChild(selbarEl);
 }
 
 function navigateBack() {
@@ -11153,10 +11187,11 @@ function makeTabGhost() {
   g.style.width = libraryEl.offsetWidth + 'px';
   g.style.height = libraryEl.offsetHeight + 'px';
   const topo = libraryEl.scrollTop;
-  // O seletor de arquivos MORA dentro da lista enquanto o Cronograma está
-  // aberto (ver appendImportRow). Se ele fosse junto para o fantasma, sairia do
-  // documento quando o fantasma fosse descartado — e o `change` que importa
-  // arquivos deixaria de acontecer até o próximo render devolvê-lo.
+  // Desde a v5.107 o seletor de arquivos mora no RODAPÉ (`#listFoot`), que fica
+  // fora do `<ul>` e portanto fora do fantasma — mas a guarda continua: se um
+  // dia algo voltar a pendurá-lo dentro da lista, ele iria junto para o
+  // fantasma, sairia do documento quando este fosse descartado, e o `change`
+  // que importa arquivos deixaria de acontecer sem erro nenhum no console.
   if (fileEl.parentElement && fileEl.parentElement.closest('#library')) mainEl.appendChild(fileEl);
   while (libraryEl.firstChild) g.appendChild(libraryEl.firstChild);
   mainEl.appendChild(g);
@@ -11181,7 +11216,7 @@ function animateTabSwitch(dir, ghost) {
 }
 
 // Troca de tela da lista. Nem toda tela tem aba: **Favoritos** é alcançada
-// pelo botão no fim do Cronograma (ver appendImportRow), e o botão voltar dali
+// pelo botão no fim do Cronograma (ver renderListFoot), e o botão voltar dali
 // retorna ao Cronograma — mas continua sendo um `activeTab` ('folders'), com a
 // mesma navegação interna (atalhos, pastas do dispositivo, busca).
 // `semAnim` para as trocas que NÃO são um passo lateral entre abas: fechar a

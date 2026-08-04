@@ -251,7 +251,7 @@ O palco de renderização fica `position:fixed; left:-99999px`, e não
 
 **As portas de entrada são as mesmas de qualquer arquivo:**
 
-- **"Importar arquivos"**, no fim do Cronograma. No app (shell ≥ 21) esse botão
+- **"Importar arquivos"**, no rodapé fixo do Cronograma. No app (shell ≥ 21) esse botão
   abre o seletor do SISTEMA (`AVNative.pickDoc`, com a lista de mimes), e não o
   `<input type="file">`: aquele devolve um `File` — bytes já lidos —, e quem
   desenha o PDF é o shell, que precisa do ARQUIVO; devolver os bytes pela ponte
@@ -1395,13 +1395,13 @@ Dois detalhes que só aparecem em uso:
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│  Cronograma                     [← Modo simplificado]   │ ← .list-header (topo; sem appbar)
+│  [← Modo Fácil]   CRONOGRAMA        [★ Favoritos]       │ ← .list-header (topo; sem appbar)
 │  ┌───────────────────────────────────────────────────┐  │
 │  │  item 1                                           │  │  ← .lib-list
 │  │  item 2                                           │  │     (área scrollável)
 │  └───────────────────────────────────────────────────┘  │
-│  [+ Importar] [★ Favoritos]   ← última linha do Cronograma │
-│      (Favoritos abre a GAVETA que desce do topo)        │
+│  [        + Importar arquivos        ]                  │ ← #listFoot (fixo, não rola)
+│   ↑ na seleção múltipla, a #selbar ocupa esta mesma fatia │
 ├─────────────────────────────────────────────────────────┤
 │ [Cronograma] [Bíblia] [Ferramentas] [🔍]                │  ← .tabs (dentro da barra)
 │  ┌─────────────────────────────────────┬──────┐         │  ← .bottombar (base fixa)
@@ -1419,14 +1419,32 @@ Dois detalhes que só aparecem em uso:
 lista. `main` ganhou `padding-top` com `env(safe-area-inset-top)` (a antiga
 appbar cuidava do notch/status bar).
 
-**Cabeçalho da lista (`.list-header`):** TRÊS elementos, e é esse o ponto —
-botão voltar (só na navegação da Bíblia), título da aba (`.list-title`,
-**.84rem** desde a v5.51 — em .72rem o único texto que responde "onde eu estou"
-era menor que o subtítulo de qualquer linha da lista) e, sempre no canto
-direito, a **volta para o modo simplificado** (`#fullSimpleBtn`,
-`margin-left: auto` — o par de troca de modo tem de estar sempre no mesmo
-canto, e o `auto` garante isso mesmo numa tela em que o título não ocupe a
-linha).
+**Cabeçalho da lista (`.list-header`):** QUATRO elementos, e a ordem é **saída ·
+lugar · destino** (v5.107):
+
+| Posição | Elemento | Papel |
+|---|---|---|
+| esquerda | `#backBtn` (só na navegação da Bíblia) + `#fullSimpleBtn` | sair — desta tela, ou do modo |
+| centro | `#listTitle` (`.list-title`) | onde eu estou |
+| direita | `#favHeadBtn` | ir para os Favoritos |
+
+Os dois botões ficam em cantos OPOSTOS porque levam a lugares opostos:
+empilhados do mesmo lado (como estavam até a v5.106) liam-se como um par, e não
+são. O botão de modo foi para a esquerda porque **a seta dele aponta para a
+esquerda**, e um botão que aponta para fora da tela precisa estar do lado para
+onde aponta — encostado à direita, ele apontava para o meio do próprio
+cabeçalho. Por isso o `margin-left: auto` saiu do `.mode-switch` e passou a
+valer só dentro da `.simple-head`, onde o botão é a seta INVERSA e continua à
+direita.
+
+O título é `.84rem` desde a v5.51 (em .72rem o único texto que responde "onde eu
+estou" era menor que o subtítulo de qualquer linha da lista) e é centrado no
+**espaço que sobra**, não na tela: os dois botões não têm a mesma largura, e
+centrá-lo pelo eixo da tela exigiria tirá-lo do fluxo e arriscar sobreposição
+justamente com o nome comprido de um atalho. A folga que resta é de poucos
+pixels. Em 360px "CRONOGRAMA" sai com reticências — a mesma troca já assumida
+para a raiz dos Favoritos, e em 390px (e em qualquer outra tela do app) ele cabe
+inteiro.
 
 A faixa já teve seis: o campo de busca da pasta e o botão de sincronizar
 **foram com os Favoritos para a gaveta** (v5.53) e o indicador de versão desceu
@@ -1443,7 +1461,8 @@ reconhecer a grade de 66 ladrilhos.
 
 **Controles (`.bottombar`):** fixados na base da tela, e desde a v5.54 eles
 **começam na faixa de abas**: a barra é um `flex` em coluna com dois filhos — a
-`.tabs` (ou a `.selbar`, que a substitui na seleção múltipla) e o `.deck`. A
+`.tabs` e o `.deck`. (A `.selbar` já morou aqui, no lugar da `.tabs`; desde a
+v5.107 ela é do rodapé da lista, e a faixa de abas nunca mais some.) A
 faixa era o último elemento do `<main>` e flutuava sobre o fundo do app,
 encostada na barra mas separada dela por dois espaços (o `padding-bottom` do
 main mais o `padding-top` da barra) e por um degrau de cor — duas superfícies
@@ -2248,22 +2267,60 @@ As quatro células:
   operador e pastas do dispositivo sincronizadas no OPFS. Continua sendo um
   `activeTab` (com toda a navegação interna: abrir, buscar, sincronizar), mas
   desde a v5.53 é uma **gaveta que desce do topo** (ver a seção própria),
-  aberta pelo **botão ao lado de "Importar arquivos"**, no fim do Cronograma:
-  as duas respondem à mesma pergunta — "de onde vem a mídia?" — e ficam onde o
-  resultado delas aparece. O voltar e o sincronizar moram no cabeçalho DA
+  aberta pelo botão do **canto direito do cabeçalho** (v5.103 — antes era o
+  botão ao lado de "Importar arquivos", no fim do Cronograma, e chegar lá
+  exigia rolar a lista inteira). O voltar e o sincronizar moram no cabeçalho DA
   GAVETA; `renderTabs()` mantém o Cronograma aceso enquanto ela está aberta,
   porque é ele que está atrás.
 - **Mensagens** — foi para a aba **Ferramentas** (v5.31), como seção do
   acordeão. Antes era um botão flutuante sobre a preview; ver abaixo.
 
-**Importar arquivos e Favoritos** (`appendImportRow`) são a **última linha da
-lista do Cronograma** (`.import-row` com dois `.import-btn` lado a lado,
-tracejados, separados da lista por uma margem). O `<input type="file"
-multiple>` continua sendo o mesmo elemento de sempre (`#file`, com o listener
-de `change` já registrado) — ele mora solto no `index.html` e é **movido** para
-dentro do `<label>` a cada render, porque `libraryEl.innerHTML = ''`
-destruiria um input criado ali. A linha não aparece dentro de pasta nem em modo
-de seleção múltipla.
+#### O rodapé fixo da caixa da lista (`#listFoot`, v5.107)
+
+`<main>` é uma coluna de três faixas: o cabeçalho, o `<ul id="library">` que
+rola, e o **rodapé**, que não rola. O rodapé tem dois inquilinos e **nunca os
+dois ao mesmo tempo**:
+
+| Inquilino | Quem monta | Quando |
+|---|---|---|
+| **"Importar arquivos"** (`.import-row`) | `renderListFoot()` | aba Cronograma, fora de pasta, sem seleção |
+| **barra de seleção múltipla** (`#selbar`) | `hostSelbar()` | seleção múltipla ligada, gaveta de Favoritos fechada |
+
+Os dois estavam em lugares errados, e cada um pelo seu motivo:
+
+- **"Importar arquivos" era o último `<li>` do `<ul>`.** Com um culto montado
+  — trinta itens, que é o normal — a ação mais frequente da tela exigia rolar
+  a lista inteira para ser alcançada e rolar de volta depois. Ele continua
+  junto do lugar onde os arquivos vão cair, só que sempre à vista.
+- **A barra de seleção tomava o lugar da faixa de ABAS**, na caixa de
+  controles. As ações são da LISTA; trocar a navegação de lugar para mostrá-las
+  mexe no que não é da seleção, e some com as abas justamente quando o operador
+  pode querer sair da tela. No rodapé ela ocupa a fatia do "Importar arquivos",
+  que é a única coisa da tela que a seleção múltipla de fato substitui.
+
+Três detalhes que o mecanismo exige:
+
+- **Os dois medem `--hit-foot` (44px)**, e é por isso que a medida é token: com
+  alturas diferentes a caixa da lista mudava de tamanho ao entrar e sair da
+  seleção — e a lista dava um pulo debaixo do dedo que estava segurando o item
+  que a abriu.
+- **`renderListFoot()` reconstrói só o que é dela.** Um `innerHTML = ''` ali
+  tiraria a `#selbar` do documento: o nó é UM só, movido entre o rodapé e a
+  gaveta de Favoritos (mesmo padrão do `<input type="file">`), e perdê-lo é
+  perder os listeners.
+- **Quem esconde o rodapé vazio é o JS, não um `:empty`.** A `#selbar` mora
+  ali mesmo fora da seleção (escondida pelo `hidden`), então o rodapé nunca
+  fica de fato vazio — e um filho de altura zero ainda consome o `gap` do
+  `<main>`, que viraria uma faixa de ar acima da caixa de controles em toda aba
+  sem rodapé. E a chamada é **antes** do desvio por aba em `renderLibrary()`:
+  Bíblia, Ferramentas e a raiz dos Favoritos saem por `return`, e deixada para
+  o fim ela desenhava o "Importar arquivos" do Cronograma embaixo da grade de
+  livros da Bíblia.
+
+O `<input type="file" multiple>` continua sendo o mesmo elemento de sempre
+(`#file`, com o listener de `change` já registrado) — ele mora solto no
+`index.html` e é **movido** para dentro do `<label>` a cada render, porque
+descartar a linha antiga destruiria um input criado ali.
 
 **Navegação persistente:** trocar de aba **não** reseta a pasta aberta nem a
 busca — voltar para os Favoritos retorna exatamente onde estava. A posição de scroll
@@ -2363,10 +2420,12 @@ verdade fica livre para receber o conteúdo novo.
   não zero). Por isso `switchTab` virou `async` e o deslize dispara no
   `finally`: um `load()` que falhe não pode deixar o fantasma congelado sobre a
   lista para sempre.
-- **O `<input type="file">` fica para trás de propósito.** Ele mora DENTRO da
-  lista enquanto o Cronograma está aberto (ver `appendImportRow`); se fosse
-  junto para o fantasma, sairia do documento quando ele fosse descartado, e o
-  `change` que importa arquivos deixaria de acontecer.
+- **O `<input type="file">` fica para trás de propósito.** Desde a v5.107 ele
+  mora no RODAPÉ (`#listFoot`), que fica fora do `<ul>` e portanto fora do
+  fantasma — mas a guarda continua: se um dia algo voltar a pendurá-lo dentro
+  da lista, ele iria junto, sairia do documento quando o fantasma fosse
+  descartado, e o `change` que importa arquivos deixaria de acontecer sem erro
+  nenhum no console.
 - **Um deslize novo mata o anterior** (`tabGhost`): dois toques rápidos
   deixariam dois retângulos empilhados sobre a lista.
 - **`main` é `position: relative` + `overflow: hidden`**: é ele que ancora e
@@ -2453,14 +2512,12 @@ e excluir.
 > faixa de abas que ela substitui. O sinal de "outro modo" fica no CONTADOR em
 > accent: uma cor de texto, não uma placa.
 >
-> **E ela ocupa a mesma caixa que as abas** (v5.106): dentro da `.bottombar` é
-> `height: var(--hit-nav)` (38px, a altura das células de aba), `margin: 0
-> -.7rem` para o preto ir de borda a borda e o raio só EMBAIXO — o mesmo recorte
-> da aba ativa. Antes ela tinha padding próprio e ficava mais alta, então a caixa
-> de controles inteira PULAVA de altura ao entrar e sair da seleção, levando
-> preview e transporte junto. Os `.sel-btn` continuam em `--hit` (34px): o piso
-> de toque cabe dentro da faixa, e é a folga de 2px de cada lado que os faz
-> parecer flutuando sobre ela em vez de preenchê-la.
+> **E ela saiu da caixa de controles** (v5.107): mora no rodapé fixo da lista
+> (`#listFoot`), na fatia do "Importar arquivos" — as abas não somem mais para
+> abrir espaço a ela. Ali ocupa `--hit-foot` (44px), a mesma altura do botão que
+> substitui, sem padding lateral próprio e sem raio; os `.sel-btn` continuam em
+> `--hit` (34px), e é a folga de 5px de cada lado que os faz parecer flutuando
+> sobre o preto em vez de preenchê-lo. Ver "O rodapé fixo da caixa da lista".
 >
 > O primeiro é da v5.50 e é onde foi parar a função do deslize à
 esquerda: para itens da biblioteca, o toque simples SUBSTITUI a fila, então sem
