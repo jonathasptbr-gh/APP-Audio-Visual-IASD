@@ -1229,9 +1229,10 @@ main {
    SELECIONADO da lista logo acima, e lia-se como mais uma linha marcada em vez
    de como a barra de ações delas.
    O fundo agora é PRETO (`--bg`, o corpo da tela) com os botões `--surface-2`
-   flutuando nele — nenhuma borda. No rodapé da lista o preto é o do próprio
-   corpo, e o que se vê são só as teclas; na gaveta dos Favoritos é uma barra
-   preta sobre o painel.
+   flutuando nele — nenhum PREENCHIMENTO. No rodapé da lista ela ganha a moldura
+   TRACEJADA do "Importar arquivos", que é a caixa que ela ocupa (ver
+   `.list-foot > .selbar`); na gaveta dos Favoritos é uma barra preta sobre o
+   painel, sem moldura nenhuma — ali a folha já é a moldura.
    O que segura o sinal de "você está em outro modo" é o CONTADOR em accent:
    uma cor de texto, não uma placa. */
 .selbar {
@@ -1240,14 +1241,23 @@ main {
   padding: .35rem .6rem;
 }
 /* NO RODAPÉ DA LISTA (v5.107) ela ocupa exatamente a fatia do "Importar
-   arquivos" que substitui: mesma altura (`--hit-foot`), sem padding lateral
-   próprio (o `<main>` já dá o dele) e sem raio — não é um cartão, é a faixa de
-   ações da lista. Sem a altura fixa a caixa da lista mudava de tamanho ao
-   entrar e sair da seleção, e a lista inteira dava um pulo debaixo do dedo que
-   estava segurando um item. */
+   arquivos" que substitui — e desde a v5.108 veste a MESMA MOLDURA dele: o
+   tracejado em `--accent`, mesma altura (`--hit-foot`), mesmo raio. As duas são
+   a mesma caixa do rodapé com inquilinos diferentes, e o contorno é o que diz
+   isso: o que muda de uma para a outra é o conteúdo, não o lugar.
+   O tracejado não recria o problema que a v5.105 resolveu — o que fazia a barra
+   parecer mais um ITEM SELECIONADO era o conjunto "preenchimento âmbar +
+   contorno sólido", a silhueta exata de `.lib-item.selected`. Uma linha
+   PONTILHADA sobre fundo do corpo não se parece com item nenhum da lista: é a
+   convenção que o app já usa para "espaço a preencher".
+   Sem a altura fixa a caixa da lista mudava de tamanho ao entrar e sair da
+   seleção, e a lista inteira dava um pulo debaixo do dedo que estava segurando
+   um item. */
 .list-foot > .selbar {
   min-height: var(--hit-foot);
-  padding: 0; border-radius: 0;
+  padding: 0 .5rem;
+  border: 1px dashed var(--accent);
+  border-radius: var(--radius-btn);
 }
 .sel-count { font-weight: 700; color: var(--accent); }
 .sel-spacer { flex: 1; }

@@ -2286,6 +2286,9 @@ dois ao mesmo tempo**:
 | **"Importar arquivos"** (`.import-row`) | `renderListFoot()` | aba Cronograma, fora de pasta, sem seleção |
 | **barra de seleção múltipla** (`#selbar`) | `hostSelbar()` | seleção múltipla ligada, gaveta de Favoritos fechada |
 
+Os dois vestem a MESMA moldura tracejada em `--accent` (v5.108): é uma fatia só,
+com inquilinos diferentes, e o contorno é o que diz isso.
+
 Os dois estavam em lugares errados, e cada um pelo seu motivo:
 
 - **"Importar arquivos" era o último `<li>` do `<ul>`.** Com um culto montado
@@ -2501,23 +2504,30 @@ destino real nunca discordam.
 **acrescentar à playlist**, favoritar, adicionar a um atalho, renomear (1 item)
 e excluir.
 
-> **A barra não tem fundo nem borda** (v5.105). Ela era um bloco em
-> `--accent-soft` com contorno em `--accent` — a mancha âmbar mais forte da
-> tela, num app cuja regra é "âmbar é navegação e marca". E, preenchida e
+> **A barra não tem preenchimento** (v5.105). Ela era um bloco em
+> `--accent-soft` com contorno SÓLIDO em `--accent` — a mancha âmbar mais forte
+> da tela, num app cuja regra é "âmbar é navegação e marca". E, preenchida e
 > contornada, ela tinha exatamente a silhueta de um ITEM SELECIONADO da lista
 > logo acima (`.lib-item.selected` também é borda accent + fundo), então lia-se
 > como mais uma linha marcada em vez de como a barra de ações delas. Hoje é o
-> fundo que já está atrás (a caixa de controles, ou a folha dos Favoritos com a
-> gaveta aberta) com os botões `--surface-2` flutuando — o mesmo desenho da
-> faixa de abas que ela substitui. O sinal de "outro modo" fica no CONTADOR em
-> accent: uma cor de texto, não uma placa.
+> fundo que já está atrás com os botões `--surface-2` flutuando. O sinal de
+> "outro modo" fica no CONTADOR em accent: uma cor de texto, não uma placa.
+>
+> **No rodapé ela veste a moldura TRACEJADA do "Importar arquivos"** (v5.108) —
+> mesma linha pontilhada em `--accent`, mesmo raio, mesma caixa. As duas são a
+> mesma fatia do rodapé com inquilinos diferentes, e o contorno é o que diz
+> isso. Não recria o problema acima: o que fazia a barra parecer um item
+> selecionado era o CONJUNTO "preenchimento âmbar + contorno sólido"; uma linha
+> pontilhada sobre o fundo do corpo não se parece com item nenhum da lista — é
+> a convenção que o app já usa para "espaço a preencher". Na gaveta dos
+> Favoritos ela segue sem moldura: ali a folha já é a moldura.
 >
 > **E ela saiu da caixa de controles** (v5.107): mora no rodapé fixo da lista
 > (`#listFoot`), na fatia do "Importar arquivos" — as abas não somem mais para
 > abrir espaço a ela. Ali ocupa `--hit-foot` (44px), a mesma altura do botão que
-> substitui, sem padding lateral próprio e sem raio; os `.sel-btn` continuam em
-> `--hit` (34px), e é a folga de 5px de cada lado que os faz parecer flutuando
-> sobre o preto em vez de preenchê-lo. Ver "O rodapé fixo da caixa da lista".
+> substitui; os `.sel-btn` continuam em `--hit` (34px), e é a folga de 5px de
+> cada lado que os faz parecer flutuando dentro da moldura em vez de
+> preenchê-la. Ver "O rodapé fixo da caixa da lista".
 >
 > O primeiro é da v5.50 e é onde foi parar a função do deslize à
 esquerda: para itens da biblioteca, o toque simples SUBSTITUI a fila, então sem
