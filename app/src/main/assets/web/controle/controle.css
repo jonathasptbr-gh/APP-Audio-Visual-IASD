@@ -994,6 +994,13 @@ main {
 }
 .mode-switch svg { color: var(--accent); }
 .simple-head .mode-switch { margin-left: auto; }
+/* A TROCA DE MODO SÓ APARECE NO CRONOGRAMA (v5.111) — ver `renderListTitle`.
+   Por `visibility` e não `display: none`: a caixa fica reservada, e é ela que
+   segura o TÍTULO no mesmo lugar em todas as abas (ele é centrado no espaço que
+   sobra, então sem a caixa pularia ~60px para a esquerda a cada deslize).
+   `visibility: hidden` já tira o botão do toque, do foco e do leitor de tela;
+   o `pointer-events` é cinto e suspensório. */
+.mode-switch--vago { visibility: hidden; pointer-events: none; }
 /* O voltar continua "chapado" (sem fundo) — só o alvo cresceu. */
 .back-btn { background: none; color: var(--accent); }
 .add-dir-btn .msym, .back-btn .msym { font-size: var(--icon-sm); }

@@ -1409,6 +1409,7 @@ Dois detalhes que só aparecem em uso:
 ```
 ┌─────────────────────────────────────────────────────────┐
 │  [← Modo Fácil]   CRONOGRAMA        [★ Favoritos]       │ ← .list-header (topo; sem appbar)
+│    (o Modo Fácil fica VAGO nas outras abas — v5.111)     │
 │  ┌───────────────────────────────────────────────────┐  │
 │  │  item 1                                           │  │  ← .lib-list
 │  │  item 2                                           │  │     (área scrollável)
@@ -1437,9 +1438,26 @@ lugar · destino** (v5.107):
 
 | Posição | Elemento | Papel |
 |---|---|---|
-| esquerda | `#backBtn` (só na navegação da Bíblia) + `#fullSimpleBtn` | sair — desta tela, ou do modo |
+| esquerda | `#backBtn` (só na navegação da Bíblia) + `#fullSimpleBtn` (**só no Cronograma**) | sair — desta tela, ou do modo |
 | centro | `#listTitle` (`.list-title`) | onde eu estou |
 | direita | `#favHeadBtn` | ir para os Favoritos |
+
+**A troca de modo só existe no Cronograma** (v5.111, em `renderListTitle`). Ela
+é a saída do modo avançado, e sair de um modo pelo MEIO dele — da grade de
+livros da Bíblia, de dentro do sorteio — é pular dois degraus de uma vez. O
+Cronograma é a tela inicial e é onde o voltar desemboca (a escada de `__avBack`
+termina em "aba diferente do Cronograma → volta para ele"), então quem quer o
+Modo Fácil já passa por ali de qualquer jeito; nas outras abas o botão era
+sobretudo um alvo grande do lado esquerdo esperando um toque errado. Com a
+gaveta de Favoritos aberta ele CONTINUA visível: o `activeTab` é `'folders'`,
+mas a tela atrás da gaveta é o Cronograma.
+
+Ele fica **vago, não removido** (`.mode-switch--vago`, `visibility: hidden`): a
+caixa reservada é o que segura o título no mesmo lugar em todas as abas —
+medido, o centro dele não sai de 212px numa tela de 412. Com `display: none` o
+título pularia ~60px para a esquerda a cada deslize entre abas, e um nome de
+tela que muda de lugar é o oposto do que ele existe para fazer. `visibility`
+já tira o botão do toque, do foco e do leitor de tela.
 
 Os dois botões ficam em cantos OPOSTOS porque levam a lugares opostos:
 empilhados do mesmo lado (como estavam até a v5.106) liam-se como um par, e não
