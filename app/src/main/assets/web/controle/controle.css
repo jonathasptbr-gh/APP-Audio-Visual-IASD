@@ -1195,11 +1195,24 @@ main {
 /* barra de seleção */
 /* Na caixa de controles ela toma o lugar da faixa de abas — que encosta na
    borda de cima porque o vazado da aba ativa precisa emendar com o conteúdo.
-   A barra de seleção não tem vazado nenhum: é um cartão, e um cartão colado na
-   borda parece corte, não peça. Daí o respiro que a faixa não usa. */
+   A barra de seleção não tem vazado nenhum, então colá-la na borda deixaria os
+   botões espremidos contra o corte. Daí o respiro que a faixa não usa. */
 .bottombar > .selbar { margin-top: .5rem; }
-.selbar { flex-shrink: 0; display: flex; align-items: center; gap: .6rem; background: var(--accent-soft); border: 1px solid var(--accent); border-radius: var(--radius-card); padding: .35rem .6rem; }
-.sel-count { font-weight: 700; }
+/* ---------- Barra de seleção múltipla ---------- */
+/* SEM FUNDO E SEM BORDA (v5.105). Ela era um bloco em `--accent-soft` com
+   contorno em `--accent` — a mancha âmbar mais forte da tela, e num app cuja
+   regra é "âmbar é navegação e marca" ela destoava de tudo o que está em volta.
+   Pior: preenchida e contornada, ela tinha exatamente a silhueta de um ITEM
+   SELECIONADO da lista logo acima, e lia-se como mais uma linha marcada em vez
+   de como a barra de ações delas.
+   Agora ela é só o fundo que já está atrás dela (a caixa de controles, ou a
+   folha dos Favoritos quando a gaveta está aberta) com os botões flutuando por
+   cima — que é o mesmo desenho da faixa de abas que ela SUBSTITUI. Os botões
+   já eram `--surface-2`, então nada precisou mudar neles.
+   O que segura o sinal de "você está em outro modo" é o CONTADOR em accent:
+   uma cor de texto, não uma placa. */
+.selbar { flex-shrink: 0; display: flex; align-items: center; gap: .6rem; background: none; border: none; padding: .35rem .6rem; }
+.sel-count { font-weight: 700; color: var(--accent); }
 .sel-spacer { flex: 1; }
 .sel-btn { width: var(--hit); height: var(--hit); border: none; border-radius: var(--radius-btn); background: var(--surface-2); color: var(--text); display: flex; align-items: center; justify-content: center; cursor: pointer; }
 .sel-btn:disabled { opacity: .35; }

@@ -2402,8 +2402,19 @@ basta. `showDropLine` e `dropIndex` leem o mesmo cache — a linha-guia e o
 destino real nunca discordam.
 
 **Modo de seleção múltipla:** barra substitui as abas, com contagem e botões de
-**acrescentar à playlist**, adicionar aos favoritos, renomear (1 item) e
-excluir. O primeiro é da v5.50 e é onde foi parar a função do deslize à
+**acrescentar à playlist**, favoritar, adicionar a um atalho, renomear (1 item)
+e excluir.
+
+> **A barra não tem fundo nem borda** (v5.105). Ela era um bloco em
+> `--accent-soft` com contorno em `--accent` — a mancha âmbar mais forte da
+> tela, num app cuja regra é "âmbar é navegação e marca". E, preenchida e
+> contornada, ela tinha exatamente a silhueta de um ITEM SELECIONADO da lista
+> logo acima (`.lib-item.selected` também é borda accent + fundo), então lia-se
+> como mais uma linha marcada em vez de como a barra de ações delas. Hoje é o
+> fundo que já está atrás (a caixa de controles, ou a folha dos Favoritos com a
+> gaveta aberta) com os botões `--surface-2` flutuando — o mesmo desenho da
+> faixa de abas que ela substitui. O sinal de "outro modo" fica no CONTADOR em
+> accent: uma cor de texto, não uma placa. O primeiro é da v5.50 e é onde foi parar a função do deslize à
 esquerda: para itens da biblioteca, o toque simples SUBSTITUI a fila, então sem
 ele montar uma sequência dependeria de um gesto que a tela não anunciava. No
 botão, a mesma ação ficou visível e passou a valer para vários itens de uma vez
