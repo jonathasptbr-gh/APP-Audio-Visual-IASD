@@ -326,15 +326,18 @@ slide na frente de todo mundo — o `load` do reenvio leva o `page`.
 
 | Object Store | Chave | Conteúdo |
 |---|---|---|
-| `media` | `id` (UUID), índice `youtubeId` | `{ id, blob, url, thumb, type, kind, name, youtubeId, createdAt }` |
+| `media` | `id` (UUID), índice `youtubeId` | `{ id, blob, url, thumb, type, kind, name, youtubeId, pages, cue, data, createdAt }` |
 | `files` | `id` (UUID), índice `folder` | catálogo OPFS: `{ id, folder, opfsPath, srcName, name, type, kind, size, mtime, thumb, addedAt }` |
-| `state` | chave string | valor arbitrário (listas, estado atual, pastas, transições…) |
+| `state` | chave string | valor arbitrário (listas, estado atual, atalhos, transições…) |
 
-Um registro de mídia tem **`blob`, `url` OU `opfsPath`** (nunca mais de um):
-blobs locais importados, itens de URL externa (link direto, YouTube) ou
-arquivos sincronizados no OPFS. `thumb` pode ser um `Blob`
-(miniatura gerada via Canvas) ou uma **string URL** (ex: thumbnail
-`hqdefault.jpg` do YouTube).
+Um registro de mídia tem **`blob`, `url`, `opfsPath` OU `pages`** (nunca mais
+de um): blobs locais importados, itens de URL externa (link direto, YouTube),
+arquivos sincronizados no OPFS ou as páginas de uma apresentação. `thumb` pode
+ser um `Blob` (miniatura gerada via Canvas) ou uma **string URL** (ex:
+thumbnail `hqdefault.jpg` do YouTube).
+
+**E há um quinto caso, que não tem bytes nenhum: `kind: 'cue'`** — a cena de
+roteiro (v5.103). Ver "Cenas de roteiro", logo abaixo do modelo de listas.
 
 **A conexão é memorizada; a FALHA não.** `openDB()` guarda a promise da
 conexão, mas zera esse cache no caminho de erro. Até a v5.47 a promise
@@ -452,8 +455,9 @@ O campo `kind` é derivado do `type` (ou definido pelo chamador para itens de UR
 | `fit` | `'contain'` \| `'cover'` \| `'fill'` — preenchimento da mídia (ajustar/preencher/esticar) no Display e na preview |
 | `lyricsBg` | `'black'` (padrão) \| `'image'` — fundo atrás da letra sincronizada: preto ou as imagens dos slides |
 | `wallpaper` | `Blob` da imagem escolhida para a cortina do telão, ou ausente/`null` = gradiente padrão (ver "Wallpaper personalizado") |
-| `folders` | `[{ id, name }]` — atalhos dos Favoritos (as antigas "pastas virtuais") |
-| `folder_<id>` | array de IDs de mídia do atalho. **É um detentor de referência**, como as listas — ver o gc abaixo |
+| `favs` | array de IDs — **os FAVORITOS** (v5.103): a marcação de um toque, sem grupo nenhum. É uma das `LISTS` de `db.js`, e é isso que a torna um detentor de referência de verdade (favoritar segura o blob; desfavoritar deixa o gc decidir) |
+| `folders` | `[{ id, name }]` — **atalhos**: a organização OPCIONAL dentro dos Favoritos (as antigas "pastas virtuais") |
+| `folder_<id>` | array de IDs de mídia do atalho. **É um detentor de referência**, como as listas — ver o gc abaixo. Escrito só por `listAdd`/`listRemove`/`folderDrop`, nunca por `setState` cru (ver "O furo do gc") |
 | `downloadOk` | `true` depois que o operador autorizou o download sob demanda uma vez (modo simplificado — `ensureDownloadConsent`) |
 | `messages` | `[{ id, text }]` — mensagens de texto puro da aba Mensagens (ver "Camada de Texto") |
 | `opfs-folders` | `[{ id, name, count, syncedAt, handle? }]` — pastas sincronizadas no OPFS (`handle` acelera re-sync) |
@@ -483,9 +487,12 @@ stateKeys(prefix)             // chaves de `state` com esse prefixo, numa transa
                               // só e SEM ler valor nenhum — teste de presença em massa
 addMedia(blob, meta)          // cria registro + adiciona a meta.list (padrão 'imports')
 addUrlMedia(url, meta)        // item de URL externa (blob=null), idem
+addDeck(pages, meta)          // apresentação: uma imagem por página
+addCue(cue, data, meta)       // CENA DE ROTEIRO: item sem bytes (ver abaixo)
 getMedia(id), renameMedia(id, name)
 mediaByYoutube(youtubeId)     // o registro desse vídeo, ou null (prefere o que tem blob)
 listIds, listSet, listItems, listHas, listAdd, listRemove, gc
+folderDrop(folderId)          // apaga um ATALHO inteiro, coletando o que ficar sem dono
 fileAdd, fileGet, fileDelete, filesByFolder, filesAll   // catálogo OPFS
 opfsSupported, opfsGetFile, opfsWriteFile,              // Origin Private
 opfsDeleteFile, opfsDeleteDir                           // File System
@@ -565,6 +572,89 @@ TOCTOU em que um `listAdd` concorrente re-referenciaria o id no intervalo.
 dentro dessas transações; `txDone(tx)` confirma o commit.) A regra do projeto
 ("operação IDB multi-passo atômica usa transação única") agora é honrada por
 essas funções — antes elas a violavam.
+
+##### O furo do gc: os atalhos escreviam por fora (corrigido na v5.103)
+
+`isReferenced` conhecia os atalhos desde a v5.48 — mas **quem apagava um atalho
+não passava por ela**. O Controle fazia dois `setState` crus (tirava a entrada
+de `folders`, gravava a lista vazia) e nada mais: uma mídia cujo ÚLTIMO
+detentor era aquele atalho virava um registro que nenhuma lista aponta e que
+**nenhum gc alcança** — o gc só roda dentro de `listRemove`. O blob ficava no
+IndexedDB para sempre, invisível na tela e sem caminho de limpeza; um vídeo de
+centenas de MB "sumia" e continuava ocupando o disco. Valia também para tirar
+um item de dentro do atalho, pelo mesmo `setState` cru.
+
+Três consertos, todos no sentido de "os atalhos usam os mesmos helpers que as
+listas":
+
+- **`folderDrop(folderId)`** (novo, em `db.js`) apaga o índice, a lista e
+  varre os ids numa transação só. A ordem importa: o atalho sai de `folders`
+  **antes** da varredura, senão `isReferenced` o encontraria e ele seguraria os
+  próprios ids.
+- Tirar um item de um atalho é `listRemove('folder_<id>', id)` — que já rodava
+  o gc na própria transação, e já sabia excluir a chave da varredura.
+- Pôr um item num atalho é `listAdd('folder_<id>', id)`, atômico, no lugar do
+  `setState` do array inteiro.
+
+**Regra que fica:** chave de `state` que guarda ids de mídia se escreve por
+`listAdd`/`listRemove`/`listSet(name, fn)`. `setState` cru numa dessas chaves é
+um vazamento esperando acontecer.
+
+#### Cenas de roteiro (`kind: 'cue'`, v5.103)
+
+O Cronograma se chama "a lista do culto" desde sempre e, até a v5.102, só
+guardava **mídia** — coisa com bytes. Metade de um culto real (a contagem
+regressiva de abertura, a leitura bíblica, o aviso, a letra projetada sem
+música) morava em OUTRAS abas, cada uma com a sua sessão, e a ordem do que vem
+depois ficava só na cabeça do operador — que navegava entre abas ao vivo, no
+domingo de manhã.
+
+Um **cue** é um item de lista que aponta para uma CENA em vez de para bytes:
+
+```js
+{ kind: 'cue', cue: 'verse',      data: { versionId, bookIdx, chapter, verse } }
+{ kind: 'cue', cue: 'message',    data: { msgId, text } }
+{ kind: 'cue', cue: 'songlyrics', data: { collId, songId } }
+{ kind: 'cue', cue: 'chrono',     data: { mode, durationMs, label, secs, h12 } }
+{ kind: 'cue', cue: 'draw',       data: { kind, min, max, pool, label } }
+{ kind: 'cue', cue: 'group',      data: { ids: [...] } }        // o "pacote"
+```
+
+Quatro propriedades desenham o resto:
+
+1. **O Display não muda uma linha, e sequer sabe que cues existem.** Um cue
+   NUNCA vira um comando `load`: projetá-lo chama a MESMA função que o botão da
+   aba correspondente já chamava (`projectBibleVerse`, `projectMessage`,
+   `projectChrono`, `projectDraw`, `projectSongLyricsOnly`), que manda o
+   `text`/`chrono`/`draw` de sempre. É a invariante "não reimplementar o que já
+   existe" aplicada aqui — só um ponteiro novo.
+2. **A guarda mora em `send()`**, não no toque da lista: é por ali que passam o
+   avanço automático da playlist, o ⏮/⏭ do transporte, a notificação nativa e o
+   pacote. Um cue que chegasse ao `load` apagaria o telão (registro sem
+   blob/url/pages cai no `clear()` do stage).
+3. **A reconexão do telão vem de graça.** Projetar um cue deixa a SESSÃO
+   correspondente montada, e `resendSceneToDisplay` já reenvia sessões. A única
+   linha nova ali é a que evita dar `load` no próprio cue.
+4. **O descritor é uma REFERÊNCIA, não uma cópia do conteúdo.** O versículo
+   guarda `{versão, livro, capítulo, número}` e o texto vem do cache da Bíblia
+   na hora de projetar; a mensagem guarda o `msgId` (com o texto como reserva,
+   para o roteiro não ficar mudo se ela for apagada). Um cue não envelhece
+   quando a mensagem é editada, nem duplica a Escritura no banco.
+
+Duas decisões de comportamento que valem registrar:
+
+- **O versículo projeta na versão EM USO HOJE**, com a guardada como reserva: a
+  referência é do texto, não da tradução, e um roteiro montado há um mês não
+  pode arrastar de volta uma versão trocada desde então (nem disparar o
+  download dela no domingo). A reserva é o que salva o caso offline.
+- **O sorteio guardado é a CONFIGURAÇÃO, nunca um resultado.** Projetar a cena
+  arma o sorteio e espera o toque em "Sortear" — um ganhador que já aparece
+  pronto ao entrar em cena tira do momento o que ele tem de público.
+
+**Não exige subir o `DB_VERSION`** (nenhum índice novo; o IDB não tem esquema
+por registro), e é isso que o mantém barato: ver o preço da VOLTA descrito em
+`DB_VERSION`, em `db.js`. Um bundle anterior que encontre um cue o trata como
+mídia sem fonte e cai no `clear()` — nada quebra, nada projeta.
 
 ### BroadcastChannel — canal `av-iasd`
 
@@ -1913,6 +2003,32 @@ janela à parte — útil para desenvolver a base web fora do app, e nada mais.
 
 ### Abas e biblioteca
 
+#### Como um item ENTRA no Cronograma
+
+Todos os caminhos convergem para o mesmo modelo — `addMedia`/`addCue` (registro
++ lista na mesma transação) ou `listAdd('imports', id)` para o que já existe.
+Não há uma segunda rota de importação: `importarPeloSistema` reusa
+`importShare` de propósito, porque é lá que mora o roteamento por tipo.
+
+| Origem | Caminho | Destino |
+|---|---|---|
+| "Importar arquivos" (seletor do sistema, shell ≥ 21) | `importarPeloSistema` → `importShare` | `imports` (simplificado: `avulsos`) |
+| `<input type="file">` (navegador / shell antigo) | handler do `fileEl` | idem |
+| Compartilhamento de outro app | `checkPendingShare` → `importShare` | idem |
+| Música do acervo | folha de destinos → `addSongVariant` | `imports` |
+| Resultado do YouTube | folha de destinos → `ytAcao` | `avulsos` \| `playlist` \| `imports` \| `favs` |
+| Arquivo de pasta do dispositivo, item de atalho, favorito | botão `+` da linha | `imports` |
+| Link YT já no Cronograma → arquivo | botão de download da linha | substitui **na mesma posição** |
+| Versículo em leitura | "Ao Cronograma" no rodapé da Bíblia | `imports` (cue `verse`) |
+| Mensagem da aba Ferramentas | `+` na linha da mensagem | `imports` (cue `message`) |
+| Letra de uma música do acervo | folha de destinos → "Só a letra" | `imports` (cue `songlyrics`) |
+| Cronômetro/timer configurado | "Guardar esta contagem" | `imports` \| `favs` (cue `chrono`) |
+| Sorteio configurado | "Guardar este sorteio" | `imports` \| `favs` (cue `draw`) |
+| A fila da playlist | "Guardar como pacote" | `imports` (cue `group`) |
+
+As seis últimas linhas são a v5.103 (ver "Cenas de roteiro"): antes delas, o
+Cronograma só aceitava o que tem bytes.
+
 As abas ficam **no alto da caixa de controles** (`.bottombar`, v5.54 — antes
 eram o último elemento do `<main>`; ver "Layout geral") e são **abas de
 verdade**: uma fileira SEM trilho, encostada na borda de cima da caixa e indo de
@@ -2236,11 +2352,55 @@ indicados **só pelo realce** (`.lib-item.selected` — borda `--accent` + fundo
 reservada). Excluir dentro de pasta virtual só remove da pasta; nas demais abas
 usa `listRemove` (com gc).
 
-### Favoritos: a gaveta do topo (atalhos + pastas do dispositivo)
+### Favoritos: a gaveta do topo (marcados + atalhos + pastas do dispositivo)
 
-É a **seção de atalhos organizados** do app: o caminho curto para o que o
-operador usa toda semana. Desde a v5.53 ela é uma **gaveta que desce do topo**
-(`#favPopup`), aberta pelo botão "Favoritos" no fim do Cronograma.
+É o caminho curto para o que o operador usa toda semana. Desde a v5.53 ela é
+uma **gaveta que desce do topo** (`#favPopup`).
+
+#### O que a v5.103 corrigiu: era uma PASTA com nome de favorito
+
+Até ali, "Favoritos" era o antigo recurso de **pastas virtuais** renomeado — o
+estado prova (as chaves seguem sendo `folders`/`folder_<id>`, e há uma chave
+`favorites` marcada como legado, do recurso que fora removido). Trocou-se o
+rótulo e o ícone; o modelo continuou sendo pasta. Daí saíam, um a um, os três
+incômodos que o operador relatava:
+
+- **"sempre precisa de uma pasta"** — não existia o ato de *favoritar*. Não
+  havia um bit no item, havia "pertencer a um grupo": com zero atalhos criados,
+  marcar o primeiro favorito custava seleção → estrela → "Nenhum atalho ainda"
+  → criar → nomear → confirmar. Seis passos para o que devia ser um toque.
+- **"não é um acesso rápido"** — a porta era o botão no **fim da lista do
+  Cronograma**, e só ele: para chegar a um atalho era preciso rolar o cronograma
+  inteiro; da Bíblia, do acervo ou das Ferramentas não havia caminho nenhum; e
+  no modo simplificado a gaveta não existia.
+- **"não abrange tudo"** — `folder_<id>` é um array de ids de MÍDIA, então
+  versículo, mensagem, cronômetro e sorteio não podiam ser favoritados.
+
+As três respostas: a lista plana **`favs`** (uma das `LISTS`, portanto detentora
+de referência de verdade), a **estrela em toda linha** e no cabeçalho fixo, e as
+**cenas de roteiro** (`kind: 'cue'`), que deram identidade de item ao que antes
+era só uma tela. Os atalhos continuam existindo — como **organização opcional**,
+não como pré-requisito.
+
+Detalhes que caem de A, e que valem lembrar ao mexer aqui:
+
+- **A estrela desmarcada é `--line`, não `--muted`**: ela precisa ser discreta o
+  bastante para o olho passar batido pela lista inteira e forte o bastante para
+  ser encontrada quando se procura por ela. O glifo é o MESMO nos dois estados
+  (a fonte é um subset de ~30 símbolos e não traz a estrela vazada), então quem
+  carrega o estado é a **cor** — a convenção de sempre da tela.
+- **Favoritar uma música do acervo continua BAIXANDO o arquivo.** É deliberado:
+  o que se espera de um favorito num domingo de manhã é que ele TOQUE, inclusive
+  com a rede da igreja fora do ar. O que mudou é o destino (a lista `favs`,
+  direto), não o custo.
+- **Fechar a gaveta devolve à aba de onde ela foi aberta** (`favVoltarPara`).
+  Com a porta no cabeçalho fixo, ela é aberta de qualquer lugar — quem a abriu
+  no meio de uma leitura bíblica não espera cair no Cronograma ao fechá-la.
+- **Excluir na RAIZ da gaveta é desmarcar**, e isso precisa de um ramo próprio
+  em `deleteSelected`: sem ele o `else` genérico caía em
+  `listRemove('folders', id)` — a chave do ÍNDICE de atalhos, que guarda objetos
+  e não ids. Um no-op silencioso, com o operador vendo o item continuar na lista
+  depois de mandar excluí-lo.
 
 **Por que saiu da lista.** Era uma tela do `#library` como as outras, e por isso
 disputava o cabeçalho com o resto do app: ela é a única que precisa de
@@ -2273,24 +2433,26 @@ Três consequências que só aparecem em uso, e as três estão tratadas:
   um atalho que o operador fechou há dois toques seria uma memória que ninguém
   pediu. A posição de ROLAGEM, essa sim, continua guardada por `scrollPos`.
 
-O mecanismo por baixo é o mesmo de sempre O mecanismo por baixo é o mesmo de sempre — pastas
-virtuais (`state.folders` + `folder_<id>`) e pastas do dispositivo
-sincronizadas no OPFS (`state['opfs-folders']`), com as MESMAS chaves de state
-(renomear a leitura não pode custar a biblioteca de ninguém) —, o que mudou é o
+O mecanismo por baixo continua usando as MESMAS chaves de state (renomear a
+leitura não pode custar a biblioteca de ninguém) — o que mudou é o
 enquadramento: não é "onde os arquivos moram", é "o que eu marquei".
 
-A lista tem duas origens, cada uma sob um cabeçalho próprio (`appendFavSection`,
-`.fav-section`), porque as duas se comportam igual ao toque e só uma delas
-sincroniza:
+A lista tem **três** origens, cada uma sob um cabeçalho próprio
+(`appendFavSection`, `.fav-section`), porque todas se comportam igual ao toque e
+só uma delas sincroniza:
 
-1. **Atalhos** (`renderVirtualFolders`) — grupos criados pelo operador, ícone
-   de **estrela** (`ICON.star`, glifo que já estava no subset e voltou a ter
-   uso). Recebem itens pela seleção múltipla ("Adicionar aos favoritos",
-   `#selFolder` → `#folderPopup`) e agora também podem ser criados **na própria
-   tela**, pelo botão "Novo atalho" no fim da lista (`appendNewFavoriteRow`):
-   uma seção de atalhos que não deixa criar um atalho é justamente o que não se
-   espera dela. Excluir um atalho não apaga mídia nenhuma.
-2. **Pastas do dispositivo** — as pastas sincronizadas no OPFS, com o botão de
+1. **Favoritos** (`favItemRow`) — os itens marcados, em lista plana (`favs`).
+   Vêm primeiro: é o que a estrela promete e o que o operador vem buscar. Cada
+   linha faz as três coisas que se quer de um favorito e nenhuma exige entrar em
+   grupo: **tocar/projetar** (o mesmo `onTap` da biblioteca), **desmarcar** (a
+   estrela) e **mandar ao Cronograma** (o `+`).
+2. **Atalhos** (`renderVirtualFolders`) — grupos criados pelo operador, ícone de
+   **estrela**. Recebem itens pela seleção múltipla (`#selFolder`, hoje com
+   ícone de PASTA e rótulo "Adicionar a um atalho" — a estrela ao lado dele
+   virou o `favs` direto) e podem ser criados na própria tela, pelo botão "Novo
+   atalho" (`appendNewFavoriteRow`). Excluir um atalho não apaga mídia que tenha
+   outro dono — e o que ficar sem dono nenhum agora é coletado (`folderDrop`).
+3. **Pastas do dispositivo** — as pastas sincronizadas no OPFS, com o botão de
    re-sync e o de excluir, exatamente como antes (detalhes abaixo).
 
 - **Pastas sincronizadas (OPFS)** — o fluxo principal para bibliotecas grandes.
@@ -2311,15 +2473,25 @@ sincroniza:
     os arquivos contra descarte do browser; o rodapé da aba mostra o uso via
     `navigator.storage.estimate()`.
   - Itens da pasta têm botão ➕ que adiciona o **id do catálogo** ao Cronograma
-    (zero-cópia — `getMedia` resolve pelo fallback). Seleção múltipla permite
-    renomear e excluir (exclui do OPFS + catálogo + remove das listas).
+    (zero-cópia — `getMedia` resolve pelo fallback). Desde a v5.103 esse botão
+    vale para **qualquer** item da gaveta, não só os de pasta do dispositivo:
+    de dentro de um atalho (ou dos favoritos) não havia como mandar nada para a
+    lista do culto, que é justamente o que um favorito existe para fazer.
+    Seleção múltipla permite renomear e excluir (exclui do OPFS + catálogo +
+    remove das listas, `favs` incluída).
   - Excluir a pasta (com `appConfirm`, o diálogo do app — não há mais nenhum
     `confirm()` nativo na base) apaga o diretório OPFS inteiro, os registros do
     catálogo e as referências em listas.
 - **Atalhos (pastas virtuais)** — criados pelo usuário (state `folders` +
-  `folder_<id>`); recebem itens pelo botão "Adicionar aos favoritos" da seleção
+  `folder_<id>`); recebem itens pelo botão "Adicionar a um atalho" da seleção
   múltipla (funciona também com IDs do catálogo OPFS) e nascem vazios pelo
-  botão "Novo atalho". Excluir o atalho não exclui as mídias.
+  botão "Novo atalho". Excluir o atalho não exclui mídia que tenha outro dono —
+  e o que ficar sem dono nenhum é coletado na mesma transação (`folderDrop`;
+  ver "O furo do gc").
+- **Favoritos (`favs`)** — a lista plana, marcada pela estrela de cada linha ou
+  pela estrela da seleção múltipla (`#selFav`). É onde as CENAS DE ROTEIRO
+  também podem morar: um versículo, um preset de cronômetro ou um sorteio
+  guardado é um id como qualquer outro.
 
 ### Coleções de mídia (LouvorJA)
 

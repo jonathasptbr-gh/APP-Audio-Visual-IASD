@@ -120,6 +120,7 @@ const playlistEl = document.getElementById('playlist');
 const plPopupEl = document.getElementById('plPopup');
 const plPopupCountEl = document.getElementById('plPopupCount');
 const plPopupCloseEl = document.getElementById('plPopupClose');
+const plPackEl = document.getElementById('plPack');
 
 const fileEl = document.getElementById('file');
 const mainEl = document.querySelector('main');
@@ -156,7 +157,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.102';
+const WEB_VERSION = '5.103';
 
 // Escrita UMA vez, na carga: o indicador mora no rodapé de Configurações desde
 // a v5.49 e não depende mais de qual aba está aberta (no cabeçalho ele
@@ -181,7 +182,9 @@ const selbarEl = document.getElementById('selbar');
 const selCountEl = document.getElementById('selCount');
 const selCancelEl = document.getElementById('selCancel');
 const selPlaylistEl = document.getElementById('selPlaylist');
+const selFavEl = document.getElementById('selFav');
 const selFolderEl = document.getElementById('selFolder');
+const favHeadBtnEl = document.getElementById('favHeadBtn');
 const selRenameEl = document.getElementById('selRename');
 const selDeleteEl = document.getElementById('selDelete');
 
@@ -276,8 +279,14 @@ let selectionMode = false;
 const selected = new Set();
 let thumbUrls = [];
 let currentFolder = null; // null | {id, name, _opfs?} — pasta aberta (persiste entre trocas de aba)
-let folders = [];          // [{id, name}, ...] — pastas virtuais
+let folders = [];          // [{id, name}, ...] — atalhos (organização opcional)
 let folderCounts = {};     // {folderId: count}
+// FAVORITOS: os ids marcados, numa lista plana. É um Set em memória porque a
+// pergunta que a tela faz o tempo todo é "este item está favoritado?", uma vez
+// por linha desenhada; no banco ele é a lista `favs` (ver LISTS em db.js), que
+// é o que faz a estrela segurar o blob contra o gc.
+let favSet = new Set();
+let favItems = [];         // os registros, para a seção de Favoritos da gaveta
 let opfsFolders = [];      // [{id, name, count, syncedAt, handle?}] — pastas sincronizadas no OPFS
 let folderQuery = '';      // filtro de busca dentro de pasta OPFS
 let syncBusy = false;      // sincronização em andamento
@@ -1677,6 +1686,11 @@ async function load() {
   const folderCountsV = {};
   foldersV.forEach((f, i) => { folderCountsV[f.id] = (folderIdArrays[i] || []).length; });
   const opfsFoldersV = (await AVDB.getState('opfs-folders')) || [];
+  // Os favoritos entram na FASE 1 como todo o resto: a estrela de cada linha é
+  // desenhada por `renderLibrary`, e ela precisa do conjunto pronto — ler
+  // depois faria a primeira pintura sair com todas as estrelas apagadas.
+  const favIdsV = await AVDB.listIds('favs');
+  const favItemsV = await AVDB.listItems('favs');
   const messagesV = (await AVDB.getState('messages')) || [];
   const chronoPrefsV = (await AVDB.getState('chronoPrefs')) || null;
   const drawPrefsV = (await AVDB.getState('drawPrefs')) || null;
@@ -1716,6 +1730,8 @@ async function load() {
   folders = foldersV;
   folderCounts = folderCountsV;
   opfsFolders = opfsFoldersV;
+  favSet = new Set(favIdsV);
+  favItems = favItemsV;
   messages = messagesV;
   applyChronoPrefs(chronoPrefsV);
   applyDrawPrefs(drawPrefsV);
@@ -2174,7 +2190,12 @@ function renderPlaylist() {
 
   playlistEl.innerHTML = '';
   if (count === 0) {
-    playlistEl.innerHTML = '<li class="empty">Playlist vazia.<br>Deslize um item para a esquerda para adicionar.</li>';
+    // O texto mandava DESLIZAR o item para a esquerda — o gesto saiu na v5.50
+    // (ver `attachRowGestures`) e a frase ficou para trás, ensinando ao
+    // operador um caminho que não existe mais. Hoje se acrescenta pela seleção
+    // múltipla ou pela folha de destinos do acervo.
+    playlistEl.innerHTML = '<li class="empty">Playlist vazia.<br>Segure um item da lista para selecioná-lo'
+      + '<br>e toque em "Acrescentar à playlist".</li>';
     return;
   }
   plItems.forEach((item) => {
@@ -2952,8 +2973,41 @@ function renderBibleReading(wrap) {
   part('Capítulo', String(s.chapter), goto('chapters'));
   part('Versículo', String(v.n), goto('chapters'));
   foot.appendChild(nav);
+  // GUARDAR A REFERÊNCIA (v5.103). Até aqui a leitura bíblica era uma coisa do
+  // MOMENTO: o versículo da pregação de domingo tinha de ser reencontrado ao
+  // vivo, navegando livro → capítulo → versículo enquanto o pregador falava. As
+  // duas ações abaixo o transformam num item — no roteiro do culto (na ordem
+  // certa, entre o hino e o aviso) ou nos favoritos (o Salmo 23 que volta toda
+  // semana). O que é guardado é a REFERÊNCIA, não o texto: trocar de versão
+  // depois continua valendo, e nada do texto da Escritura é duplicado no banco.
+  const acoes = document.createElement('div'); acoes.className = 'bible-read-acoes';
+  const acao = (rotulo, icone, fn) => {
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'bible-read-acao';
+    b.appendChild(icone);
+    b.appendChild(Object.assign(document.createElement('span'), { textContent: rotulo }));
+    b.addEventListener('click', fn);
+    acoes.appendChild(b);
+  };
+  acao('Ao Cronograma', msym(ICON.plAdd), () => salvarVersiculo('imports'));
+  acao('Favoritar', msym(ICON.star), () => salvarVersiculo('favs'));
+  foot.appendChild(acoes);
   read.appendChild(foot);
   wrap.appendChild(read);
+}
+
+// O versículo em leitura vira uma cena de roteiro. O nome é a própria
+// referência — numa lista de culto, "Salmo 23:1" diz tudo o que precisa dizer.
+async function salvarVersiculo(destino) {
+  const s = bibleSession;
+  if (!s) return;
+  const v = s.verses[s.idx];
+  if (!v) return;
+  const nome = s.bookName + ' ' + s.chapter + ':' + v.n;
+  const rec = await criarCue('verse', {
+    versionId: s.versionId, bookIdx: s.bookIdx, chapter: s.chapter, verse: v.n,
+  }, nome, destino);
+  if (!rec) return;
+  flash(destino === 'favs' ? nome + ' nos favoritos' : nome + ' no Cronograma');
 }
 
 // Encerra o modo de leitura bíblica (quando uma mídia comum assume, ou stop).
@@ -2976,6 +3030,233 @@ function clearMsgSession() {
   renderNowPlaying();
   refreshDiversos();
 }
+// ===== CENAS DE ROTEIRO (`kind: 'cue'`) =====
+//
+// O Cronograma se chama "a lista do culto" desde sempre, mas até a v5.102 ele
+// só guardava MÍDIA — coisa com bytes. Metade de um culto real (a contagem
+// regressiva de abertura, a leitura bíblica, o aviso, a letra projetada sem
+// música) morava em OUTRAS abas, cada uma com a sua sessão, e a ordem do que
+// vem depois ficava só na cabeça do operador — que navegava entre abas ao vivo,
+// no domingo de manhã.
+//
+// Um cue é um item de lista que aponta para uma CENA em vez de para bytes. Três
+// propriedades desenham o resto do desenho:
+//
+//  1. **O Display não muda uma linha.** Um cue NUNCA vira um comando `load`:
+//     projetar um cue chama a MESMA função que o botão da aba correspondente já
+//     chamava (`projectBibleVerse`, `projectMessage`, `projectChrono`,
+//     `projectDraw`, `projectLyricStanza`), que por sua vez manda o `text`/
+//     `chrono`/`draw` de sempre. É a invariante 5 do projeto aplicada aqui:
+//     nada de lógica de projeção nova — só um ponteiro novo.
+//  2. **A reconexão do telão vem de graça.** Projetar um cue deixa a SESSÃO
+//     correspondente montada, e `resendSceneToDisplay` já reenvia sessões (o
+//     cronômetro pelo descritor, o versículo pela referência). Nada a
+//     acrescentar lá além de não tentar dar `load` no próprio cue.
+//  3. **O descritor é uma REFERÊNCIA, não uma cópia do conteúdo.** O versículo
+//     guarda `{versão, livro, capítulo, número}` e o texto vem do cache da
+//     Bíblia na hora de projetar: um cue não envelhece quando a mensagem é
+//     editada nem duplica o texto da Escritura no banco.
+// Os seis subtipos. O ícone é SVG inline — a fonte de ícones é um SUBSET de ~30
+// glifos (ver shared/material-symbols.css), e um código fora dela desenha um
+// quadrado vazio; é o mesmo motivo pelo qual `syncIconSvg` e companhia existem.
+// Só o "pacote" reusa um glifo do subset, porque `queue_music` é exatamente o
+// que ele é.
+const CUE_SVG = {
+  verse: '<path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H19v15H6.5A2.5 2.5 0 0 0 4 20.5z"/><line x1="8" y1="7.5" x2="15" y2="7.5"/><line x1="8" y1="11" x2="13" y2="11"/>',
+  message: '<path d="M20 14a2 2 0 0 1-2 2H8l-4 4V5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2z"/>',
+  songlyrics: '<line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="11" x2="16" y2="11"/><line x1="4" y1="16" x2="20" y2="16"/><line x1="4" y1="21" x2="12" y2="21"/>',
+  chrono: '<circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2"/><line x1="9" y1="2" x2="15" y2="2"/>',
+  draw: '<rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.3"/><circle cx="15.5" cy="15.5" r="1.3"/><circle cx="15.5" cy="8.5" r="1.3"/><circle cx="8.5" cy="15.5" r="1.3"/>',
+};
+
+function cueIconSvg(cue) {
+  const d = CUE_SVG[cue];
+  if (!d) return '';
+  return '<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor"'
+    + ' stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + d + '</svg>';
+}
+
+const CUES = {
+  verse: { nome: 'Versículo' },
+  message: { nome: 'Mensagem' },
+  songlyrics: { nome: 'Letra' },
+  chrono: { nome: 'Tempo' },
+  draw: { nome: 'Sorteio' },
+  group: { nome: 'Pacote', glifo: () => ICON.queue },
+};
+
+function isCue(rec) { return !!(rec && rec.kind === 'cue' && rec.cue); }
+
+// A miniatura de uma cena: o símbolo do tipo no lugar da imagem que ela não
+// tem. Mesma caixa das outras (`.thumb--icon`), então a lista não muda de
+// ritmo por causa dela.
+function cueThumb(rec) {
+  const t = document.createElement('div');
+  t.className = 'thumb thumb--icon thumb--cue';
+  const meta = CUES[rec.cue];
+  if (meta && meta.glifo) t.appendChild(msym(meta.glifo()));
+  else t.innerHTML = cueIconSvg(rec.cue);
+  return t;
+}
+
+// O que a linha do Cronograma mostra à esquerda do nome: qual TIPO de cena é.
+// Sem isso, "Salmo 23:1" e "Bem-vindos ao culto" seriam duas linhas de texto
+// indistinguíveis numa lista que também tem vídeo e hino.
+function cueTipo(rec) { return (isCue(rec) && CUES[rec.cue]) ? CUES[rec.cue].nome : ''; }
+
+// Cria a cena e devolve o registro. `destino` é a lista — o Cronograma por
+// padrão, mas a mesma função serve aos Favoritos (é o mesmo id em outra lista).
+async function criarCue(cue, data, nome, destino) {
+  if (!CUES[cue]) return null;
+  const lista = destino || 'imports';
+  const rec = await AVDB.addCue(cue, data, { name: nome, list: lista });
+  if (lista === 'favs') await recarregarFavoritos();
+  // Redesenha só quando a tela em cena é justamente a que acabou de receber o
+  // item — guardar um versículo estando na aba da Bíblia não precisa remontar
+  // o Cronograma, que ainda vai ser carregado ao voltar para ele.
+  if ((lista === 'imports' && activeTab === 'imports' && !currentFolder)
+    || (lista === 'favs' && activeTab === 'folders' && !currentFolder)) await load();
+  return rec;
+}
+
+// PROJETA uma cena. Cada ramo termina na função que a aba correspondente já
+// usava, então o comportamento (incluindo ⏮/⏭, o rótulo do now-playing e a
+// notificação nativa) é idêntico ao de projetar pela aba — porque É a mesma
+// projeção.
+async function playCue(rec) {
+  if (!isCue(rec)) return;
+  const d = rec.data || {};
+  switch (rec.cue) {
+    case 'verse': return projetarVersiculoRef(d);
+    case 'message': return projetarMensagemCue(d);
+    case 'songlyrics': return projetarLetraCue(d);
+    case 'chrono': return projetarTempoCue(d);
+    case 'draw': return projetarSorteioCue(d);
+    case 'group': return abrirPacote(d);
+    default: return undefined;
+  }
+}
+
+// ---- versículo ----
+// Monta a sessão de leitura DO ZERO a partir da referência e projeta. Não
+// reaproveita `bibleGotoChapter` de propósito: aquela exige uma sessão já
+// aberta (lê `s.versionId` dela), e aqui a sessão é justamente o que não
+// existe — o operador pode estar em qualquer aba quando toca no roteiro.
+async function projetarVersiculoRef(ref) {
+  // A VERSÃO EM USO HOJE tem precedência sobre a que estava em uso quando o
+  // item foi guardado: a referência é do TEXTO ("Salmo 23:1"), não da tradução,
+  // e um roteiro montado há um mês não pode arrastar de volta uma versão que o
+  // operador trocou desde então — nem disparar o download dela no domingo.
+  // A guardada fica como RESERVA, e é ela que salva o caso offline: a versão de
+  // hoje pode não ter este capítulo em cache, e a de então provavelmente tem.
+  const versoes = [bibleVersionId, ref.versionId].filter((v, i, a) => v && a.indexOf(v) === i);
+  if (!versoes.length) { flash('Escolha uma versão da Bíblia primeiro'); return; }
+  let verses = null;
+  let versao = versoes[0];
+  for (const v of versoes) {
+    try { verses = await fetchBibleChapterCached(v, ref.bookIdx, ref.chapter); versao = v; break; }
+    catch (_) { /* tenta a próxima */ }
+  }
+  if (!verses || !verses.length) { flash('Sem este capítulo no aparelho (e sem internet para baixar)'); return; }
+  const book = Bible.BOOKS[ref.bookIdx];
+  if (!book) return;
+  // Pelo NÚMERO do versículo, não pelo índice: capítulos com numeração
+  // irregular (ou uma versão que traga um versículo a menos) deslocariam o
+  // índice e projetariam outra coisa. Sem o número, cai no primeiro.
+  let idx = verses.findIndex((v) => v.n === ref.verse);
+  if (idx < 0) idx = 0;
+  clearMsgSession(); clearChronoSession(); clearDrawSession(); clearLyricSession();
+  bibleSession = {
+    versionId: versao, bookIdx: ref.bookIdx, bookId: bibleBookId(ref.bookIdx),
+    bookName: book.name, chapter: ref.chapter, verses, idx, projecting: false,
+  };
+  // A aba da Bíblia (se o operador for até ela) abre no que está no ar, e não
+  // no que ele escolheu por último — a leitura continua de onde o roteiro
+  // parou, e daí em diante ⏮/⏭ passam versículo como em qualquer leitura.
+  bibleSel = { bookIdx: ref.bookIdx, chapter: ref.chapter };
+  bibleChapterData = { verses };
+  bibleScreen = 'reading';
+  projectBibleVerse(idx);
+}
+
+// ---- mensagem ----
+// Guarda o `msgId` E o texto. Com a mensagem ainda na lista, projeta pelo
+// ÍNDICE — e aí ⏮/⏭ passam para a mensagem seguinte, como sempre. Apagada a
+// mensagem, o roteiro não pode ficar mudo no meio do culto: projeta o texto
+// guardado, sem sessão de navegação (o `slideTarget` devolve null e os botões
+// voltam a ser de mídia, que é a leitura honesta — não há lista para percorrer).
+function projetarMensagemCue(d) {
+  const i = d.msgId ? messages.findIndex((m) => m.id === d.msgId) : -1;
+  if (i >= 0) { projectMessage(i); return; }
+  const texto = String(d.text || '').trim();
+  if (!texto) { flash('A mensagem deste item foi excluída'); return; }
+  clearManualText();
+  view = 'visual';
+  persistCurrent();
+  cmd({ type: 'text', mode: 'message', main: texto, sub: '', view: 'visual' });
+  renderControls();
+  renderNowPlaying();
+  renderSlideNav();
+}
+
+// ---- letra avulsa ----
+async function projetarLetraCue(d) {
+  const coll = allCollections().find((c) => c.id === d.collId);
+  const s = coll ? collSongs(d.collId).find((x) => String(x.id_music) === String(d.songId)) : null;
+  if (!coll || !s) { flash('Esta música não está mais no acervo'); return; }
+  await projectSongLyricsOnly(coll, s);
+}
+
+// ---- cronômetro / relógio / timer ----
+// O cue é um PRESET: ele reescreve o estado da ferramenta (modo, duração,
+// legenda) e projeta. Um timer de abertura no roteiro tem de começar do
+// princípio — daí o reset da contagem e o start automático, que é o que o
+// operador faria em seguida de qualquer forma.
+function projetarTempoCue(d) {
+  if (CHRONO_MODES.some((m) => m.id === d.mode)) chrono.mode = d.mode;
+  if (typeof d.durationMs === 'number' && d.durationMs > 0) chrono.durationMs = d.durationMs;
+  if (typeof d.label === 'string') chrono.label = d.label;
+  if (typeof d.secs === 'boolean') chrono.secs = d.secs;
+  if (typeof d.h12 === 'boolean') chrono.h12 = d.h12;
+  chrono.baseMs = 0;
+  chrono.running = chrono.mode !== 'clock';
+  chrono.startAt = chrono.running ? Date.now() : 0;
+  saveChronoPrefs();
+  projectChrono();
+}
+
+// ---- sorteio ----
+// Também um preset (faixa ou lista de opções). NÃO sorteia sozinho: o resultado
+// é o momento público do sorteio, e ele pertence ao toque do operador em
+// "Sortear" — um número que já aparece pronto ao entrar em cena tira justamente
+// o que faz a coisa ter graça.
+function projetarSorteioCue(d) {
+  if (d.kind === 'text' || d.kind === 'number') draw.kind = d.kind;
+  if (typeof d.min === 'number') draw.min = d.min;
+  if (typeof d.max === 'number') draw.max = d.max;
+  if (Array.isArray(d.pool)) draw.pool = d.pool.map(String);
+  if (typeof d.label === 'string') draw.label = d.label;
+  draw.value = null; draw.rollUntil = 0;
+  saveDrawPrefs();
+  projectDraw();
+}
+
+// ---- pacote ----
+// O "pacote de playlist": um cue que carrega uma FILA inteira. Tocar substitui
+// a playlist pelos itens dele e começa pelo primeiro — é o bloco de louvores da
+// abertura entrando com um toque, em vez de quatro itens montados à mão a cada
+// semana. Os ids que não existirem mais são simplesmente pulados (uma mídia
+// excluída não pode impedir o resto do bloco de tocar).
+async function abrirPacote(d) {
+  const ids = Array.isArray(d.ids) ? d.ids : [];
+  const recs = (await Promise.all(ids.map((id) => AVDB.getMedia(id)))).filter(Boolean);
+  if (!recs.length) { flash('As mídias deste pacote não estão mais no aparelho'); return; }
+  await AVDB.listSet('playlist', recs.map((r) => r.id));
+  plItems = recs;
+  renderPlaylist();
+  await send(recs[0].id);
+}
+
 // ===== Letra avulsa: projeção e navegação =====
 function clearLyricSession() {
   if (!lyricSession) return;
@@ -3572,8 +3853,50 @@ function renderChrono() {
   labRow.appendChild(labLab); labRow.appendChild(labInp);
   host.appendChild(labRow);
 
+  // O PRESET vira item do roteiro. A contagem regressiva de abertura é a cena
+  // mais previsível de um culto — e era justamente a que não cabia na lista do
+  // culto: o operador tinha de lembrar de vir a esta aba, escolher o modo,
+  // ajustar os minutos e projetar, com o salão já enchendo. Guardado aqui, um
+  // toque no Cronograma faz as quatro coisas.
+  host.appendChild(cueSaveRow('Guardar esta contagem', async (destino) => {
+    const nome = chrono.label
+      || (chrono.mode === 'timer' ? 'Timer ' + Math.round(chrono.durationMs / 60000) + ' min'
+        : chrono.mode === 'clock' ? 'Relógio' : 'Cronômetro');
+    return criarCue('chrono', {
+      mode: chrono.mode, durationMs: chrono.durationMs, label: chrono.label,
+      secs: chrono.secs, h12: chrono.h12,
+    }, nome, destino);
+  }));
+
   renderChronoReadout();
   startChronoPanelTimer();
+}
+
+// A linha "guardar isto" das ferramentas: os DOIS destinos possíveis para uma
+// cena de roteiro, lado a lado. Uma função só porque cronômetro e sorteio fazem
+// exatamente a mesma pergunta — e um terceiro provedor de Camada de Texto que
+// apareça amanhã ganha os dois botões sem reescrever nada.
+function cueSaveRow(rotulo, montar) {
+  const row = document.createElement('div');
+  row.className = 'misc-row misc-row--save';
+  const lab = document.createElement('span');
+  lab.className = 'misc-row-label'; lab.textContent = rotulo;
+  const botoes = document.createElement('div'); botoes.className = 'misc-save-btns';
+  const mk = (texto, icone, destino, aviso) => {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'misc-chip';
+    b.appendChild(msym(icone));
+    b.appendChild(Object.assign(document.createElement('span'), { textContent: texto }));
+    b.addEventListener('click', async () => {
+      const rec = await montar(destino);
+      flash(rec ? aviso : 'Não foi possível guardar');
+    });
+    botoes.appendChild(b);
+  };
+  mk('Cronograma', ICON.plAdd, 'imports', 'Guardado no Cronograma');
+  mk('Favoritos', ICON.star, 'favs', 'Guardado nos favoritos');
+  row.append(lab, botoes);
+  return row;
 }
 
 // ===== Sorteio (aba Ferramentas) =====
@@ -3914,6 +4237,20 @@ function renderDraw() {
   go.addEventListener('click', doDraw);
   host.appendChild(go);
 
+  // O sorteio guardado é a CONFIGURAÇÃO (faixa ou lista de opções), nunca um
+  // resultado: projetar a cena arma o sorteio e espera o toque em "Sortear" —
+  // um ganhador que já aparece pronto ao entrar em cena tira do momento
+  // justamente o que ele tem de público.
+  host.appendChild(cueSaveRow('Guardar este sorteio', async (destino) => {
+    const nome = draw.label || (draw.kind === 'text'
+      ? 'Sorteio (' + draw.pool.length + ' opções)'
+      : 'Sorteio ' + draw.min + '–' + draw.max);
+    return criarCue('draw', {
+      kind: draw.kind, min: draw.min, max: draw.max,
+      pool: draw.kind === 'text' ? draw.pool.slice() : [], label: draw.label,
+    }, nome, destino);
+  }));
+
   renderDrawReadout();
   startDrawPanelTimer();
 }
@@ -3946,11 +4283,26 @@ function renderMsg() {
       // linha ativa marcada, então dá para passar de um aviso a outro sem
       // reabrir nada — que era o atrito do fluxo anterior.
       txt.addEventListener('click', () => projectMessage(i));
+      // A mensagem entra no ROTEIRO (v5.103): o aviso de sempre — o convite do
+      // sábado, o recado da secretaria — deixa de viver só nesta aba e passa a
+      // ocupar o lugar dele na ordem do culto. O que o item guarda é o `id` da
+      // mensagem (mais o texto como reserva), então editá-la aqui atualiza o
+      // que o roteiro projeta.
+      const add = document.createElement('button');
+      add.type = 'button'; add.className = 'row-btn';
+      add.title = 'Adicionar ao Cronograma';
+      add.appendChild(msym(ICON.plAdd));
+      add.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const rec = await criarCue('message', { msgId: m.id, text: m.text },
+          m.text.length > 40 ? m.text.slice(0, 40) + '…' : m.text, 'imports');
+        flash(rec ? 'Mensagem no Cronograma' : 'Não foi possível adicionar');
+      });
       const del = document.createElement('button');
       del.type = 'button'; del.className = 'row-btn';
       del.appendChild(msym(ICON.del));
       del.addEventListener('click', (e) => { e.stopPropagation(); deleteMessage(m.id); });
-      row.append(txt, del);
+      row.append(txt, add, del);
       list.appendChild(row);
     });
   }
@@ -4092,7 +4444,8 @@ function renderLibrary() {
       ? (fq ? '<li class="empty">Nenhum arquivo encontrado.</li>'
         : (currentFolder && currentFolder._opfs
           ? '<li class="empty">Pasta vazia.</li>'
-          : '<li class="empty">Atalho vazio.<br>Selecione mídias no Cronograma e use "Adicionar aos favoritos".</li>'))
+          : '<li class="empty">Atalho vazio.<br>Segure itens no Cronograma para selecioná-los'
+            + '<br>e use "Adicionar a um atalho".</li>'))
       : '<li class="empty">Cronograma vazio.</li>';
     appendImportRow();
     return;
@@ -4109,9 +4462,18 @@ function renderLibrary() {
 
     // A miniatura é o primeiro elemento (flush à esquerda). A seleção múltipla
     // é indicada só pelo highlight azul (.lib-item.selected) — sem ícone de check.
-    const thumb = thumbEl(item);
+    const thumb = isCue(item) ? cueThumb(item) : thumbEl(item);
 
     const name = document.createElement('span'); name.className = 'row-name'; name.textContent = item.name;
+    // A cena de roteiro DIZ QUE TIPO É, num selo ao lado do nome: numa lista que
+    // também tem hino, vídeo e apresentação, "Salmo 23:1" e "Bem-vindos" seriam
+    // duas linhas de texto sem nada que as distinga do resto.
+    let cueBadge = null;
+    if (isCue(item)) {
+      cueBadge = document.createElement('span');
+      cueBadge.className = 'url-badge cue-badge';
+      cueBadge.textContent = cueTipo(item);
+    }
     // Badge for URL-based items
     let badge = null;
     // Item de player do YouTube num shell que sabe baixar: o selo vira botão e
@@ -4167,10 +4529,14 @@ function renderLibrary() {
     const handle = document.createElement('button'); handle.className = 'row-handle'; handle.title = 'Arraste para reordenar';
     handle.appendChild(msym(ICON.drag));
 
-    // Arquivo OPFS dentro de pasta: botão para entrar no Cronograma sem cópia
-    // (mesmo id nas listas; os bytes continuam só no OPFS).
+    // Botão para entrar no Cronograma sem cópia (mesmo id nas listas; os bytes
+    // continuam onde estão). Vale para QUALQUER item fora do Cronograma —
+    // arquivo de pasta do dispositivo, favorito, item de atalho. Até a v5.102 só
+    // a pasta OPFS o tinha: de dentro de um Favorito não havia como mandar nada
+    // para a lista do culto, que é justamente o que um favorito existe para
+    // fazer (o caminho era toque longo → seleção → e ali só havia playlist).
     let addBtn = null;
-    if (activeTab === 'folders' && item.opfsPath) {
+    if (activeTab === 'folders') {
       addBtn = document.createElement('button'); addBtn.className = 'row-btn'; addBtn.title = 'Adicionar ao Cronograma';
       addBtn.appendChild(msym(ICON.plAdd));
       addBtn.addEventListener('click', async (e) => {
@@ -4180,6 +4546,10 @@ function renderLibrary() {
         flash(had ? 'Já no Cronograma' : 'Adicionado ao Cronograma');
       });
     }
+
+    // A ESTRELA, em toda linha: é ela que torna favoritar um toque só. Fica
+    // fora da seleção múltipla porque ali o alvo é o conjunto, não a linha.
+    const star = selectionMode ? null : favBtn(item.id);
 
     // Item que JÁ existe e está sendo baixado (converter um link em arquivo):
     // o aviso vai nele mesmo, não na preview.
@@ -4194,6 +4564,7 @@ function renderLibrary() {
 
     const parts = [thumb, name];
     if (badge) parts.push(badge);
+    if (cueBadge) parts.push(cueBadge);
     if (dl) {
       const pct = document.createElement('span'); pct.className = 'dl-pct';
       pct.textContent = dl.pct >= 0 ? dl.pct + '%' : '';
@@ -4203,6 +4574,7 @@ function renderLibrary() {
     // continuar desenhando "baixar" ao lado de um anel girando é oferecer a
     // ação que está justamente em curso.
     if (ytDl && !dl) parts.push(ytDl);
+    if (star) parts.push(star);
     if (addBtn) parts.push(addBtn);
     if (activeTab !== 'folders') parts.push(handle);
     row.append(...parts);
@@ -5084,15 +5456,22 @@ function renderCollectionsNow() {
 // os atalhos criados pelo operador primeiro (é o que ele marcou), as pastas
 // do dispositivo depois (a origem bruta, que ele sincronizou uma vez).
 function renderFolderList() {
-  if (opfsFolders.length === 0 && folders.length === 0) {
+  if (opfsFolders.length === 0 && folders.length === 0 && favItems.length === 0) {
     const empty = document.createElement('li');
     empty.className = 'empty';
-    empty.innerHTML = 'Nenhum favorito ainda.<br>Crie atalhos para agrupar o que você mais usa,'
-      + '<br>ou sincronize uma pasta do dispositivo.';
+    empty.innerHTML = 'Nenhum favorito ainda.<br>Toque na estrela de qualquer item para marcá-lo aqui'
+      + '<br>— ou crie um atalho para agrupar o que você mais usa.';
     favListEl.appendChild(empty);
     appendNewFavoriteRow();
     renderStorageUsage();
     return;
+  }
+  // OS MARCADOS VÊM PRIMEIRO: é o que a estrela promete e o que o operador vem
+  // buscar. Os atalhos são a organização de quem tem muita coisa, e as pastas
+  // do dispositivo são a origem bruta — as duas descem.
+  if (favItems.length) {
+    appendFavSection('Favoritos');
+    favItems.forEach((item) => favListEl.appendChild(favItemRow(item)));
   }
   if (folders.length) appendFavSection('Atalhos');
   renderVirtualFolders();
@@ -5124,8 +5503,43 @@ function renderFolderList() {
   renderStorageUsage();
 }
 
-// Cabeçalho de origem dentro dos Favoritos ("Atalhos" / "Pastas do
-// dispositivo"): as duas coisas vivem na mesma lista e se comportam igual ao
+// Uma linha da seção "Favoritos" — o item em si, não um grupo. Tocar faz o
+// MESMO que tocar nele no Cronograma (`onTap`: mídia toca, cena projeta), a
+// estrela desmarca e o `+` manda para a lista do culto. São as três coisas que
+// se quer de um favorito, sem entrar em pasta nenhuma.
+function favItemRow(item) {
+  const li = document.createElement('li');
+  li.className = 'lib-item' + (item.id === currentId ? ' active' : '');
+  li.dataset.id = item.id;
+  const row = document.createElement('div'); row.className = 'row';
+  const nome = document.createElement('span'); nome.className = 'row-name'; nome.textContent = item.name;
+  const add = document.createElement('button');
+  add.className = 'row-btn'; add.title = 'Adicionar ao Cronograma';
+  add.appendChild(msym(ICON.plAdd));
+  add.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    const had = await AVDB.listHas('imports', item.id);
+    await AVDB.listAdd('imports', item.id);
+    flash(had ? 'Já no Cronograma' : 'Adicionado ao Cronograma');
+  });
+  const partes = [isCue(item) ? cueThumb(item) : thumbEl(item), nome];
+  if (isCue(item)) {
+    const b = document.createElement('span'); b.className = 'url-badge cue-badge';
+    b.textContent = cueTipo(item);
+    partes.push(b);
+  }
+  partes.push(favBtn(item.id), add);
+  row.append(...partes);
+  li.appendChild(row);
+  // Os mesmos gestos da biblioteca: toque projeta/toca, toque longo entra na
+  // seleção múltipla. Uma segunda regra de gesto só para esta lista seria a
+  // mesma divergência que a gaveta inteira existe para evitar.
+  attachRowGestures(row, item);
+  return li;
+}
+
+// Cabeçalho de origem dentro dos Favoritos ("Favoritos" / "Atalhos" / "Pastas
+// do dispositivo"): as três coisas vivem na mesma lista e se comportam igual ao
 // toque, então sem um rótulo o operador não sabe qual é qual — e só uma delas
 // pede sincronização.
 function appendFavSection(title) {
@@ -5245,17 +5659,80 @@ function renderSelbar() {
   selRenameEl.disabled = selected.size !== 1;
 }
 
+// ===== FAVORITOS: a marcação de UM TOQUE =====
+//
+// Até a v5.102 favoritar era "escolher (ou criar) um atalho e pôr o item nele":
+// seis passos para o primeiro favorito, porque o modelo por baixo eram as
+// antigas PASTAS VIRTUAIS com um nome novo. Agora existe o ato simples — a
+// estrela da linha marca e desmarca na hora — e os atalhos continuam ali como
+// ORGANIZAÇÃO OPCIONAL, para quem quiser agrupar.
+//
+// A lista mora no banco (`favs`) e é um detentor de referência como qualquer
+// outra (ver LISTS em db.js): favoritar segura o blob, desfavoritar deixa o gc
+// decidir. Nenhuma regra de coleta nova.
+function isFav(id) { return favSet.has(id); }
+
+async function toggleFav(id) {
+  if (!id) return;
+  if (favSet.has(id)) {
+    favSet.delete(id);
+    // `listRemove` (e não um setState cru) porque é ele que roda o gc na MESMA
+    // transação: desfavoritar algo que não está em mais lista nenhuma tem de
+    // liberar o espaço, não deixar um registro invisível para trás.
+    await AVDB.listRemove('favs', id);
+  } else {
+    favSet.add(id);
+    await AVDB.listAdd('favs', id);
+  }
+  await recarregarFavoritos();
+  // A estrela do item aparece no Cronograma, dentro de um atalho e na própria
+  // gaveta: redesenhar a lista visível é o que mantém as três concordando (a
+  // playlist não tem estrela — ela é a fila do momento, não uma coleção).
+  renderLibrary();
+}
+
+// Relê a lista e os registros. Chamado depois de qualquer mudança — é o único
+// ponto que reconstrói `favSet`/`favItems`, para os dois nunca divergirem.
+async function recarregarFavoritos() {
+  const ids = await AVDB.listIds('favs');
+  favSet = new Set(ids);
+  favItems = await AVDB.listItems('favs');
+}
+
+// O botão de estrela de uma linha. `.on` = favoritado (a cor faz o estado, como
+// no resto do app); o rótulo diz o que o toque FAZ.
+function favBtn(id) {
+  const b = document.createElement('button');
+  b.className = 'row-btn fav-btn' + (isFav(id) ? ' on' : '');
+  b.title = isFav(id) ? 'Remover dos favoritos' : 'Favoritar';
+  b.appendChild(msym(ICON.star));
+  b.addEventListener('click', (e) => { e.stopPropagation(); toggleFav(id); });
+  return b;
+}
+
 // ===== ações de reprodução / sequência =====
 async function send(id) {
+  // UMA CENA DE ROTEIRO NÃO É MÍDIA: ela não pode virar um comando `load` (o
+  // telão apagaria, porque um registro sem blob/url/pages cai no `clear` do
+  // stage). A guarda fica AQUI, e não só no toque da lista, porque `send` é o
+  // ponto por onde TODOS os caminhos passam — o avanço automático da playlist,
+  // o ⏮/⏭ do transporte, a notificação nativa e o pacote logo acima.
+  const alvo = [...plItems, ...libItems, ...favItems].find((m) => m.id === id)
+    || (await AVDB.getMedia(id));
+  if (isCue(alvo)) {
+    currentItem = alvo;
+    currentId = id;
+    await persistCurrent();
+    document.querySelectorAll('.lib-item,.row-item').forEach((el) => el.classList.toggle('active', el.dataset.id === id));
+    await playCue(alvo);
+    return;
+  }
   currentId = id;
-  // Atualiza cache do item atual para renderNowPlaying funcionar mesmo fora da aba ativa.
-  // Fora das duas listas carregadas, o registro vem do IDB: uma mídia AVULSA
-  // (v5.87 — "Tocar agora" num vídeo do YouTube) não está em nenhuma delas, e
-  // sem esta leitura o `|| currentItem` deixava no ar o nome do item ANTERIOR,
-  // que é pior que nome nenhum.
-  currentItem = [...plItems, ...libItems].find((m) => m.id === id)
-    || (await AVDB.getMedia(id))
-    || currentItem;
+  // O registro já foi resolvido acima (listas carregadas, com o IDB como
+  // reserva) — a mídia AVULSA (v5.87 — "Tocar agora" num vídeo do YouTube) não
+  // está em lista nenhuma, e sem essa leitura o `|| currentItem` deixava no ar
+  // o nome do item ANTERIOR, que é pior que nome nenhum.
+  currentItem = alvo || currentItem;
   // Independência áudio × texto: um ÁUDIO (música de fundo) NÃO encerra o texto
   // manual em cena (Bíblia/Mensagem/cronômetro); qualquer VISUAL (vídeo/imagem/
   // YouTube) encerra. Um louvor de fundo sob a contagem regressiva de abertura
@@ -5834,6 +6311,11 @@ async function replacePlaylistWith(rec) {
 
 async function onTap(item) {
   if (selectionMode) { toggleSelect(item.id); return; }
+  // Cena de roteiro: PROJETA, e não mexe na playlist. Um versículo não é uma
+  // fila de reprodução — trocar a playlist por ele apagaria o bloco de louvores
+  // que o operador acabou de montar, e o áudio de fundo (que a Camada de Texto
+  // deixa tocando de propósito) morreria junto.
+  if (isCue(item)) { await send(item.id); return; }
   // Toque direto na biblioteca: define a playlist como este item apenas.
   // ACRESCENTAR à fila (sem substituir) é outra coisa: o `+` dos resultados do
   // acervo (`addSongToPlaylist`) e, para itens da biblioteca, o botão de
@@ -5848,6 +6330,25 @@ async function onTap(item) {
 // seleção: visível, e para vários itens de uma vez. Sem isto a única coisa que
 // um item da biblioteca sabia fazer era SUBSTITUIR a fila (o toque simples) —
 // montar uma sequência de culto dependeria de um gesto que a tela não anuncia.
+// Favoritar o CONJUNTO. Marca todos quando há algum desmarcado (a intenção de
+// quem selecionou cinco itens e toca na estrela é "quero estes cinco nos
+// favoritos"); com todos já marcados, o mesmo toque desmarca — é o alternador
+// de sempre, aplicado ao conjunto.
+async function favoritarSelecionados() {
+  const ids = [...selected];
+  if (!ids.length) return;
+  const marcar = ids.some((id) => !favSet.has(id));
+  for (const id of ids) {
+    if (marcar === favSet.has(id)) continue;
+    if (marcar) { favSet.add(id); await AVDB.listAdd('favs', id); }
+    else { favSet.delete(id); await AVDB.listRemove('favs', id); }
+  }
+  flash(marcar ? 'Adicionado aos favoritos' : 'Removido dos favoritos');
+  await recarregarFavoritos();
+  exitSelection();
+  load();
+}
+
 async function addSelectedToPlaylist() {
   if (!selected.size) return;
   for (const id of selected) await AVDB.listAdd('playlist', id);
@@ -5976,14 +6477,24 @@ async function deleteSelected() {
       const rec = await AVDB.fileGet(id);
       if (rec && rec.opfsPath) await AVDB.opfsDeleteFile(rec.opfsPath);
       await AVDB.fileDelete(id);
-      // TODAS as listas, inclusive a invisível: um id que sobra em qualquer
-      // uma delas segura o registro vivo para o gc.
-      for (const l of ['imports', 'playlist', 'avulsos']) await AVDB.listRemove(l, id);
+      // TODAS as listas, inclusive a invisível e a dos favoritos: um id que
+      // sobra em qualquer uma delas segura o registro vivo para o gc.
+      for (const l of ['imports', 'playlist', 'avulsos', 'favs']) await AVDB.listRemove(l, id);
     }
     await refreshOpfsFolderCount(currentFolder.id);
   } else if (activeTab === 'folders' && currentFolder) {
-    const ids = (await AVDB.getState('folder_' + currentFolder.id)) || [];
-    await AVDB.setState('folder_' + currentFolder.id, ids.filter((id) => !selected.has(id)));
+    // Pelo `listRemove`, que roda o gc na mesma transação — tirar do atalho o
+    // último detentor de um blob tem de liberar o espaço. O `setState` cru que
+    // havia aqui deixava o registro órfão e fora do alcance de qualquer faxina.
+    for (const id of selected) await AVDB.listRemove('folder_' + currentFolder.id, id);
+  } else if (activeTab === 'folders') {
+    // RAIZ da gaveta: o que está selecionado ali são FAVORITOS, e excluir é
+    // desmarcar. Sem esta linha o `else` de baixo caía em
+    // `listRemove('folders', id)` — a chave do ÍNDICE de atalhos, que guarda
+    // objetos e não ids: um no-op silencioso, com o operador vendo o item
+    // continuar na lista depois de mandar excluí-lo.
+    for (const id of selected) { favSet.delete(id); await AVDB.listRemove('favs', id); }
+    await recarregarFavoritos();
   } else {
     for (const id of selected) await AVDB.listRemove(activeTab, id);
   }
@@ -6016,7 +6527,14 @@ function openFolder(folder) {
 // ONDE a lista é desenhada (ver `listHost`). Manter o activeTab é o que faz
 // toda a navegação interna (abrir pasta, buscar, selecionar, excluir) continuar
 // valendo sem uma segunda implementação.
+// A aba que estava embaixo quando a gaveta abriu. Ela é aberta de QUALQUER aba
+// desde a v5.103 (o botão do cabeçalho), então fechar tem de devolver o
+// operador ao lugar de onde ele veio: quem abriu os favoritos no meio de uma
+// leitura bíblica não espera cair no Cronograma ao fechá-los.
+let favVoltarPara = 'imports';
+
 function openFavorites() {
+  if (activeTab !== 'folders') favVoltarPara = activeTab;
   favPopupEl.classList.add('open');
   switchTab('folders');
   hostSelbar();
@@ -6033,7 +6551,7 @@ function closeFavorites() {
   folderQuery = '';
   libSearchEl.value = '';
   hostSelbar();
-  switchTab('imports', true);
+  switchTab(favVoltarPara || 'imports', true);
 }
 
 // A barra de seleção múltipla vive na caixa de controles, ATRÁS da gaveta — com
@@ -6078,20 +6596,31 @@ async function createFolder(name) {
   load();
 }
 
+// Excluir um atalho NÃO apaga mídia que tenha outro dono — mas o que ficar sem
+// dono nenhum precisa ser coletado, e é isso que `folderDrop` faz numa
+// transação só (índice + lista + gc).
+//
+// Antes eram dois `setState` crus, e isso VAZAVA em silêncio: uma mídia cujo
+// último detentor era aquele atalho virava um registro que nenhuma lista aponta
+// e que nenhum gc alcança (ele só roda dentro de `listRemove`). O blob ficava
+// no IndexedDB para sempre — um vídeo grande "sumia" da tela e continuava
+// ocupando o disco, sem tela nenhuma no app capaz de recuperá-lo.
 async function deleteFolder(folderId) {
   const folder = folders.find((f) => f.id === folderId);
   if (!(await appConfirm({ title: 'Excluir atalho', message: 'Excluir o atalho "' + (folder ? folder.name : '') + '"? As mídias não são apagadas.', okText: 'Excluir' }))) return;
-  folders = folders.filter((f) => f.id !== folderId);
-  await AVDB.setState('folders', folders);
-  await AVDB.setState('folder_' + folderId, []);
+  await AVDB.folderDrop(folderId);
   if (currentFolder && currentFolder.id === folderId) currentFolder = null;
   load();
 }
 
+// `listAdd` por id, e não um `setState` do array inteiro: cada entrada é um
+// read-modify-write ATÔMICO na transação de "state" (a mesma garantia das
+// listas fixas). Com o array cru, um download que terminasse entre a leitura e
+// a escrita perdia a própria entrada — o registro ficava criado e fora de
+// qualquer lista, que é o vazamento que `addMediaToList` existe para impedir.
 async function addToFolder(folderId, ids) {
-  const existing = (await AVDB.getState('folder_' + folderId)) || [];
-  await AVDB.setState('folder_' + folderId, [...new Set([...existing, ...ids])]);
-  flash('Adicionado aos favoritos');
+  for (const id of ids) await AVDB.listAdd('folder_' + folderId, id);
+  flash('Adicionado ao atalho');
   exitSelection();
   load();
 }
@@ -6321,7 +6850,11 @@ function openOpfsFolder(f) {
 async function purgeCatalogRecords(recs) {
   for (const r of recs) {
     await AVDB.fileDelete(r.id);
-    for (const l of ['imports', 'playlist', 'avulsos']) await AVDB.listRemove(l, r.id);
+    // `favs` entra junto: um arquivo de pasta favoritado e depois excluído
+    // deixaria uma estrela apontando para um registro que não existe mais — a
+    // linha some da gaveta pelo `filter(Boolean)` do `listItems`, mas o id fica
+    // na lista, contando como favorito para sempre.
+    for (const l of ['imports', 'playlist', 'avulsos', 'favs']) await AVDB.listRemove(l, r.id);
   }
 }
 
@@ -7516,6 +8049,8 @@ function openYtMenu(r) {
     'Entra na fila, sem entrar no Cronograma', () => ytAcao(r, 'playlist')));
   songMenuListEl.appendChild(songMenuItem(msym(ICON.plAdd), 'Adicionar ao Cronograma',
     'A lista do culto', () => ytAcao(r, 'cronograma')));
+  songMenuListEl.appendChild(songMenuItem(msym(ICON.star), 'Favoritar',
+    'Baixa e marca — fica à mão toda semana', () => ytAcao(r, 'favoritos')));
   songMenuPopupEl.classList.add('open');
 }
 
@@ -7534,7 +8069,7 @@ function openYtMenu(r) {
 // operador só quis ver uma vez. A lista de destino agora é decidida AQUI e
 // entregue ao `addMedia`, que continua gravando registro e lista na mesma
 // transação.
-const YT_LISTA = { tocar: 'avulsos', playlist: 'playlist', cronograma: 'imports' };
+const YT_LISTA = { tocar: 'avulsos', playlist: 'playlist', cronograma: 'imports', favoritos: 'favs' };
 async function ytAcao(r, destino) {
   const tocar = destino === 'tocar';
   if (tocar) closeHymnSearch();
@@ -7564,6 +8099,7 @@ async function ytAcao(r, destino) {
     plItems = await AVDB.listItems('playlist');
     renderPlaylist();
   }
+  if (destino === 'favoritos') await recarregarFavoritos();
   await load();
   if (tocar) {
     // A mídia avulsa não está em `libItems` nem em `plItems`, então quem
@@ -7959,9 +8495,27 @@ function renderSongMenu(modo) {
   songMenuListEl.appendChild(songMenuItem(msym(ICON.plAdd), 'Adicionar ao Cronograma',
     'A lista do culto',
     (vr) => addSongVariant(coll, s, vr)));
-  songMenuListEl.appendChild(songMenuItem(msym(ICON.star), 'Adicionar aos favoritos',
-    'Escolha o atalho',
+  // "Escolha o atalho" saiu do subtítulo (v5.103): favoritar virou o ato
+  // simples, sem seletor no meio. Organizar em atalho continua possível — pela
+  // seleção múltipla, dentro da gaveta, para quem tem muita coisa marcada.
+  songMenuListEl.appendChild(songMenuItem(msym(ICON.star), 'Favoritar',
+    'O atalho para o que se usa toda semana',
     (vr) => addSongToFavorites(coll, s, vr)));
+  // A LETRA como cena de roteiro: entra no Cronograma sem baixar áudio nenhum,
+  // e projetá-la é o mesmo "Apenas a letra" da folha de tocar. É o item de
+  // roteiro mais pedido depois do versículo — o hino que a congregação canta a
+  // capela, ou o que toca da mesa de som enquanto o telão mostra a letra.
+  songMenuListEl.appendChild(songMenuItem(lyricsOnlyIconSvg(), 'Só a letra, no Cronograma',
+    'Sem baixar a música',
+    () => addLyricCue(coll, s)));
+}
+
+// Cena de roteiro da LETRA de uma música do acervo.
+async function addLyricCue(coll, s) {
+  const rec = await criarCue('songlyrics',
+    { collId: coll.id, songId: s.id_music },
+    songLabel(coll, s), 'imports');
+  flash(rec ? 'Letra adicionada ao Cronograma' : 'Não foi possível adicionar');
 }
 
 // A seta de download dentro do `.dl-ring` — o mesmo desenho que o `#pvBusy`
@@ -8267,11 +8821,23 @@ async function addSongVariant(coll, s, variant) {
 // barra de seleção múltipla (openFolderPicker), com o id da música no lugar da
 // seleção. Uma segunda lista de atalhos só para o acervo divergiria da
 // primeira no dia em que alguém criasse um atalho novo.
+// Favoritar uma música do acervo continua BAIXANDO o arquivo, e isso é
+// deliberado: um favorito é o que se usa toda semana, e o que o operador espera
+// dele num domingo de manhã é que ele TOQUE — inclusive com a rede da igreja
+// fora do ar. Um marcador que só guarda a referência seria mais barato de criar
+// e falharia justamente na hora em que ele é usado.
+//
+// O que mudou na v5.103 é o destino: a lista `favs`, direto, em vez do seletor
+// de atalho. Marcar o primeiro favorito custava criar uma pasta antes.
 async function addSongToFavorites(coll, s, variant) {
   const id = await resolveSongMediaId(coll, s, variant, { toast: false });
   if (!id) { flash('Não foi possível adicionar (sem internet para baixar)'); return; }
   dismissFlash();
-  openFolderPicker([id]);
+  const had = await AVDB.listHas('favs', id);
+  await AVDB.listAdd('favs', id);
+  await recarregarFavoritos();
+  renderLibrary();
+  flash(had ? 'Já nos favoritos' : 'Adicionado aos favoritos');
 }
 
 async function addSongToPlaylist(coll, s, variant) {
@@ -9520,6 +10086,27 @@ appDialogInputEl.addEventListener('keydown', (e) => {
 });
 
 // ===== popup de playlist =====
+// A fila em cena vira um PACOTE: um item do Cronograma que, ao ser tocado,
+// devolve exatamente estes itens nesta ordem. O nome sai do primeiro item mais
+// a contagem — "Abertura · 4 itens" é o que se reconhece numa lista de culto.
+async function guardarPacote() {
+  // Só MÍDIA entra num pacote. Uma cena de roteiro dentro dele abriria a porta
+  // para um pacote que contém outro pacote — e dois que se contenham
+  // mutuamente fariam `abrirPacote` chamar `send` em laço, travando o app. Um
+  // pacote é uma FILA de reprodução; cena de roteiro se põe no Cronograma.
+  const ids = plItems.filter((m) => !isCue(m)).map((m) => m.id);
+  if (ids.length < 2) { flash('Monte a fila com dois ou mais itens antes de guardar'); return; }
+  const sugestao = plItems[0].name + ' +' + (ids.length - 1);
+  const nome = await appPrompt({
+    title: 'Guardar pacote', message: 'Nome do pacote:', value: sugestao, okText: 'Guardar',
+  });
+  if (nome === null) return;
+  const rec = await criarCue('group', { ids }, (nome || '').trim() || sugestao, 'imports');
+  if (!rec) { flash('Não foi possível guardar'); return; }
+  closePlPopup();
+  flash('Pacote guardado no Cronograma');
+}
+
 function openPlPopup() {
   renderPlaylist();
   plPopupEl.classList.add('open');
@@ -10475,7 +11062,12 @@ const TAB_SWIPE_RATIO = 1.5;  // quanto o eixo X precisa dominar o Y
 
 selCancelEl.addEventListener('click', exitSelection);
 selPlaylistEl.addEventListener('click', addSelectedToPlaylist);
+selFavEl.addEventListener('click', favoritarSelecionados);
 selFolderEl.addEventListener('click', openFolderPicker);
+// A gaveta de qualquer aba: é o que faz dos Favoritos um acesso rápido de
+// verdade, e não uma sub-tela no fim do Cronograma.
+favHeadBtnEl.addEventListener('click', openFavorites);
+plPackEl.addEventListener('click', guardarPacote);
 selDeleteEl.addEventListener('click', deleteSelected);
 selRenameEl.addEventListener('click', renameSelected);
 
@@ -10792,7 +11384,11 @@ function resendSceneToDisplay() {
   // oração. Um vídeo pausado mostra o quadro congelado no telão e um áudio
   // pausado mantém a letra sincronizada em cena — nos dois casos há algo
   // projetado, e nos dois casos ele sumia para sempre.
-  if (currentId) {
+  // `!isCue`: a cena de roteiro em cena é reenviada pelo bloco de TEXTO logo
+  // abaixo (é uma sessão, como um versículo escolhido pela aba da Bíblia) — dar
+  // `load` no id dela mandaria o telão carregar uma mídia sem bytes e apagaria
+  // a projeção justamente na reconexão que este código existe para consertar.
+  if (currentId && !isCue(currentItem)) {
     // E leva a POSIÇÃO. Sem ela o telão recarregava a mídia do ZERO: um hino
     // aos 3:20 recomeçava do início na frente da congregação. Pior, o
     // `display-status` seguinte chegava com `currentTime` 0 e arrastava a
