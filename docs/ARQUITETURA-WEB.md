@@ -1860,22 +1860,24 @@ interface (estados de botão, contadores, listas). `flash()`/`dismissFlash()` em
 `controle.js` viraram **no-ops** — mantidos só para não mexer nos ~25 pontos de
 chamada; qualquer mensagem que antes ia pro toast simplesmente não aparece mais.
 
-#### `avisar()`: a exceção, e o limite dela (v5.104)
+#### O sinal nasce NO BOTÃO que foi tocado (v5.106)
 
-A regra acima funciona para tudo o que MUDA na tela — um item que aparece na
-lista, um botão que troca de estado. Ela falha justamente onde o resultado **não
-está à vista**, que é metade dos salvamentos: mandar algo ao Cronograma estando
-na Bíblia, favoritar de dentro do acervo, guardar um preset das Ferramentas. Ali
-o toque não produzia sinal nenhum e a única forma de saber se funcionou era ir
-conferir — que é exatamente como se acaba tocando duas vezes.
+O resultado de um salvamento é invisível justamente onde ele mais importa:
+mandar algo ao Cronograma estando na Bíblia, favoritar de dentro do acervo,
+guardar um preset das Ferramentas. O toque não produzia sinal nenhum e a única
+forma de saber se funcionou era ir conferir — que é exatamente como se acaba
+tocando duas vezes.
 
-`avisar(texto, tipo)` cobre só esses casos. O que ele **não** é: o toast de
-volta. Não flutua sobre os controles (fica no TOPO da tela — a base é onde mora
-o transporte, e foi por cobri-lo que o toast saiu), não pede toque para sair
-(`pointer-events: none`, some em 2,4 s) e não é usado por nada que já tenha
-estado próprio na tela.
+**O feedback é um pulso de 1,1 s no próprio botão** (`pulsar(btn, tipo)`), não
+uma faixa no alto da tela. O motivo é o olhar: no instante do toque ele está no
+botão, e é ali que a resposta tem de aparecer. Uma mensagem em outro canto exige
+procurar o aviso, e num culto isso não acontece — o operador toca e segue.
 
-Três tipos, e o do meio é o que importa:
+```js
+const PULSO_MS = 1100;
+pulsar(btn, 'ok' | 'dup' | 'erro')   // → true se de fato pulsou
+responder(btn, tipo, texto)          // pulsa; se o botão sumiu, avisa por texto
+```
 
 | `tipo` | Cor | Quando |
 |---|---|---|
@@ -1883,10 +1885,45 @@ Três tipos, e o do meio é o que importa:
 | `dup` | `--warn` | **já estava lá** — é esta que impede o segundo toque |
 | `erro` | `--danger` | não deu (sem rede, sem capítulo, item sumiu do acervo) |
 
-**Todo destino passa por `adicionarNaLista(lista, id, nome)`**, que faz o
+Três detalhes que o mecanismo não pode dispensar:
+
+- **`visivelNaTela(btn)` decide se o pulso VAI acontecer**, e `isConnected` não
+  serve para isso: os bottom-sheets fecham por `opacity: 0`, o nó continua no
+  documento. A pergunta certa é `offsetParent !== null` (nenhum ancestral em
+  `display:none`) mais `!btn.closest('.popup-backdrop:not(.open)')` (a folha que
+  o contém não está fechada). Pulsar um botão invisível é o mesmo que não dar
+  feedback nenhum, e é por isso que `responder()` cai no texto nesse caso.
+- **Quem re-renderiza a lista precisa ESPERAR o pulso.** `toggleFav` atualiza o
+  próprio botão no lugar (classe `on`, `title`, `starSvg`) e adia o
+  `renderLibrary` em `PULSO_MS` — chamar o render na hora destruiria o nó que
+  está pulsando e o sinal duraria um quadro. Mesmo padrão em `refreshDiversos`,
+  `exitSelection` (via `sairDaSelecaoDepois()`), `closeFolderPicker` e
+  `closePlPopup`: a folha só fecha depois de o operador ver a cor.
+- **As regras do pulso ficam no FIM de `controle.css`.** `.btn-pulso--ok` tem a
+  mesma especificidade de `.row-btn`/`.sel-btn` (0-1-0), então quem decide é a
+  ordem. Declaradas antes, elas simplesmente não pintam nada.
+
+**Todo destino passa por `adicionarNaLista(lista, id, nome, btn)`**, que faz o
 `listHas` antes do `listAdd` e escolhe entre `ok` e `dup`. Operações em lote
-(seleção múltipla, atalho) usam `avisarLote(novos, total, onde)` — "3 de 4 na
-playlist — o resto já estava lá" numa linha, em vez de quatro avisos piscando.
+(seleção múltipla, atalho) resolvem o tipo em `tipoLote`/`textoLote` — um pulso
+só na barra de seleção, em vez de quatro sinais piscando.
+
+#### `avisar()`: o que sobra para o texto (v5.104)
+
+`avisar(texto, tipo)` continua existindo, mas só onde o pulso não alcança, e o
+que ele **não** é continua valendo: não é o toast de volta. Não flutua sobre os
+controles (fica no TOPO da tela — a base é onde mora o transporte, e foi por
+cobri-lo que o toast saiu), não pede toque para sair (`pointer-events: none`,
+some em 2,4 s) e não é usado por nada que já tenha estado próprio na tela.
+
+Dois casos, e só eles:
+
+1. **O botão sumiu** antes de a resposta chegar (a folha fechou, a lista
+   re-renderizou) — `responder()` detecta e cai no texto.
+2. **O motivo não cabe num botão.** Guardar um pacote com menos de dois itens
+   pulsa em vermelho **e** escreve "Monte a fila com dois ou mais itens antes de
+   guardar": a cor diz que não deu, a frase diz por quê, e sem a frase o
+   operador toca de novo esperando resultado diferente.
 
 > **Armadilha do YouTube:** um vídeo baixado por `ytArquivo` **nasce na lista**
 > (o `addMedia` lá dentro já recebe o destino), então perguntar `listHas`
@@ -1905,11 +1942,11 @@ cena (tipo + descritor), e duas regras diferentes por destino:
 
 - **Favoritos não repetem.** Favoritar é marcar; dois "Salmo 23:1" na mesma
   gaveta são ruído puro e ninguém consegue distingui-los. O item existente é
-  reaproveitado e o aviso diz isso.
+  reaproveitado e o botão pulsa em `dup`.
 - **O Cronograma PODE repetir.** O mesmo versículo pode ser lido na abertura e
   no apelo; a mesma contagem regressiva pode aparecer duas vezes. A duplicata é
-  criada — mas o aviso avisa, que é o que separa a repetição intencional do
-  toque dado duas vezes.
+  criada — mas o botão pulsa em `dup`, que é o que separa a repetição
+  intencional do toque dado duas vezes.
 
 A chave da MENSAGEM é só o `msgId`: o texto viaja no descritor como reserva
 (para o roteiro não ficar mudo se ela for apagada), e compará-lo deixaria a
@@ -2414,7 +2451,18 @@ e excluir.
 > fundo que já está atrás (a caixa de controles, ou a folha dos Favoritos com a
 > gaveta aberta) com os botões `--surface-2` flutuando — o mesmo desenho da
 > faixa de abas que ela substitui. O sinal de "outro modo" fica no CONTADOR em
-> accent: uma cor de texto, não uma placa. O primeiro é da v5.50 e é onde foi parar a função do deslize à
+> accent: uma cor de texto, não uma placa.
+>
+> **E ela ocupa a mesma caixa que as abas** (v5.106): dentro da `.bottombar` é
+> `height: var(--hit-nav)` (38px, a altura das células de aba), `margin: 0
+> -.7rem` para o preto ir de borda a borda e o raio só EMBAIXO — o mesmo recorte
+> da aba ativa. Antes ela tinha padding próprio e ficava mais alta, então a caixa
+> de controles inteira PULAVA de altura ao entrar e sair da seleção, levando
+> preview e transporte junto. Os `.sel-btn` continuam em `--hit` (34px): o piso
+> de toque cabe dentro da faixa, e é a folga de 2px de cada lado que os faz
+> parecer flutuando sobre ela em vez de preenchê-la.
+>
+> O primeiro é da v5.50 e é onde foi parar a função do deslize à
 esquerda: para itens da biblioteca, o toque simples SUBSTITUI a fila, então sem
 ele montar uma sequência dependeria de um gesto que a tela não anunciava. No
 botão, a mesma ação ficou visível e passou a valer para vários itens de uma vez
