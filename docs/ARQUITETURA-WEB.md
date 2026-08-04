@@ -1091,7 +1091,14 @@ stage sozinho não tem como saber disso — ele só enxerga o que ele mesmo dese
 
 ## Controle
 
-### Modos de uso: simplificado (padrão) × avançado
+### Modos de uso: "Modo Fácil" (padrão) × avançado
+
+> **O nome na TELA é "Modo Fácil"** desde a v5.104 — antes era "Modo
+> simplificado", o texto mais longo do cabeçalho, e encurtá-lo foi o que abriu
+> espaço para o botão de Favoritos ganhar rótulo ali. No CÓDIGO o modo continua
+> sendo `'simple'` (a classe `mode-simple`, o `appMode`, o `data-mode`): trocar
+> a string interna não mudaria um pixel e esbarraria em dezenas de referências
+> — a mesma razão pela qual a aba de Ferramentas segue com `activeTab === 'mic'`.
 
 O app atende duas pessoas diferentes. Uma abre o celular para **conectar a
 tela e tocar um louvor**; a outra opera o culto inteiro — Cronograma, álbuns,
@@ -1846,12 +1853,67 @@ caso: com apenas a mídia atual em fila, a playlist é só a reprodução avulsa
 e não deve chamar atenção nem com um "1" enganoso nem com o ícone colorido —
 fica neutro (branco).
 
-### Feedback (sem alerta flutuante)
+### Feedback (sem alerta flutuante) — e a exceção do salvamento
 
 Não há mais **toast flutuante**. As informações são transmitidas pela própria
 interface (estados de botão, contadores, listas). `flash()`/`dismissFlash()` em
 `controle.js` viraram **no-ops** — mantidos só para não mexer nos ~25 pontos de
 chamada; qualquer mensagem que antes ia pro toast simplesmente não aparece mais.
+
+#### `avisar()`: a exceção, e o limite dela (v5.104)
+
+A regra acima funciona para tudo o que MUDA na tela — um item que aparece na
+lista, um botão que troca de estado. Ela falha justamente onde o resultado **não
+está à vista**, que é metade dos salvamentos: mandar algo ao Cronograma estando
+na Bíblia, favoritar de dentro do acervo, guardar um preset das Ferramentas. Ali
+o toque não produzia sinal nenhum e a única forma de saber se funcionou era ir
+conferir — que é exatamente como se acaba tocando duas vezes.
+
+`avisar(texto, tipo)` cobre só esses casos. O que ele **não** é: o toast de
+volta. Não flutua sobre os controles (fica no TOPO da tela — a base é onde mora
+o transporte, e foi por cobri-lo que o toast saiu), não pede toque para sair
+(`pointer-events: none`, some em 2,4 s) e não é usado por nada que já tenha
+estado próprio na tela.
+
+Três tipos, e o do meio é o que importa:
+
+| `tipo` | Cor | Quando |
+|---|---|---|
+| `ok` | `--ok` | entrou |
+| `dup` | `--warn` | **já estava lá** — é esta que impede o segundo toque |
+| `erro` | `--danger` | não deu (sem rede, sem capítulo, item sumiu do acervo) |
+
+**Todo destino passa por `adicionarNaLista(lista, id, nome)`**, que faz o
+`listHas` antes do `listAdd` e escolhe entre `ok` e `dup`. Operações em lote
+(seleção múltipla, atalho) usam `avisarLote(novos, total, onde)` — "3 de 4 na
+playlist — o resto já estava lá" numa linha, em vez de quatro avisos piscando.
+
+> **Armadilha do YouTube:** um vídeo baixado por `ytArquivo` **nasce na lista**
+> (o `addMedia` lá dentro já recebe o destino), então perguntar `listHas`
+> DEPOIS anunciaria todo download novo como "já estava lá". Em `ytAcao` a
+> pergunta é feita ANTES, e só vale quando existe arquivo no aparelho — é esse
+> o registro que será reaproveitado. As músicas do acervo não têm esse
+> problema: elas vão para o catálogo `files`, não para uma lista.
+
+#### Anti-duplicação (v5.104)
+
+As listas são conjuntos de ids, então `listAdd` **já é idempotente para
+mídia**: o mesmo vídeo não entra duas vezes na mesma lista, por construção. O
+que não era idempotente é a **cena de roteiro** — cada uma cria um registro
+novo, com id novo. Daí `cueChave(cue, data)`, a identidade de conteúdo de uma
+cena (tipo + descritor), e duas regras diferentes por destino:
+
+- **Favoritos não repetem.** Favoritar é marcar; dois "Salmo 23:1" na mesma
+  gaveta são ruído puro e ninguém consegue distingui-los. O item existente é
+  reaproveitado e o aviso diz isso.
+- **O Cronograma PODE repetir.** O mesmo versículo pode ser lido na abertura e
+  no apelo; a mesma contagem regressiva pode aparecer duas vezes. A duplicata é
+  criada — mas o aviso avisa, que é o que separa a repetição intencional do
+  toque dado duas vezes.
+
+A chave da MENSAGEM é só o `msgId`: o texto viaja no descritor como reserva
+(para o roteiro não ficar mudo se ela for apagada), e compará-lo deixaria a
+reserva decidir a identidade.
 O único feedback migrado explicitamente para a UI é a **sincronização das
 coleções**: `setCollStatus(id, text, autoClearMs?)` grava um subtítulo
 no card da coleção (`renderCollectionCard`) — "Atualizando lista…", "Baixando N/T…",
@@ -2384,11 +2446,23 @@ não como pré-requisito.
 
 Detalhes que caem de A, e que valem lembrar ao mexer aqui:
 
-- **A estrela desmarcada é `--line`, não `--muted`**: ela precisa ser discreta o
-  bastante para o olho passar batido pela lista inteira e forte o bastante para
-  ser encontrada quando se procura por ela. O glifo é o MESMO nos dois estados
-  (a fonte é um subset de ~30 símbolos e não traz a estrela vazada), então quem
-  carrega o estado é a **cor** — a convenção de sempre da tela.
+- **A estrela é PREENCHIDA quando marcada e contornada quando não** (v5.104), a
+  convenção universal de favorito. Por isso ela é **SVG e não glifo**: a fonte é
+  um subset ESTÁTICO da família *Outlined* (sem o eixo `FILL` da variável), e o
+  glifo `star` desenha sempre a mesma estrela vazada — cor sozinha deixava a
+  dúvida de "dourada quer dizer marcado ou quer dizer que dá para marcar?". A
+  desmarcada é `--line`, e não `--muted`: discreta o bastante para o olho passar
+  batido pela lista inteira, forte o bastante para ser encontrada.
+- **Estrela = favorito; pasta = atalho.** Os atalhos usavam estrela desde a
+  v5.53 (quando "Favoritos" era só o nome novo das pastas virtuais). Com a
+  estrela virando o marcador de cada linha, o mesmo símbolo passaria a dizer
+  duas coisas na mesma gaveta — então os atalhos, o seletor de atalho e o botão
+  da seleção múltipla adotaram o glifo de pasta.
+- **A porta é o cabeçalho FIXO, com rótulo** (v5.104). O botão do fim do
+  Cronograma saiu: ele era a única porta, e uma porta no fim de uma lista
+  rolável não é acesso rápido — com trinta itens era preciso rolar tudo. O
+  espaço do rótulo saiu da troca de modo, que virou "Modo Fácil" (era "Modo
+  simplificado", o texto mais longo da faixa).
 - **Favoritar uma música do acervo continua BAIXANDO o arquivo.** É deliberado:
   o que se espera de um favorito num domingo de manhã é que ele TOQUE, inclusive
   com a rede da igreja fora do ar. O que mudou é o destino (a lista `favs`,
@@ -2441,11 +2515,17 @@ A lista tem **três** origens, cada uma sob um cabeçalho próprio
 (`appendFavSection`, `.fav-section`), porque todas se comportam igual ao toque e
 só uma delas sincroniza:
 
-1. **Favoritos** (`favItemRow`) — os itens marcados, em lista plana (`favs`).
-   Vêm primeiro: é o que a estrela promete e o que o operador vem buscar. Cada
-   linha faz as três coisas que se quer de um favorito e nenhuma exige entrar em
-   grupo: **tocar/projetar** (o mesmo `onTap` da biblioteca), **desmarcar** (a
-   estrela) e **mandar ao Cronograma** (o `+`).
+1. **Favoritos** (`favItemRow`) — os itens marcados, em lista plana (`favs`),
+   **separados por TIPO** (`FAV_GRUPOS`/`favGrupo`, v5.104): Músicas e áudios ·
+   Vídeos · YouTube · Imagens · Apresentações · Versículos · Letras · Mensagens
+   · Tempo · Sorteios · Pacotes · Outros. A ordem é FIXA e não segue o que tem
+   mais itens: uma lista que se reordena sozinha obriga a procurar de novo a
+   cada abertura, e o que se quer aqui é memória muscular. O tipo é a primeira
+   coisa que o operador sabe sobre o que procura ("era um vídeo"), então é por
+   ele que a lista se divide; o que não se encaixar cai em "Outros" em vez de
+   sumir. Cada linha faz as três coisas que se quer de um favorito e nenhuma
+   exige entrar em grupo: **tocar/projetar** (o mesmo `onTap` da biblioteca),
+   **desmarcar** (a estrela) e **mandar ao Cronograma** (o `+`).
 2. **Atalhos** (`renderVirtualFolders`) — grupos criados pelo operador, ícone de
    **estrela**. Recebem itens pela seleção múltipla (`#selFolder`, hoje com
    ícone de PASTA e rótulo "Adicionar a um atalho" — a estrela ao lado dele
