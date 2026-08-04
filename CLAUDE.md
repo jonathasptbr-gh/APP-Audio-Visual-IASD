@@ -1366,7 +1366,7 @@ aparelho nenhum.
 O `versionCode`/`versionName` do APK vêm do CI (ver "Build") e não se tocam à
 mão.
 
-**Versão atual: v5.107** (base web) · `SHELL_VERSION` **22**, e o bundle segue com
+**Versão atual: v5.108** (base web) · `SHELL_VERSION` **22**, e o bundle segue com
 `minShell: 2` — ele funciona igual num shell antigo, só sem os recursos que são
 nativos por construção (a escada do voltar, os botões de volume, a notificação de
 controles), que **só chegam instalando o APK novo**, não pelo OTA.
