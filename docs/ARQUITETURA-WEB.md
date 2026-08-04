@@ -170,7 +170,7 @@ app/src/main/assets/web/
 │   ├── stage.js                # Motor de renderização compartilhado
 │   ├── material-symbols.css    # Font-face da fonte de ícones (subset offline; só o Controle usa)
 │   └── fonts/
-│       └── material-symbols.woff2  # ~3.2 KB — 30 glifos
+│       └── material-symbols.woff2  # ~2.2 KB — 29 glifos, todos em uso
 ├── vendor/                     # ÚNICO código de terceiro daqui — carregado sob demanda
 │   ├── pptx-renderer.js        # desenha .pptx (Apache-2.0); ver o LEIA-ME da pasta
 │   ├── LICENSE-pptx-renderer.txt
@@ -6207,29 +6207,79 @@ aparecem (R1).
 
 ## Fonte de ícones (Material Symbols)
 
-Versão subconjuntada (~3.2 KB woff2): peso 400, **30 glifos no subset, 28
-efetivamente usados** na UI — referenciados por codepoint via o mapa `ICON` em
-`controle.js` **ou** direto como entidade HTML `&#x…;` no `controle/index.html`.
+Versão subconjuntada (~2.2 KB woff2): peso 400, **29 glifos + o espaço, todos
+usados** na UI — referenciados por codepoint via o mapa `ICON` em `controle.js`
+**ou** direto como entidade HTML `&#x…;` no `controle/index.html`.
 **Só o Controle carrega a fonte** — o Display é só wallpaper + mídia, sem
 nenhum glifo (por isso `display/index.html` não inclui
 `material-symbols.css`/`.woff2`).
 
-**Codepoints no subset:**
+**Codepoints no subset** (v5.110):
 ```
 E034 E037 E03B E03D E040 E041 E043 E044 E045 E047
-E04F E050 E14C E150 E251 E2C7 E2C8 E2CC E3A1 E3AD
-E413 E5C4 E5CF E838 E86C E872 E8F5 E945 EB80 F116
+E04F E050 E145 E14C E150 E251 E2C7 E2C8 E2CC E3A1
+E3AD E5C4 E616 E838 E872 E945 EA5D EB80 F116
 ```
 
-Dois deles **voltaram a ter uso** e não são mais reservados: `E838` (star) é o
-ícone dos atalhos de **Favoritos** (`ICON.star`) e `E5CF` (expand_more) é a
-seta de acordeão do card de coleção (`.coll-bar-chev`). Continuam no woff2 sem
-nenhuma referência apenas `E8F5` (visibility_off) e `E86C` (check_circle — o
-antigo ícone de seleção múltipla, hoje só o realce da linha) — podem sair num
-próximo re-subset.
+A v5.110 fez a primeira limpeza real do subset: **saíram** `E5CF`
+(expand_more), `E86C` (check_circle) e `E8F5` (visibility_off) — os três
+estavam no woff2 sem uma única referência no código, e a varredura por
+codepoint (caractere literal, `&#x…;` e `\uXXXX`) confirmou — mais `E413`
+(photo_library), aposentado com a troca do ícone da aba. **Entraram** `E616`
+(event_note), `EA5D` (more_time) e `E145` (add), pelas razões da caixa abaixo.
+Resultado: um terço menor e sem nenhum glifo morto.
 
-Para adicionar ícone: obter codepoint em `fonts.google.com/icons?icon.style=Rounded`
-e gerar novo subset com `fontTools`.
+#### Cronograma × playlist: dois destinos, dois símbolos (v5.110)
+
+Três ícones eram a mesma pilha de linhas com uma marquinha diferente no canto —
+e a marquinha é justamente o que não se lê num toque:
+
+| Onde | Antes | Depois |
+|---|---|---|
+| aba **Cronograma** | `photo_library` (pilha de fotos) | **`event_note`** — a agenda |
+| **adicionar ao Cronograma** | `playlist_add` | **`more_time`** — relógio com `+` |
+| **acrescentar à playlist** | `playlist_add` | `playlist_add` (segue) |
+| playlist (transporte, `#plBtn`) | `queue_music` | `queue_music` (segue) |
+
+O caso mais grave era o mesmo glifo (`playlist_add`) servindo aos DOIS destinos:
+o botão `+` de uma linha mandava para o Cronograma e o da barra de seleção,
+idêntico, para a playlist. Agora o Cronograma é a família do **tempo** — sem
+linha nenhuma, então se separa da pilha à distância — e diz o que a lista é: a
+ORDEM do culto, não uma fila de reprodução. A pilha de fotos, além de parecida
+com as outras, nomeava a lista pelo que ela era antes da v5.103: hoje o
+Cronograma guarda versículo, mensagem e contagem, não só arquivos com bytes.
+
+O botão de adicionar da linha do acervo (`.hymn-add-btn`) virou o **`add`
+neutro**: ele não escolhe destino nenhum, abre a folha que pergunta qual — e
+carregar o ícone de um dos três destinos era prometer um caminho que o toque
+não faz.
+
+#### Como regerar o subset
+
+Não há dependência nova: o `.woff2` é versionado, e as ferramentas abaixo rodam
+uma vez, à mão, na máquina de quem mexe.
+
+```bash
+npm pack material-symbols            # a fonte variável Outlined, do npm
+pip install fonttools brotli
+```
+
+```python
+from fontTools.ttLib import TTFont
+from fontTools.varLib import instancer
+from fontTools import subset
+f = TTFont('material-symbols-outlined.woff2')
+# PRENDER OS EIXOS é o que faz os glifos antigos saírem idênticos aos do subset
+# anterior — a família é variável, e um `wght` diferente redesenha TUDO.
+f = instancer.instantiateVariableFont(f, {'FILL': 0, 'GRAD': 0, 'opsz': 24, 'wght': 400})
+o = subset.Options(); o.flavor = 'woff2'; o.layout_features = []; o.notdef_outline = False
+s = subset.Subsetter(options=o); s.populate(unicodes=CPS); s.subset(f)
+f.flavor = 'woff2'; f.save('material-symbols.woff2')
+```
+
+Depois **compare o antigo e o novo lado a lado** antes de trocar o arquivo: é a
+única forma de perceber que um eixo ficou solto e mexeu em vinte ícones que
+ninguém pretendia tocar.
 
 **Ícones fora do subset → SVG inline.** Quando um ícone necessário não está no
 subset e re-gerar o woff2 não vale a pena (ou o ambiente não tem `fontTools`),

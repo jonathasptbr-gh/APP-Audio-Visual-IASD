@@ -162,7 +162,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.109';
+const WEB_VERSION = '5.110';
 
 // Escrita UMA vez, na carga: o indicador mora no rodapé de Configurações desde
 // a v5.49 e não depende mais de qual aba está aberta (no cabeçalho ele
@@ -250,7 +250,18 @@ const ICON = {
   drag: '', // drag_indicator
   edit: '', // edit
   close: '', // close
-  plAdd: '', // playlist_add
+  // ADICIONAR À PLAYLIST × ADICIONAR AO CRONOGRAMA: dois destinos, dois
+  // símbolos (v5.110). Os dois eram `playlist_add` — o MESMO glifo para dois
+  // lugares diferentes —, e o vizinho dele, `queue_music` da playlist, é a
+  // mesma pilha de linhas com outra marquinha no canto: no primeiro instante os
+  // três são um borrão só. O Cronograma passou para a família do TEMPO
+  // (`more_time`, um relógio com "+"), que não tem linha nenhuma e por isso se
+  // separa da pilha à distância — e diz o que a lista é: a ORDEM do culto, não
+  // uma fila de reprodução.
+  plAdd: '',    // playlist_add — SÓ playlist
+  cronoAdd: '', // more_time    — ao Cronograma
+  add: '',      // add          — "a uma lista" (a folha escolhe qual)
+  schedule: '', // event_note   — a aba Cronograma
   plRemove: '', // playlist_remove
   queue: '', // queue_music
   folder: '',    // folder
@@ -2992,7 +3003,7 @@ function renderBibleReading(wrap) {
   // mesmas duas ações; onde eles se repetem, o rótulo não acrescenta nada.
   const acoes = document.createElement('div'); acoes.className = 'bible-read-acoes';
   acoes.append(
-    cueSaveBtn(ICON.plAdd, 'Adicionar ao Cronograma', (b) => salvarVersiculo('imports', b)),
+    cueSaveBtn(ICON.cronoAdd, 'Adicionar ao Cronograma', (b) => salvarVersiculo('imports', b)),
     cueSaveBtn(ICON.star, 'Favoritar', (b) => salvarVersiculo('favs', b)),
   );
   foot.appendChild(acoes);
@@ -4011,7 +4022,7 @@ function cueSaveRow(rotulo, montar) {
       if (!rec) responder(b, 'erro', 'Não foi possível guardar');
     }));
   };
-  mk(ICON.plAdd, 'Adicionar ao Cronograma', 'imports');
+  mk(ICON.cronoAdd, 'Adicionar ao Cronograma', 'imports');
   mk(ICON.star, 'Favoritar', 'favs');
   row.append(lab, botoes);
   return row;
@@ -4413,7 +4424,7 @@ function renderMsg() {
       const add = document.createElement('button');
       add.type = 'button'; add.className = 'row-btn';
       add.title = 'Adicionar ao Cronograma';
-      add.appendChild(msym(ICON.plAdd));
+      add.appendChild(msym(ICON.cronoAdd));
       add.addEventListener('click', async (e) => {
         e.stopPropagation();
         const rec = await criarCue('message', { msgId: m.id, text: m.text },
@@ -4689,7 +4700,7 @@ function renderLibrary() {
     let addBtn = null;
     if (activeTab === 'folders') {
       addBtn = document.createElement('button'); addBtn.className = 'row-btn'; addBtn.title = 'Adicionar ao Cronograma';
-      addBtn.appendChild(msym(ICON.plAdd));
+      addBtn.appendChild(msym(ICON.cronoAdd));
       addBtn.addEventListener('click', async (e) => {
         e.stopPropagation();
         await adicionarNaLista('imports', item.id, item.name, addBtn);
@@ -5710,7 +5721,7 @@ function favItemRow(item) {
   const nome = document.createElement('span'); nome.className = 'row-name'; nome.textContent = item.name;
   const add = document.createElement('button');
   add.className = 'row-btn'; add.title = 'Adicionar ao Cronograma';
-  add.appendChild(msym(ICON.plAdd));
+  add.appendChild(msym(ICON.cronoAdd));
   add.addEventListener('click', async (e) => {
     e.stopPropagation();
     await adicionarNaLista('imports', item.id, item.name, add);
@@ -8317,7 +8328,7 @@ function openYtMenu(r) {
     'Projeta em seguida, sem entrar no Cronograma', () => ytAcao(r, 'tocar')));
   songMenuListEl.appendChild(songMenuItem(msym(ICON.queue), 'Adicionar à playlist',
     'Entra na fila, sem entrar no Cronograma', (vr, btn) => ytAcao(r, 'playlist', btn)));
-  songMenuListEl.appendChild(songMenuItem(msym(ICON.plAdd), 'Adicionar ao Cronograma',
+  songMenuListEl.appendChild(songMenuItem(msym(ICON.cronoAdd), 'Adicionar ao Cronograma',
     'A lista do culto', (vr, btn) => ytAcao(r, 'cronograma', btn)));
   songMenuListEl.appendChild(songMenuItem(msym(ICON.star), 'Favoritar',
     'Baixa e marca — fica à mão toda semana', (vr, btn) => ytAcao(r, 'favoritos', btn)));
@@ -8591,7 +8602,7 @@ function hymnResultRow(coll, s, lyricHit, semColecao) {
   const add = document.createElement('button');
   add.className = 'hymn-add-btn row-btn';
   add.title = 'Adicionar "' + songLabel(coll, s) + '" a uma lista';
-  add.appendChild(msym(ICON.plAdd));
+  add.appendChild(msym(ICON.add));
   add.addEventListener('click', (e) => { e.stopPropagation(); openSongMenu(coll, s, 'add'); });
 
   row.append(play, info, add);
@@ -8779,7 +8790,7 @@ function renderSongMenu(modo) {
   songMenuListEl.appendChild(songMenuItem(msym(ICON.queue), 'Adicionar à playlist',
     'Entra na fila do que está tocando agora',
     (vr, btn) => addSongToPlaylist(coll, s, vr, btn)));
-  songMenuListEl.appendChild(songMenuItem(msym(ICON.plAdd), 'Adicionar ao Cronograma',
+  songMenuListEl.appendChild(songMenuItem(msym(ICON.cronoAdd), 'Adicionar ao Cronograma',
     'A lista do culto',
     (vr, btn) => addSongVariant(coll, s, vr, btn)));
   // "Escolha o atalho" saiu do subtítulo (v5.103): favoritar virou o ato

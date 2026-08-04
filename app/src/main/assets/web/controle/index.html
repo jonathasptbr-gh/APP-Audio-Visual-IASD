@@ -243,7 +243,13 @@
          escreve `--tab-x`/`--tab-w`). Os botões ficam por cima, todos
          transparentes; o que muda no ativo é a cor do ícone. -->
     <span class="tab-ind" aria-hidden="true"></span>
-    <button class="tab active" data-tab="imports" title="Cronograma"><span class="msym" aria-hidden="true">&#xe413;</span></button>
+    <!-- A aba é uma AGENDA (`event_note`, v5.110), não mais uma pilha de fotos
+         (`photo_library`). Desde a v5.103 o Cronograma guarda cenas de roteiro
+         — versículo, mensagem, contagem —, e não só mídia com bytes: a pilha de
+         fotos nomeava a lista pelo que ela era há sete versões. E a família do
+         TEMPO é a que separa esta lista da PLAYLIST em todo o app (ver o mapa
+         ICON em controle.js). -->
+    <button class="tab active" data-tab="imports" title="Cronograma"><span class="msym" aria-hidden="true">&#xe616;</span></button>
     <button class="tab" data-tab="bible" title="Bíblia">
       <!-- Ícone de Bíblia (SVG inline, fora do subset da fonte): livro aberto
            com uma cruz — distingue a aba de textos bíblicos das demais. -->
@@ -662,7 +668,7 @@
              METADADO de diagnóstico e o lugar onde se procura diagnóstico é
              junto do estado do telão e do alvo de espelhamento, não numa faixa
              de navegação. Preenchido por `renderVersionLabel`. -->
-        <span id="appVersion" class="app-version">Controle v5.109</span>
+        <span id="appVersion" class="app-version">Controle v5.110</span>
       </div>
     </div>
   </div>
