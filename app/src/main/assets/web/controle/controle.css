@@ -1341,6 +1341,25 @@ main {
 .row-btn .msym, .row-handle .msym { font-size: var(--icon-sm); }
 .row-handle { background: transparent; color: var(--muted); touch-action: none; cursor: grab; }
 
+/* GUARDAR UMA CENA DE ROTEIRO: "ao Cronograma" e "favoritar", o par que existe
+   na Bíblia e nas Ferramentas (v5.109). Mesma caixa dos botões de linha e da
+   barra de seleção — `--hit`, `--surface-2`, mesmo raio —, porque são as MESMAS
+   duas ações que aqueles já fazem; desenhá-las como pílula de texto num lugar e
+   como ícone no outro era o mesmo par com duas caras. O ícone em `--gold` é o
+   que os distingue dos botões neutros ao redor: é a cor que o app usa para
+   "guardado" (a estrela do favorito), não para navegação.
+   Contornados e não preenchidos: quem vem à tela da Bíblia vem para PROJETAR, e
+   projetar é o toque no versículo do meio — guardar é a ação secundária e tem
+   de parecer uma. */
+.cue-save-btn {
+  width: var(--hit); height: var(--hit); flex-shrink: 0; padding: 0;
+  border: 1px solid var(--line); border-radius: var(--radius-btn);
+  background: var(--surface-2); color: var(--muted);
+  display: flex; align-items: center; justify-content: center; cursor: pointer;
+  appearance: none; -webkit-appearance: none;
+}
+.cue-save-btn .msym { font-size: var(--icon-sm); color: var(--gold); }
+
 /* A ESTRELA DE CADA LINHA. PREENCHIDA quando marcada, contornada quando não —
    a convenção universal de favorito, que se reconhece sem aprender. Ela é SVG
    e não glifo justamente por isso: a fonte é um subset ESTÁTICO da família
@@ -1850,12 +1869,17 @@ main {
    lendo como uma referência ("ARA · João · 3 · 16") em vez de quatro ações
    soltas. Sem `flex-wrap`: o conjunto é uma linha; quem cede espaço é o nome
    do livro (o único de largura variável), não a quebra de linha. */
-/* Em COLUNA desde a v5.103: a referência em cima, as duas ações de guardar
-   embaixo. Em linha, "Ao Cronograma" e "Favoritar" disputariam a largura com a
-   referência de quatro campos e a empurrariam para reticências — e é ela que
-   diz onde a leitura está. */
-.bible-read-foot { flex-shrink: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .4rem; padding-top: .1rem; }
-.bible-ref-nav { display: flex; align-items: stretch; gap: 1px; max-width: 100%; }
+/* EM UMA LINHA SÓ desde a v5.109: referência à esquerda, os dois botões de
+   guardar à direita. A v5.103 os pôs numa segunda faixa porque com RÓTULO
+   ("Ao Cronograma", "Favoritar") eles disputavam a largura com os quatro campos
+   da referência e a empurravam para reticências. Sem rótulo o par mede ~74px e
+   cabe: o que a segunda faixa custava era altura, e altura aqui sai da LEITURA,
+   que é o conteúdo da tela. */
+.bible-read-foot { flex-shrink: 0; display: flex; align-items: center; justify-content: center; gap: .5rem; padding-top: .1rem; }
+/* `min-width: 0` porque agora ela divide a linha com os dois botões de guardar:
+   sem isso o padrão `min-width: auto` a impediria de encolher, e o nome longo de
+   um livro empurraria os botões para fora da tela em vez de virar reticências. */
+.bible-ref-nav { display: flex; align-items: stretch; gap: 1px; min-width: 0; max-width: 100%; }
 .bible-ref-part {
   display: flex; flex-direction: column; align-items: center; gap: 1px;
   border: 1px solid var(--line); background: var(--surface-2); color: var(--text);
@@ -1865,20 +1889,9 @@ main {
 /* O nome do livro é o único de largura imprevisível ("1 Tessalonicenses"): é
    ele que encolhe quando a linha aperta, com reticências. */
 .bible-ref-part--book { flex-shrink: 1; min-width: 3.5rem; }
-/* GUARDAR A REFERÊNCIA (v5.103): pílulas discretas, no formato dos chips das
-   Ferramentas. Contornadas e não preenchidas — quem opera vem a esta tela para
-   PROJETAR, e a ação de projetar é o toque no versículo do meio; guardar é a
-   ação secundária, e tem de parecer uma. */
-.bible-read-acoes { display: flex; gap: .4rem; }
-.bible-read-acao {
-  display: inline-flex; align-items: center; gap: .3rem;
-  padding: .32rem .6rem;
-  border: 1px solid var(--line); border-radius: var(--radius-pill);
-  background: var(--surface-2); color: var(--muted);
-  font-size: .78rem; font-weight: 700; font-family: inherit; cursor: pointer;
-  appearance: none; -webkit-appearance: none;
-}
-.bible-read-acao .msym { font-size: var(--icon-sm); color: var(--gold); }
+/* GUARDAR A REFERÊNCIA (v5.103): os dois destinos de uma cena de roteiro, hoje
+   nos mesmos botões de ícone do resto do app (`.cue-save-btn`). */
+.bible-read-acoes { display: flex; gap: .35rem; flex-shrink: 0; }
 .bible-ref-part:first-child { border-radius: var(--radius-btn) 0 0 var(--radius-btn); }
 .bible-ref-part:last-child { border-radius: 0 var(--radius-btn) var(--radius-btn) 0; }
 .bible-ref-label { font-size: .56rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
@@ -2041,13 +2054,13 @@ main {
 .misc-row { display: flex; align-items: center; gap: .55rem; }
 .misc-row-label { font-size: .82rem; font-weight: 700; color: var(--muted); flex-shrink: 0; }
 /* "Guardar esta contagem / este sorteio" (v5.103): o rótulo à esquerda e os
-   dois destinos à direita, como as outras linhas de opção do painel. Com
-   `flex-wrap`, numa tela estreita os chips descem em vez de espremer o rótulo
-   — ele é que diz o que os dois botões guardam. */
+   dois destinos à direita, como as outras linhas de opção do painel. O
+   `flex-wrap` existia para os chips com texto descerem numa tela estreita em vez
+   de espremer o rótulo — com os botões de ícone (v5.109) o par mede ~74px e a
+   linha não aperta mais, mas a quebra fica: ela não custa nada e o rótulo é
+   quem diz o que os dois botões guardam. */
 .misc-row--save { flex-wrap: wrap; }
 .misc-save-btns { display: flex; gap: .35rem; margin-left: auto; }
-.misc-save-btns .misc-chip { display: inline-flex; align-items: center; gap: .28rem; }
-.misc-save-btns .msym { font-size: var(--icon-sm); color: var(--gold); }
 .misc-num, .misc-text {
   flex: 1; min-width: 0; padding: .42rem .55rem;
   border: 1px solid var(--line); border-radius: var(--radius-btn);
@@ -3008,9 +3021,13 @@ body.mode-simple .hymn-add-btn { display: none; }
    qual dos dois se tocou.
    O conteúdo do botão é ESCONDIDO (`visibility`, que preserva a caixa) e a
    marca vem num `::after` absoluto: assim vale igual para um botão de ícone só
-   (`.row-btn`) e para um com ícone + rótulo (`.misc-chip`, `.bible-read-acao`),
-   sem nenhum pular de largura durante o pulso. */
+   (`.row-btn`, `.cue-save-btn`) e para um com texto (`.misc-chip`), sem nenhum
+   pular de largura durante o pulso.
+   A cor do pulso precisa vencer a BORDA de quem tem uma (`.cue-save-btn`): sem
+   isso, o contorno em `--line` continuava desenhado por cima do verde e o sinal
+   saía com uma moldura que não é dele. */
 .btn-pulso { position: relative; transition: background-color .15s ease, color .15s ease; }
+.btn-pulso { border-color: transparent; }
 .btn-pulso > * { visibility: hidden; }
 .btn-pulso::after {
   content: '✓';

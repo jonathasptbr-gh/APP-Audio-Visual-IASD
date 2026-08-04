@@ -162,7 +162,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.108';
+const WEB_VERSION = '5.109';
 
 // Escrita UMA vez, na carga: o indicador mora no rodapé de Configurações desde
 // a v5.49 e não depende mais de qual aba está aberta (no cabeçalho ele
@@ -2985,16 +2985,16 @@ function renderBibleReading(wrap) {
   // certa, entre o hino e o aviso) ou nos favoritos (o Salmo 23 que volta toda
   // semana). O que é guardado é a REFERÊNCIA, não o texto: trocar de versão
   // depois continua valendo, e nada do texto da Escritura é duplicado no banco.
+  // SÓ ÍCONE, e NA MESMA LINHA da referência (v5.109): com os rótulos, as duas
+  // ações não cabiam ao lado dos quatro campos e ocupavam uma segunda faixa —
+  // altura tirada da leitura, que é o conteúdo desta tela. São os mesmos dois
+  // símbolos que a linha da lista e a barra de seleção já usam para estas
+  // mesmas duas ações; onde eles se repetem, o rótulo não acrescenta nada.
   const acoes = document.createElement('div'); acoes.className = 'bible-read-acoes';
-  const acao = (rotulo, icone, fn) => {
-    const b = document.createElement('button'); b.type = 'button'; b.className = 'bible-read-acao';
-    b.appendChild(icone);
-    b.appendChild(Object.assign(document.createElement('span'), { textContent: rotulo }));
-    b.addEventListener('click', () => fn(b));
-    acoes.appendChild(b);
-  };
-  acao('Ao Cronograma', msym(ICON.plAdd), (b) => salvarVersiculo('imports', b));
-  acao('Favoritar', msym(ICON.star), (b) => salvarVersiculo('favs', b));
+  acoes.append(
+    cueSaveBtn(ICON.plAdd, 'Adicionar ao Cronograma', (b) => salvarVersiculo('imports', b)),
+    cueSaveBtn(ICON.star, 'Favoritar', (b) => salvarVersiculo('favs', b)),
+  );
   foot.appendChild(acoes);
   read.appendChild(foot);
   wrap.appendChild(read);
@@ -3977,6 +3977,24 @@ function renderChrono() {
   startChronoPanelTimer();
 }
 
+// UM BOTÃO DE ÍCONE para "guardar isto aqui" (v5.109). Os dois destinos de uma
+// cena de roteiro apareciam com rótulo em dois lugares ("Ao Cronograma" /
+// "Favoritar" na Bíblia, "Cronograma" / "Favoritos" nas Ferramentas) e com
+// ícone só em todos os outros (linha da lista, barra de seleção, folha das
+// músicas) — o mesmo par de ações desenhado de duas formas, e a forma com texto
+// era justamente a que não cabia na linha em que estava.
+//
+// O rótulo vira `title` + `aria-label`: sem texto na tela, é ele que nomeia o
+// botão para o leitor de tela e para o toque longo.
+function cueSaveBtn(icone, titulo, fn) {
+  const b = document.createElement('button');
+  b.type = 'button'; b.className = 'cue-save-btn';
+  b.title = titulo; b.setAttribute('aria-label', titulo);
+  b.appendChild(msym(icone));
+  b.addEventListener('click', () => fn(b));
+  return b;
+}
+
 // A linha "guardar isto" das ferramentas: os DOIS destinos possíveis para uma
 // cena de roteiro, lado a lado. Uma função só porque cronômetro e sorteio fazem
 // exatamente a mesma pergunta — e um terceiro provedor de Camada de Texto que
@@ -3987,19 +4005,14 @@ function cueSaveRow(rotulo, montar) {
   const lab = document.createElement('span');
   lab.className = 'misc-row-label'; lab.textContent = rotulo;
   const botoes = document.createElement('div'); botoes.className = 'misc-save-btns';
-  const mk = (texto, icone, destino, aviso) => {
-    const b = document.createElement('button');
-    b.type = 'button'; b.className = 'misc-chip';
-    b.appendChild(msym(icone));
-    b.appendChild(Object.assign(document.createElement('span'), { textContent: texto }));
-    b.addEventListener('click', async () => {
+  const mk = (icone, titulo, destino) => {
+    botoes.appendChild(cueSaveBtn(icone, titulo, async (b) => {
       const rec = await montar(destino, b);
       if (!rec) responder(b, 'erro', 'Não foi possível guardar');
-    });
-    botoes.appendChild(b);
+    }));
   };
-  mk('Cronograma', ICON.plAdd, 'imports', 'Guardado no Cronograma');
-  mk('Favoritos', ICON.star, 'favs', 'Guardado nos favoritos');
+  mk(ICON.plAdd, 'Adicionar ao Cronograma', 'imports');
+  mk(ICON.star, 'Favoritar', 'favs');
   row.append(lab, botoes);
   return row;
 }
