@@ -651,6 +651,19 @@ Duas decisões de comportamento que valem registrar:
   arma o sorteio e espera o toque em "Sortear" — um ganhador que já aparece
   pronto ao entrar em cena tira do momento o que ele tem de público.
 
+**Guardar uma cena é sempre o mesmo par de botões** (`cueSaveBtn`, v5.109): ⊞
+para o Cronograma, ★ para os favoritos, sempre `.cue-save-btn` — a mesma caixa
+dos botões de linha e da barra de seleção (`--hit`, `--surface-2`, ícone em
+`--gold`). Até a v5.108 esse par aparecia **com rótulo** em dois lugares ("Ao
+Cronograma"/"Favoritar" na Bíblia, "Cronograma"/"Favoritos" nas Ferramentas) e
+**só com ícone** em todos os outros (linha da lista, barra de seleção, folha de
+destinos das músicas): o mesmo par de ações desenhado de duas formas — e a forma
+com texto era justamente a que não cabia na linha em que estava. O rótulo virou
+`title` + `aria-label`, que é o que nomeia o botão para o leitor de tela e para
+o toque longo. (A **folha de destinos** das músicas continua com texto: ali as
+linhas são um MENU, não um par de botões, e cada uma diz uma coisa diferente —
+"tocar", "playlist", "Cronograma".)
+
 **Não exige subir o `DB_VERSION`** (nenhum índice novo; o IDB não tem esquema
 por registro), e é isso que o mantém barato: ver o preço da VOLTA descrito em
 `DB_VERSION`, em `db.js`. Um bundle anterior que encontre um cue o trata como
@@ -2137,11 +2150,11 @@ Não há uma segunda rota de importação: `importarPeloSistema` reusa
 | Resultado do YouTube | folha de destinos → `ytAcao` | `avulsos` \| `playlist` \| `imports` \| `favs` |
 | Arquivo de pasta do dispositivo, item de atalho, favorito | botão `+` da linha | `imports` |
 | Link YT já no Cronograma → arquivo | botão de download da linha | substitui **na mesma posição** |
-| Versículo em leitura | "Ao Cronograma" no rodapé da Bíblia | `imports` (cue `verse`) |
+| Versículo em leitura | botão ⊞ no rodapé da Bíblia | `imports` (cue `verse`) |
 | Mensagem da aba Ferramentas | `+` na linha da mensagem | `imports` (cue `message`) |
 | Letra de uma música do acervo | folha de destinos → "Só a letra" | `imports` (cue `songlyrics`) |
-| Cronômetro/timer configurado | "Guardar esta contagem" | `imports` \| `favs` (cue `chrono`) |
-| Sorteio configurado | "Guardar este sorteio" | `imports` \| `favs` (cue `draw`) |
+| Cronômetro/timer configurado | os dois botões de "Guardar esta contagem" | `imports` \| `favs` (cue `chrono`) |
+| Sorteio configurado | os dois botões de "Guardar este sorteio" | `imports` \| `favs` (cue `draw`) |
 | A fila da playlist | "Guardar como pacote" | `imports` (cue `group`) |
 
 As seis últimas linhas são a v5.103 (ver "Cenas de roteiro"): antes delas, o
@@ -5089,6 +5102,16 @@ significativas (ignorando "e", "de", "na"…) — o que dá ARA, ARC, NVI, NAA,
 NTLH, ACF. Sem `flex-wrap`: quem cede espaço quando a linha aperta é o **nome
 do livro** (`.bible-ref-part--book`, o único de largura imprevisível), com
 reticências.
+
+**À direita da referência, na MESMA linha** (v5.109), os dois botões de guardar
+(`.cue-save-btn`: ⊞ para o Cronograma, ★ para os favoritos). A v5.103 os pôs
+numa segunda faixa porque com RÓTULO — "Ao Cronograma", "Favoritar" — eles
+disputavam a largura com os quatro campos e empurravam a referência para
+reticências. Sem rótulo o par mede ~74px e cabe: o que a segunda faixa custava
+era ALTURA, e altura nesta tela sai da leitura, que é o conteúdo dela. É por
+isso que a `.bible-ref-nav` ganhou `min-width: 0` — sem ele o padrão
+`min-width: auto` a impediria de encolher, e "1 Tessalonicenses" empurraria os
+botões para fora da tela em vez de virar reticências.
 
 Antes a referência era um botão só, que sempre voltava à grade de livros —
 trocar só o capítulo custava passar pela seleção de livro de novo. Capítulo e
