@@ -164,6 +164,17 @@
            próprio voltar, a busca da pasta e o botão de sincronizar. -->
       <button id="backBtn" class="back-btn" title="Voltar" aria-label="Voltar" hidden><span class="msym" aria-hidden="true">&#xe5c4;</span></button>
       <span class="list-title" id="listTitle">Cronograma</span>
+      <!-- FAVORITOS, no cabeçalho FIXO (v5.103). A porta era o botão no fim da
+           lista do Cronograma — e só ele: para chegar a um atalho era preciso
+           rolar o cronograma inteiro, e de dentro da Bíblia, do acervo ou das
+           Ferramentas não havia caminho nenhum. Um "acesso rápido" que exige
+           rolar até o fim de outra lista não é acesso rápido. O botão do fim do
+           Cronograma continua onde estava: ali ele é o par de "Importar
+           arquivos" ("de onde vem a mídia?"), e as duas portas levam à mesma
+           gaveta. -->
+      <button id="favHeadBtn" class="head-fav-btn" title="Favoritos" aria-label="Favoritos">
+        <span class="msym" aria-hidden="true">&#xe838;</span>
+      </button>
       <!-- A volta para o modo simplificado. Mesmo componente, mesmo canto e a
            seta invertida do botão que traz o operador para cá (ver a
            `.simple-head`). Está no CABEÇALHO, e não numa configuração, porque
@@ -259,8 +270,13 @@
          passa a valer para VÁRIOS itens de uma vez, que é o que se faz ao
          montar a fila de um culto. -->
     <button id="selPlaylist" class="sel-btn" title="Acrescentar à playlist"><span class="msym" aria-hidden="true">&#xe03b;</span></button>
-    <!-- Estrela (não pasta): o destino é a seção de Favoritos. -->
-    <button id="selFolder" class="sel-btn" title="Adicionar aos favoritos"><span class="msym" aria-hidden="true">&#xe838;</span></button>
+    <!-- Duas ações que eram UMA só até a v5.103, e é essa fusão que fazia
+         "favoritar" custar seis passos: a estrela abria o seletor de atalho, e
+         sem nenhum atalho criado era preciso inventar um antes de marcar o
+         primeiro favorito. Agora a ESTRELA marca direto (`favs`), e a PASTA —
+         organização opcional — é que abre o seletor de atalho. -->
+    <button id="selFav" class="sel-btn" title="Favoritar"><span class="msym" aria-hidden="true">&#xe838;</span></button>
+    <button id="selFolder" class="sel-btn" title="Adicionar a um atalho"><span class="msym" aria-hidden="true">&#xe2c7;</span></button>
     <button id="selRename" class="sel-btn" title="Renomear"><span class="msym" aria-hidden="true">&#xe150;</span></button>
     <button id="selDelete" class="sel-btn danger" title="Excluir"><span class="msym" aria-hidden="true">&#xe872;</span></button>
   </div>
@@ -521,6 +537,15 @@
         <button id="plPopupClose" class="popup-close" title="Fechar"><span class="msym" aria-hidden="true">&#xe14c;</span></button>
       </div>
       <ul id="playlist" class="popup-list"></ul>
+      <!-- O PACOTE (v5.103): a fila montada vira UM item do Cronograma, e tocar
+           nele devolve a fila inteira. O bloco de louvores da abertura é o
+           mesmo quase toda semana, e até aqui ele era remontado item a item a
+           cada culto — a playlist é volátil por natureza (qualquer toque numa
+           mídia da biblioteca a substitui). -->
+      <button type="button" id="plPack" class="pl-pack">
+        <span class="msym" aria-hidden="true">&#xe03b;</span>
+        <span>Guardar como pacote no Cronograma</span>
+      </button>
     </div>
   </div>
 
@@ -617,7 +642,7 @@
              METADADO de diagnóstico e o lugar onde se procura diagnóstico é
              junto do estado do telão e do alvo de espelhamento, não numa faixa
              de navegação. Preenchido por `renderVersionLabel`. -->
-        <span id="appVersion" class="app-version">Controle v5.102</span>
+        <span id="appVersion" class="app-version">Controle v5.103</span>
       </div>
     </div>
   </div>

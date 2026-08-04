@@ -954,6 +954,21 @@ main {
 .back-btn { background: none; color: var(--accent); }
 .add-dir-btn .msym, .back-btn .msym { font-size: var(--icon-sm); }
 
+/* FAVORITOS no cabeçalho (v5.103): a mesma caixa de toque dos outros botões de
+   ícone da faixa, chapada como o voltar. Fica ANTES da troca de modo (que tem
+   `margin-left: auto` e continua colada à direita), então a ordem visual é
+   voltar · título · estrela · modo — a estrela ao lado do título, que é o
+   contexto dela, e não disputando o canto com o par de troca de modo.
+   Em ouro, e não em `--muted`: ela é a única porta permanente para uma tela
+   inteira, e apagada seria lida como decoração do título. */
+.head-fav-btn {
+  flex-shrink: 0; width: var(--hit); height: var(--hit); padding: 0;
+  border: none; border-radius: var(--radius-btn); background: none;
+  color: var(--gold);
+  display: flex; align-items: center; justify-content: center; cursor: pointer;
+}
+.head-fav-btn .msym { font-size: var(--icon-sm); }
+
 /* ---------- Abas (ícones) ---------- */
 /* A faixa tem TRÊS abas em `flex:1` (Cronograma é o 1º filho) e, à direita, o
    botão de busca do acervo (`.tab-add`), hoje do MESMO tamanho delas. O botão
@@ -1218,6 +1233,26 @@ main {
 .row-btn, .row-handle { width: var(--hit); height: var(--hit); flex-shrink: 0; border: none; border-radius: var(--radius-btn); background: var(--surface); color: var(--text); display: flex; align-items: center; justify-content: center; cursor: pointer; }
 .row-btn .msym, .row-handle .msym { font-size: var(--icon-sm); }
 .row-handle { background: transparent; color: var(--muted); touch-action: none; cursor: grab; }
+
+/* A ESTRELA DE CADA LINHA (v5.103). O glifo é o MESMO nos dois estados — a
+   fonte é um subset de ~30 símbolos e não traz a estrela vazada —, então quem
+   carrega o estado é a COR, que é a convenção da tela (o rótulo/`title` diz a
+   ação, ver a regra do ícone × cor no CLAUDE.md). Chapada como a alça de
+   arrastar: numa linha que já tem miniatura, nome, selo e às vezes dois botões,
+   mais um fundo sólido viraria ruído.
+   Desmarcada fica em `--line`, e não em `--muted`: ela precisa ser discreta o
+   bastante para o olho passar batido pela lista inteira e forte o bastante para
+   ser encontrada quando se procura por ela. */
+.fav-btn { background: transparent; color: var(--line); }
+.fav-btn.on { color: var(--gold); }
+
+/* Selo da CENA DE ROTEIRO — a mesma caixa do selo de URL/YT, em ouro suave:
+   ele diz "isto não é mídia, é uma cena" numa lista onde todo o resto tem
+   bytes. */
+.cue-badge { background: var(--gold-soft); color: var(--gold-text); }
+.thumb--cue { color: var(--gold); }
+.thumb--cue svg { width: 22px; height: 22px; }
+.thumb--cue .msym { color: var(--gold); }
 
 /* pastas sincronizadas (OPFS) */
 .folder-opfs .msym { color: var(--accent); }
@@ -1706,7 +1741,11 @@ main {
    lendo como uma referência ("ARA · João · 3 · 16") em vez de quatro ações
    soltas. Sem `flex-wrap`: o conjunto é uma linha; quem cede espaço é o nome
    do livro (o único de largura variável), não a quebra de linha. */
-.bible-read-foot { flex-shrink: 0; display: flex; align-items: center; justify-content: center; padding-top: .1rem; }
+/* Em COLUNA desde a v5.103: a referência em cima, as duas ações de guardar
+   embaixo. Em linha, "Ao Cronograma" e "Favoritar" disputariam a largura com a
+   referência de quatro campos e a empurrariam para reticências — e é ela que
+   diz onde a leitura está. */
+.bible-read-foot { flex-shrink: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .4rem; padding-top: .1rem; }
 .bible-ref-nav { display: flex; align-items: stretch; gap: 1px; max-width: 100%; }
 .bible-ref-part {
   display: flex; flex-direction: column; align-items: center; gap: 1px;
@@ -1717,6 +1756,20 @@ main {
 /* O nome do livro é o único de largura imprevisível ("1 Tessalonicenses"): é
    ele que encolhe quando a linha aperta, com reticências. */
 .bible-ref-part--book { flex-shrink: 1; min-width: 3.5rem; }
+/* GUARDAR A REFERÊNCIA (v5.103): pílulas discretas, no formato dos chips das
+   Ferramentas. Contornadas e não preenchidas — quem opera vem a esta tela para
+   PROJETAR, e a ação de projetar é o toque no versículo do meio; guardar é a
+   ação secundária, e tem de parecer uma. */
+.bible-read-acoes { display: flex; gap: .4rem; }
+.bible-read-acao {
+  display: inline-flex; align-items: center; gap: .3rem;
+  padding: .32rem .6rem;
+  border: 1px solid var(--line); border-radius: var(--radius-pill);
+  background: var(--surface-2); color: var(--muted);
+  font-size: .78rem; font-weight: 700; font-family: inherit; cursor: pointer;
+  appearance: none; -webkit-appearance: none;
+}
+.bible-read-acao .msym { font-size: var(--icon-sm); color: var(--gold); }
 .bible-ref-part:first-child { border-radius: var(--radius-btn) 0 0 var(--radius-btn); }
 .bible-ref-part:last-child { border-radius: 0 var(--radius-btn) var(--radius-btn) 0; }
 .bible-ref-label { font-size: .56rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
@@ -1878,6 +1931,14 @@ main {
 .misc-chip.active { background: var(--accent-soft); border-color: var(--accent); color: var(--text); }
 .misc-row { display: flex; align-items: center; gap: .55rem; }
 .misc-row-label { font-size: .82rem; font-weight: 700; color: var(--muted); flex-shrink: 0; }
+/* "Guardar esta contagem / este sorteio" (v5.103): o rótulo à esquerda e os
+   dois destinos à direita, como as outras linhas de opção do painel. Com
+   `flex-wrap`, numa tela estreita os chips descem em vez de espremer o rótulo
+   — ele é que diz o que os dois botões guardam. */
+.misc-row--save { flex-wrap: wrap; }
+.misc-save-btns { display: flex; gap: .35rem; margin-left: auto; }
+.misc-save-btns .misc-chip { display: inline-flex; align-items: center; gap: .28rem; }
+.misc-save-btns .msym { font-size: var(--icon-sm); color: var(--gold); }
 .misc-num, .misc-text {
   flex: 1; min-width: 0; padding: .42rem .55rem;
   border: 1px solid var(--line); border-radius: var(--radius-btn);
@@ -2184,6 +2245,22 @@ main {
   display: flex; flex-direction: column; gap: .35rem;
 }
 .popup-list > li { flex-shrink: 0; }
+
+/* GUARDAR A FILA COMO PACOTE (v5.103) — o rodapé da folha da playlist. Mesma
+   receita tracejada de "Importar arquivos": as duas são a ação que a lista
+   oferece sobre si mesma, não um item dela. Fora do `.popup-list` de propósito,
+   para não rolar junto com a fila: numa playlist de dez itens, o botão que a
+   guarda tem de continuar à vista. */
+.pl-pack {
+  flex-shrink: 0; margin: 0 .7rem .8rem;
+  display: flex; align-items: center; justify-content: center; gap: .45rem;
+  padding: .7rem .5rem;
+  background: transparent; border: 1px dashed var(--accent);
+  border-radius: var(--radius-btn); color: var(--accent);
+  font-size: .86rem; font-weight: 600; font-family: inherit; cursor: pointer;
+  appearance: none; -webkit-appearance: none;
+}
+.pl-pack .msym { font-size: var(--icon-sm); }
 
 /* ---------- Contador de itens de pasta ---------- */
 .folder-count {

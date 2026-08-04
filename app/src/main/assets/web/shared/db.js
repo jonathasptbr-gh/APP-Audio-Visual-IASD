@@ -6,11 +6,12 @@
 //     apresentações (kind 'deck': um array de Blobs, uma imagem por página).
 //   - store "files": catálogo dos arquivos guardados no OPFS (só metadados +
 //     thumbnail; os bytes ficam no Origin Private File System).
-//   - listas (em "state"): "imports", "playlist", "avulsos" = arrays de ids
-//     ("avulsos" é a prateleira invisível da mídia que está em cena sem
-//     pertencer a lista nenhuma — ver LISTS).
-//   - Favoritos (atalhos): "folders" = [{id,name}] e um array de ids por
-//     atalho em "folder_<id>". São detentores de referência como as listas.
+//   - listas (em "state"): "imports", "playlist", "avulsos", "favs" = arrays de
+//     ids ("avulsos" é a prateleira invisível da mídia que está em cena sem
+//     pertencer a lista nenhuma; "favs" é a marcação de um toque — ver LISTS).
+//   - Atalhos (organização opcional dentro dos Favoritos): "folders" =
+//     [{id,name}] e um array de ids por atalho em "folder_<id>". São detentores
+//     de referência como as listas.
 //   - um blob de "media" só é apagado quando NADA mais aponta para ele — nem
 //     lista, nem Favorito (ver `isReferenced`); registros de "files"
 //     pertencem à sua pasta OPFS e não passam pelo gc.
@@ -51,7 +52,15 @@
   // o mais antigo para fora, e aí o gc decide — o blob some se ninguém mais o
   // quiser, e fica inteiro se o Cronograma, a playlist ou um Favorito também o
   // tiverem.
-  const LISTS = ['imports', 'playlist', 'avulsos'];
+  //
+  // "favs" (v5.103) é a marcação de UM TOQUE: um id está favoritado ou não, sem
+  // pertencer a grupo nenhum. Ela entra aqui — e não numa chave à parte — porque
+  // é isto que a torna um DETENTOR DE REFERÊNCIA de verdade: `isReferenced`
+  // varre esta constante, então favoritar passa a segurar o blob e desfavoritar
+  // passa a poder coletá-lo, sem uma linha nova de gc. Os atalhos
+  // (`folder_<id>`) continuam existindo ao lado dela, como organização
+  // OPCIONAL — ver `folderDrop`.
+  const LISTS = ['imports', 'playlist', 'avulsos', 'favs'];
 
   let dbPromise = null;
 
@@ -163,6 +172,16 @@
       // O IndexedDB guarda Blob por REFERÊNCIA: ler o registro não traz os
       // bytes de dezenas de páginas para a memória.
       pages: null,
+      // CENA DE ROTEIRO (kind 'cue', v5.103): o item do Cronograma que não tem
+      // bytes — um versículo, uma mensagem, a letra de um hino, o cronômetro de
+      // abertura, um sorteio ou um pacote de mídias. `cue` é o subtipo e `data`
+      // o DESCRITOR (a referência do que projetar), nunca o conteúdo: o texto do
+      // versículo continua vindo do cache da Bíblia na hora de projetar, e o que
+      // vai ao telão continua sendo o MESMO comando `text`/`chrono`/`draw` que o
+      // Display já entende — nenhuma lógica de projeção nova, nem no shell nem
+      // no Display (que sequer sabe que cues existem: um cue nunca vira `load`).
+      cue: null,
+      data: null,
       createdAt: Date.now(),
     }, fields);
   }
@@ -257,6 +276,26 @@
     });
     return addMediaToList(record, (meta && meta.list) || 'imports');
   }
+  // Uma CENA DE ROTEIRO (ver `cue` em makeMediaRecord). Entra numa lista pela
+  // mesma transação de tudo o mais — um cue órfão seria tão invisível quanto um
+  // blob órfão, e o gc o coleta pelas mesmas regras (ele é um registro de
+  // "media" como outro qualquer, só que sem bytes).
+  //
+  // NÃO exige subir o DB_VERSION: nenhum índice novo, e o IndexedDB não tem
+  // esquema por registro. Um bundle ANTERIOR a esta versão que encontre um cue
+  // o trata como mídia sem blob/url — `stage.load` cai no `clear()` e o telão
+  // fica no wallpaper, que é a degradação certa (nada quebra, nada projeta).
+  async function addCue(cue, data, meta) {
+    const record = makeMediaRecord({
+      cue,
+      data: data || {},
+      kind: 'cue',
+      type: 'cue/' + cue,
+      name: (meta && meta.name) || 'Cena',
+    });
+    return addMediaToList(record, (meta && meta.list) || 'imports');
+  }
+
   // O vídeo do YouTube que já está no aparelho, ou null. É o que impede o app
   // de baixar o MESMO vídeo de novo a cada destino escolhido (tocar, playlist,
   // Cronograma) — um download de dezenas de MB repetido por engano, em rede de
@@ -506,6 +545,36 @@
     if (!(await isReferenced(st, id, name))) await asPromise(tx.objectStore(STORE_MEDIA).delete(id));
     await txDone(tx);
   }
+  // Apaga um ATALHO inteiro (`folders` + `folder_<id>`), coletando o que ficar
+  // sem dono. Numa transação só, e pela mesma `isReferenced` de todo o resto.
+  //
+  // ISTO ERA UM VAZAMENTO SILENCIOSO até a v5.103. O Controle apagava o atalho
+  // com dois `setState` crus — tirava a entrada de `folders` e gravava a lista
+  // vazia — e nada mais acontecia: uma mídia cujo ÚLTIMO detentor era aquele
+  // atalho virava um registro que nenhuma lista aponta e que NENHUM gc alcança
+  // (o gc só roda dentro de `listRemove`). O blob ficava no IndexedDB para
+  // sempre, invisível na tela e sem caminho de limpeza — um vídeo de centenas
+  // de MB "sumia" e continuava ocupando o disco do aparelho.
+  //
+  // A ordem importa: o atalho sai de `folders` ANTES da varredura, senão
+  // `isReferenced` o encontraria no índice e ele seguraria os próprios ids.
+  async function folderDrop(folderId) {
+    const db = await openDB();
+    const tx = db.transaction([STORE_STATE, STORE_MEDIA], 'readwrite');
+    const st = tx.objectStore(STORE_STATE);
+    const key = 'folder_' + folderId;
+    const ids = await readListIn(st, key);
+    const folders = await asPromise(st.get('folders'));
+    const restantes = Array.isArray(folders) ? folders.filter((f) => f && f.id !== folderId) : [];
+    await asPromise(st.put(restantes, 'folders'));
+    await asPromise(st.delete(key));
+    const ms = tx.objectStore(STORE_MEDIA);
+    for (const id of ids) {
+      if (!(await isReferenced(st, id, null))) await asPromise(ms.delete(id));
+    }
+    await txDone(tx);
+  }
+
   // Apaga o blob se não estiver referenciado por lista nem por Favorito.
   // HOJE NÃO TEM CHAMADOR: a remoção normal (listRemove) já coleta na própria
   // transação. Fica como válvula avulsa — e usa a MESMA `isReferenced` de
@@ -615,8 +684,8 @@
   // helpers — que é exatamente onde mora a atomicidade deste arquivo.
   global.AVDB = {
     setState, getState, stateKeys,
-    addMedia, addUrlMedia, addDeck, getMedia, mediaByYoutube, renameMedia,
-    listIds, listSet, listItems, listHas, listAdd, listRemove, gc,
+    addMedia, addUrlMedia, addDeck, addCue, getMedia, mediaByYoutube, renameMedia,
+    listIds, listSet, listItems, listHas, listAdd, listRemove, gc, folderDrop,
     fileAdd, fileGet, fileDelete, filesByFolder, filesAll,
     opfsSupported, opfsGetFile, opfsWriteFile, opfsDeleteFile, opfsDeleteDir,
     kindFromType, sendCommand, onCommand,
