@@ -1193,25 +1193,39 @@ main {
 .tab-add { background: var(--accent-fill); color: var(--on-accent); }
 
 /* barra de seleção */
-/* Na caixa de controles ela toma o lugar da faixa de abas — que encosta na
-   borda de cima porque o vazado da aba ativa precisa emendar com o conteúdo.
-   A barra de seleção não tem vazado nenhum, então colá-la na borda deixaria os
-   botões espremidos contra o corte. Daí o respiro que a faixa não usa. */
-.bottombar > .selbar { margin-top: .5rem; }
+/* NA CAIXA DE CONTROLES ELA É O MESMO RECORTE DA ABA ATIVA (v5.106): a mesma
+   tinta (`--bg`, o corpo da tela), a mesma geometria de borda a borda
+   (`margin: 0 -.7rem`) e o mesmo raio só EMBAIXO — o preto desce do conteúdo
+   para dentro da caixa e os botões flutuam nele. Ela substitui a faixa de abas,
+   então parecer a faixa de abas é o comportamento certo.
+   E OCUPA EXATAMENTE A MESMA CAIXA: `--hit-nav` de altura, a mesma das células
+   de aba, sem margem em cima. Antes ela era mais alta (padding próprio + meio
+   rem de respiro) e a caixa de controles inteira PULAVA de altura ao entrar e
+   sair da seleção — com a preview e o transporte junto. */
+.bottombar > .selbar {
+  margin: 0 -.7rem; padding: 0 .8rem;
+  height: var(--hit-nav);
+  background: var(--bg);
+  border-radius: 0 0 var(--radius-btn) var(--radius-btn);
+}
 /* ---------- Barra de seleção múltipla ---------- */
-/* SEM FUNDO E SEM BORDA (v5.105). Ela era um bloco em `--accent-soft` com
+/* SEM O ÂMBAR E SEM BORDA (v5.105). Ela era um bloco em `--accent-soft` com
    contorno em `--accent` — a mancha âmbar mais forte da tela, e num app cuja
    regra é "âmbar é navegação e marca" ela destoava de tudo o que está em volta.
    Pior: preenchida e contornada, ela tinha exatamente a silhueta de um ITEM
    SELECIONADO da lista logo acima, e lia-se como mais uma linha marcada em vez
    de como a barra de ações delas.
-   Agora ela é só o fundo que já está atrás dela (a caixa de controles, ou a
-   folha dos Favoritos quando a gaveta está aberta) com os botões flutuando por
-   cima — que é o mesmo desenho da faixa de abas que ela SUBSTITUI. Os botões
-   já eram `--surface-2`, então nada precisou mudar neles.
+   O fundo agora é PRETO (`--bg`, o corpo da tela) com os botões `--surface-2`
+   flutuando nele — nenhuma borda. Na caixa de controles isso vira o mesmo
+   recorte da aba ativa (ver `.bottombar > .selbar`); na gaveta dos Favoritos é
+   uma barra preta sobre o painel.
    O que segura o sinal de "você está em outro modo" é o CONTADOR em accent:
    uma cor de texto, não uma placa. */
-.selbar { flex-shrink: 0; display: flex; align-items: center; gap: .6rem; background: none; border: none; padding: .35rem .6rem; }
+.selbar {
+  flex-shrink: 0; display: flex; align-items: center; gap: .6rem;
+  background: var(--bg); border: none; border-radius: var(--radius-card);
+  padding: .35rem .6rem;
+}
 .sel-count { font-weight: 700; color: var(--accent); }
 .sel-spacer { flex: 1; }
 .sel-btn { width: var(--hit); height: var(--hit); border: none; border-radius: var(--radius-btn); background: var(--surface-2); color: var(--text); display: flex; align-items: center; justify-content: center; cursor: pointer; }
@@ -2952,3 +2966,29 @@ body.mode-simple .bottombar { display: none; }
    Cronograma e favoritos pertencem ao fluxo do sonoplasta, e escolher variante
    é justamente a decisão que este modo poupa. */
 body.mode-simple .hymn-add-btn { display: none; }
+
+/* ---------- Pulso de confirmação NO BOTÃO (v5.106) ---------- */
+/* O feedback de "adicionei" mora no botão que foi tocado, e não numa faixa em
+   outro canto da tela: o dedo já está ali, o olho já está ali, e não há dúvida
+   sobre QUAL ação respondeu — com dois botões de destino lado a lado (as
+   Ferramentas têm "Cronograma" e "Favoritos"), uma mensagem genérica não diz em
+   qual dos dois se tocou.
+   O conteúdo do botão é ESCONDIDO (`visibility`, que preserva a caixa) e a
+   marca vem num `::after` absoluto: assim vale igual para um botão de ícone só
+   (`.row-btn`) e para um com ícone + rótulo (`.misc-chip`, `.bible-read-acao`),
+   sem nenhum pular de largura durante o pulso. */
+.btn-pulso { position: relative; transition: background-color .15s ease, color .15s ease; }
+.btn-pulso > * { visibility: hidden; }
+.btn-pulso::after {
+  content: '✓';
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: .95rem; font-weight: 700; line-height: 1;
+}
+/* As três leituras, nas cores que o app já usa para elas: verde é concluído,
+   âmbar é atenção (o "já estava lá", que é o que evita o toque repetido) e
+   vermelho é falha. */
+.btn-pulso--ok { background: var(--ok-soft); color: var(--ok); }
+.btn-pulso--dup { background: var(--warn-soft); color: var(--warn-text); }
+.btn-pulso--erro { background: var(--danger-soft); color: var(--danger-text); }
+.btn-pulso--erro::after { content: '✕'; }
