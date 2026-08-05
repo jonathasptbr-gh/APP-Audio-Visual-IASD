@@ -170,7 +170,7 @@ app/src/main/assets/web/
 │   ├── stage.js                # Motor de renderização compartilhado
 │   ├── material-symbols.css    # Font-face da fonte de ícones (subset offline; só o Controle usa)
 │   └── fonts/
-│       └── material-symbols.woff2  # ~2.2 KB — 29 glifos, todos em uso
+│       └── material-symbols.woff2  # ~2.2 KB — 30 glifos, todos em uso
 ├── vendor/                     # ÚNICO código de terceiro daqui — carregado sob demanda
 │   ├── pptx-renderer.js        # desenha .pptx (Apache-2.0); ver o LEIA-ME da pasta
 │   ├── LICENSE-pptx-renderer.txt
@@ -328,7 +328,7 @@ slide na frente de todo mundo — o `load` do reenvio leva o `page`.
 |---|---|---|
 | `media` | `id` (UUID), índice `youtubeId` | `{ id, blob, url, thumb, type, kind, name, youtubeId, pages, cue, data, createdAt }` |
 | `files` | `id` (UUID), índice `folder` | catálogo OPFS: `{ id, folder, opfsPath, srcName, name, type, kind, size, mtime, thumb, addedAt }` |
-| `state` | chave string | valor arbitrário (listas, estado atual, atalhos, transições…) |
+| `state` | chave string | valor arbitrário (listas, estado atual, pastas dos Favoritos, transições…) |
 
 Um registro de mídia tem **`blob`, `url`, `opfsPath` OU `pages`** (nunca mais
 de um): blobs locais importados, itens de URL externa (link direto, YouTube),
@@ -385,7 +385,7 @@ e buscar centenas de arquivos é instantâneo (nunca toca o disco); o arquivo s�
 - OPFS pertence ao origin: **nenhuma permissão é pedida** para ler — nem no
   Controle, nem no Display (mesmo origin ⇒ mesmo OPFS).
 - `getMedia(id)` procura em `media` e cai para `files` — assim IDs do catálogo
-  entram em `playlist`/`imports`/atalhos dos Favoritos **sem copiar bytes**.
+  entram em `playlist`/`imports`/pastas dos Favoritos **sem copiar bytes**.
 - O `gc()` das listas só apaga do store `media`; registros de `files`
   pertencem à sua pasta OPFS e só são removidos pela exclusão na pasta.
 - `renameMedia` cobre os dois stores (no catálogo, renomeia só a exibição;
@@ -456,8 +456,8 @@ O campo `kind` é derivado do `type` (ou definido pelo chamador para itens de UR
 | `lyricsBg` | `'black'` (padrão) \| `'image'` — fundo atrás da letra sincronizada: preto ou as imagens dos slides |
 | `wallpaper` | `Blob` da imagem escolhida para a cortina do telão, ou ausente/`null` = gradiente padrão (ver "Wallpaper personalizado") |
 | `favs` | array de IDs — **os FAVORITOS** (v5.103): a marcação de um toque, sem grupo nenhum. É uma das `LISTS` de `db.js`, e é isso que a torna um detentor de referência de verdade (favoritar segura o blob; desfavoritar deixa o gc decidir) |
-| `folders` | `[{ id, name }]` — **atalhos**: a organização OPCIONAL dentro dos Favoritos (as antigas "pastas virtuais") |
-| `folder_<id>` | array de IDs de mídia do atalho. **É um detentor de referência**, como as listas — ver o gc abaixo. Escrito só por `listAdd`/`listRemove`/`folderDrop`, nunca por `setState` cru (ver "O furo do gc") |
+| `folders` | `[{ id, name }]` — **pastas**: a organização OPCIONAL dentro dos Favoritos (as antigas "pastas virtuais"; até a v5.111 a UI as chamava de "atalhos") |
+| `folder_<id>` | array de IDs de mídia da pasta. **É um detentor de referência**, como as listas — ver o gc abaixo. Escrito só por `listAdd`/`listRemove`/`folderDrop`, nunca por `setState` cru (ver "O furo do gc") |
 | `downloadOk` | `true` depois que o operador autorizou o download sob demanda uma vez (modo simplificado — `ensureDownloadConsent`) |
 | `messages` | `[{ id, text }]` — mensagens de texto puro da aba Mensagens (ver "Camada de Texto") |
 | `opfs-folders` | `[{ id, name, count, syncedAt, handle? }]` — pastas sincronizadas no OPFS (`handle` acelera re-sync) |
@@ -532,7 +532,7 @@ Prefira a forma com função ao escrever código novo.
 #### Garbage collection de blobs
 
 Um registro só é excluído automaticamente quando **nada mais aponta para ele**
-— nem lista, nem atalho dos Favoritos:
+— nem lista, nem pasta dos Favoritos:
 
 ```
 listRemove(listName, id)
@@ -541,13 +541,13 @@ listRemove(listName, id)
 
 **`isReferenced` é o ponto único da pergunta "posso destruir este blob?"**, e
 ela precisa cobrir mais do que as duas listas fixas. Até a v5.47 o gc só olhava
-`LISTS` (`imports`/`playlist`/`avulsos`), e os **Favoritos ficavam de fora**: cada atalho
+`LISTS` (`imports`/`playlist`/`avulsos`), e os **Favoritos ficavam de fora**: cada pasta
 guarda seus ids em `state['folder_<id>']`, que são listas de mídia como
 qualquer outra, só que em chaves dinâmicas que o gc não conhecia. O resultado
 era destrutivo e silencioso — importar um vídeo, pô-lo num Favorito e depois
 excluí-lo do Cronograma apagava o **blob**; o Favorito seguia com o id,
 `getMedia` devolvia `undefined`, o `filter(Boolean)` do Controle descartava sem
-avisar e o item sumia do atalho para sempre. Um blob importado não existe em
+avisar e o item sumia da pasta para sempre. Um blob importado não existe em
 lugar nenhum além do IDB.
 
 `isReferenced` recebe o objectStore de `state` **já aberto**, para decidir
@@ -573,27 +573,27 @@ dentro dessas transações; `txDone(tx)` confirma o commit.) A regra do projeto
 ("operação IDB multi-passo atômica usa transação única") agora é honrada por
 essas funções — antes elas a violavam.
 
-##### O furo do gc: os atalhos escreviam por fora (corrigido na v5.103)
+##### O furo do gc: as pastas dos Favoritos escreviam por fora (corrigido na v5.103)
 
-`isReferenced` conhecia os atalhos desde a v5.48 — mas **quem apagava um atalho
+`isReferenced` conhecia essas pastas desde a v5.48 — mas **quem apagava uma pasta
 não passava por ela**. O Controle fazia dois `setState` crus (tirava a entrada
 de `folders`, gravava a lista vazia) e nada mais: uma mídia cujo ÚLTIMO
-detentor era aquele atalho virava um registro que nenhuma lista aponta e que
+detentor era aquela pasta virava um registro que nenhuma lista aponta e que
 **nenhum gc alcança** — o gc só roda dentro de `listRemove`. O blob ficava no
 IndexedDB para sempre, invisível na tela e sem caminho de limpeza; um vídeo de
 centenas de MB "sumia" e continuava ocupando o disco. Valia também para tirar
-um item de dentro do atalho, pelo mesmo `setState` cru.
+um item de dentro da pasta, pelo mesmo `setState` cru.
 
-Três consertos, todos no sentido de "os atalhos usam os mesmos helpers que as
+Três consertos, todos no sentido de "as pastas usam os mesmos helpers que as
 listas":
 
 - **`folderDrop(folderId)`** (novo, em `db.js`) apaga o índice, a lista e
-  varre os ids numa transação só. A ordem importa: o atalho sai de `folders`
+  varre os ids numa transação só. A ordem importa: a pasta sai de `folders`
   **antes** da varredura, senão `isReferenced` o encontraria e ele seguraria os
   próprios ids.
-- Tirar um item de um atalho é `listRemove('folder_<id>', id)` — que já rodava
+- Tirar um item de uma pasta é `listRemove('folder_<id>', id)` — que já rodava
   o gc na própria transação, e já sabia excluir a chave da varredura.
-- Pôr um item num atalho é `listAdd('folder_<id>', id)`, atômico, no lugar do
+- Pôr um item numa pasta é `listAdd('folder_<id>', id)`, atômico, no lugar do
   `setState` do array inteiro.
 
 **Regra que fica:** chave de `state` que guarda ids de mídia se escreve por
@@ -663,6 +663,38 @@ com texto era justamente a que não cabia na linha em que estava. O rótulo viro
 o toque longo. (A **folha de destinos** das músicas continua com texto: ali as
 linhas são um MENU, não um par de botões, e cada uma diz uma coisa diferente —
 "tocar", "playlist", "Cronograma".)
+
+#### Vídeo × só áudio, no seletor que já existia (v5.112)
+
+A folha de destinos de um resultado do YouTube ganhou no topo o **mesmo
+segmentado de Cantada/Playback** das músicas do acervo (`.fit-seg`), com
+**Vídeo** e **Só áudio**. É a mesma pergunta — "qual faixa deste item?" — e não
+havia por que inventar um segundo desenho para ela; a escolha vale para as
+quatro ações abaixo, em vez de dobrar a folha para oito linhas.
+
+- **Baixar só o áudio não é uma versão degradada.** O YouTube guarda o áudio em
+  faixa SEPARADA, e é justamente por isso que o vídeo progressivo tem teto de
+  720p (as resoluções altas vêm sem som, e juntá-las exigiria um ffmpeg
+  embarcado). Pedindo só o áudio, esse teto não existe.
+- **O registro entra como `kind: 'audio'` e SEM miniatura.** Não é economia: a
+  miniatura de um áudio seria a "capa" que não deve existir, e é o `kind` que
+  faz o telão manter o wallpaper (ver `semVisual`, na seção do stage).
+- **O nome ganha " (áudio)"** — a mesma convenção do "(Cantado)"/"(Playback)"
+  do acervo. Sem o sufixo, o vídeo e o áudio do mesmo link viram duas linhas de
+  nome idêntico na lista.
+- **O reaproveitamento passou a ser por FORMA.** As duas convivem no banco com o
+  mesmo `youtubeId`, então `mediaByYoutube(id, kind)` ganhou o filtro: quem
+  pediu áudio não pode receber o vídeo de 80 MB que já estava aqui, e vice-versa.
+- **Ponte:** método PRÓPRIO (`ytFetchAudio`), não um parâmetro a mais no
+  `ytFetch`. A ponte casa o método por nome + aridade, e mudar a assinatura do
+  `ytFetch` quebraria o download inteiro num shell antigo que recebesse este
+  bundle por OTA — "sem YouTube nenhum" é muito pior que "sem a opção de áudio".
+  O seletor só é desenhado com `__SHELL_VERSION__ >= 23`, pela mesma regra do
+  botão de busca no YouTube.
+- **A escolha viaja no FECHO de cada ação**, não em `songMenuFor`: o
+  `songMenuItem` chama `closeSongMenu()` ANTES da ação, e `closeSongMenu` zera
+  aquele objeto — consultá-lo lá dentro encontraria null e todo download sairia
+  como vídeo. É o mesmo cuidado que a `variante` das músicas já tomava.
 
 **Não exige subir o `DB_VERSION`** (nenhum índice novo; o IDB não tem esquema
 por registro), e é isso que o mantém barato: ver o preço da VOLTA descrito em
@@ -785,12 +817,51 @@ que estado (view) a mídia foi carregada.
 
 - **`coveredNow`** (privado) é a única fonte de verdade sobre se a cortina
   está cobrindo agora. Começa `true` (nada carregado).
-- **`computeCover()`**: `!current || ended || view === 'wallpaper'` — a
-  cortina deve cobrir sempre que não há mídia, ela "terminou" (`ended`,
-  aguardando replay) ou o operador pediu `view='wallpaper'`.
-  Repare que os dois primeiros termos **não dependem da view**: sem mídia em
-  cena a cortina cobre nos dois valores dela. É disso que sai a guarda de
-  `setViewFaded` descrita abaixo.
+- **`computeCover()`**: `!current || ended || view === 'wallpaper' ||
+  semVisual()` — a cortina deve cobrir sempre que não há mídia, ela "terminou"
+  (`ended`, aguardando replay), o operador pediu `view='wallpaper'` — ou o que
+  entrou **não tem imagem nenhuma para mostrar**.
+  Repare que o primeiro, o segundo e o quarto termos **não dependem da view**:
+  sem nada visível em cena a cortina cobre nos dois valores dela. É disso que
+  sai a guarda de `setViewFaded` descrita abaixo.
+
+##### `semVisual()`: áudio puro mantém o wallpaper (v5.112)
+
+Um registro `kind: 'audio'` **sem letra sincronizada** — um mp3 importado, o
+instrumental de fundo, o áudio baixado de um vídeo do YouTube — não põe nada no
+`<img>` nem no `<video>` (ver `applyMedia`). Sem esta pergunta a cortina ABRIA
+para ele: o telão saía do wallpaper e ficava no **preto do palco**, com o louvor
+tocando por trás de um retângulo vazio. Não era uma capa errada — era a ausência
+de qualquer coisa, e no meio de um culto isso se lê como projetor apagado.
+
+A letra é a exceção que confirma a regra: quando o áudio TEM letra a cortina
+precisa sair da frente, porque a `.lyrics-layer` fica **por baixo** dela (o
+wallpaper tem `z-index` maior, e é assim que ele cobre/revela as camadas de
+graça). Por isso a pergunta é feita ao PRÓPRIO registro (`current.lyrics`), que
+é quem carrega a letra — a mesma condição que o `display.js` já usa para chamar
+`showLyrics` —, e não à camada, que o stage não conhece.
+
+Três pontos onde ela entra, e o terceiro é o que fecha o caso:
+
+1. `computeCover()`, que governa `play()`, `setView()` e o `clear()`.
+2. O fim do `load()`: `view === 'visual' && coveredNow && !semVisual()` — não
+   abre a cortina para quem não tem o que mostrar.
+3. O **caminho inverso**, que é o que quase escapou: uma IMAGEM em cena seguida
+   de um áudio sem letra. Ali a cortina já estava aberta (havia o que ver) e
+   ninguém a fecharia — o telão ficaria no preto. Daí o `if (semVisual() &&
+   !coveredNow) await coverIn(false)` no fim do `load`.
+
+E como a cortina é **compartilhada** (a Camada de Texto a abre por conta
+própria para o cartão aparecer), o Display precisa da mesma regra ao devolvê-la
+depois que o texto sai: `reconcileCover` pergunta `stage.shouldCover()` — o
+`computeCover` exposto — em vez de reabrir cegamente. Só quando a cena é do
+stage: com o player do YouTube no ar, `current` pode estar nulo e a pergunta
+responderia "cobre" justamente sobre o vídeo que está tocando.
+
+**Verificado em Chromium**, com Controle e Display na mesma origem trocando
+comandos de verdade: imagem em cena → `wallpaper: none`; áudio sem letra logo em
+seguida → `wallpaper: flex`, `<img>` e `<video>` ocultos; áudio COM letra →
+`wallpaper: none` e a camada de letra visível.
 - **`instantCover(show)`** / **`coverIn(rampAudio)`** / **`coverOut()`**: as
   três únicas funções que tocam o elemento do wallpaper. `coverIn`/`coverOut`
   fazem fade (conforme `fadeOut`/`fadeIn` e `fadeTime`) e usam `coverSeq` para
@@ -1472,7 +1543,7 @@ O título é `.84rem` desde a v5.51 (em .72rem o único texto que responde "onde
 estou" era menor que o subtítulo de qualquer linha da lista) e é centrado no
 **espaço que sobra**, não na tela: os dois botões não têm a mesma largura, e
 centrá-lo pelo eixo da tela exigiria tirá-lo do fluxo e arriscar sobreposição
-justamente com o nome comprido de um atalho. A folga que resta é de poucos
+justamente com o nome comprido de uma pasta. A folga que resta é de poucos
 pixels. Em 360px "CRONOGRAMA" sai com reticências — a mesma troca já assumida
 para a raiz dos Favoritos, e em 390px (e em qualquer outra tela do app) ele cabe
 inteiro.
@@ -1955,7 +2026,7 @@ Três detalhes que o mecanismo não pode dispensar:
 
 **Todo destino passa por `adicionarNaLista(lista, id, nome, btn)`**, que faz o
 `listHas` antes do `listAdd` e escolhe entre `ok` e `dup`. Operações em lote
-(seleção múltipla, atalho) resolvem o tipo em `tipoLote`/`textoLote` — um pulso
+(seleção múltipla, pasta) resolvem o tipo em `tipoLote`/`textoLote` — um pulso
 só na barra de seleção, em vez de quatro sinais piscando.
 
 #### `avisar()`: o que sobra para o texto (v5.104)
@@ -2166,7 +2237,7 @@ Não há uma segunda rota de importação: `importarPeloSistema` reusa
 | Compartilhamento de outro app | `checkPendingShare` → `importShare` | idem |
 | Música do acervo | folha de destinos → `addSongVariant` | `imports` |
 | Resultado do YouTube | folha de destinos → `ytAcao` | `avulsos` \| `playlist` \| `imports` \| `favs` |
-| Arquivo de pasta do dispositivo, item de atalho, favorito | botão `+` da linha | `imports` |
+| Arquivo de pasta do sistema, item de pasta, favorito | botão `+` da linha | `imports` |
 | Link YT já no Cronograma → arquivo | botão de download da linha | substitui **na mesma posição** |
 | Versículo em leitura | botão ⊞ no rodapé da Bíblia | `imports` (cue `verse`) |
 | Mensagem da aba Ferramentas | `+` na linha da mensagem | `imports` (cue `message`) |
@@ -2294,7 +2365,7 @@ As quatro células:
 
 **Duas telas saíram da faixa de abas**, cada uma por um motivo próprio:
 
-- **Favoritos** (`activeTab` segue sendo `'folders'`) — atalhos criados pelo
+- **Favoritos** (`activeTab` segue sendo `'folders'`) — pastas criadas pelo
   operador e pastas do dispositivo sincronizadas no OPFS. Continua sendo um
   `activeTab` (com toda a navegação interna: abrir, buscar, sincronizar), mas
   desde a v5.53 é uma **gaveta que desce do topo** (ver a seção própria),
@@ -2532,7 +2603,7 @@ basta. `showDropLine` e `dropIndex` leem o mesmo cache — a linha-guia e o
 destino real nunca discordam.
 
 **Modo de seleção múltipla:** barra substitui as abas, com contagem e botões de
-**acrescentar à playlist**, favoritar, adicionar a um atalho, renomear (1 item)
+**acrescentar à playlist**, favoritar, adicionar a uma pasta, renomear (1 item)
 e excluir.
 
 > **A barra não tem preenchimento** (v5.105). Ela era um bloco em
@@ -2571,7 +2642,30 @@ indicados **só pelo realce** (`.lib-item.selected` — borda `--accent` + fundo
 reservada). Excluir dentro de pasta virtual só remove da pasta; nas demais abas
 usa `listRemove` (com gc).
 
-### Favoritos: a gaveta do topo (marcados + atalhos + pastas do dispositivo)
+### Favoritos: a gaveta do topo (marcados + pastas + pastas do sistema)
+
+> **"Atalho" virou "pasta" (v5.112).** O nome vinha do modelo antigo (as
+> "pastas virtuais" renomeadas na v5.103) e descrevia errado o que a coisa é:
+> um atalho é um ponteiro para algo que mora em outro lugar, e estas são
+> agrupamentos que o operador CRIA aqui e enche com o que já marcou. A gaveta
+> passou a ter dois títulos que dizem de quem é cada grupo — **"Minhas pastas"**
+> e **"Pastas do sistema"** —, e é a segunda que de fato é um VÍNCULO: aponta
+> para uma pasta do armazenamento do aparelho e existe para ser
+> re-sincronizada, o que o `folder_open` e o botão de setas circulares já
+> mostravam sem que o rótulo acompanhasse. ("Coleção" foi descartado de
+> propósito: o acervo já chama de coleção os hinários e álbuns do LouvorJA, e
+> o mesmo nome para duas coisas diferentes seria pior que o nome errado.)
+>
+> **E a listagem ficou densa** (`#favList` em controle.css). Ela herdava a
+> métrica da lista do Cronograma, e as duas não fazem a mesma coisa: no
+> Cronograma cada linha é um item que vai ao ar — ela é ALVO de toque no meio de
+> um culto, e o espaço em volta é o que evita o toque errado. A gaveta é o
+> oposto: o operador vem PROCURAR, dividido em cinco ou seis seções por tipo.
+> Encolheu a MOLDURA (miniatura 40→32px, respiro, espaço entre linhas e o
+> cabeçalho de seção), nunca o TEXTO nem os ALVOS — os botões da linha seguem em
+> `--hit` (34px). É esse piso que limita o resto: com 34px de botão mais os 2px
+> de borda de cada lado (a moldura do item selecionado), a gordura que sobrava
+> era só o respiro. Medido: o passo de uma linha cai de ~57px para ~48px.
 
 É o caminho curto para o que o operador usa toda semana. Desde a v5.53 ela é
 uma **gaveta que desce do topo** (`#favPopup`).
@@ -2585,11 +2679,11 @@ rótulo e o ícone; o modelo continuou sendo pasta. Daí saíam, um a um, os tr�
 incômodos que o operador relatava:
 
 - **"sempre precisa de uma pasta"** — não existia o ato de *favoritar*. Não
-  havia um bit no item, havia "pertencer a um grupo": com zero atalhos criados,
-  marcar o primeiro favorito custava seleção → estrela → "Nenhum atalho ainda"
+  havia um bit no item, havia "pertencer a um grupo": com zero pastas criadas,
+  marcar o primeiro favorito custava seleção → estrela → "Nenhuma pasta ainda"
   → criar → nomear → confirmar. Seis passos para o que devia ser um toque.
 - **"não é um acesso rápido"** — a porta era o botão no **fim da lista do
-  Cronograma**, e só ele: para chegar a um atalho era preciso rolar o cronograma
+  Cronograma**, e só ele: para chegar a uma pasta era preciso rolar o cronograma
   inteiro; da Bíblia, do acervo ou das Ferramentas não havia caminho nenhum; e
   no modo simplificado a gaveta não existia.
 - **"não abrange tudo"** — `folder_<id>` é um array de ids de MÍDIA, então
@@ -2598,7 +2692,7 @@ incômodos que o operador relatava:
 As três respostas: a lista plana **`favs`** (uma das `LISTS`, portanto detentora
 de referência de verdade), a **estrela em toda linha** e no cabeçalho fixo, e as
 **cenas de roteiro** (`kind: 'cue'`), que deram identidade de item ao que antes
-era só uma tela. Os atalhos continuam existindo — como **organização opcional**,
+era só uma tela. As pastas continuam existindo — como **organização opcional**,
 não como pré-requisito.
 
 Detalhes que caem de A, e que valem lembrar ao mexer aqui:
@@ -2610,10 +2704,10 @@ Detalhes que caem de A, e que valem lembrar ao mexer aqui:
   dúvida de "dourada quer dizer marcado ou quer dizer que dá para marcar?". A
   desmarcada é `--line`, e não `--muted`: discreta o bastante para o olho passar
   batido pela lista inteira, forte o bastante para ser encontrada.
-- **Estrela = favorito; pasta = atalho.** Os atalhos usavam estrela desde a
+- **Estrela = favorito; pasta = grupo.** As pastas usavam estrela desde a
   v5.53 (quando "Favoritos" era só o nome novo das pastas virtuais). Com a
   estrela virando o marcador de cada linha, o mesmo símbolo passaria a dizer
-  duas coisas na mesma gaveta — então os atalhos, o seletor de atalho e o botão
+  duas coisas na mesma gaveta — então as pastas, o seletor de pasta e o botão
   da seleção múltipla adotaram o glifo de pasta.
 - **A porta é o cabeçalho FIXO, com rótulo** (v5.104). O botão do fim do
   Cronograma saiu: ele era a única porta, e uma porta no fim de uma lista
@@ -2629,7 +2723,7 @@ Detalhes que caem de A, e que valem lembrar ao mexer aqui:
   no meio de uma leitura bíblica não espera cair no Cronograma ao fechá-la.
 - **Excluir na RAIZ da gaveta é desmarcar**, e isso precisa de um ramo próprio
   em `deleteSelected`: sem ele o `else` genérico caía em
-  `listRemove('folders', id)` — a chave do ÍNDICE de atalhos, que guarda objetos
+  `listRemove('folders', id)` — a chave do ÍNDICE de pastas, que guarda objetos
   e não ids. Um no-op silencioso, com o operador vendo o item continuar na lista
   depois de mandar excluí-lo.
 
@@ -2661,7 +2755,7 @@ Três consequências que só aparecem em uso, e as três estão tratadas:
   pasta porque ela é do conteúdo DELA: sair da pasta com a seleção de pé
   deixaria itens marcados numa lista que não é mais a deles.
 - **Fechar volta para a RAIZ.** Uma gaveta reabre no topo; reaparecer dentro de
-  um atalho que o operador fechou há dois toques seria uma memória que ninguém
+  uma pasta que o operador fechou há dois toques seria uma memória que ninguém
   pediu. A posição de ROLAGEM, essa sim, continua guardada por `scrollPos`.
 
 O mecanismo por baixo continua usando as MESMAS chaves de state (renomear a
@@ -2685,9 +2779,9 @@ só uma delas sincroniza:
    **desmarcar** (a estrela) e **mandar ao Cronograma** (o `+`).
 2. **Atalhos** (`renderVirtualFolders`) — grupos criados pelo operador, ícone de
    **estrela**. Recebem itens pela seleção múltipla (`#selFolder`, hoje com
-   ícone de PASTA e rótulo "Adicionar a um atalho" — a estrela ao lado dele
+   ícone de PASTA e rótulo "Adicionar a uma pasta" — a estrela ao lado dele
    virou o `favs` direto) e podem ser criados na própria tela, pelo botão "Novo
-   atalho" (`appendNewFavoriteRow`). Excluir um atalho não apaga mídia que tenha
+   pasta" (`appendNewFavoriteRow`). Excluir uma pasta não apaga mídia que tenha
    outro dono — e o que ficar sem dono nenhum agora é coletado (`folderDrop`).
 3. **Pastas do dispositivo** — as pastas sincronizadas no OPFS, com o botão de
    re-sync e o de excluir, exatamente como antes (detalhes abaixo).
@@ -2712,7 +2806,7 @@ só uma delas sincroniza:
   - Itens da pasta têm botão ➕ que adiciona o **id do catálogo** ao Cronograma
     (zero-cópia — `getMedia` resolve pelo fallback). Desde a v5.103 esse botão
     vale para **qualquer** item da gaveta, não só os de pasta do dispositivo:
-    de dentro de um atalho (ou dos favoritos) não havia como mandar nada para a
+    de dentro de uma pasta (ou dos favoritos) não havia como mandar nada para a
     lista do culto, que é justamente o que um favorito existe para fazer.
     Seleção múltipla permite renomear e excluir (exclui do OPFS + catálogo +
     remove das listas, `favs` incluída).
@@ -2720,9 +2814,9 @@ só uma delas sincroniza:
     `confirm()` nativo na base) apaga o diretório OPFS inteiro, os registros do
     catálogo e as referências em listas.
 - **Atalhos (pastas virtuais)** — criados pelo usuário (state `folders` +
-  `folder_<id>`); recebem itens pelo botão "Adicionar a um atalho" da seleção
+  `folder_<id>`); recebem itens pelo botão "Adicionar a uma pasta" da seleção
   múltipla (funciona também com IDs do catálogo OPFS) e nascem vazios pelo
-  botão "Novo atalho". Excluir o atalho não exclui mídia que tenha outro dono —
+  botão "Nova pasta". Excluir a pasta não exclui mídia que tenha outro dono —
   e o que ficar sem dono nenhum é coletado na mesma transação (`folderDrop`;
   ver "O furo do gc").
 - **Favoritos (`favs`)** — a lista plana, marcada pela estrela de cada linha ou
@@ -2829,7 +2923,7 @@ função recebe o elemento-alvo e o callback de redesenho justamente por isso �
 duas cópias divergiriam no primeiro ajuste de categoria.
 
 O card do Hinário **saiu da tela de pastas** (hoje os **Favoritos**, que voltou
-a ser só atalhos e pastas do dispositivo).
+a ser só pastas e pastas do sistema).
 
 > **As pílulas de filtro saíram na v5.70.** Havia uma faixa rolável no topo
 > (`.coll-filters`/`.coll-pill`: Todos · Hinários · uma por categoria do banco,
@@ -3758,10 +3852,10 @@ para os dois botões, com listas diferentes (`renderSongMenu`):
   Sem playback ele nem aparece — não há o que escolher.
 - A variante é lida **no clique**, antes de `closeSongMenu()` zerar
   `songMenuFor` — uma ação que fosse consultá-lo depois encontraria `null`.
-- **Favoritos reusa o seletor de atalhos** da barra de seleção múltipla:
+- **Favoritos reusa o seletor de pastas** da barra de seleção múltipla:
   `openFolderPicker([id])` passa o id explícito, e sem argumento ele age sobre
-  `selected`, como sempre. Uma segunda lista de atalhos só para o acervo
-  divergiria da primeira no dia em que alguém criasse um atalho novo.
+  `selected`, como sempre. Uma segunda lista de pastas só para o acervo
+  divergiria da primeira no dia em que alguém criasse uma pasta nova.
 - **Empilhamento:** `#songMenuPopup` em `z-index: 210` (abre de dentro do
   acervo) e `#folderPopup` em `220` (abre de dentro dela) —
   o seletor é declarado ANTES no documento, então sem o degrau a ordem do
@@ -5122,7 +5216,13 @@ do livro** (`.bible-ref-part--book`, o único de largura imprevisível), com
 reticências.
 
 **À direita da referência, na MESMA linha** (v5.109), os dois botões de guardar
-(`.cue-save-btn`: ⊞ para o Cronograma, ★ para os favoritos). A v5.103 os pôs
+(`.cue-save-btn`: ⊞ para o Cronograma, ★ para os favoritos). **Aqui eles são
+maiores que a caixa padrão** (v5.112): em `--hit` (34px) ficavam 4px mais baixos
+e 22px mais estreitos que as células de Livro/Capítulo/Versículo ao lado, e numa
+linha só isso não se lê como "botão menor", se lê como desalinhado. A altura vem
+de `align-items: stretch` no rodapé — eles acompanham a referência seja qual for
+a altura dela, em vez de repetirem um número que precisaria ser mantido à mão nos
+dois lugares. A v5.103 os pôs
 numa segunda faixa porque com RÓTULO — "Ao Cronograma", "Favoritar" — eles
 disputavam a largura com os quatro campos e empurravam a referência para
 reticências. Sem rótulo o par mede ~74px e cabe: o que a segunda faixa custava
@@ -6232,12 +6332,20 @@ usados** na UI — referenciados por codepoint via o mapa `ICON` em `controle.js
 nenhum glifo (por isso `display/index.html` não inclui
 `material-symbols.css`/`.woff2`).
 
-**Codepoints no subset** (v5.110):
+**Codepoints no subset** (v5.112):
 ```
 E034 E037 E03B E03D E040 E041 E043 E044 E045 E047
 E04F E050 E145 E14C E150 E251 E2C7 E2C8 E2CC E3A1
-E3AD E5C4 E616 E838 E872 E945 EA5D EB80 F116
+E3AD E5C4 E5CA E616 E838 E872 E945 EA5D EB80 F116
 ```
+
+`E5CA` (check) entrou na v5.112 para o **pulso de confirmação**: o `✓` e o `✕`
+eram os caracteres Unicode, desenhados pela fonte do SISTEMA (num Android
+qualquer, a Roboto) — traço de caneta, com entrada e saída afinando e a perna do
+✓ curvando. Ao lado de vinte ícones geométricos de traço constante, o sinal de
+confirmação era a única coisa "desenhada à mão" da tela. Agora são `check` e
+`close`, retos e do mesmo peso — e o ✕ do erro passou a ser literalmente o mesmo
+glifo do botão de fechar.
 
 A v5.110 fez a primeira limpeza real do subset: **saíram** `E5CF`
 (expand_more), `E86C` (check_circle) e `E8F5` (visibility_off) — os três
@@ -6311,7 +6419,7 @@ letra), a **engrenagem** de Configurações (`#settingsBtn`, no topo do mixer), 
 **setas** do par de troca de modo (`.mode-switch`), o
 ícone **"arquivos+"** (documento com `+`) do botão de importar no fim do
 Cronograma (`.import-btn`), que diferencia importar ARQUIVOS de abrir os
-FAVORITOS (estrela, no botão ao lado — e a mesma estrela no "Novo atalho"),
+FAVORITOS (estrela, no botão ao lado — e a mesma estrela na "Nova pasta"),
 os dois botões flutuantes da preview (**cast** e
 **expandir** — `#pvCastBtn`/`#pvFullBtn`),
 e nos **cards de coleção** a **seta de baixar** (`downloadAllIconSvg`), o **✕**

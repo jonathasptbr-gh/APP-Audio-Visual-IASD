@@ -90,7 +90,7 @@ class NativeBridge(
          * exijam mais do que o shell instalado oferece (ver [WebUpdater]).
          * Subir SEMPRE que a superfície da ponte mudar.
          */
-        const val SHELL_VERSION = 22
+        const val SHELL_VERSION = 23
 
         /**
          * Fila de IO da ponte, **compartilhada por todas as instâncias**.
@@ -329,11 +329,29 @@ class NativeBridge(
      * operador ficaria olhando um cartão parado durante todo o download.
      */
     @JavascriptInterface
-    fun ytFetch(callId: String, url: String) {
+    fun ytFetch(callId: String, url: String) = ytFetchInterno(callId, url, false)
+
+    /**
+     * O mesmo, mas baixando **só a faixa de áudio** (m4a) — o louvor de fundo,
+     * o instrumental da oração, o que não tem por que ocupar o telão.
+     *
+     * MÉTODO SEPARADO, e não um parâmetro a mais no [ytFetch]: a ponte casa o
+     * método pelo NOME e pela quantidade de argumentos, então mudar a assinatura
+     * do `ytFetch` quebraria o download inteiro num shell antigo que recebesse o
+     * bundle novo por OTA — e "sem YouTube nenhum" é muito pior que "sem a opção
+     * de áudio". Assim o shell antigo continua baixando vídeo, e o lado web só
+     * oferece a escolha quando `__SHELL_VERSION__` já a tem (ver `openYtMenu`).
+     */
+    @JavascriptInterface
+    fun ytFetchAudio(callId: String, url: String) = ytFetchInterno(callId, url, true)
+
+    private fun ytFetchInterno(callId: String, url: String, somenteAudio: Boolean) {
         if (host == null) { resolve(callId, "null"); return }   // telão não baixa nada
         io.execute {
             val r = try {
-                YoutubeGrab.buscar(ctx, url) { lidos, total -> ytProgresso(callId, lidos, total) }
+                YoutubeGrab.buscar(ctx, url, somenteAudio) { lidos, total ->
+                    ytProgresso(callId, lidos, total)
+                }
             } catch (_: Exception) { null }
             resolve(callId, r?.toString() ?: "null")
         }

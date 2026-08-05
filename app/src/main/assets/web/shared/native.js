@@ -286,8 +286,19 @@
     // download que estava indo bem.
     // `onProgresso(lidos, total)` é opcional; o nativo empurra por
     // `__avYtProgress` a cada megabyte, com o id desta chamada.
-    ytFetch(url, onProgresso) {
-      return callComProgresso((id) => B.ytFetch(id, String(url)), onProgresso);
+    // `somenteAudio` baixa a FAIXA DE ÁUDIO (m4a) em vez do vídeo — e cai num
+    // método próprio da ponte (`ytFetchAudio`), não num parâmetro a mais: a
+    // ponte casa o método por nome + aridade, e mudar a assinatura do `ytFetch`
+    // quebraria o download inteiro num shell antigo que recebesse este bundle
+    // por OTA. Aqui a degradação é a certa: sem `ytFetchAudio`, o `try` do
+    // `callComProgresso` falha e a promise resolve null, e quem pediu áudio
+    // recebe "não deu" — mas quem pediu vídeo nunca é afetado. Quem oferece a
+    // escolha na tela já pergunta o `__SHELL_VERSION__` antes de desenhá-la.
+    ytFetch(url, onProgresso, somenteAudio) {
+      return callComProgresso(
+        (id) => (somenteAudio ? B.ytFetchAudio(id, String(url)) : B.ytFetch(id, String(url))),
+        onProgresso,
+      );
     },
     // Busca no YouTube DENTRO do app: devolve
     // `[{ id, url, name, author, seconds, thumb }]`. Lista vazia num shell
