@@ -306,12 +306,20 @@
   // vídeo (o link importado como item de player e o arquivo baixado depois),
   // ganha o que tem BLOB — é ele que toca em segundo plano e não depende da
   // rede.
-  async function mediaByYoutube(youtubeId) {
+  // `kind` OPCIONAL (v5.112): o mesmo vídeo do YouTube pode existir aqui em
+  // duas formas — o arquivo de vídeo e o de SÓ ÁUDIO —, e as duas carregam o
+  // mesmo `youtubeId`. Sem o filtro, quem pediu o áudio podia receber o vídeo
+  // que já estava baixado (e vice-versa), o que é justamente o contrário do que
+  // o operador escolheu. Omitido, o comportamento é o de sempre: serve
+  // qualquer forma, que é o que a marca de "já está aqui" na lista de
+  // resultados quer saber.
+  async function mediaByYoutube(youtubeId, kind) {
     if (!youtubeId) return null;
     const s = await store(STORE_MEDIA, 'readonly');
     const ids = await asPromise(s.index('youtubeId').getAllKeys(IDBKeyRange.only(youtubeId)));
     if (!ids || !ids.length) return null;
-    const recs = (await Promise.all(ids.map((id) => getMedia(id)))).filter(Boolean);
+    let recs = (await Promise.all(ids.map((id) => getMedia(id)))).filter(Boolean);
+    if (kind) recs = recs.filter((r) => r.kind === kind);
     return recs.find((r) => r.blob) || recs[0] || null;
   }
   // Item de URL externa (sem blob local); kind pode ser 'image','video','audio','youtube'.

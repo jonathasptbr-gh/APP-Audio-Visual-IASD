@@ -190,9 +190,37 @@
       });
     }
 
+    /**
+     * ÁUDIO PURO NÃO TEM O QUE MOSTRAR (v5.112).
+     *
+     * Um registro de áudio sem letra sincronizada — um mp3 importado, o
+     * instrumental de fundo, o áudio baixado de um vídeo do YouTube — não põe
+     * nada no `<img>` nem no `<video>` (ver `applyMedia`). Sem esta pergunta a
+     * cortina ABRIA para ele: o telão saía do wallpaper e ficava no PRETO do
+     * palco, com o louvor tocando por trás de um retângulo vazio. Não era uma
+     * capa errada, era a ausência de qualquer coisa — e no meio de um culto
+     * isso se lê como projetor apagado.
+     *
+     * A letra é a exceção que confirma: quando o áudio TEM letra, a cortina
+     * precisa sair da frente, porque a `.lyrics-layer` fica por baixo dela (o
+     * wallpaper tem z-index maior, e é assim que ele cobre/revela as camadas de
+     * graça — ver display/index.html). Por isso a pergunta é feita ao PRÓPRIO
+     * registro, que é quem carrega a letra, e não à camada, que o stage não
+     * conhece.
+     *
+     * A Camada de Texto (mensagem/versículo sobre um áudio de fundo) não passa
+     * por aqui: quem abre a cortina para ela é o `showText` do Display, de
+     * propósito e por conta própria.
+     */
+    function semVisual() {
+      return !!current && current.kind === 'audio'
+        && !(Array.isArray(current.lyrics) && current.lyrics.length);
+    }
+
     // A cortina deve cobrir sempre que não há mídia, ela "terminou" (ended:
-    // aguardando replay) ou o operador pediu view='wallpaper'.
-    function computeCover() { return !current || ended || view === 'wallpaper'; }
+    // aguardando replay), o operador pediu view='wallpaper' — ou o que entrou
+    // não tem imagem nenhuma para mostrar.
+    function computeCover() { return !current || ended || view === 'wallpaper' || semVisual(); }
 
     // Elemento de mídia atualmente visível (alvo do fade de CONTEÚDO, ao
     // trocar de item) — só existe quando a cortina não está cobrindo; se
@@ -567,13 +595,22 @@
       // Se nada estava cobrindo (já em cena, só trocando de item), coverOut()
       // não faz nada — quem cuidou da troca visual foi o fade de CONTEÚDO
       // acima.
-      if (view === 'visual' && coveredNow) {
+      // `!semVisual()`: um áudio sem letra mantém o wallpaper — abrir a cortina
+      // para ele mostraria o preto do palco. Ver `computeCover`.
+      if (view === 'visual' && coveredNow && !semVisual()) {
         if (fadeIn) {
           const el = (rec.kind === 'image' || rec.kind === 'deck') ? img
             : (rec.kind === 'video' || rec.kind === 'audio' ? video : null);
           if (el) { await mediaReady(el); if (seq !== loadSeq) return; }
         }
         await coverOut();
+        if (seq !== loadSeq) return;
+      }
+      // E o caminho inverso: uma IMAGEM em cena, seguida de um áudio sem letra.
+      // Ali a cortina estava aberta (havia o que ver), então ninguém a fecharia
+      // — e o telão ficaria no preto do palco em vez de voltar ao wallpaper.
+      if (semVisual() && !coveredNow) {
+        await coverIn(false);
         if (seq !== loadSeq) return;
       }
     }
@@ -692,6 +729,12 @@
       // preparar o replay, e quem segue o tempo re-renderizaria o slide 0 —
       // fazendo a capa do hino piscar antes do wallpaper cobrir.
       hasEnded: () => ended,
+      // "A cortina deveria estar cobrindo agora?" — a MESMA regra que o stage
+      // usa internamente, exposta porque o Display também decide sobre a
+      // cortina (ao tirar a Camada de Texto de cena, por exemplo) e não pode
+      // reabri-la sobre um áudio que não tem o que mostrar. Duas cópias da
+      // regra divergiriam no primeiro caso novo. Ver `computeCover`.
+      shouldCover: computeCover,
       isTimed: () => !!current && (current.kind === 'video' || current.kind === 'audio'),
       getTime: () => video.currentTime,
       getDuration: () => video.duration,

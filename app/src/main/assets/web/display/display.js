@@ -476,7 +476,13 @@ function restoreSceneAfterText() {
 // cedo quando ela já está onde deveria, então chamar à toa não custa nem
 // pisca nada no telão.
 function reconcileCover(view) {
-  if (view === 'wallpaper') stage.coverIn(false); else stage.coverOut();
+  // `stage.shouldCover()` cobre o caso do ÁUDIO SEM LETRA (v5.112): a view dele
+  // é 'visual' como a de qualquer mídia, mas não há o que revelar — abrir a
+  // cortina deixaria o telão no preto do palco. Só vale quando a cena é do
+  // stage: com o player do YouTube no ar, `current` pode estar nulo aqui, e a
+  // pergunta responderia "cobre" justamente sobre o vídeo que está tocando.
+  if (view === 'wallpaper' || (!yt && stage.shouldCover())) stage.coverIn(false);
+  else stage.coverOut();
 }
 
 // ===== Microfone ao vivo (push-to-talk) =====

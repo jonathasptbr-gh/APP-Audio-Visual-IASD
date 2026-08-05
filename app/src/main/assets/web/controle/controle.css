@@ -1189,15 +1189,37 @@ main {
    última mídia; no rodapé quem dá o respiro é o `gap` do `<main>`. */
 .import-row { flex-shrink: 0; display: flex; gap: .5rem; margin-top: .85rem; }
 .list-foot > .import-row { margin-top: 0; }
-/* Cabeçalho de origem na tela de Favoritos ("Atalhos" / "Pastas do
-   dispositivo"): rótulo discreto, não um item da lista — por isso sem fundo,
-   sem borda e sem feedback de toque. */
+/* Cabeçalho de origem na gaveta de Favoritos ("Minhas pastas" / "Pastas do
+   sistema" / os tipos): rótulo discreto, não um item da lista — por isso sem
+   fundo, sem borda e sem feedback de toque. */
 .fav-section {
   flex-shrink: 0; padding: .5rem .2rem .1rem;
   font-size: .7rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
   color: var(--muted);
 }
 .fav-section + .lib-item { margin-top: 0; }
+
+/* ---------- A gaveta de Favoritos é uma LISTAGEM, e listagem é densa ---------- */
+/* (v5.112) Ela herdava a métrica da lista do Cronograma, e as duas não fazem a
+   mesma coisa: no Cronograma cada linha é um item que vai ao ar — ela é ALVO de
+   toque no meio de um culto, e o espaço em volta é o que evita o toque errado.
+   A gaveta é o oposto: o operador vem PROCURAR, dividida em cinco ou seis
+   seções por tipo, e cada linha de ar a mais é uma linha de conteúdo a menos —
+   com trinta favoritos, meia dúzia de nomes por tela vira rolagem para achar o
+   que se sabe que está lá.
+   O que encolhe é a MOLDURA (miniatura, respiro, espaço entre linhas), nunca o
+   TEXTO nem os ALVOS: o nome continua no mesmo corpo, porque é ele que se lê, e
+   os botões da linha continuam em `--hit` (34px), que é o piso de toque do app.
+   É esse piso que limita o resto — com 34px de botão mais os 2px de borda de
+   cada lado (a moldura do item selecionado), a gordura que sobrava era só o
+   respiro. Medido: o passo de uma linha cai de ~57px para ~49px, e o cabeçalho
+   de cada seção encolhe junto; numa gaveta de trinta favoritos divididos em
+   cinco seções isso é mais de uma tela inteira de rolagem a menos. */
+#favList { gap: .22rem; padding-top: .35rem; }
+#favList .row { padding: .2rem .45rem; gap: .45rem; }
+#favList .thumb { width: 32px; height: 32px; }
+#favList .thumb--icon .msym { font-size: var(--icon-md); }
+#favList .fav-section { padding: .45rem .2rem .05rem; }
 /* Tracejado no PRÓPRIO accent: o valor literal que estava aqui era o azul
    #2f81f7 aposentado há versões — dois azuis diferentes lado a lado, com o
    mesmo papel (ação secundária contornada), congelados um no token e outro
@@ -1882,7 +1904,7 @@ main {
    da referência e a empurravam para reticências. Sem rótulo o par mede ~74px e
    cabe: o que a segunda faixa custava era altura, e altura aqui sai da LEITURA,
    que é o conteúdo da tela. */
-.bible-read-foot { flex-shrink: 0; display: flex; align-items: center; justify-content: center; gap: .5rem; padding-top: .1rem; }
+.bible-read-foot { flex-shrink: 0; display: flex; align-items: stretch; justify-content: center; gap: .5rem; padding-top: .1rem; }
 /* `min-width: 0` porque agora ela divide a linha com os dois botões de guardar:
    sem isso o padrão `min-width: auto` a impediria de encolher, e o nome longo de
    um livro empurraria os botões para fora da tela em vez de virar reticências. */
@@ -1896,9 +1918,16 @@ main {
 /* O nome do livro é o único de largura imprevisível ("1 Tessalonicenses"): é
    ele que encolhe quando a linha aperta, com reticências. */
 .bible-ref-part--book { flex-shrink: 1; min-width: 3.5rem; }
-/* GUARDAR A REFERÊNCIA (v5.103): os dois destinos de uma cena de roteiro, hoje
-   nos mesmos botões de ícone do resto do app (`.cue-save-btn`). */
+/* GUARDAR A REFERÊNCIA (v5.103): os dois destinos de uma cena de roteiro, nos
+   mesmos botões de ícone do resto do app (`.cue-save-btn`).
+   AQUI ELES SÃO MAIORES (v5.112): a caixa padrão (`--hit`, 34px) ficava 4px mais
+   baixa e 22px mais estreita que as células de Livro/Capítulo/Versículo ao lado,
+   e numa linha só isso não se lê como "botão menor", se lê como desalinhado. A
+   altura vem do `stretch` — eles acompanham a referência seja qual for a altura
+   dela, em vez de repetirem um número que teria de ser mantido à mão nos dois
+   lugares. */
 .bible-read-acoes { display: flex; gap: .35rem; flex-shrink: 0; }
+.bible-read-acoes .cue-save-btn { width: 46px; height: auto; }
 .bible-ref-part:first-child { border-radius: var(--radius-btn) 0 0 var(--radius-btn); }
 .bible-ref-part:last-child { border-radius: 0 var(--radius-btn) var(--radius-btn) 0; }
 .bible-ref-label { font-size: .56rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
@@ -3036,11 +3065,21 @@ body.mode-simple .hymn-add-btn { display: none; }
 .btn-pulso { position: relative; transition: background-color .15s ease, color .15s ease; }
 .btn-pulso { border-color: transparent; }
 .btn-pulso > * { visibility: hidden; }
+/* O ✓ e o ✕ vêm da FONTE DE ÍCONES, não do texto (v5.112). Os caracteres
+   Unicode `✓`/`✕` são desenhados pela fonte do sistema, que num Android
+   qualquer é a Roboto: traço de caneta, com entrada e saída afinando e a perna
+   do ✓ curvando. Ao lado de vinte ícones geométricos de traço constante, o
+   sinal de confirmação era a única coisa "desenhada à mão" da tela. `check` e
+   `close` do Material Symbols são retos, de espessura única e do mesmo peso do
+   resto — e o ✕ passa a ser LITERALMENTE o mesmo glifo do botão de fechar. */
 .btn-pulso::after {
-  content: '✓';
+  content: '\e5ca';   /* check */
+  font-family: 'Material Symbols Outlined';
+  font-weight: normal; font-variant: normal; text-transform: none;
+  -webkit-font-smoothing: antialiased;
   position: absolute; inset: 0;
   display: flex; align-items: center; justify-content: center;
-  font-size: .95rem; font-weight: 700; line-height: 1;
+  font-size: var(--icon-sm); line-height: 1;
 }
 /* As três leituras, nas cores que o app já usa para elas: verde é concluído,
    âmbar é atenção (o "já estava lá", que é o que evita o toque repetido) e
@@ -3048,4 +3087,4 @@ body.mode-simple .hymn-add-btn { display: none; }
 .btn-pulso--ok { background: var(--ok-soft); color: var(--ok); }
 .btn-pulso--dup { background: var(--warn-soft); color: var(--warn-text); }
 .btn-pulso--erro { background: var(--danger-soft); color: var(--danger-text); }
-.btn-pulso--erro::after { content: '✕'; }
+.btn-pulso--erro::after { content: '\e14c'; }   /* close */

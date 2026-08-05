@@ -162,7 +162,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.111';
+const WEB_VERSION = '5.112';
 
 // Escrita UMA vez, na carga: o indicador mora no rodapé de Configurações desde
 // a v5.49 e não depende mais de qual aba está aberta (no cabeçalho ele
@@ -4624,8 +4624,8 @@ function renderLibrary() {
       ? (fq ? '<li class="empty">Nenhum arquivo encontrado.</li>'
         : (currentFolder && currentFolder._opfs
           ? '<li class="empty">Pasta vazia.</li>'
-          : '<li class="empty">Atalho vazio.<br>Segure itens no Cronograma para selecioná-los'
-            + '<br>e use "Adicionar a um atalho".</li>'))
+          : '<li class="empty">Pasta vazia.<br>Segure itens no Cronograma para selecioná-los'
+            + '<br>e use "Adicionar a uma pasta".</li>'))
       : '<li class="empty">Cronograma vazio.</li>';
     return;
   }
@@ -5644,7 +5644,7 @@ function renderFolderList() {
     const empty = document.createElement('li');
     empty.className = 'empty';
     empty.innerHTML = 'Nenhum favorito ainda.<br>Toque na estrela de qualquer item para marcá-lo aqui'
-      + '<br>— ou crie um atalho para agrupar o que você mais usa.';
+      + '<br>— ou crie uma pasta para agrupar o que você mais usa.';
     favListEl.appendChild(empty);
     appendNewFavoriteRow();
     renderStorageUsage();
@@ -5665,9 +5665,17 @@ function renderFolderList() {
     appendFavSection(g.nome);
     doGrupo.forEach((item) => favListEl.appendChild(favItemRow(item)));
   });
-  if (folders.length) appendFavSection('Atalhos');
+  // "MINHAS PASTAS" × "PASTAS DO SISTEMA" (v5.112). Antes eram "Atalhos" e
+  // "Pastas do dispositivo": "atalho" sugere um ponteiro para uma coisa que
+  // mora em outro lugar, e não é isso que elas são — são PASTAS, agrupamentos
+  // que o operador cria aqui e enche com o que já favoritou. As do sistema, ao
+  // contrário, são exatamente um VÍNCULO: apontam para uma pasta do
+  // armazenamento do aparelho e existem para ser re-sincronizadas (daí o
+  // `folder_open` e o botão de setas circulares, que as separam das outras à
+  // primeira vista). O par de títulos diz de quem é cada uma.
+  if (folders.length) appendFavSection('Minhas pastas');
   renderVirtualFolders();
-  if (opfsFolders.length) appendFavSection('Pastas do dispositivo');
+  if (opfsFolders.length) appendFavSection('Pastas do sistema');
   opfsFolders.forEach((f) => {
     const li = document.createElement('li');
     li.className = 'lib-item folder-opfs';
@@ -5786,7 +5794,7 @@ function renderVirtualFolders() {
     icon.appendChild(msym(ICON.folder));
     const nameEl = document.createElement('span'); nameEl.className = 'row-name'; nameEl.textContent = folder.name;
     const countEl = document.createElement('span'); countEl.className = 'folder-count'; countEl.textContent = String(count);
-    const rmBtn = document.createElement('button'); rmBtn.className = 'row-btn'; rmBtn.title = 'Excluir atalho';
+    const rmBtn = document.createElement('button'); rmBtn.className = 'row-btn'; rmBtn.title = 'Excluir pasta';
     rmBtn.appendChild(msym(ICON.del));
     rmBtn.addEventListener('click', (e) => { e.stopPropagation(); deleteFolder(folder.id); });
 
@@ -5809,7 +5817,7 @@ function appendNewFavoriteRow() {
   btn.className = 'import-btn';
   btn.appendChild(msym(ICON.folderNew));
   const txt = document.createElement('span');
-  txt.textContent = 'Novo atalho';
+  txt.textContent = 'Nova pasta';
   btn.appendChild(txt);
   btn.addEventListener('click', promptNewFavorite);
   li.appendChild(btn);
@@ -5817,7 +5825,7 @@ function appendNewFavoriteRow() {
 }
 
 async function promptNewFavorite() {
-  const name = await appPrompt({ title: 'Novo atalho', message: 'Nome do atalho:', okText: 'Criar', placeholder: 'Ex.: Louvores especiais' });
+  const name = await appPrompt({ title: 'Nova pasta', message: 'Nome da pasta:', okText: 'Criar', placeholder: 'Ex.: Louvores especiais' });
   if (name && name.trim()) await createFolder(name.trim());
 }
 
@@ -6898,7 +6906,7 @@ async function createFolder(name) {
 // ocupando o disco, sem tela nenhuma no app capaz de recuperá-lo.
 async function deleteFolder(folderId) {
   const folder = folders.find((f) => f.id === folderId);
-  if (!(await appConfirm({ title: 'Excluir atalho', message: 'Excluir o atalho "' + (folder ? folder.name : '') + '"? As mídias não são apagadas.', okText: 'Excluir' }))) return;
+  if (!(await appConfirm({ title: 'Excluir pasta', message: 'Excluir a pasta "' + (folder ? folder.name : '') + '"? As mídias não são apagadas.', okText: 'Excluir' }))) return;
   await AVDB.folderDrop(folderId);
   if (currentFolder && currentFolder.id === folderId) currentFolder = null;
   load();
@@ -6911,8 +6919,8 @@ async function deleteFolder(folderId) {
 // qualquer lista, que é o vazamento que `addMediaToList` existe para impedir.
 async function addToFolder(folderId, ids, btn) {
   const alvo = folders.find((f) => f.id === folderId);
-  const nomeAtalho = '"' + ((alvo && alvo.name) || 'atalho') + '"';
-  const onde = { em: 'em ' + nomeAtalho, para: 'a ' + nomeAtalho };
+  const nomePasta = '"' + ((alvo && alvo.name) || 'pasta') + '"';
+  const onde = { em: 'em ' + nomePasta, para: 'a ' + nomePasta };
   let novos = 0;
   for (const id of ids) {
     if (!(await AVDB.listHas('folder_' + folderId, id))) novos++;
@@ -6941,7 +6949,7 @@ function closeFolderPicker() {
 function renderFolderPicker() {
   folderPickerListEl.innerHTML = '';
   if (folders.length === 0) {
-    folderPickerListEl.innerHTML = '<li class="empty">Nenhum atalho ainda.<br>Crie um abaixo.</li>';
+    folderPickerListEl.innerHTML = '<li class="empty">Nenhuma pasta ainda.<br>Crie uma abaixo.</li>';
     return;
   }
   const selectedIds = folderPickIds || [...selected];
@@ -8336,19 +8344,48 @@ function pintarYtLinha(li, reg) {
 // toque baixava direto e pronto: o operador não escolhia nada e o vídeo caía no
 // Cronograma quisesse ele ou não.
 function openYtMenu(r) {
-  songMenuFor = { yt: r, variant: 'full' };
+  if (!songMenuFor || songMenuFor.yt !== r) songMenuFor = { yt: r, variant: 'full', audio: false };
   songMenuTitleEl.textContent = r.name || 'Vídeo do YouTube';
   songMenuListEl.innerHTML = '';
+  // VÍDEO × SÓ ÁUDIO, no MESMO seletor de Cantada/Playback das músicas do
+  // acervo — é a mesma pergunta ("qual faixa deste item?") e não havia por que
+  // inventar um segundo desenho para ela. A escolha vale para as quatro ações
+  // abaixo, em vez de dobrar a folha para oito linhas.
+  //
+  // Só aparece com shell ≥ 23 (`ytFetchAudio` na ponte). Num anterior o botão
+  // não faria nada, e botão que não faz nada no meio de um culto é pior que
+  // botão nenhum — mesma regra do botão de busca no YouTube.
+  if (window.__NATIVE__ && (window.__SHELL_VERSION__ | 0) >= 23) {
+    const seg = document.createElement('li'); seg.className = 'song-menu-seg-row';
+    const wrap = document.createElement('div'); wrap.className = 'fit-seg song-menu-seg';
+    [[false, 'Vídeo'], [true, 'Só áudio']].forEach(([v, rot]) => {
+      const b = document.createElement('button');
+      b.className = 'fit-opt' + (!!songMenuFor.audio === v ? ' active' : '');
+      b.textContent = rot;
+      b.addEventListener('click', () => { songMenuFor.audio = v; openYtMenu(r); });
+      wrap.appendChild(b);
+    });
+    seg.appendChild(wrap);
+    songMenuListEl.appendChild(seg);
+  }
   // O subtítulo do "Tocar agora" DIZ que o Cronograma fica de fora: é a
   // diferença entre as três opções, e ela não se adivinha olhando o ícone.
+  // A escolha é lida AGORA, na montagem, e viaja no fecho de cada ação: o
+  // `songMenuItem` chama `closeSongMenu()` antes da ação, e `closeSongMenu`
+  // zera o `songMenuFor` — consultá-lo lá dentro encontraria null e todo
+  // download sairia como vídeo. É o mesmo cuidado que a `variante` das músicas
+  // já tomava, e a folha é remontada a cada toque no seletor, então o valor
+  // capturado é sempre o vigente.
+  const soAudio = !!songMenuFor.audio;
   songMenuListEl.appendChild(songMenuItem(msym(ICON.play), 'Tocar agora',
-    'Projeta em seguida, sem entrar no Cronograma', () => ytAcao(r, 'tocar')));
+    soAudio ? 'Toca no fundo, sem mexer no telão' : 'Projeta em seguida, sem entrar no Cronograma',
+    () => ytAcao(r, 'tocar', null, soAudio)));
   songMenuListEl.appendChild(songMenuItem(msym(ICON.queue), 'Adicionar à playlist',
-    'Entra na fila, sem entrar no Cronograma', (vr, btn) => ytAcao(r, 'playlist', btn)));
+    'Entra na fila, sem entrar no Cronograma', (vr, btn) => ytAcao(r, 'playlist', btn, soAudio)));
   songMenuListEl.appendChild(songMenuItem(msym(ICON.cronoAdd), 'Adicionar ao Cronograma',
-    'A lista do culto', (vr, btn) => ytAcao(r, 'cronograma', btn)));
+    'A lista do culto', (vr, btn) => ytAcao(r, 'cronograma', btn, soAudio)));
   songMenuListEl.appendChild(songMenuItem(msym(ICON.star), 'Favoritar',
-    'Baixa e marca — fica à mão toda semana', (vr, btn) => ytAcao(r, 'favoritos', btn)));
+    'Baixa e marca — fica à mão toda semana', (vr, btn) => ytAcao(r, 'favoritos', btn, soAudio)));
   songMenuPopupEl.classList.add('open');
 }
 
@@ -8368,7 +8405,7 @@ function openYtMenu(r) {
 // entregue ao `addMedia`, que continua gravando registro e lista na mesma
 // transação.
 const YT_LISTA = { tocar: 'avulsos', playlist: 'playlist', cronograma: 'imports', favoritos: 'favs' };
-async function ytAcao(r, destino, btn) {
+async function ytAcao(r, destino, btn, somenteAudio) {
   const tocar = destino === 'tocar';
   if (tocar) closeHymnSearch();
   setYtEstado(r.id, 'baixando');
@@ -8380,10 +8417,16 @@ async function ytAcao(r, destino, btn) {
   // Só vale quando há arquivo no aparelho: é esse o registro que o `ytArquivo`
   // reaproveita. Um item de PLAYER (o link, sem bytes) não conta — dele sai um
   // registro novo, com id novo.
-  const existente = r && r.id ? await AVDB.mediaByYoutube(r.id) : null;
+  // A FORMA escolhida no seletor do topo da folha (vídeo ou só áudio), que
+  // chega por parâmetro porque a folha já fechou quando esta função roda. Ela
+  // atravessa tudo o que vem abaixo: a pergunta "já está na lista?", o
+  // reaproveitamento do arquivo e o download.
+  const soAudio = !!somenteAudio;
+  const existente = r && r.id ? await AVDB.mediaByYoutube(r.id, soAudio ? 'audio' : 'video') : null;
   const jaNaLista = !!(existente && existente.blob && await AVDB.listHas(lista, existente.id));
   const rec = await ytArquivo(r, {
     lista,
+    somenteAudio: soAudio,
     naPreview: tocar,
     aviso: destino === 'playlist' ? 'nenhum' : (tocar ? 'preview' : 'lib'),
     onPct: (pct) => setYtEstado(r.id, 'baixando', pct),
@@ -8814,7 +8857,7 @@ function renderSongMenu(modo) {
   // simples, sem seletor no meio. Organizar em atalho continua possível — pela
   // seleção múltipla, dentro da gaveta, para quem tem muita coisa marcada.
   songMenuListEl.appendChild(songMenuItem(msym(ICON.star), 'Favoritar',
-    'O atalho para o que se usa toda semana',
+    'O que se usa toda semana, sempre à mão',
     (vr, btn) => addSongToFavorites(coll, s, vr, btn)));
   // A LETRA como cena de roteiro: entra no Cronograma sem baixar áudio nenhum,
   // e projetá-la é o mesmo "Apenas a letra" da folha de tocar. É o item de
@@ -9308,7 +9351,14 @@ function detectUrlKind(url) {
 // onde o resultado vai aparecer. Ver `libBusy`.
 async function ytBaixarNativo(link, nome, opts) {
   if (!window.__NATIVE__ || (window.__SHELL_VERSION__ | 0) < 16) return null;
+  // SÓ O ÁUDIO exige shell ≥ 23 (o método `ytFetchAudio` da ponte). Num
+  // anterior, pedir áudio devolveria null e o operador ficaria sem nada — e ele
+  // pediu o louvor, não o formato: cai no vídeo, que toca igual. Quem desenha a
+  // escolha na tela já a esconde nesse shell (ver `openYtMenu`); esta guarda é
+  // para o caminho que não passa pela tela.
+  const soAudio = !!(opts && opts.somenteAudio) && (window.__SHELL_VERSION__ | 0) >= 23;
   const rotulo = nome || 'Vídeo do YouTube';
+  const rotuloBaixando = soAudio ? 'Baixando áudio' : 'Baixando vídeo';
   const naPreview = !!(opts && opts.naPreview);
   // Três destinos de aviso, não dois. O terceiro (`aviso: 'nenhum'`) é a
   // playlist: ela mora dentro de uma bandeja fechada, então não há linha para
@@ -9316,30 +9366,37 @@ async function ytBaixarNativo(link, nome, opts) {
   // que nunca vai aparecer lá. Ali quem mostra o andamento é a própria linha
   // do resultado (`onPct`) mais a notificação do sistema.
   const aviso = (opts && opts.aviso) || (naPreview ? 'preview' : 'lib');
-  const bg = aviso === 'preview' ? previewBusy('Preparando vídeo', rotulo)
+  const bg = aviso === 'preview' ? previewBusy(soAudio ? 'Preparando áudio' : 'Preparando vídeo', rotulo)
     : aviso === 'lib' ? libBusy(rotulo, opts && opts.chave)
       : { visivel: false, atualizar() {}, soltar() {} };
-  const notif = bgTaskStart('Baixando vídeo', 1);
+  const notif = bgTaskStart(rotuloBaixando, 1);
   try {
     return await withBgWork(async () => {
       const r = await AVNative.ytFetch(link, (lidos, total) => {
         const pct = total ? Math.floor((lidos / total) * 100) : -1;
         bg.atualizar(pct >= 0
-          ? 'Baixando vídeo · ' + pct + '%'
-          : 'Baixando vídeo · ' + fmtBytes(lidos), null, pct);
+          ? rotuloBaixando + ' · ' + pct + '%'
+          : rotuloBaixando + ' · ' + fmtBytes(lidos), null, pct);
         if (opts && opts.onPct) opts.onPct(pct);
-      });
+      }, soAudio);
       if (!r || !r.url) return null;
       try {
         const res = await fetch(r.url);
         if (!res.ok) return null;
         const blob = await res.blob();
         if (!blob.size) return null;
-        const thumb = await makeThumb(blob, 'video');
+        // SEM MINIATURA quando é só áudio, e isso não é economia: a miniatura
+        // de um áudio seria a "capa" que não pode existir. O registro entra com
+        // `kind: 'audio'`, e é o kind que faz o telão manter o wallpaper em vez
+        // de trocar de imagem (ver `semVisual` em stage.js).
+        const thumb = soAudio ? null : await makeThumb(blob, 'video');
         return await AVDB.addMedia(blob, {
-          name: r.name || rotulo,
-          type: r.type || 'video/mp4',
-          kind: 'video',
+          // O sufixo é a MESMA convenção das músicas do acervo, que já se
+          // chamam "(Cantado)"/"(Playback)": sem ele, o vídeo e o áudio do
+          // mesmo link viram duas linhas com o nome idêntico na lista.
+          name: (r.name || rotulo) + (soAudio ? ' (áudio)' : ''),
+          type: r.type || (soAudio ? 'audio/mp4' : 'video/mp4'),
+          kind: soAudio ? 'audio' : 'video',
           thumb,
           // O id do vídeo fica GRAVADO no registro: é ele que faz o próximo
           // toque no mesmo resultado reaproveitar este arquivo em vez de
@@ -9615,7 +9672,12 @@ async function deckImportar(origem, nome, opts) {
 // da linha do Cronograma devolver o próprio link e parecer que não fez nada.
 async function ytArquivo(alvo, opts) {
   const vid = alvo && alvo.id ? alvo.id : null;
-  const ja = vid ? await AVDB.mediaByYoutube(vid) : null;
+  // O REAPROVEITAMENTO É POR FORMA (v5.112): quem pediu só o áudio não pode
+  // receber o vídeo de 80 MB que já estava aqui — e quem pediu o vídeo não pode
+  // receber um arquivo sem imagem. As duas formas convivem no banco com o mesmo
+  // `youtubeId`, e é o `kind` que as separa.
+  const soAudio = !!(opts && opts.somenteAudio);
+  const ja = vid ? await AVDB.mediaByYoutube(vid, soAudio ? 'audio' : 'video') : null;
   if (ja && ja.blob) return ja;
   return ytBaixarNativo(alvo.url, alvo.name, Object.assign({ youtubeId: vid }, opts || {}));
 }
@@ -11664,7 +11726,7 @@ if (window.__NATIVE__) {
 
 
 newFolderInPickerBtnEl.addEventListener('click', async () => {
-  const name = await appPrompt({ title: 'Novo atalho', message: 'Nome do atalho:', okText: 'Criar', placeholder: 'Ex.: Louvores especiais' });
+  const name = await appPrompt({ title: 'Nova pasta', message: 'Nome da pasta:', okText: 'Criar', placeholder: 'Ex.: Louvores especiais' });
   if (name && name.trim()) { await createFolder(name.trim()); renderFolderPicker(); }
 });
 

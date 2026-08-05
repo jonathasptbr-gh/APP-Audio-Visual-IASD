@@ -233,7 +233,8 @@ window.AVNative = {
   openCast(),          // seletor de ESPELHAMENTO DE TELA do Android (≠ Google Cast)
   castTarget(),        // → string: rótulo do alvo de espelhamento deste aparelho
   openExternal(url),   // abre uma URL https FORA do app (só o Controle)
-  ytFetch(url, onProg),// → { url, name, size, type }: baixa um vídeo do YouTube
+  ytFetch(url, onProg, soAudio), // → { url, name, size, type }: baixa do YouTube
+                       //   `soAudio` traz só a faixa de áudio (m4a) — exige shell 23
   ytDiscard(url),      //   e apaga o arquivo depois que os bytes foram copiados
   keepAudioAlive(bool),// mesa de som ligada: este WebView não pode ser suspenso
   ytSearch(termo),     // → [{ id, url, name, author, seconds, thumb }] do YouTube
@@ -252,8 +253,10 @@ window.AVNative = {
 
 São **vinte e três métodos**, e essa é a superfície inteira que o resto do lado web
 tem direito de usar: fora do `native.js`, tocar em `__AVBridge` direto é
-acoplamento indevido. O próprio `native.js` chama mais cinco coisas no
-`__AVBridge`, e nenhuma delas é API para o app — `shellVersion()`, `role()` e
+acoplamento indevido. O próprio `native.js` chama mais seis coisas no
+`__AVBridge`, e nenhuma delas é API para o app — a sexta é o `ytFetchAudio`,
+que não é um método a mais da ponte web e sim o outro DESTINO do `ytFetch`
+quando se pede só o áudio (ver "Divergências") — `shellVersion()`, `role()` e
 `appVersion()` viram as globais logo abaixo, `busPost()` é o relay do barramento
 e `otaConfirm()` é o watchdog do OTA.
 
@@ -319,7 +322,8 @@ esperam uma **pessoa** e ficam sem prazo, porque um timeout ali resolveria null
 com o operador ainda escolhendo a pasta.
 
 `NativeBridge.SHELL_VERSION` identifica a versão da casca — **subir sempre que
-a superfície da ponte mudar**. Hoje vale **22** — a v5.100 fez `deckPages`
+a superfície da ponte mudar**. Hoje vale **23** — a v5.112 acrescentou
+`ytFetchAudio` (só a faixa de áudio de um vídeo do YouTube), a v5.100 fez `deckPages`
 devolver o MOTIVO da falha (`{ erro }`) em vez de `null`, a v5.99 mudou a ASSINATURA do
 `pickDoc` (que passou a receber os mimes e a devolver uma LISTA, porque virou a
 importação inteira do app e não só o seletor de PDF), a v5.98 o acrescentou, a
@@ -920,6 +924,7 @@ contextos.
 | Botão de cast da preview | oculto | `AVNative.openCast()` → seletor de **espelhamento de tela** (ver abaixo) |
 | PDF, PowerPoint, Google Apresentações | **PDF não existe** (não há quem o desenhe); o `.pptx` funciona, e é o MESMO caminho do app | **viram UMA IMAGEM POR PÁGINA**, cada formato pelo caminho que existe para ele: o **PDF** pelo `PdfRenderer` da PLATAFORMA (`SlideDeck.kt` + `AVNative.deckPages`) — fidelidade total, zero dependência; o **`.pptx`** pelo renderizador de OOXML em `assets/web/vendor/` (`pptxParaPaginas`, em `controle.js`), carregado por `import()` dinâmico e rasterizado com `<foreignObject>` + canvas. Daí para a frente é mídia comum: fade, cortina, telão e `MediaSession` que já existem, com ⏮/⏭ passando página. **Não há botão de "apresentação"**: uma apresentação é um arquivo como outro qualquer, e entra pelo mesmo "Importar arquivos" (que no app abre o seletor do SISTEMA, `pickDoc` — o `<input type="file">` devolve bytes, e o PDF precisa que o shell abra o ARQUIVO) ou pelo compartilhamento. O `.ppt` anterior a 2007 e o `.odp` ficam de fora: ninguém sabe desenhá-los, e aceitar para depois falhar é pior que não aceitar. O link do Google entra sozinho pela URL de exportação |
 | Vídeo do YouTube | player embutido (IFrame API) | **arquivo de vídeo baixado PELO APARELHO** (`YoutubeGrab.kt` + `AVNative.ytFetch`) — o embed pausa sozinho com o app minimizado, e a extração no próprio celular sai do IP do chip, que é o que o YouTube não bloqueia. Sem configurar nada. Cobalt continua como segunda opção para quem já mantém uma instância; falhando os dois, o link vira item de player |
+| **Só o ÁUDIO** de um vídeo do YouTube | — | **`ytFetchAudio`** (v5.112, shell ≥ 23): a faixa m4a, sem vídeo. A escolha é o MESMO seletor de Cantada/Playback das músicas, no topo da folha de destinos, e vale para as quatro ações. Entra como `kind: 'audio'` e **sem miniatura** — é o kind que faz o telão manter o wallpaper em vez de trocar de imagem. É também o único caminho em que o teto de 720p do progressivo não existe: o áudio do YouTube já vem em faixa separada, então aqui ele vem inteiro |
 | Buscar no YouTube | não existe: o botão abre o YouTube numa aba | **a busca acontece DENTRO do acervo** — a tela que o rótulo chama de **Biblioteca** desde a v5.96, e que no código segue sendo o acervo — (`AVNative.ytSearch`, `YoutubeGrab.pesquisar`, em **português** — no padrão en-GB da biblioteca o YouTube devolve o título TRADUZIDO de vídeos que são originalmente em português, e passar a localização ao `NewPipe.init` NÃO resolve: o serviço filtra o idioma por uma lista de suportados que hoje só tem `en-GB`. Quem resolve é o `forceLocalization` do próprio `Extractor`): os resultados entram na mesma lista e o toque abre a mesma folha de três escolhas das músicas (tocar · playlist · Cronograma), cada uma indo só para o seu lugar. Um iframe da página de resultados é recusado pelo `X-Frame-Options` do YouTube, e a API oficial exigiria chave com cota compartilhada pela frota |
 | Link para fora do app ("Pesquisar … no YouTube") | `window.open` numa aba nova | **`AVNative.openExternal(url)`** → `ACTION_VIEW` numa tarefa própria. O WebView RECUSA navegar para outro origin (invariante 2), então sem esse método um link externo não faz absolutamente nada — nem erro no console |
 | "Conectar a tela" (modo simplificado) | abre a tela do Display (`window.open`) — e é ela que conta como "conectado" | mesmo `AVNative.openCast()`, com o nome da tela conectada no subtítulo |
@@ -1366,7 +1371,7 @@ aparelho nenhum.
 O `versionCode`/`versionName` do APK vêm do CI (ver "Build") e não se tocam à
 mão.
 
-**Versão atual: v5.111** (base web) · `SHELL_VERSION` **22**, e o bundle segue com
+**Versão atual: v5.112** (base web) · `SHELL_VERSION` **23**, e o bundle segue com
 `minShell: 2` — ele funciona igual num shell antigo, só sem os recursos que são
 nativos por construção (a escada do voltar, os botões de volume, a notificação de
 controles), que **só chegam instalando o APK novo**, não pelo OTA.
