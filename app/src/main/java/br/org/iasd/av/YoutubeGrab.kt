@@ -17,6 +17,7 @@ import org.schabi.newpipe.extractor.localization.Localization
 import org.schabi.newpipe.extractor.search.SearchInfo
 import org.schabi.newpipe.extractor.stream.AudioStream
 import org.schabi.newpipe.extractor.stream.StreamInfo
+import org.schabi.newpipe.extractor.stream.Stream
 import org.schabi.newpipe.extractor.stream.StreamInfoItem
 import org.schabi.newpipe.extractor.stream.VideoStream
 import java.io.File
@@ -168,38 +169,85 @@ object YoutubeGrab {
             val ex = ServiceList.YouTube.getStreamExtractor(link)
             aportuguesar(ex)
             val info = StreamInfo.getInfo(ex)
-            // O áudio é uma faixa SEPARADA no YouTube (`audioStreams`), e é a
-            // única coisa que este app consegue pegar em qualidade cheia sem
-            // remuxar: o vídeo progressivo tem teto de 720p justamente porque
-            // as resoluções altas vêm sem áudio. Ou seja, pedir só o áudio não
-            // é uma versão degradada do download — é o caminho em que o limite
-            // do app não existe.
-            val url = if (somenteAudio) melhorAudio(info)?.getContent()
-                      else melhorProgressivo(info)?.getContent()
-            if (url.isNullOrBlank()) {
-                Log.w(TAG, "nenhum stream " + (if (somenteAudio) "de áudio" else "progressivo") + " para $link")
-                return null
-            }
             val nome = tituloLimpo(info.name, info.uploaderName)
-            val destino = arquivoDestino(ctx, info.id ?: "video", somenteAudio)
-            baixar(url, destino, onProgresso)
-            if (destino.length() <= 0L) {
-                destino.delete()
-                return null
+            val id = info.id ?: "video"
+
+            // AS TENTATIVAS, EM ORDEM. Pedindo só o áudio, as faixas de áudio
+            // vêm primeiro — e o VÍDEO PROGRESSIVO fica como último recurso, em
+            // vez de o download inteiro falhar.
+            //
+            // Isso não é zelo teórico: as faixas separadas (as "adaptativas")
+            // são exatamente as que o YouTube protege com PO Token, e este app
+            // não monta o desafio do BotGuard de propósito (ver o cabeçalho).
+            // Sem token, `audioStreams` pode voltar vazio ou com URLs que o CDN
+            // responde 403 — enquanto o progressivo, que é o formato antigo,
+            // costuma passar. Era esse o buraco: a v5.112 tentava só a faixa de
+            // áudio e, quando ela não vinha, devolvia `null` — do lado do
+            // operador, um cartão de download que some sem dizer nada.
+            //
+            // E cair no progressivo NÃO desmente a escolha: quem decide que o
+            // telão não muda de imagem é o `kind: 'audio'` do registro, lá no
+            // lado web, não o container do arquivo. O operador ouve o louvor no
+            // fundo do mesmo jeito; o que ele paga é o tamanho do arquivo, e é
+            // por isso que esta é a ÚLTIMA tentativa, não a primeira.
+            val tentativas = mutableListOf<Alvo>()
+            if (somenteAudio) {
+                // 1) AAC, a primeira escolha: o WebView decodifica em qualquer
+                //    aparelho. 2) qualquer OUTRO formato de áudio (na prática
+                //    Opus/WebM, que este mesmo Chromium toca) — e o `exceto`
+                //    existe para a segunda tentativa não repetir a faixa que
+                //    acabou de falhar. 3) o vídeo progressivo.
+                melhorAudio(info, "m4a", null)?.let { tentativas += Alvo(it, true) }
+                melhorAudio(info, null, "m4a")?.let { tentativas += Alvo(it, true) }
             }
-            JSONObject()
-                .put("url", SafRegistry.urlFor(Uri.fromFile(destino)))
-                .put("name", nome)
-                .put("size", destino.length())
-                // O `type` é o que decide, lá no lado web, se isto vira `kind`
-                // 'audio' ou 'video' — e é o `kind` que faz o telão NÃO trocar
-                // de imagem ao tocar. Um m4a anunciado como `video/mp4` seria
-                // uma cortina preta cobrindo o wallpaper no meio do culto.
-                .put("type", if (somenteAudio) "audio/mp4" else "video/mp4")
+            melhorProgressivo(info)?.let { tentativas += Alvo(it, false) }
+
+            for (alvo in tentativas) {
+                val url = alvo.stream.getContent()
+                if (url.isNullOrBlank()) continue
+                val destino = arquivoDestino(ctx, id, alvo.ext)
+                try {
+                    baixar(url, destino, onProgresso)
+                } catch (e: Exception) {
+                    Log.w(TAG, "falhou baixando ${alvo.ext} de $link", e)
+                    destino.delete()
+                    continue
+                }
+                if (destino.length() <= 0L) { destino.delete(); continue }
+                return JSONObject()
+                    .put("url", SafRegistry.urlFor(Uri.fromFile(destino)))
+                    .put("name", nome)
+                    .put("size", destino.length())
+                    // O tipo é o do arquivo que de fato veio — nunca o que foi
+                    // PEDIDO. Anunciar um mp4 com vídeo como `audio/mp4` seria
+                    // mentir para o decodificador do WebView; quem transforma
+                    // isto em "toca sem imagem" é o `kind` do registro, que o
+                    // lado web escolhe a partir do que ele pediu.
+                    .put("type", alvo.mime)
+                    // ...e este campo diz se a faixa é MESMO só áudio, para o
+                    // lado web poder avisar quando teve de cair no vídeo.
+                    .put("audioOnly", alvo.soAudio)
+            }
+            Log.w(TAG, "nenhum stream utilizável para $link (somenteAudio=$somenteAudio)")
+            null
         } catch (e: Exception) {
             Log.w(TAG, "falhou em $link", e)
             null
         }
+    }
+
+    /**
+     * Uma tentativa de download. O tipo e a extensão saem do PRÓPRIO formato da
+     * faixa (`MediaFormat.getMimeType()`/`getSuffix()`), nunca de uma tabela
+     * escrita à mão aqui: é a biblioteca que sabe se aquele itag é m4a, WebM ou
+     * Opus, e uma segunda tabela envelheceria em silêncio na primeira vez que o
+     * YouTube trocasse um formato.
+     */
+    private class Alvo(val stream: Stream, val soAudio: Boolean) {
+        val mime: String = stream.getFormat()?.getMimeType()
+            ?: (if (soAudio) "audio/mp4" else "video/mp4")
+        val ext: String = stream.getFormat()?.getSuffix()
+            ?: (if (soAudio) "m4a" else "mp4")
     }
 
     /**
@@ -317,10 +365,11 @@ object YoutubeGrab {
      * sobrescrever a outra enquanto a primeira ainda está sendo copiada para a
      * biblioteca.
      */
-    private fun arquivoDestino(ctx: Context, id: String, somenteAudio: Boolean = false): File =
+    private fun arquivoDestino(ctx: Context, id: String, ext: String): File =
         File(
             pasta(ctx),
-            id.replace(Regex("[^A-Za-z0-9_-]"), "_") + (if (somenteAudio) "-audio.m4a" else ".mp4"),
+            id.replace(Regex("[^A-Za-z0-9_-]"), "_")
+                + (if (ext == "mp4") "" else "-audio") + "." + ext,
         )
 
     /**
@@ -343,20 +392,21 @@ object YoutubeGrab {
     /**
      * A melhor faixa **só de áudio**, em M4A (AAC).
      *
-     * O filtro por m4a tem o mesmo motivo do MP4 lá em cima: o WebView do
-     * Android toca AAC em qualquer aparelho, e o `.webm` (Opus/Vorbis) depende
-     * do modelo. Um louvor que não abre no telão no meio do culto é pior que um
-     * arquivo maior — e aqui "maior" é um punhado de MB, porque não há vídeo.
+     * `sufixo` = "m4a" pede AAC, a primeira escolha: é o que o WebView do
+     * Android decodifica em qualquer aparelho. `null` aceita QUALQUER formato de
+     * áudio (na prática, WebM/Opus) — que é a segunda tentativa, porque nem todo
+     * vídeo oferece m4a sem PO Token, e um Opus que toca vale mais que um AAC
+     * que não veio. O WebView é o mesmo Chromium do Chrome: ele toca Opus.
      *
-     * Sem m4a nenhum a função devolve `null` e quem chamou cai no caminho de
-     * sempre (vídeo, ou o player embutido): é melhor entregar o vídeo do que
-     * nada.
+     * Sem faixa de áudio nenhuma, quem chamou cai na tentativa seguinte (o
+     * vídeo progressivo) — ver [buscar].
      */
-    private fun melhorAudio(info: StreamInfo): AudioStream? =
+    private fun melhorAudio(info: StreamInfo, sufixo: String?, exceto: String?): AudioStream? =
         info.audioStreams
             .asSequence()
             .filter { it.isUrl && !it.getContent().isNullOrBlank() }
-            .filter { it.getFormat()?.getSuffix()?.equals("m4a", true) == true }
+            .filter { sufixo == null || it.getFormat()?.getSuffix()?.equals(sufixo, true) == true }
+            .filter { exceto == null || it.getFormat()?.getSuffix()?.equals(exceto, true) != true }
             .maxByOrNull { it.averageBitrate }
 
     /** "1080p60" → 1080. Resolução ilegível vira 0: ela nunca ganha do resto. */

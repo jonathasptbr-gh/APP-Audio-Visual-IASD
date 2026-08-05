@@ -696,6 +696,35 @@ quatro ações abaixo, em vez de dobrar a folha para oito linhas.
   aquele objeto — consultá-lo lá dentro encontraria null e todo download sairia
   como vídeo. É o mesmo cuidado que a `variante` das músicas já tomava.
 
+##### Por que a primeira versão não baixou nada (corrigido na v5.113)
+
+Em aparelho, pedir só o áudio mostrava o cartão de download e terminava em
+NADA: nem item, nem erro. A causa não estava no lado web — verificado com a
+ponte simulada, o pedido chegava com `soAudio: true` e o registro nascia certo
+(`kind: 'audio'`, sem miniatura, nome com " (áudio)"). Estava no shell: as
+faixas de áudio são **adaptativas**, e adaptativo é exatamente o que o YouTube
+protege com PO Token — que este app não monta de propósito (ver o cabeçalho de
+`YoutubeGrab.kt`). Sem token, `audioStreams` volta vazio ou com URLs que o CDN
+responde 403, enquanto o **progressivo**, que é o formato antigo, passa.
+
+Três correções, e a terceira valia para todo download, não só para o áudio:
+
+1. **Uma fila de tentativas, não uma escolha só**: AAC (m4a) → qualquer outro
+   formato de áudio (Opus/WebM, que este mesmo Chromium toca) → **o vídeo
+   progressivo**. Cair no progressivo não desmente a escolha do operador: quem
+   decide que o telão não muda de imagem é o `kind: 'audio'` do registro, não o
+   container do arquivo. Ele ouve o louvor no fundo do mesmo jeito; o que paga é
+   o tamanho, e por isso essa é a ÚLTIMA tentativa.
+2. **O `type` é o do arquivo que veio, nunca o que foi pedido** — anunciar um
+   mp4 com vídeo como `audio/mp4` seria mentir para o decodificador. O shell
+   passou a mandar também `audioOnly`, e quando ele é `false` o app avisa que
+   baixou o vídeo (num shell que não manda o campo, `undefined !== false` e
+   ninguém é avisado de nada, que é o certo para quem não tem a correção).
+3. **Um download que falha agora FALA.** `ytAcao` só apagava a marca de
+   "baixando" e sumia — minutos de espera terminando em silêncio, para todos os
+   destinos. Agora responde `erro` no botão (ou na faixa, quando o toque veio de
+   uma folha que já fechou).
+
 **Não exige subir o `DB_VERSION`** (nenhum índice novo; o IDB não tem esquema
 por registro), e é isso que o mantém barato: ver o preço da VOLTA descrito em
 `DB_VERSION`, em `db.js`. Um bundle anterior que encontre um cue o trata como
