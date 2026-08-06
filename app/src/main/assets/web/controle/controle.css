@@ -2925,14 +2925,27 @@ body.mode-simple .bottombar { display: none; }
 
 /* A caixa-preta do telão, em Configurações. `pre` porque cada linha é um
    registro e a ordem/alinhamento são a informação. */
+/* O REGISTRO INTEIRO (v5.121) — antes só a caixa-preta do telão.
+   `pre-wrap`, e não `pre`: a linha do YouTube tem centenas de caracteres, e com
+   `pre` ela virava rolagem HORIZONTAL — quem lê um log num celular não a
+   encontra. Com quebra, a coluna de horário das linhas curtas continua
+   alinhada e as longas dobram.
+   Mais alta que antes porque agora carrega quatro blocos em vez de um; ainda é
+   uma caixa que rola, e o botão de copiar entrega o conjunto de qualquer
+   jeito. */
 .diag-box {
-  margin: 0; max-height: 190px; overflow: auto;
+  margin: 0; max-height: 240px; overflow: auto;
   background: var(--surface); border-radius: var(--radius-btn);
   padding: .5rem .6rem;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: .68rem; line-height: 1.5; color: var(--muted);
-  white-space: pre; -webkit-user-select: text; user-select: text;
+  white-space: pre-wrap; overflow-wrap: anywhere;
+  -webkit-user-select: text; user-select: text;
 }
+/* O rótulo e o botão de copiar na mesma linha, acima da caixa. O botão fica
+   FORA do `<pre>` de propósito: dentro de uma área que rola, ele sairia de
+   cena junto com o texto. */
+.log-head { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
 .pv-fab.testing { color: var(--warn); }
 /* Sem tela conectada a faixa não existe — a tela inteira é o bloqueio, e o
    botão de conectar volta ao centro dela. */

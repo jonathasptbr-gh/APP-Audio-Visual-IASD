@@ -641,13 +641,30 @@
             <button type="button" class="fit-opt" id="wallReset">Padrão</button>
           </div>
         </div>
-        <!-- CAIXA-PRETA DO TELÃO. Três versões seguidas tentaram consertar
-             "o vídeo para quando o app é minimizado" por hipótese, e as três
-             erraram — porque ninguém vê o que acontece com a projeção enquanto
-             o celular está fora da frente. Isto é o registro do próprio telão,
-             pedido ao abrir esta tela (ver `diag()` em display.js). -->
+        <!-- O REGISTRO, e é UM só (v5.121). Ele nasceu como a caixa-preta do
+             telão: três versões seguidas tentaram consertar "o vídeo para
+             quando o app é minimizado" por hipótese e as três erraram, porque
+             ninguém vê o que acontece com a projeção enquanto o celular está
+             fora da frente.
+             Depois vieram outros diagnósticos, e o do YouTube foi parar no
+             RODAPÉ desta folha — conteúdo de tamanho variável num lugar de
+             espaço fixo. Uma extração com muitas tentativas simplesmente
+             transbordava e a parte de baixo ficava inalcançável, que é o
+             oposto do que um log serve.
+             Agora tudo mora aqui dentro, numa caixa que ROLA: identificação do
+             aparelho, suporte a transmissão direta, a última extração do
+             YouTube e a linha do tempo dos dois processos. Um botão copia o
+             conjunto — é assim que ele chega a quem for diagnosticar. -->
         <div class="fade-row fade-row--col">
-          <span>Registro do telão</span>
+          <div class="log-head">
+            <span>Registro</span>
+            <button id="diagCopy" class="log-copy" title="Copiar o registro" aria-label="Copiar o registro">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="9" y="9" width="11" height="11" rx="2"/>
+                <path d="M5 15V5a2 2 0 0 1 2-2h10"/>
+              </svg>
+            </button>
+          </div>
           <pre class="diag-box" id="diagBox"></pre>
         </div>
       </div>
@@ -668,25 +685,7 @@
              METADADO de diagnóstico e o lugar onde se procura diagnóstico é
              junto do estado do telão e do alvo de espelhamento, não numa faixa
              de navegação. Preenchido por `renderVersionLabel`. -->
-        <span id="appVersion" class="app-version">Controle v5.120</span>
-        <!-- DIAGNÓSTICO da última extração do YouTube (v5.115): quantas faixas
-             de cada tipo o extrator recebeu e qual delas venceu. Fica aqui, ao
-             lado das versões e do alvo de espelhamento, porque é o mesmo tipo
-             de coisa — metadado que só o aparelho sabe. Só aparece DEPOIS de um
-             download, e só no app (ver `renderYtDiag`).
-             COM BOTÃO DE COPIAR (v5.117): diagnóstico existe para ser
-             REPASSADO, e a alternativa é transcrever à mão uma linha cheia de
-             números — ou tirar foto da tela. Vale como regra: todo campo de log
-             deste app nasce com o botão do lado. -->
-        <div id="ytDiagBox" class="log-line" hidden>
-          <span id="ytDiagLine" class="log-text"></span>
-          <button id="ytDiagCopy" class="log-copy" title="Copiar" aria-label="Copiar">
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <rect x="9" y="9" width="11" height="11" rx="2"/>
-              <path d="M5 15V5a2 2 0 0 1 2-2h10"/>
-            </svg>
-          </button>
-        </div>
+        <span id="appVersion" class="app-version">Controle v5.121</span>
       </div>
     </div>
   </div>

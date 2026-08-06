@@ -162,7 +162,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.120';
+const WEB_VERSION = '5.121';
 
 // Escrita UMA vez, na carga: o indicador mora no rodapé de Configurações desde
 // a v5.49 e não depende mais de qual aba está aberta (no cabeçalho ele
@@ -183,65 +183,6 @@ function renderVersionLabel() {
 
 renderVersionLabel();
 
-// DIAGNÓSTICO da última extração do YouTube, no rodapé de Configurações.
-//
-// Ele responde uma pergunta que não se responde lendo código: o extrator está
-// recebendo as faixas ADAPTATIVAS deste vídeo (é onde moram o 1080p e o áudio
-// puro) ou só o progressivo, que é o que tem teto de 720p? Sem PO Token a
-// biblioteca busca os streams por um endpoint de conjunto reduzido, e o que
-// cabe nesse conjunto varia por vídeo — só o aparelho responde.
-//
-// É lido a cada ABERTURA de Configurações, não uma vez na carga: o valor muda a
-// cada download, e a graça é justamente comparar antes e depois de um teste.
-const ytDiagBoxEl = document.getElementById('ytDiagBox');
-const ytDiagEl = document.getElementById('ytDiagLine');
-const ytDiagCopyEl = document.getElementById('ytDiagCopy');
-async function renderYtDiag() {
-  if (!ytDiagBoxEl) return;
-  if (!window.__NATIVE__ || (window.__SHELL_VERSION__ | 0) < 24) { ytDiagBoxEl.hidden = true; return; }
-  let txt = '';
-  try { txt = await AVNative.ytDiag(); } catch (_) { txt = ''; }
-  ytDiagBoxEl.hidden = !txt;
-  ytDiagEl.textContent = txt ? 'Último YouTube: ' + txt : '';
-  ytDiagEl.title = 'O que o extrator recebeu na última extração — faixas de áudio'
-    + ' separadas, faixas de vídeo sem áudio (é onde mora o 1080p) e progressivas'
-    + ' (vídeo + áudio no mesmo arquivo).';
-}
-
-// COPIAR UM CAMPO DE LOG. Regra do projeto: todo campo de diagnóstico nasce com
-// este botão — ele existe para ser repassado, e a alternativa é transcrever
-// números à mão ou fotografar a tela.
-//
-// `navigator.clipboard` exige contexto seguro, e o app tem um (a base é servida
-// por `https://appassets.androidplatform.net`) — mas o WebView pode negar a
-// permissão sem aviso, então o caminho antigo (`execCommand`) fica como reserva.
-// A confirmação é o mesmo pulso do resto do app: o ícone vira ✓ por um instante.
-async function copiarTexto(texto, btn) {
-  let ok = false;
-  try {
-    await navigator.clipboard.writeText(texto);
-    ok = true;
-  } catch (_) {
-    try {
-      const ta = document.createElement('textarea');
-      ta.value = texto;
-      // Fora da vista, mas NÃO `display:none` nem `hidden`: um campo que não
-      // está no layout não pode ser selecionado, e sem seleção o `copy` copia
-      // nada — em silêncio.
-      ta.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0';
-      document.body.appendChild(ta);
-      ta.select();
-      ok = document.execCommand('copy');
-      ta.remove();
-    } catch (__) { ok = false; }
-  }
-  if (btn) responder(btn, ok ? 'ok' : 'erro', ok ? null : 'Não foi possível copiar');
-  return ok;
-}
-
-if (ytDiagCopyEl) {
-  ytDiagCopyEl.addEventListener('click', () => copiarTexto(ytDiagEl.textContent || '', ytDiagCopyEl));
-}
 
 const selbarEl = document.getElementById('selbar');
 const selCountEl = document.getElementById('selCount');
@@ -9565,7 +9506,6 @@ function openFadePopup() {
   renderLyricsBgSeg();
   renderWallSeg();
   pedirDiag();
-  renderYtDiag();
   fadePopupEl.classList.add('open');
 }
 function closeFadePopup() {
@@ -9606,19 +9546,81 @@ window.addEventListener('resume', () => diagC('descongelou'));
 let pausaEm = 0;
 function pausaPedida() { return Date.now() - pausaEm < 500; }
 
-function renderDiag() {
-  if (!diagBoxEl) return;
+// O QUE ESTE APARELHO É — o cabeçalho do registro.
+//
+// Ele existe porque um log colado sem contexto obriga a primeira resposta a ser
+// sempre a mesma pergunta ("qual versão? tem transmissão?"). Todo campo aqui é
+// coisa que só o aparelho sabe e que muda a leitura do resto.
+function cabecalhoDiag() {
+  const l = [];
+  l.push('Web v' + WEB_VERSION
+    + (window.__SHELL_NAME__ ? ' · Shell v' + window.__SHELL_NAME__ : ' · navegador')
+    + (window.__NATIVE__ ? ' · ponte ' + (window.__SHELL_VERSION__ | 0) : ''));
+  if (displayStatusTextEl) l.push('Telão: ' + (displayStatusTextEl.textContent || '?'));
+  if (castTargetLineEl && !castTargetLineEl.hidden) l.push(castTargetLineEl.textContent);
+  // SUPORTE A TRANSMISSÃO DIRETA. É o dado mais útil deste bloco desde a
+  // v5.120: quando um "Tocar agora" cai no download em vez de transmitir, a
+  // primeira pergunta é se o WebView deste aparelho aceita os codecs — e a
+  // resposta não se descobre de fora.
+  l.push('Transmissão: ' + diagMse());
+  l.push('Aparelho: ' + navigator.userAgent);
+  return l.join('\n');
+}
+
+function diagMse() {
+  if (!window.MediaSource) return 'sem MediaSource';
+  const testes = [
+    ['avc1', 'video/mp4; codecs="avc1.640028"'],
+    ['aac', 'audio/mp4; codecs="mp4a.40.2"'],
+  ];
+  const faltam = testes
+    .filter(([, t]) => { try { return !MediaSource.isTypeSupported(t); } catch (_) { return true; } })
+    .map(([n]) => n);
+  return faltam.length ? 'MediaSource sem ' + faltam.join('+') : 'MediaSource ok (avc1+aac)';
+}
+
+// A LINHA DO TEMPO dos dois processos, em ordem de relógio.
+function eventosDiag() {
   if (!diagLinhas.length) {
-    diagBoxEl.textContent = 'Sem registros ainda. Minimize o app com algo'
-      + ' tocando e volte aqui.';
-    return;
+    return 'Linha do tempo\n(sem registros — minimize o app com algo tocando e volte aqui)';
   }
   const hora = (t) => new Date(t).toLocaleTimeString('pt-BR', { hour12: false });
-  diagBoxEl.textContent = diagLinhas
+  return 'Linha do tempo\n' + diagLinhas
     .slice(-16)
     .map((l) => hora(l.t) + '  ' + (l.onde === 'celular' ? '📱' : '📺') + ' ' + l.ev
       + (l.oculto ? ' [oculto]' : '') + (l.t2 != null ? '  ' + l.t2 + 's' : ''))
     .join('\n');
+}
+
+// O texto INTEIRO do registro — e é ele que o botão de copiar entrega. Guardado
+// aparte do `textContent` porque a caixa pode estar rolada: copiar o que está
+// VISÍVEL seria copiar meio log, que é o defeito que esta reforma corrigiu.
+let diagTexto = '';
+
+// Guarda de sequência: `renderDiag` virou assíncrona (ela pergunta o
+// diagnóstico do YouTube à ponte), e é chamada DUAS vezes ao abrir
+// Configurações — uma na hora, com o que já se tem, e outra quando a resposta
+// do telão chega. Sem isto, a primeira poderia terminar depois da segunda e
+// escrever por cima dela a linha do tempo SEM os eventos do telão, que é
+// justamente o que se foi buscar.
+let diagSeq = 0;
+
+async function renderDiag() {
+  if (!diagBoxEl) return;
+  const meu = ++diagSeq;
+  const blocos = [cabecalhoDiag()];
+  // A ÚLTIMA EXTRAÇÃO DO YOUTUBE vinha numa faixa do rodapé, em espaço fixo:
+  // uma extração com várias tentativas transbordava e a parte de baixo ficava
+  // inalcançável. Aqui ela é só mais um bloco de uma caixa que rola.
+  if (window.__NATIVE__ && (window.__SHELL_VERSION__ | 0) >= 24) {
+    let yt = '';
+    try { yt = await AVNative.ytDiag(); } catch (_) {}
+    if (yt) blocos.push('Última extração do YouTube\n' + yt);
+  }
+  if (meu !== diagSeq) return;   // outro render assumiu durante a espera
+  blocos.push(eventosDiag());
+  diagTexto = blocos.join('\n\n');
+  diagBoxEl.textContent = diagTexto;
 }
 // Junta os dois anéis em ORDEM DE RELÓGIO: celular e telão são dois processos
 // da mesma cena, e o que interessa é a sequência entre eles — "o celular ficou
@@ -9631,6 +9633,17 @@ function juntarDiag(doTelao) {
 function pedirDiag() {
   juntarDiag([]);
   if (displayActive()) AVDB.sendCommand({ type: 'diag-ask' });
+}
+
+// O botão de copiar do registro. O `diagCopyEl` já existia lá em cima como
+// referência PENDURADA — apontava para um `#diagCopy` que o HTML não tinha e
+// não escutava nada. Agora o elemento existe e ele tem função.
+//
+// Copia o registro MONTADO, não o que está à vista: a caixa rola, e copiar a
+// janela visível entregaria um pedaço do meio — que é justamente o defeito que
+// esta reforma veio corrigir.
+if (diagCopyEl) {
+  diagCopyEl.addEventListener('click', () => copiarTexto(diagTexto || diagBoxEl.textContent || '', diagCopyEl));
 }
 
 function renderFitSeg() {
