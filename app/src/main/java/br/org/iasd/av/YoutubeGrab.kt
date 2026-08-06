@@ -57,19 +57,35 @@ import java.net.URL
  *
  * ## O que ele entrega
  *
- * Um **MP4 progressivo** (vídeo e áudio no mesmo arquivo). O YouTube reserva as
- * resoluções altas para faixas separadas de vídeo e áudio, que só servem depois
- * de remuxadas — e remuxar exigiria um ffmpeg embarcado, muito além do que este
- * app se propõe. Na prática o teto costuma ser 720p; num telão de igreja isso é
- * suficiente, e é infinitamente melhor que um vídeo que para de tocar no meio.
+ * Um **MP4 de até 1080p**, montado das duas faixas que o YouTube guarda
+ * separadas acima de 720p (o vídeo sem som de um lado, o áudio do outro) e
+ * juntadas pelo `MediaMuxer` da plataforma — cópia de amostras, não
+ * recodificação, ver [MuxMp4]. Quando a montagem não sai, o **progressivo**
+ * segue como piso: um arquivo pior é infinitamente melhor que um vídeo que
+ * para de tocar no meio do culto.
  *
- * ## Sem PO Token, de propósito (por enquanto)
+ * ## Sem PO Token — e desde a v1.49 isso deixou de custar o 1080p
  *
- * O extrator aceita um `PoTokenProvider`, e sem ele "faz o melhor esforço:
- * alguns formatos podem não estar disponíveis". Montar o provedor exige rodar o
- * desafio do BotGuard num WebView — o app tem dois, então é factível, mas é
- * outra empreitada. Começar sem ele é a decisão certa: se algum vídeo resistir,
- * o app cai no player embutido, que é o comportamento de antes.
+ * O extrator aceita um `PoTokenProvider` e este app não monta nenhum. Durante
+ * sete versões isso custou caro: o YouTube passou a exigir **SABR** de quem
+ * pede sem token, as faixas adaptativas eram LISTADAS mas respondiam 403 a
+ * todo download, e o que sobrava era o único progressivo deste aparelho —
+ * 360p.
+ *
+ * **Montar o token não era a saída**, e isso foi verificado antes de desistir
+ * dele: o `getWebClientPoToken()` da biblioteca não tem uma única chamada em
+ * versão nenhuma (o cliente web só serve para metadados), e o token que ela de
+ * fato consome — o do cliente Android — exige o **DroidGuard** do Play
+ * Services, atrelado à assinatura do app oficial. Um WebView rodando o BotGuard
+ * aqui alimentaria um campo que ninguém lê.
+ *
+ * Quem resolveu foi a própria biblioteca, na v0.26.3: um cliente **visionOS**,
+ * buscado sem token nenhum, que volta a entregar as adaptativas — que é
+ * exatamente o motivo de esta dependência existir no projeto (a manutenção do
+ * gato-e-rato fica com quem a publica). O preço é que as listas agora vêm
+ * MISTURADAS, faixas boas do visionOS ao lado das envenenadas do cliente
+ * antigo, e é por isso que a escolha aqui virou uma FILA de candidatos
+ * ([tentarJuntar]) em vez de "a de maior altura".
  */
 object YoutubeGrab {
 
@@ -92,16 +108,61 @@ object YoutubeGrab {
     private const val TETO_ALTURA = 1080
 
     /**
+     * Quantos candidatos de cada tipo a fila de [tentarJuntar] chega a tentar.
+     *
+     * Eles existem porque a lista de faixas chega MISTURADA desde a v1.49 (ver
+     * o cabeçalho) e a primeira pode ser a envenenada — mas isto roda na rede do
+     * chip do operador, possivelmente minutos antes do culto, então "tentar
+     * todas" não é opção.
+     *
+     * Os números não são arbitrários: um 403 falha antes do primeiro byte, então
+     * um candidato de vídeo perdido custa **uma requisição** — daí caber quatro.
+     * Já uma MONTAGEM que falha custou o download inteiro do vídeo, e por isso
+     * ela tem o teto mais apertado de todos. O áudio é pequeno e serve de sonda,
+     * então dois bastam para separar "este contêiner não tem áudio" de "esta
+     * faixa específica não veio"; no download **só áudio** ele sobe para três,
+     * porque ali não há vídeo nenhum para pagar e a faixa é o produto inteiro.
+     */
+    private const val TETO_VIDEO = 4
+    private const val TETO_AUDIO = 2
+    private const val TETO_MONTAGENS = 2
+    private const val TETO_AUDIO_SO = 3
+
+    /**
      * O UA do app do YouTube no iPhone.
      *
-     * As faixas adaptativas deste aparelho vêm do cliente iOS (é ele que as
-     * destravou — ver `setFetchIosClient`), e uma URL emitida para um cliente
-     * costuma ser servida só a ele: baixá-la anunciando um Chrome de Android é
-     * o tipo de incoerência que o CDN responde com 403. Quando a primeira
-     * tentativa falha, [baixar] repete com este UA antes de desistir.
+     * Uma URL emitida para um cliente costuma ser servida só a quem se anuncia
+     * como ele — baixá-la com o UA errado é o tipo de incoerência que o CDN
+     * responde com 403. O cliente iOS está desligado desde a v1.49 (ver
+     * [garantirInit]), então na prática nenhuma URL sai por ele hoje; o perfil
+     * fica na fila de [baixarTentando] como rede de segurança, e custa no
+     * máximo uma requisição perdida.
      */
     private const val UA_IOS =
-        "com.google.ios.youtube/19.29.1 (iPhone16,2; U; CPU iOS 17_5_1 like Mac OS X;)"
+        "com.google.ios.youtube/21.03.2(iPhone16,2; U; CPU iOS 18_7_2 like Mac OS X; )"
+
+    /**
+     * O UA do app do YouTube no Apple Vision Pro — o cliente que a biblioteca
+     * passou a buscar na v0.26.3 e que é quem entrega as faixas adaptativas sem
+     * PO Token (ver o cabeçalho).
+     *
+     * É o perfil MAIS importante da fila justamente porque é dele que vêm as
+     * URLs boas: [baixarTentando] lê o `c=` da própria URL e tenta primeiro o UA
+     * que combina com ela.
+     *
+     * **Copiado caractere a caractere do que a biblioteca monta** (`v0.26.4`,
+     * `YoutubeParsingHelper` + `ClientsConstants`), incluindo a falta de espaço
+     * antes do parêntese e o país vazio no fim — o [IDIOMA] daqui é só a língua,
+     * então o `getCountryCode()` que fecha a string não tem o que escrever.
+     * Divergir num detalhe desses é pedir uma faixa anunciando um cliente que
+     * não existe, que é como se ganha um 403 de graça.
+     *
+     * As duas constantes envelhecem com o bump: ao trocar a versão do extrator,
+     * confira `ClientsConstants` e traga os números novos junto.
+     */
+    private const val UA_VISIONOS =
+        "com.google.visionos.youtube/1.02(RealityDevice14,1; U; CPU visionOS 25_6_0 " +
+            "like Mac OS X; )"
 
     private const val CONECTA_MS = 15_000
     private const val LE_MS = 30_000
@@ -124,7 +185,7 @@ object YoutubeGrab {
      * **E passar isto ao `NewPipe.init` NÃO BASTA** — foi o que a v1.32 fez, e
      * os títulos continuaram chegando em inglês. `StreamingService.
      * getLocalization()` FILTRA o pedido pela lista de idiomas suportados do
-     * serviço, e a do YouTube nesta versão da biblioteca (v0.26.1) tem um item
+     * serviço, e a do YouTube nesta versão da biblioteca (v0.26.4) tem um item
      * só: `en-GB` (o resto está comentado no fonte). Qualquer outro idioma cai
      * no `Localization.DEFAULT`, que é justamente o en-GB — em silêncio, sem
      * erro nenhum, e por isso o código anterior PARECIA certo. O país escapa
@@ -169,16 +230,20 @@ object YoutubeGrab {
         private set
 
     /**
-     * As faixas adaptativas já foram recusadas nesta execução do app.
+     * TODA faixa adaptativa foi recusada (403) nesta execução do app.
      *
-     * Medido em aparelho: elas são LISTADAS (12 de vídeo-só até 1080p, 5 de
-     * áudio) e o CDN responde **403** a todas — com os dois perfis de cliente e
-     * com `Range`. É o portão do PO Token, que este app não monta.
+     * Enquanto a biblioteca só sabia pedir sem token, isso era a regra e não a
+     * exceção: as doze faixas de vídeo-só e as cinco de áudio eram listadas e o
+     * CDN recusava todas. Sem esta memória, todo download refazia as mesmas
+     * requisições condenadas antes de cair no progressivo — alguns segundos de
+     * espera, por download, para chegar sempre à mesma conclusão.
      *
-     * Sem esta memória, todo download refazia as quatro requisições condenadas
-     * antes de cair no progressivo: alguns segundos de espera, por download,
-     * para chegar sempre à mesma conclusão. Com ela, o primeiro download da
-     * sessão paga o teste e os seguintes vão direto ao que funciona.
+     * **Com o cliente visionOS (v1.49) a bandeira ficou muito mais difícil de
+     * levantar, e tinha de ficar.** A lista agora é MISTA: uma faixa
+     * envenenada pode ter uma boa logo atrás na fila, e desligar o caminho
+     * inteiro por causa do primeiro 403 seria jogar fora justamente o 1080p que
+     * o bump veio buscar. Só liga quando **todos** os candidatos tentados
+     * morreram com 403, e no mínimo dois.
      *
      * Por PROCESSO, e não persistido: se o YouTube afrouxar (ou se o vídeo
      * seguinte não for protegido), basta reabrir o app para tentar de novo — e
@@ -187,23 +252,6 @@ object YoutubeGrab {
      */
     @Volatile
     private var adaptativoBloqueado = false
-
-    /**
-     * O mesmo, para a fonte alternativa ([InnerTube]): se aquele cliente também
-     * for recusado, não há por que repetir o pedido a cada download da sessão.
-     * Por processo, pelo mesmo motivo — reabrir o app tenta de novo.
-     */
-    @Volatile
-    private var clienteBloqueado = false
-
-    /**
-     * Por que a última [montar] falhou. Existe porque "não deu" e "foi RECUSADO"
-     * levam a decisões diferentes: só o 403 desliga a fonte para o resto da
-     * sessão — um muxer que falhou, ou um arquivo vazio, pode ser daquele vídeo
-     * e não da fonte inteira.
-     */
-    @Volatile
-    private var ultimoMotivo: String? = null
 
     /**
      * "áudio 2 · vídeo-só 5 (1080p) · progressivo 2 (720p)"
@@ -244,8 +292,48 @@ object YoutubeGrab {
             } +
             " · " + parte("prog", info.videoStreams.filter { !it.isVideoOnly }) {
                 alturaDe((it as? VideoStream)?.getResolution())
-            }
+            } +
+            porCliente(info)
     }
+
+    /**
+     * "· clientes VISIONOS 16, ANDROID 1" — de QUAL cliente veio cada faixa
+     * listada.
+     *
+     * Nasceu na v1.49 e é a linha que responde à única pergunta que interessa
+     * depois do bump: **o visionOS chegou a este aparelho?** Sem ela, uma lista
+     * de dezessete faixas parece a mesma coisa vindo do cliente que funciona ou
+     * do que só entrega 403 — que foi exatamente o que aconteceu durante sete
+     * versões de diagnóstico.
+     *
+     * Lido do `c=` da própria URL do `googlevideo`, e não de um campo da
+     * biblioteca: é o CDN quem carimba, e o que ele carimbou é o que ele vai
+     * cobrar na hora do download.
+     */
+    private fun porCliente(info: StreamInfo): String {
+        val todas: List<Stream> =
+            info.audioStreams + info.videoOnlyStreams + info.videoStreams
+        val contagem = todas
+            .filter { it.isUrl }
+            .mapNotNull { s -> s.getContent()?.takeIf { it.isNotBlank() } }
+            .map { clienteDe(it) }
+            .groupingBy { it }
+            .eachCount()
+        if (contagem.isEmpty()) return ""
+        return " · clientes " + contagem.entries
+            .sortedByDescending { it.value }
+            .joinToString(", ") { "${it.key} ${it.value}" }
+    }
+
+    /**
+     * O cliente que o YouTube carimbou na URL, no parâmetro `c=`
+     * (`…&c=VISIONOS&…`). "?" quando não há carimbo — o progressivo antigo às
+     * vezes vem sem.
+     */
+    private fun clienteDe(url: String): String =
+        CLIENTE_NA_URL.find(url)?.groupValues?.get(1)?.uppercase() ?: "?"
+
+    private val CLIENTE_NA_URL = Regex("[?&]c=([A-Za-z0-9_]+)")
 
     /**
      * Por que uma tentativa morreu, em duas ou três palavras — para caber na
@@ -275,30 +363,29 @@ object YoutubeGrab {
     private fun garantirInit() {
         if (pronto) return
         NewPipe.init(NpDownloader, IDIOMA, PAIS)
-        // O CLIENTE iOS, LIGADO À MÃO (v1.43). Ele vem DESLIGADO na biblioteca
-        // (`private static boolean fetchIosClient;`, sem valor = false), e é o
-        // único outro cliente que ela consulta sem PO Token.
+        // O CLIENTE iOS, DE VOLTA AO DESLIGADO (v1.49). Ele foi ligado à mão na
+        // v1.43 como a única coisa que dava para tentar sem assinar o contrato
+        // de manutenção do BotGuard: o extrator caía no conjunto reduzido do
+        // `reel/reel_item_watch` e o aparelho só via UM progressivo de 360p.
+        // Medido depois disso, o iOS não resolveu — as faixas dele vêm
+        // "especialmente" como manifestos HLS (é a própria javadoc do método que
+        // avisa), e manifesto não é URL de arquivo: o `isUrl` das nossas
+        // escolhas o descarta.
         //
-        // Por que mexer nisso: medido em aparelho, o que chega hoje é UMA faixa
-        // progressiva de 360p e mais nada — nem adaptativas (onde moram o 1080p
-        // e o áudio puro), nem o progressivo de 720p. É o conjunto reduzido do
-        // endpoint `reel/reel_item_watch`, para onde a biblioteca cai quando não
-        // há token. Ligar o iOS acrescenta uma segunda resposta de player à
-        // mesma extração, e é a única coisa que dá para tentar sem assinar o
-        // contrato de manutenção do BotGuard.
+        // Agora ele ATRAPALHA. Quem destrava o 1080p é o cliente visionOS que a
+        // biblioteca busca sozinha desde a v0.26.3, e as listas chegam
+        // misturadas: cada faixa iOS a mais é um candidato envenenado que a fila
+        // de [tentarJuntar] pode gastar uma requisição tentando. Somado a isso,
+        // ele custa uma requisição por extração e a própria biblioteca registra
+        // que o iOS passou a ter exigência de token própria.
         //
-        // A ressalva está na própria javadoc do método: as faixas do iOS vêm
-        // "especialmente" como manifestos HLS, e manifesto não é URL de arquivo
-        // — o `isUrl` das nossas escolhas o descarta. Por isso o diagnóstico
-        // passou a contar também o que veio SEM ser URL direta: é o que diz se
-        // valeu a pena, e o que ainda faltaria fazer.
-        //
-        // Custo: mais uma requisição por extração. Se a medição seguinte
-        // mostrar que não veio nada, esta linha sai.
+        // `false` explícito, e não a omissão da linha: o valor é ESTÁTICO na
+        // biblioteca e sobrevive a qualquer reconfiguração — dizer o estado que
+        // se quer é o que torna esta decisão reversível numa linha.
         try {
-            YoutubeStreamExtractor.setFetchIosClient(true)
+            YoutubeStreamExtractor.setFetchIosClient(false)
         } catch (e: Throwable) {
-            Log.w(TAG, "não deu para ligar o cliente iOS", e)
+            Log.w(TAG, "não deu para desligar o cliente iOS", e)
         }
         pronto = true
     }
@@ -367,31 +454,30 @@ object YoutubeGrab {
             // registro, lá no lado web, não o contêiner do arquivo.
             val tentativas = mutableListOf<Alvo>()
             if (somenteAudio) {
-                // 1) AAC, a primeira escolha: o WebView decodifica em qualquer
-                //    aparelho. 2) qualquer OUTRO formato de áudio (na prática
-                //    Opus/WebM, que este mesmo Chromium toca) — e o `exceto`
-                //    existe para a segunda tentativa não repetir a faixa que
-                //    acabou de falhar. 3) o vídeo progressivo.
-                melhorAudio(info, "m4a", null)?.let { tentativas += Alvo(it, true) }
-                melhorAudio(info, null, "m4a")?.let { tentativas += Alvo(it, true) }
+                // VÁRIOS CANDIDATOS, e não "o melhor m4a e mais um" (v1.49). A
+                // lista chega misturada — faixas do visionOS ao lado das do
+                // cliente antigo —, então a melhor por bitrate pode ser
+                // justamente uma que o CDN recusa. [candidatosAudio] já entrega
+                // na ordem certa: cliente que funciona primeiro, AAC antes de
+                // Opus (o WebView decodifica os dois, mas o AAC em qualquer
+                // aparelho), maior bitrate por último critério.
+                candidatosAudio(info, null, TETO_AUDIO_SO).forEach { tentativas += Alvo(it, true) }
             }
-            melhorProgressivo(info)?.let { tentativas += Alvo(it, false) }
+            faixaDe(melhorProgressivo(info))?.let { tentativas += Alvo(it, false) }
 
             for (alvo in tentativas) {
-                val url = alvo.stream.getContent()
-                if (url.isNullOrBlank()) continue
-                val destino = arquivoDestino(ctx, id, alvo.ext)
+                val destino = arquivoDestino(ctx, id, alvo.faixa.ext, alvo.soAudio)
                 try {
-                    baixarTentando(url, destino, onProgresso)
+                    baixarTentando(alvo.faixa.url, destino, onProgresso)
                 } catch (e: Exception) {
-                    Log.w(TAG, "falhou baixando ${alvo.ext} de $link", e)
-                    diagnostico += " · ${alvo.ext} " + motivo(e)
+                    Log.w(TAG, "falhou baixando ${alvo.faixa.etiqueta} de $link", e)
+                    diagnostico += " · ${alvo.faixa.etiqueta} " + motivo(e)
                     destino.delete()
                     continue
                 }
                 if (destino.length() <= 0L) { destino.delete(); continue }
-                diagnostico += " → veio " + alvo.ext +
-                    (alvo.stream as? VideoStream)?.let { " " + (it.getResolution() ?: "?") }.orEmpty()
+                diagnostico += " → veio ${alvo.faixa.ext} ${alvo.faixa.etiqueta}" +
+                    (if (alvo.faixa.altura > 0) " (${alvo.faixa.altura}p)" else "")
                 return JSONObject()
                     .put("url", SafRegistry.urlFor(Uri.fromFile(destino)))
                     .put("name", nome)
@@ -401,7 +487,7 @@ object YoutubeGrab {
                     // mentir para o decodificador do WebView; quem transforma
                     // isto em "toca sem imagem" é o `kind` do registro, que o
                     // lado web escolhe a partir do que ele pediu.
-                    .put("type", alvo.mime)
+                    .put("type", alvo.faixa.mime)
                     // ...e este campo diz se a faixa é MESMO só áudio, para o
                     // lado web poder avisar quando teve de cair no vídeo.
                     .put("audioOnly", alvo.soAudio)
@@ -416,19 +502,44 @@ object YoutubeGrab {
     }
 
     /**
-     * Baixa a melhor faixa de vídeo (até 1080p) mais a melhor de áudio e as
-     * junta num MP4. Devolve o JSON pronto, ou `null` quando este caminho não
-     * serve — e aí quem chamou cai no progressivo de sempre.
+     * Baixa uma faixa de vídeo (até 1080p) mais a de áudio do mesmo contêiner e
+     * as junta. Devolve o JSON pronto, ou `null` quando este caminho não serve —
+     * e aí quem chamou cai no progressivo de sempre.
+     *
+     * ## Uma FILA de candidatos, e não "a melhor" (v1.49)
+     *
+     * Até a v1.48 isto escolhia UM par por contêiner (o vídeo de maior altura) e
+     * desistia se ele falhasse. Funcionava enquanto todas as faixas vinham do
+     * mesmo cliente. Com o visionOS da v0.26.3 elas passaram a chegar
+     * MISTURADAS — as boas dele ao lado das do cliente antigo, que o CDN recusa
+     * com 403 —, e "a de maior altura" pode ser justamente uma envenenada. Um
+     * par único significaria perder o 1080p tendo um 1080p bom na mesma lista,
+     * que é exatamente o defeito que o bump da biblioteca veio corrigir.
+     *
+     * ## O áudio primeiro, porque ele é a sonda barata
+     *
+     * O áudio de um louvor tem alguns MB e o vídeo tem centenas. Descobrir pelo
+     * áudio que um contêiner não serve custa uma fração do que custaria
+     * descobrir pelo vídeo — e o arquivo baixado fica guardado por contêiner,
+     * então um segundo candidato de vídeo mp4 reaproveita o m4a que já veio em
+     * vez de baixá-lo de novo.
+     *
+     * ## Os tetos, e por que a montagem tem um bem menor
+     *
+     * Isto roda na rede do chip do operador, possivelmente minutos antes do
+     * culto. Um 403 falha antes do primeiro byte, então um candidato perdido
+     * custa uma requisição — mas uma MONTAGEM que falha custou o download
+     * inteiro do vídeo, e por isso ela tem teto próprio ([TETO_MONTAGENS]), bem
+     * mais apertado que o número de candidatos.
      *
      * **Teto de 1080p de propósito.** O telão de um salão é 1080p, e 1440p/4K
-     * custariam três a dez vezes o tamanho para uma diferença que ninguém vê
-     * naquela tela — num aparelho que também guarda hinário e Bíblia, e numa
-     * rede que pode ser a do chip do operador.
+     * custariam três a dez vezes o tamanho por uma diferença que ninguém vê
+     * naquela tela — num aparelho que também guarda hinário e Bíblia.
      *
-     * **mp4 + m4a, não o "melhor" absoluto.** As faixas de 1080p costumam vir
-     * em duas versões, AVC (mp4) e VP9 (WebM); só a primeira entra num
-     * contêiner MP4. Escolher pelo bitrate e descobrir isso no fim seria baixar
-     * centenas de MB para falhar no muxer.
+     * **Pares do MESMO contêiner.** As faixas de 1080p costumam vir em duas
+     * versões, AVC (mp4) e VP9 (WebM); o muxer aceita AVC/AAC num MP4 e VP9/Opus
+     * num WebM, e recusa a mistura (ver [MuxMp4]) — depois de tudo baixado, que
+     * é o pior momento possível para descobrir.
      */
     private fun tentarJuntar(
         ctx: Context,
@@ -436,215 +547,310 @@ object YoutubeGrab {
         id: String,
         onProgresso: (Long, Long) -> Unit,
     ): JSONObject? {
-        // OS PARES POSSÍVEIS, na ordem de preferência. Cada um é do MESMO
-        // contêiner dos dois lados, porque é assim que o muxer aceita (ver
-        // MuxMp4): AVC/AAC num MP4, VP9/Opus num WebM. Pegar "a melhor de cada
-        // lado" produziria VP9 dentro de MP4, que só falha no fim.
-        //
-        // O par WebM exige Android 10: o muxer só passou a escrever Opus dentro
-        // de WebM na API 29. Abaixo disso ele simplesmente não é tentado.
-        val pares = mutableListOf<Triple<VideoStream, AudioStream, Boolean>>()
-        parear(info, "mp4", "m4a")?.let { pares += Triple(it.first, it.second, false) }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            parear(info, "webm", "webm")?.let { pares += Triple(it.first, it.second, true) }
+        if (adaptativoBloqueado) {
+            diagnostico += " · adaptativo bloqueado nesta sessão"
+            return null
         }
 
-        // O progressivo que já temos de graça é o piso: montar só compensa se o
+        // O progressivo que já temos de graça é o PISO: montar só compensa se o
         // resultado for melhor. Sem esta conta, um vídeo cuja faixa separada
         // fosse 360p pagaria dois downloads e um muxer para entregar o mesmo.
-        val alturaProgressiva = melhorProgressivo(info)?.let { alturaDe(it.getResolution()) } ?: 0
+        val piso = melhorProgressivo(info)?.let { alturaDe(it.getResolution()) } ?: 0
+        val candidatos = candidatosVideo(info, piso)
+        if (candidatos.isEmpty()) {
+            diagnostico += " · sem vídeo-só acima de ${piso}p"
+            return null
+        }
         val nome = tituloLimpo(info.name, info.uploaderName)
 
-        if (pares.isEmpty()) diagnostico += " · sem par completo"
-        else if (adaptativoBloqueado) diagnostico += " · adaptativo bloqueado nesta sessão"
-        else {
-            for ((v, a, webm) in pares) {
-                val altura = alturaDe(v.getResolution())
-                val ext = if (webm) "webm" else "mp4"
-                if (altura <= alturaProgressiva) {
-                    diagnostico += " · $ext não supera o prog"
-                    continue
+        // O áudio JÁ BAIXADO de cada contêiner. Um `null` guardado é memória de
+        // que aquele contêiner não tem áudio utilizável: insistir nele com outro
+        // candidato de vídeo seria baixar centenas de MB para esbarrar no mesmo
+        // lado que falhou.
+        val audioDe = mutableMapOf<String, File?>()
+        var tentados = 0
+        var recusas403 = 0
+        var montagens = 0
+        try {
+            for (v in candidatos) {
+                // O teto é conferido ANTES de qualquer byte: parar depois de já
+                // ter baixado o áudio do contêiner seguinte seria pagar por uma
+                // tentativa que nunca vai acontecer.
+                if (montagens >= TETO_MONTAGENS) {
+                    diagnostico += " · montagens no teto"
+                    break
                 }
-                val urlVideo = v.getContent() ?: continue
-                val urlAudio = a.getContent() ?: continue
-                val pronto = montar(ctx, id, nome, urlVideo, urlAudio, ext, webm, altura, null, onProgresso)
-                if (pronto != null) return pronto
+                val extAudio = if (v.webm) "webm" else "m4a"
+                // `containsKey`, e não `getOrPut`: este último re-executa o bloco
+                // quando o valor guardado é `null`, que é justamente o caso que
+                // esta memória existe para lembrar — seriam downloads repetidos
+                // de um áudio que já se provou ausente.
+                if (!audioDe.containsKey(extAudio)) {
+                    audioDe[extAudio] = baixarAudio(
+                        ctx, id, extAudio,
+                        candidatosAudio(info, extAudio, TETO_AUDIO), onProgresso,
+                    )
+                }
+                val parteAudio = audioDe[extAudio] ?: continue
+                tentados++
+                when (val d = montar(ctx, id, nome, v, parteAudio, onProgresso)) {
+                    is Desfecho.Pronto -> return d.json
+                    is Desfecho.Recusado -> if (d.motivo == "403") recusas403++
+                    Desfecho.NaoMontou -> montagens++
+                }
             }
+        } finally {
+            audioDe.values.forEach { it?.delete() }
         }
 
-        // ÚLTIMA FONTE: o pedido direto à API interna, por um cliente que não
-        // exige PO Token (ver InnerTube). Só chega aqui quando a biblioteca não
-        // conseguiu — e falhando também, quem chamou segue para o progressivo,
-        // que é o que o app entrega hoje. Nada do caminho que funciona depende
-        // disto.
-        val viaCliente = tentarJuntarInnerTube(ctx, id, nome, alturaProgressiva, onProgresso)
-        if (viaCliente != null) return viaCliente
+        // O DESLIGAMENTO DA SESSÃO EXIGE UNANIMIDADE — ver [adaptativoBloqueado].
+        // Com o pool misturado, um 403 isolado é o comportamento NORMAL de uma
+        // faixa envenenada com uma boa logo atrás na fila; desligar o caminho
+        // inteiro por causa dele seria o autogol.
+        if (tentados >= 2 && recusas403 == tentados) adaptativoBloqueado = true
         return null
     }
 
     /**
-     * A mesma montagem, com as faixas vindas do [InnerTube] em vez da
-     * biblioteca. Elas trazem o próprio `User-Agent` — é o do cliente que as
-     * emitiu, e pedir uma URL anunciando outro cliente é o caminho conhecido
-     * para um 403.
+     * Baixa a primeira faixa de [candidatos] que de fato vier e devolve o
+     * arquivo; `null` quando nenhuma veio — e aí o contêiner inteiro está fora,
+     * porque sem áudio não há o que montar.
+     *
+     * Ela é a SONDA de [tentarJuntar], e vem antes do vídeo justamente por ser
+     * pequena. Quem apaga o arquivo é quem chamou: ele é reaproveitado entre os
+     * candidatos de vídeo do mesmo contêiner.
      */
-    private fun tentarJuntarInnerTube(
+    private fun baixarAudio(
         ctx: Context,
         id: String,
-        nome: String,
-        alturaProgressiva: Int,
+        ext: String,
+        candidatos: List<Faixa>,
         onProgresso: (Long, Long) -> Unit,
-    ): JSONObject? {
-        if (clienteBloqueado) return null
-        val r = InnerTube.faixas(id)
-        diagnostico += r.log
-        if (r.faixas.isEmpty()) return null
-
-        // Pares do MESMO contêiner, pelo mesmo motivo do caminho da biblioteca.
-        val combinacoes = mutableListOf(Triple("mp4", "m4a", false))
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            combinacoes += Triple("webm", "webm", true)
+    ): File? {
+        if (candidatos.isEmpty()) {
+            diagnostico += " · $ext sem áudio"
+            return null
         }
-        for ((extV, extA, webm) in combinacoes) {
-            val v = r.faixas
-                .filter { !it.audio && it.ext == extV && it.altura in 1..TETO_ALTURA }
-                .maxByOrNull { it.altura } ?: continue
-            val a = r.faixas.firstOrNull { it.audio && it.ext == extA } ?: continue
-            if (v.altura <= alturaProgressiva) {
-                diagnostico += " · ${v.cliente}/$extV não supera o prog"
-                continue
+        val destino = File(pasta(ctx), "$id-a.$ext")
+        for (a in candidatos) {
+            try {
+                // A BARRA É UMA SÓ. O áudio ocupa os primeiros 10% e o vídeo o
+                // resto, que é a proporção real — em vez de duas barras que
+                // voltam ao zero no meio, o que do lado do operador é
+                // indistinguível de travamento.
+                baixarTentando(a.url, destino) { lidos, total ->
+                    if (total > 0) onProgresso(lidos * 10 / total, 100)
+                }
+                if (destino.length() > 0L) return destino
+                diagnostico += " · a:${a.etiqueta} vazio"
+            } catch (e: Exception) {
+                Log.w(TAG, "falhou o áudio ${a.etiqueta} de $id", e)
+                diagnostico += " · a:${a.etiqueta} " + motivo(e)
             }
-            val pronto = montar(
-                ctx, id, nome, v.url, a.url, extV, webm, v.altura, v.ua, onProgresso,
-            )
-            if (pronto != null) {
-                diagnostico += " (${v.cliente})"
-                return pronto
-            }
-            // RECUSADO também por aqui (403): não adianta repetir o pedido a
-            // cada download da sessão. Só o 403 desliga — um muxer que falhou
-            // pode ser característica daquele vídeo, não da fonte.
-            if (ultimoMotivo == "403") clienteBloqueado = true
+            destino.delete()
         }
         return null
     }
 
     /**
-     * Baixa as duas faixas, junta e devolve o JSON — o trecho comum às duas
-     * fontes de faixas (a biblioteca e o [InnerTube]).
+     * Baixa a faixa de vídeo [v], junta com o áudio já baixado em [parteAudio] e
+     * devolve o desfecho.
      *
-     * `uaFixo` é o `User-Agent` obrigatório daquela URL, quando ela vem de um
-     * cliente específico; `null` deixa [baixarTentando] procurar o perfil que
-     * funciona.
+     * [parteAudio] **não** é apagado aqui: ele pertence a [tentarJuntar], que o
+     * reaproveita entre candidatos do mesmo contêiner.
      */
     private fun montar(
         ctx: Context,
         id: String,
         nome: String,
-        urlVideo: String,
-        urlAudio: String,
-        ext: String,
-        webm: Boolean,
-        altura: Int,
-        uaFixo: String?,
+        v: Faixa,
+        parteAudio: File,
         onProgresso: (Long, Long) -> Unit,
-    ): JSONObject? {
-        ultimoMotivo = null
-        val parteVideo = File(pasta(ctx), "$id-v.$ext")
-        val parteAudio = File(pasta(ctx), "$id-a.$ext")
-        val saida = arquivoDestino(ctx, id, ext)
+    ): Desfecho {
+        val parteVideo = File(pasta(ctx), "$id-v.${v.ext}")
+        val saida = arquivoDestino(ctx, id, v.ext, false)
         try {
-            // A BARRA É UMA SÓ. Os dois downloads e a montagem viram um
-            // percentual contínuo (o vídeo pesa 90%, que é a proporção real),
-            // em vez de duas barras que voltam ao zero no meio — do lado do
-            // operador, uma barra que reinicia é indistinguível de travamento.
-            val perfil = if (uaFixo != null) {
-                baixar(urlVideo, parteVideo, uaFixo) { lidos, total ->
-                    if (total > 0) onProgresso(lidos * 90 / total, 100)
-                }
-                "="
-            } else {
-                baixarTentando(urlVideo, parteVideo) { lidos, total ->
-                    if (total > 0) onProgresso(lidos * 90 / total, 100)
-                }
+            val perfil = baixarTentando(v.url, parteVideo) { lidos, total ->
+                if (total > 0) onProgresso(10 + lidos * 88 / total, 100)
             }
-            if (parteVideo.length() <= 0L) { diagnostico += " · $ext vídeo vazio"; return null }
-            if (uaFixo != null) {
-                baixar(urlAudio, parteAudio, uaFixo) { lidos, total ->
-                    if (total > 0) onProgresso(90 + lidos * 9 / total, 100)
-                }
-            } else {
-                baixarTentando(urlAudio, parteAudio) { lidos, total ->
-                    if (total > 0) onProgresso(90 + lidos * 9 / total, 100)
-                }
+            if (parteVideo.length() <= 0L) {
+                diagnostico += " · v:${v.etiqueta} vazio"
+                return Desfecho.NaoMontou
             }
-            if (parteAudio.length() <= 0L) { diagnostico += " · $ext áudio vazio"; return null }
             onProgresso(99, 100)
-            if (!MuxMp4.juntar(parteVideo, parteAudio, saida, webm)) {
-                diagnostico += " · $ext muxer falhou"
-                return null
+            if (!MuxMp4.juntar(parteVideo, parteAudio, saida, v.webm)) {
+                diagnostico += " · v:${v.etiqueta} muxer falhou"
+                return Desfecho.NaoMontou
             }
-            if (saida.length() <= 0L) { diagnostico += " · $ext saída vazia"; return null }
+            if (saida.length() <= 0L) {
+                diagnostico += " · v:${v.etiqueta} saída vazia"
+                return Desfecho.NaoMontou
+            }
             onProgresso(100, 100)
-            diagnostico += " → juntou ${altura}p ($ext/$perfil)"
-            return JSONObject()
-                .put("url", SafRegistry.urlFor(Uri.fromFile(saida)))
-                .put("name", nome)
-                .put("size", saida.length())
-                .put("type", if (webm) "video/webm" else "video/mp4")
-                .put("audioOnly", false)
+            diagnostico += " → juntou ${v.altura}p (${v.ext}, ${v.etiqueta}/$perfil)"
+            return Desfecho.Pronto(
+                JSONObject()
+                    .put("url", SafRegistry.urlFor(Uri.fromFile(saida)))
+                    .put("name", nome)
+                    .put("size", saida.length())
+                    .put("type", if (v.webm) "video/webm" else "video/mp4")
+                    .put("audioOnly", false),
+            )
         } catch (e: Exception) {
-            Log.w(TAG, "não deu para juntar $ext de $id", e)
+            Log.w(TAG, "não deu para juntar ${v.etiqueta} de $id", e)
             val porque = motivo(e)
-            ultimoMotivo = porque
-            diagnostico += " · $ext " + porque
-            // 403 é o portão do PO Token, e ele não muda de ideia no download
-            // seguinte. Qualquer outro motivo (rede, arquivo) pode ser
-            // passageiro e não desliga nada.
-            if (porque == "403" && uaFixo == null) adaptativoBloqueado = true
+            diagnostico += " · v:${v.etiqueta} " + porque
             saida.delete()
-            return null
+            return Desfecho.Recusado(porque)
         } finally {
-            // As partes não servem para mais nada — nem em caso de sucesso (o
-            // arquivo final já as contém) nem em caso de falha. Deixá-las no
+            // A parte de vídeo não serve para mais nada — nem em caso de sucesso
+            // (o arquivo final já a contém) nem em caso de falha. Deixá-la no
             // cache dobraria o espaço de cada download.
             parteVideo.delete()
-            parteAudio.delete()
         }
     }
 
     /**
-     * O melhor par vídeo-só + áudio de um mesmo contêiner, dentro do teto de
-     * altura. `null` se faltar qualquer um dos dois lados.
+     * Como terminou uma tentativa de montagem.
+     *
+     * Existe porque "não deu" e "foi RECUSADO" levam a decisões diferentes: só a
+     * recusa (403) conta para desligar o caminho adaptativo pelo resto da sessão
+     * — um muxer que falhou, ou um arquivo vazio, é característica daquele
+     * formato e não do portão do YouTube.
      */
-    private fun parear(
-        info: StreamInfo,
-        extVideo: String,
-        extAudio: String,
-    ): Pair<VideoStream, AudioStream>? {
-        val v = info.videoOnlyStreams
-            .asSequence()
-            .filter { it.isUrl && !it.getContent().isNullOrBlank() }
-            .filter { it.getFormat()?.getSuffix()?.equals(extVideo, true) == true }
-            .filter { alturaDe(it.getResolution()) in 1..TETO_ALTURA }
-            .maxByOrNull { alturaDe(it.getResolution()) } ?: return null
-        val a = melhorAudio(info, extAudio, null) ?: return null
-        return v to a
+    private sealed class Desfecho {
+        class Pronto(val json: JSONObject) : Desfecho()
+        class Recusado(val motivo: String) : Desfecho()
+        object NaoMontou : Desfecho()
     }
 
     /**
-     * Uma tentativa de download. O tipo e a extensão saem do PRÓPRIO formato da
-     * faixa (`MediaFormat.getMimeType()`/`getSuffix()`), nunca de uma tabela
-     * escrita à mão aqui: é a biblioteca que sabe se aquele itag é m4a, WebM ou
-     * Opus, e uma segunda tabela envelheceria em silêncio na primeira vez que o
-     * YouTube trocasse um formato.
+     * Uma faixa candidata, com tudo o que a decisão precisa e nada que exija
+     * perguntar de novo à biblioteca no meio do laço.
+     *
+     * O tipo e a extensão saem do PRÓPRIO formato da faixa
+     * (`MediaFormat.getMimeType()`/`getSuffix()`), nunca de uma tabela escrita à
+     * mão aqui: é a biblioteca que sabe se aquele itag é m4a, WebM ou Opus, e
+     * uma segunda tabela envelheceria em silêncio na primeira vez que o YouTube
+     * trocasse um formato.
+     *
+     * Já o `itag` e o `cliente` saem da URL, e isso é deliberado: é o CDN quem
+     * os carimba, e o que ele carimbou é o que ele vai cobrar na hora do
+     * download.
      */
-    private class Alvo(val stream: Stream, val soAudio: Boolean) {
-        val mime: String = stream.getFormat()?.getMimeType()
-            ?: (if (soAudio) "audio/mp4" else "video/mp4")
-        val ext: String = stream.getFormat()?.getSuffix()
-            ?: (if (soAudio) "m4a" else "mp4")
+    private class Faixa(
+        val url: String,
+        val ext: String,
+        val mime: String,
+        val altura: Int,
+        val bitrate: Int,
+        itag: Int,
+        val cliente: String,
+    ) {
+        val webm: Boolean = ext == "webm"
+
+        /** "137@VISIONOS" — o formato exato e de quem ele veio. */
+        val etiqueta: String = (if (itag > 0) itag.toString() else ext) + "@" + cliente
     }
+
+    /**
+     * A [Faixa] de um stream que seja URL direta de arquivo, ou `null`.
+     *
+     * Manifesto HLS/DASH cai fora aqui (`isUrl`): ele precisaria de um caminho
+     * de download próprio, e é o que o diagnóstico conta à parte, com `+`.
+     */
+    private fun faixaDe(s: Stream?): Faixa? {
+        if (s == null || !s.isUrl) return null
+        val url = s.getContent()
+        if (url.isNullOrBlank()) return null
+        val fmt = s.getFormat() ?: return null
+        val ext = fmt.getSuffix()?.lowercase() ?: return null
+        val mime = fmt.getMimeType() ?: return null
+        return Faixa(
+            url = url,
+            ext = ext,
+            mime = mime,
+            altura = alturaDe((s as? VideoStream)?.getResolution()),
+            bitrate = (s as? AudioStream)?.averageBitrate ?: 0,
+            itag = itagDe(url),
+            cliente = clienteDe(url),
+        )
+    }
+
+    /**
+     * Os candidatos de VÍDEO-SÓ, já na ordem em que serão tentados.
+     *
+     * A ordem é **cliente primeiro, altura depois**. Parece invertido e não é —
+     * é a lição da v1.49: as duas listas trazem 1080p, mas só a do visionOS
+     * baixa, e ordenar por altura intercalaria as duas, gastando as tentativas
+     * em faixas que o CDN recusa. Empatados, mp4 vem antes de WebM, porque o
+     * WebView toca H.264 em qualquer aparelho.
+     *
+     * [piso] é a altura do progressivo que já temos de graça: igual ou abaixo
+     * dela, montar não compensa.
+     */
+    private fun candidatosVideo(info: StreamInfo, piso: Int): List<Faixa> =
+        info.videoOnlyStreams
+            .mapNotNull { faixaDe(it) }
+            // O par WebM exige Android 10: o muxer só passou a escrever Opus
+            // dentro de WebM na API 29. Abaixo disso ele nem entra na fila.
+            .filter {
+                it.ext == "mp4" ||
+                    (it.webm && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
+            }
+            .filter { it.altura in (piso + 1)..TETO_ALTURA }
+            .sortedWith(
+                compareBy<Faixa>({ ordemCliente(it.cliente) }, { -it.altura })
+                    .thenBy { if (it.webm) 1 else 0 },
+            )
+            .take(TETO_VIDEO)
+
+    /**
+     * Os candidatos de ÁUDIO, na mesma lógica de ordem. [ext] fixa o contêiner
+     * (é o que o muxer exige quando há vídeo do outro lado); `null` aceita
+     * qualquer um, que é o caso do download "só áudio" — ali um Opus que toca
+     * vale mais que um AAC que não veio.
+     */
+    private fun candidatosAudio(info: StreamInfo, ext: String?, teto: Int): List<Faixa> =
+        info.audioStreams
+            .mapNotNull { faixaDe(it) }
+            .filter { ext == null || it.ext.equals(ext, true) }
+            .sortedWith(
+                compareBy<Faixa>({ ordemCliente(it.cliente) }, { if (it.ext == "m4a") 0 else 1 })
+                    .thenByDescending { it.bitrate },
+            )
+            .take(teto)
+
+    /**
+     * Quem primeiro.
+     *
+     * **VISIONOS** é o cliente que a biblioteca passou a buscar na v0.26.3 e o
+     * único cujas URLs adaptativas este aparelho conseguiu baixar; **ANDROID** é
+     * o do conjunto reduzido, que lista tudo e responde 403. Um cliente
+     * desconhecido (ou uma URL sem carimbo) vai para o fim **sem ser
+     * descartado**: ele pode ser o próximo que funciona, e a fila é barata.
+     */
+    private fun ordemCliente(cliente: String): Int = when (cliente) {
+        "VISIONOS" -> 0
+        "ANDROID" -> 1
+        "IOS" -> 2
+        else -> 3
+    }
+
+    /**
+     * O itag que o YouTube carimbou na URL (`…&itag=137&…`); 0 quando não há.
+     *
+     * Da URL, e não de `getItagItem()`: é o mesmo lugar de onde sai o cliente
+     * ([clienteDe]), é o que o CDN de fato leu, e não acrescenta superfície da
+     * biblioteca a um ponto que só existe para o diagnóstico.
+     */
+    private fun itagDe(url: String): Int =
+        ITAG_NA_URL.find(url)?.groupValues?.get(1)?.toIntOrNull() ?: 0
+
+    private val ITAG_NA_URL = Regex("[?&]itag=(\\d+)")
+
+    /** Uma tentativa de download DIRETO (sem montagem): a faixa e o que ela é. */
+    private class Alvo(val faixa: Faixa, val soAudio: Boolean)
 
     /**
      * BUSCA no YouTube, de dentro do app.
@@ -760,12 +966,17 @@ object YoutubeGrab {
      * mesmo link (o operador muda de ideia, ou quer as duas) não pode fazer uma
      * sobrescrever a outra enquanto a primeira ainda está sendo copiada para a
      * biblioteca.
+     *
+     * O sufixo segue o PROPÓSITO ([soAudio]), não o contêiner. Enquanto ele
+     * seguia o contêiner ("tudo que não é mp4 é áudio"), um download só-áudio em
+     * WebM e uma montagem em WebM do mesmo vídeo disputavam exatamente o mesmo
+     * nome — que é o caso que este sufixo existe para impedir.
      */
-    private fun arquivoDestino(ctx: Context, id: String, ext: String): File =
+    private fun arquivoDestino(ctx: Context, id: String, ext: String, soAudio: Boolean): File =
         File(
             pasta(ctx),
             id.replace(Regex("[^A-Za-z0-9_-]"), "_")
-                + (if (ext == "mp4") "" else "-audio") + "." + ext,
+                + (if (soAudio) "-audio" else "") + "." + ext,
         )
 
     /**
@@ -785,26 +996,6 @@ object YoutubeGrab {
             .filter { it.getFormat()?.getSuffix()?.equals("mp4", true) == true }
             .maxByOrNull { alturaDe(it.getResolution()) }
 
-    /**
-     * A melhor faixa **só de áudio**, em M4A (AAC).
-     *
-     * `sufixo` = "m4a" pede AAC, a primeira escolha: é o que o WebView do
-     * Android decodifica em qualquer aparelho. `null` aceita QUALQUER formato de
-     * áudio (na prática, WebM/Opus) — que é a segunda tentativa, porque nem todo
-     * vídeo oferece m4a sem PO Token, e um Opus que toca vale mais que um AAC
-     * que não veio. O WebView é o mesmo Chromium do Chrome: ele toca Opus.
-     *
-     * Sem faixa de áudio nenhuma, quem chamou cai na tentativa seguinte (o
-     * vídeo progressivo) — ver [buscar].
-     */
-    private fun melhorAudio(info: StreamInfo, sufixo: String?, exceto: String?): AudioStream? =
-        info.audioStreams
-            .asSequence()
-            .filter { it.isUrl && !it.getContent().isNullOrBlank() }
-            .filter { sufixo == null || it.getFormat()?.getSuffix()?.equals(sufixo, true) == true }
-            .filter { exceto == null || it.getFormat()?.getSuffix()?.equals(exceto, true) != true }
-            .maxByOrNull { it.averageBitrate }
-
     /** "1080p60" → 1080. Resolução ilegível vira 0: ela nunca ganha do resto. */
     private fun alturaDe(res: String?): Int =
         Regex("(\\d+)").find(res ?: "")?.groupValues?.get(1)?.toIntOrNull() ?: 0
@@ -815,22 +1006,36 @@ object YoutubeGrab {
      * do operador.
      */
     /**
-     * Baixa tentando os dois perfis de cliente, e devolve o que funcionou
-     * ("A" = Android/Chrome, "i" = iOS) — o rótulo entra no diagnóstico.
+     * Baixa tentando os perfis de cliente, e devolve o que funcionou
+     * ("V" = visionOS, "i" = iOS, "A" = Android/Chrome) — o rótulo entra no
+     * diagnóstico.
      *
-     * Uma URL emitida para um cliente costuma ser servida só a ele. As faixas
-     * adaptativas deste aparelho vêm do cliente iOS, e pedi-las anunciando um
+     * **O perfil que COMBINA com a URL vem primeiro** (v1.49). Uma URL emitida
+     * para um cliente costuma ser servida só a quem se anuncia como ele, e o
+     * próprio `c=` da URL diz qual é — pedir uma faixa do visionOS anunciando um
      * Chrome de Android é o tipo de incoerência que o CDN responde com 403.
-     * Tentar os dois custa uma requisição perdida no pior caso — e evita
-     * desistir de um 1080p que estava a um cabeçalho de distância.
+     * Antes disto a ordem era fixa (Android, depois iOS) e a faixa boa podia ser
+     * perdida na primeira tentativa.
+     *
+     * Os outros perfis continuam atrás, como rede de segurança: no pior caso
+     * custam uma requisição perdida, e um 403 falha antes do primeiro byte.
      */
     private fun baixarTentando(
         url: String,
         destino: File,
         onProgresso: (Long, Long) -> Unit,
     ): String {
+        val combina = when (clienteDe(url)) {
+            "VISIONOS" -> "V"
+            "IOS" -> "i"
+            else -> "A"
+        }
+        // `sortedBy` é estável, então os perfis que não combinam mantêm a ordem
+        // em que estão escritos aqui.
+        val perfis = listOf("V" to UA_VISIONOS, "i" to UA_IOS, "A" to UA)
+            .sortedBy { if (it.first == combina) 0 else 1 }
         var erro: Exception? = null
-        for ((rotulo, ua) in listOf("A" to UA, "i" to UA_IOS)) {
+        for ((rotulo, ua) in perfis) {
             try {
                 baixar(url, destino, ua, onProgresso)
                 if (destino.length() > 0L) return rotulo
