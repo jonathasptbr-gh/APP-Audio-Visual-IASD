@@ -431,6 +431,7 @@ object YoutubeGrab {
         teto: Int = TETO_ALTURA,
         onProgresso: (Long, Long) -> Unit,
     ): JSONObject? {
+        baixandoLink = link
         return try {
             garantirInit()
             // Pelo EXTRATOR, e não pelo atalho `getInfo(service, url)`: é o
@@ -533,8 +534,52 @@ object YoutubeGrab {
         } catch (e: Exception) {
             Log.w(TAG, "falhou em $link", e)
             null
+        } finally {
+            baixandoLink = null
+            // O pedido de cancelamento morre com o download que ele cancelou.
+            // Sem isto, um "cancelar" chegando tarde (o download já tinha
+            // terminado) ficaria armado e mataria o PRÓXIMO download do mesmo
+            // vídeo — que é justamente o que o operador faria em seguida.
+            if (cancelarLink == link) cancelarLink = null
         }
     }
+
+    // ------------------------------------------------------------------------
+    // CANCELAR O DOWNLOAD EM CURSO
+    //
+    // Um sinalizador, e não uma interrupção de thread: o laço de cópia em
+    // [baixar] o consulta a cada bloco de 64 kB e desiste sozinho. Interromper a
+    // thread mataria também a extração e o `HttpURLConnection` no meio, com
+    // socket meio fechado e um arquivo parcial sem dono conhecido.
+    //
+    // UM download por vez, e isso não é suposição: a fila de IO da ponte é
+    // `newSingleThreadExecutor` (ver `NativeBridge`), então o `diagnostico`
+    // deste mesmo arquivo já depende dessa serialização. Daí dois campos
+    // simples bastarem, sem registro por chave.
+    //
+    // A comparação é pelo LINK do YouTube — o que o lado web conhece —, nunca
+    // pela URL do googlevideo, que ele nem vê.
+    // ------------------------------------------------------------------------
+    @Volatile private var baixandoLink: String? = null
+    @Volatile private var cancelarLink: String? = null
+
+    /** Pede que o download deste link pare. Barato: só escreve um campo. */
+    fun cancelar(link: String) { cancelarLink = link }
+
+    /** O download em curso foi cancelado? Consultado dentro do laço de cópia. */
+    private fun cancelado(): Boolean {
+        val alvo = cancelarLink ?: return false
+        return alvo == baixandoLink
+    }
+
+    /**
+     * A marca do cancelamento nas mensagens.
+     *
+     * O lado web não a lê (ele sabe que pediu, e a ponte devolve `null` como em
+     * qualquer falha), mas ela aparece no diagnóstico do rodapé — e ali a
+     * diferença entre "o CDN recusou" e "o operador desistiu" é tudo.
+     */
+    const val CANCELADO = "cancelado pelo operador"
 
     /**
      * O MANIFESTO da transmissão direta: as duas melhores faixas adaptativas,
@@ -1253,6 +1298,10 @@ object YoutubeGrab {
             } catch (e: Exception) {
                 erro = e
                 destino.delete()
+                // CANCELAR não é "este perfil de UA não deu": tentar os outros
+                // dois em seguida faria o operador esperar mais DEPOIS de pedir
+                // para parar — e cada tentativa recomeça o arquivo do zero.
+                if (cancelado()) break
             }
         }
         throw erro ?: IOException("download vazio")
@@ -1296,6 +1345,12 @@ object YoutubeGrab {
                 destino.outputStream().use { saida ->
                     val buf = ByteArray(64 * 1024)
                     while (true) {
+                        // O PEDIDO DE CANCELAMENTO é consultado aqui, a cada
+                        // bloco: é o único ponto do download que roda com
+                        // frequência suficiente para responder na hora, e sair
+                        // por exceção reaproveita a limpeza que já existe (o
+                        // `destino.delete()` de quem chamou).
+                        if (cancelado()) throw IOException(CANCELADO)
                         val n = entrada.read(buf)
                         if (n < 0) break
                         saida.write(buf, 0, n)

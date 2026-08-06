@@ -332,6 +332,17 @@
     // biblioteca — senão o vídeo fica DUAS vezes no aparelho.
     ytDiscard(url) { try { B.ytDiscard(String(url)); } catch (_) { /* shell antigo */ } },
 
+    // PARA o download deste link (shell 28+). Não devolve nada e não espera: o
+    // desfecho chega pelo caminho de sempre — a promise do `ytFetch` resolve
+    // `null`, como em qualquer falha —, e quem sabe que a causa foi um
+    // cancelamento é quem o pediu.
+    //
+    // Síncrono de propósito, sem `call`: do outro lado ele só escreve um campo,
+    // e enfileirá-lo na fila de IO o faria rodar DEPOIS do download que se quer
+    // parar. Num shell antigo o `try` engole e nada acontece — por isso quem
+    // desenha o botão pergunta o `__SHELL_VERSION__` antes.
+    ytCancel(url) { try { B.ytCancel(String(url)); } catch (_) { /* shell antigo */ } },
+
     // DIAGNÓSTICO da última extração do YouTube: uma linha dizendo quantas
     // faixas de cada tipo o extrator recebeu e qual venceu. Vazio num shell
     // antigo (o `call` resolve null) e antes da primeira extração.

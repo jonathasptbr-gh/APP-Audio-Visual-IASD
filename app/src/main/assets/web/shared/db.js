@@ -538,11 +538,39 @@
   //
   // Prefira a forma com função ao escrever código novo (ex.: reordenar é
   // `listSet(name, (ids) => …)` em vez de ler, mexer e devolver o array).
+  // ELE TAMBÉM COLETA (v5.131), e esta era a fonte de órfãos que faltava.
+  //
+  // Até aqui o `listSet` gravava a lista nova e ia embora: todo id que SAÍSSE
+  // dela virava um registro em "media" que nenhuma lista aponta — e que nenhum
+  // gc alcança, porque o gc só rodava dentro de `listRemove`/`folderDrop`. É o
+  // mesmo defeito que o `folderDrop` tinha até a v5.103, no outro escritor de
+  // listas.
+  //
+  // Não é hipotético: `listSet('playlist', [rec.id])` (tocar um item do acervo
+  // "só ele") substitui a playlist INTEIRA, e cada item que ela tinha e que não
+  // estivesse no Cronograma ou nos Favoritos ficava para trás. O sintoma que
+  // chegou do aparelho foi o do lado de fora: um resultado do YouTube marcado
+  // como "download pronto" — porque `mediaByYoutube` acha o registro pelo
+  // índice — sem o item existir em nenhuma seção usável do app. O blob junto,
+  // ocupando disco para sempre.
+  //
+  // A varredura é sobre o que SAIU, e pela mesma `isReferenced` de todo o
+  // resto: reordenar (mesmo conjunto, outra ordem) não apaga nada, e um id que
+  // saiu daqui mas está no Cronograma, num Favorito ou no slot avulso continua
+  // inteiro.
   async function listSet(name, ids) {
-    if (typeof ids !== 'function') return setState(name, ids);
-    const [s, tx] = await storeTx(STORE_STATE, 'readwrite');
-    const next = ids(await readListIn(s, name));
-    await asPromise(s.put(Array.isArray(next) ? next : [], name));
+    const db = await openDB();
+    const tx = db.transaction([STORE_STATE, STORE_MEDIA], 'readwrite');
+    const st = tx.objectStore(STORE_STATE);
+    const antes = await readListIn(st, name);
+    const bruto = typeof ids === 'function' ? ids(antes) : ids;
+    const depois = Array.isArray(bruto) ? bruto.slice() : [];
+    await asPromise(st.put(depois, name));
+    const ms = tx.objectStore(STORE_MEDIA);
+    for (const id of antes) {
+      if (depois.includes(id)) continue;
+      if (!(await isReferenced(st, id, name))) await asPromise(ms.delete(id));
+    }
     return txDone(tx);
   }
   async function listItems(name) {
@@ -646,6 +674,43 @@
       if (!(await isReferenced(st, id, null))) await asPromise(ms.delete(id));
     }
     await txDone(tx);
+  }
+
+  /**
+   * A FAXINA DO QUE JÁ FICOU PARA TRÁS (v5.131) — os restos que os buracos
+   * anteriores do gc criaram e que nenhum caminho normal alcança.
+   *
+   * Consertar o `listSet` impede órfãos NOVOS; não desfaz os que já estão no
+   * aparelho. E eles não são invisíveis: um vídeo do YouTube baixado no
+   * domingo passado, sem lista nenhuma hoje, continua aparecendo na busca como
+   * "download pronto" (o `mediaByYoutube` o acha pelo índice) e continua
+   * ocupando centenas de MB.
+   *
+   * Só apaga o que NENHUM detentor aponta, pela mesma `isReferenced` de todo o
+   * resto — listas fixas e Favoritos, incluindo o slot `avulsos`, que é quem
+   * segura a mídia em cena sem lista. Não há janela de corrida: `addMediaToList`
+   * grava o registro e a lista na MESMA transação, então um registro recém-nascido
+   * nunca está listless nem por um instante.
+   *
+   * Tudo numa transação só: uma varredura em duas etapas poderia apagar algo que
+   * entrou numa lista no meio dela.
+   *
+   * Devolve quantos apagou, para o Registro poder dizer o que fez.
+   */
+  async function gcOrfaos() {
+    const db = await openDB();
+    const tx = db.transaction([STORE_STATE, STORE_MEDIA], 'readwrite');
+    const st = tx.objectStore(STORE_STATE);
+    const ms = tx.objectStore(STORE_MEDIA);
+    const ids = await asPromise(ms.getAllKeys());
+    let apagados = 0;
+    for (const id of (ids || [])) {
+      if (await isReferenced(st, id, null)) continue;
+      await asPromise(ms.delete(id));
+      apagados++;
+    }
+    await txDone(tx);
+    return apagados;
   }
 
   // Apaga o blob se não estiver referenciado por lista nem por Favorito.
@@ -759,7 +824,7 @@
     setState, getState, stateKeys,
     addMedia, addUrlMedia, addStreamMedia, setMediaStream, addDeck, addCue,
     getMedia, mediaByYoutube, renameMedia,
-    listIds, listSet, listItems, listHas, listAdd, listRemove, gc, folderDrop,
+    listIds, listSet, listItems, listHas, listAdd, listRemove, gc, gcOrfaos, folderDrop,
     fileAdd, fileGet, fileDelete, filesByFolder, filesAll,
     opfsSupported, opfsGetFile, opfsWriteFile, opfsDeleteFile, opfsDeleteDir,
     kindFromType, sendCommand, onCommand,

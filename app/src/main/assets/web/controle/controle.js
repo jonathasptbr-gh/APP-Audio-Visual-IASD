@@ -162,7 +162,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.130';
+const WEB_VERSION = '5.131';
 
 // Escrita UMA vez, na carga: o indicador mora no rodapé de Configurações desde
 // a v5.49 e não depende mais de qual aba está aberta (no cabeçalho ele
@@ -8219,21 +8219,22 @@ function openHymnSearch() {
   hymnSearchInputEl.value = '';
   renderSearchResults('');
   hymnSearchPopupEl.classList.add('open');
-  // **Sem foco automático — no AVANÇADO.** Enquanto a abertura era uma lista de
-  // músicas, o teclado subir junto era o certo: não havia mais nada a fazer
-  // ali. Hoje a abertura é o acervo para folhear, e o teclado cobriria metade
-  // dele antes de o operador decidir se vai digitar.
+  // **O TECLADO SOBE NOS DOIS MODOS** (v5.131).
   //
-  // **No SIMPLIFICADO ele sobe** (v5.90). Ali o acervo é aberto por um botão
-  // que se chama BUSCAR, e o modo inteiro existe para encurtar caminho — o
-  // toque na música já toca, sem folha de escolha. Quem entra por ali sabe o
-  // que quer e vai digitar; um toque a mais no campo é justamente o tipo de
-  // cerimônia que esse modo tira.
+  // No simplificado isso vale desde a v5.90: ali o acervo é aberto por um botão
+  // que se chama BUSCAR, e quem entra por ele sabe o que quer.
+  //
+  // No avançado a regra era o contrário, e o argumento era razoável — a
+  // abertura é o acervo para folhear, e o teclado cobre metade dele. Só que na
+  // prática quem abre a Biblioteca está atrás de UMA música, e o preço da regra
+  // antiga era um toque a mais toda vez, no meio do culto, para chegar ao campo
+  // que já estava na tela. Folhear continua a um toque de distância: fechar o
+  // teclado é o gesto mais conhecido do Android.
   //
   // Síncrono e dentro do gesto: `focus()` adiado (um `setTimeout`) sai da
   // interação do toque, e aí o WebView aceita o foco mas NÃO abre o teclado —
   // o pior resultado possível, porque parece que funcionou.
-  if (appMode === 'simple') hymnSearchInputEl.focus();
+  hymnSearchInputEl.focus();
 }
 
 function closeHymnSearch() {
@@ -8442,6 +8443,39 @@ async function marcarYtProntos(itens) {
     const rec = await AVDB.mediaByYoutube(r.id);
     if (rec && rec.blob) setYtEstado(r.id, 'pronto');
   }
+}
+
+// CANCELAR O DOWNLOAD EM CURSO (v5.131 · shell 28).
+//
+// O que o shell pode parar é o download; a EXTRAÇÃO (segundos, antes do
+// primeiro byte) segue até o fim e só então o pedido é notado. Na prática o
+// operador toca durante o download, que é a parte longa.
+//
+// Quem foi cancelado entra neste conjunto para o desfecho ser SILENCIOSO: a
+// ponte devolve `null` como em qualquer falha, e sem esta marca o `ytAcao`
+// pintaria a linha de vermelho e diria que deu erro — para algo que o próprio
+// operador pediu.
+const ytCancelados = new Set();
+async function cancelarDownloadYt(r) {
+  if (!r || !r.id) return;
+  // Sem o método na ponte não há o que oferecer: um "cancelar" que só some com
+  // a marca da tela enquanto o aparelho continua baixando centenas de MB é
+  // pior que não ter botão, porque o operador acredita que parou.
+  if (!window.__NATIVE__ || (window.__SHELL_VERSION__ | 0) < 28) return;
+  if ((ytEstado.get(r.id) || {}).estado !== 'baixando') return;
+  const ok = await appConfirm({
+    title: 'Cancelar o download?',
+    message: (r.name || 'Este vídeo') + '\n\nO que já baixou é descartado.',
+    okText: 'Cancelar download',
+    cancelText: 'Continuar baixando',
+  });
+  // O download pode ter TERMINADO durante a pergunta — e aí não há mais o que
+  // cancelar. Sem esta segunda leitura, o pedido chegaria ao shell depois do
+  // fim e ficaria armado contra o próximo download do mesmo vídeo.
+  if (!ok || (ytEstado.get(r.id) || {}).estado !== 'baixando') return;
+  ytCancelados.add(r.id);
+  AVNative.ytCancel(r.url);
+  setYtEstado(r.id, null);
 }
 
 // O estado de cada resultado (`baixando` / `pronto`) vive num Map, e não na
@@ -8782,6 +8816,10 @@ async function ytAcao(r, destino, btn, somenteAudio, altura) {
   // minutos que termina em nada é o pior silêncio possível do app, e ele valia
   // para todos os destinos, não só para o áudio.
   if (!rec) {
+    // CANCELADO PELO OPERADOR não é falha: ele sabe o que aconteceu, porque
+    // acabou de pedir. Pintar a linha de vermelho aqui seria o app discordando
+    // de uma decisão dele.
+    if (ytCancelados.has(r.id)) { ytCancelados.delete(r.id); setYtEstado(r.id, null); return; }
     // A FALHA FICA NA PRÓPRIA LINHA, não numa faixa flutuante (v5.119). O
     // estado `erro` pinta a miniatura do resultado — o mesmo canto que já
     // mostrava o anel de download e o ✓ de concluído. Ele é transitório: some
@@ -8880,7 +8918,12 @@ function ytResultRow(r) {
   // duas delas (playlist, Cronograma) são listas que essa tela nem mostra. É a
   // mesma regra do toque numa música ali (`simplePlaySong`).
   li.addEventListener('click', () => {
-    if (li.classList.contains('baixando')) return;
+    // BAIXANDO: o toque agora CANCELA (v5.131). Antes ele não fazia nada, e um
+    // download começado por engano — o vídeo errado, o teto errado, a rede
+    // ruim — só terminava esperando ele acabar. A confirmação existe porque o
+    // toque nesta linha era inerte até ontem: quem tocar por reflexo não pode
+    // perder um download de dez minutos por isso.
+    if (li.classList.contains('baixando')) { cancelarDownloadYt(r); return; }
     if (appMode === 'simple') { ytAcao(r, 'tocar'); return; }
     openYtMenu(r);
   });
@@ -9643,6 +9686,13 @@ function cabecalhoDiag() {
   // primeira pergunta é se o WebView deste aparelho aceita os codecs — e a
   // resposta não se descobre de fora.
   l.push('Transmissão: ' + diagMse());
+  // A FAXINA DA ABERTURA. Ela apaga mídia — sem dono, mas mídia —, e uma
+  // limpeza que não deixa rastro é indistinguível de um sumiço.
+  if (restosVarridos !== null) {
+    l.push('Limpeza: ' + (restosVarridos
+      ? restosVarridos + ' resto(s) sem dono removido(s) nesta abertura'
+      : 'nenhum resto sem dono'));
+  }
   l.push('Aparelho: ' + navigator.userAgent);
   return l.join('\n');
 }
@@ -9904,6 +9954,16 @@ async function ytBaixarNativo(link, nome, opts) {
         if (opts && opts.onPct) opts.onPct(pct);
       }, soAudio, altura);
       if (!r || !r.url) return null;
+      // CANCELADO NO ÚLTIMO SEGUNDO. O shell para o laço de cópia, mas há uma
+      // janela em que ele já terminou de baixar e está juntando as faixas
+      // (`MuxMp4`) — e aí o arquivo VEM, depois de o operador ter pedido para
+      // parar. Sem esta guarda o item apareceria em cena como se o cancelamento
+      // não tivesse acontecido. Os bytes intermediários são descartados aqui
+      // mesmo: eles nunca chegaram à biblioteca.
+      if (opts && opts.youtubeId && ytCancelados.has(opts.youtubeId)) {
+        AVNative.ytDiscard(r.url);
+        return null;
+      }
       // O shell manda `r.audioOnly` dizendo se a faixa é mesmo só áudio (ver
       // YoutubeGrab.buscar). A UI NÃO usa esse campo: quando o vídeo não
       // oferece faixa separada, o que o operador pediu — tocar no fundo, sem
@@ -12597,4 +12657,25 @@ document.addEventListener('visibilitychange', () => {
   // Metadados da Bíblia (versões + livros) em segundo plano — baixados na 1ª
   // vez e cacheados; deixa a aba Bíblia pronta pra baixar capítulos.
   ensureBibleMeta(false);
+  // A FAXINA DOS RESTOS, por último e sem segurar nada (v5.131). Ver
+  // `AVDB.gcOrfaos`: registros que nenhuma lista aponta e que nenhum caminho
+  // normal alcançava — o `listSet` os criava a cada troca de playlist. Aqui é
+  // o único momento seguro por construção: `load()` já leu tudo o que a tela
+  // mostra, e o que a varredura apaga é, por definição, o que ninguém aponta.
+  varrerRestos();
 })();
+
+// Quantos restos a última faxina removeu — o Registro mostra, porque uma
+// limpeza silenciosa que apaga mídia é exatamente o tipo de coisa que precisa
+// deixar rastro.
+let restosVarridos = null;
+async function varrerRestos() {
+  try {
+    const n = await AVDB.gcOrfaos();
+    restosVarridos = n;
+    if (n) console.info('[limpeza] ' + n + ' registro(s) sem dono removido(s)');
+  } catch (e) {
+    restosVarridos = null;
+    console.warn('[limpeza] falhou:', e);
+  }
+}

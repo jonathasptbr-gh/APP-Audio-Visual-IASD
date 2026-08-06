@@ -112,6 +112,10 @@ jobs:
           # entre o preto e o primeiro quadro — tornou a falta visível. É um
           # defeito que nenhum `--check` pega e que a congregação inteira vê.
           PW_CHROMIUM="" node tools/stage-fade.test.mjs
+          # E o COLETOR DE LIXO do banco, que é o único código do app que apaga
+          # mídia do operador. Um erro ali não dá tela branca: some com o vídeo
+          # do domingo, em silêncio e sem desfazer.
+          PW_CHROMIUM="" node tools/db-gc.test.mjs
 
       - name: Empacotar a base web
         run: |
