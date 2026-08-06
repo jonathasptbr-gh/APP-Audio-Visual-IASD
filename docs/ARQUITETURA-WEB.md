@@ -865,6 +865,40 @@ garantindo, que era o objetivo original e não mudou — o vídeo vira ARQUIVO, 
 fade, playlist, `MediaSession` e segundo plano, **sem depender da rede durante o
 culto**.
 
+##### A fonte alternativa: pedir direto à API interna (v1.48)
+
+Depois do 403 confirmado, sobraram dois caminhos para o 1080p. O caro é montar
+o **PO Token** (rodar o BotGuard do Google num WebView oculto) — existe uma
+implementação de referência no app do NewPipe, mas ela gera o token do cliente
+**WEB**, e a versão do extrator que este app usa tira os streams dos clientes
+**ANDROID/iOS** (o web só entrega metadados). Ou seja, ali seriam duas
+empreitadas, não uma: o token e a troca de qual cliente fornece as faixas.
+
+O barato é `InnerTube.kt`: **um POST** para `youtubei/v1/player` anunciando-se
+como um cliente que não exige token — o do **Quest** (`ANDROID_VR`) e, em
+seguida, o de **TV** (`TVHTML5_SIMPLY_EMBEDDED_PLAYER`). Não executa JavaScript
+ofuscado, não precisa de atestação e não decifra assinatura: formatos que
+venham com `signatureCipher` em vez de `url` são descartados, porque decifrar é
+justamente o trabalho que a biblioteca faz e que este atalho não pretende
+refazer.
+
+Como ele entra sem ameaçar o que funciona:
+
+- **É a ÚLTIMA fonte tentada.** Primeiro as faixas da biblioteca; só quando elas
+  não produzem arquivo é que o pedido direto acontece. Falhando também, o
+  caminho segue para o progressivo — que é o que o app entrega hoje.
+- **A montagem é a MESMA** (`montar`), compartilhada pelas duas fontes: os dois
+  downloads, o muxer, a barra única e a limpeza das partes existem uma vez só.
+- **A URL viaja com o UA do cliente que a emitiu.** Uma URL emitida para um
+  cliente costuma ser servida só a ele — é o caminho conhecido para um 403.
+- **`clienteBloqueado`** desliga a fonte pelo resto da sessão, e **só no 403**:
+  um muxer que falhou pode ser característica daquele vídeo, não da fonte
+  inteira. Por processo, como o `adaptativoBloqueado`.
+- **Busca, títulos e idioma continuam com a biblioteca.** É ela que absorve as
+  mudanças do YouTube, e esse é o motivo de ela existir aqui. O que passa a ser
+  nosso é um pedido, de um formato estável — e o dia em que ele parar, o
+  diagnóstico do rodapé é quem conta.
+
 ##### Todo campo de log tem botão de copiar (v5.117)
 
 O diagnóstico acima nasceu sem botão, e a primeira leitura chegou aqui como
