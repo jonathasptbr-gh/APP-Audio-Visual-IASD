@@ -83,6 +83,13 @@ object YoutubeGrab {
         "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) " +
             "Chrome/124.0.0.0 Mobile Safari/537.36"
 
+    /**
+     * Teto de resolução do download montado. Ver [tentarJuntar]: o telão da
+     * igreja é 1080p, e subir daí é pagar tamanho por uma diferença que aquela
+     * tela não mostra.
+     */
+    private const val TETO_ALTURA = 1080
+
     private const val CONECTA_MS = 15_000
     private const val LE_MS = 30_000
 
@@ -267,6 +274,24 @@ object YoutubeGrab {
             // implementar o remux para 1080p. Isto mede, uma vez, na mão de
             // quem opera.
             diagnostico = resumo(info)
+            // 1080p: BAIXAR AS DUAS FAIXAS E JUNTAR (v1.44).
+            //
+            // Acima de 720p o YouTube só entrega vídeo SEM som, com o som à
+            // parte — e é por isso que baixar "o vídeo" dava 360p: o app só
+            // sabia pegar o progressivo, e o único progressivo deste aparelho é
+            // o pior deles. Medido aqui: `vídeo-só 12 (1080p) · áudio 5 ·
+            // progressivo 1 (360p)`.
+            //
+            // Juntar é cópia, não conversão (ver MuxMp4): os bits são os mesmos
+            // que vieram do YouTube, e quem faz o trabalho é o `MediaMuxer` da
+            // plataforma. Se qualquer etapa falhar, a lista de tentativas abaixo
+            // continua valendo — o progressivo de 360p segue como piso, e é
+            // melhor um louvor em 360p do que nenhum.
+            if (!somenteAudio) {
+                val juntado = tentarJuntar(ctx, info, id, onProgresso)
+                if (juntado != null) return juntado
+            }
+
             val tentativas = mutableListOf<Alvo>()
             if (somenteAudio) {
                 // 1) AAC, a primeira escolha: o WebView decodifica em qualquer
@@ -313,6 +338,88 @@ object YoutubeGrab {
         } catch (e: Exception) {
             Log.w(TAG, "falhou em $link", e)
             null
+        }
+    }
+
+    /**
+     * Baixa a melhor faixa de vídeo (até 1080p) mais a melhor de áudio e as
+     * junta num MP4. Devolve o JSON pronto, ou `null` quando este caminho não
+     * serve — e aí quem chamou cai no progressivo de sempre.
+     *
+     * **Teto de 1080p de propósito.** O telão de um salão é 1080p, e 1440p/4K
+     * custariam três a dez vezes o tamanho para uma diferença que ninguém vê
+     * naquela tela — num aparelho que também guarda hinário e Bíblia, e numa
+     * rede que pode ser a do chip do operador.
+     *
+     * **mp4 + m4a, não o "melhor" absoluto.** As faixas de 1080p costumam vir
+     * em duas versões, AVC (mp4) e VP9 (WebM); só a primeira entra num
+     * contêiner MP4. Escolher pelo bitrate e descobrir isso no fim seria baixar
+     * centenas de MB para falhar no muxer.
+     */
+    private fun tentarJuntar(
+        ctx: Context,
+        info: StreamInfo,
+        id: String,
+        onProgresso: (Long, Long) -> Unit,
+    ): JSONObject? {
+        val v = info.videoOnlyStreams
+            .asSequence()
+            .filter { it.isUrl && !it.getContent().isNullOrBlank() }
+            .filter { it.getFormat()?.getSuffix()?.equals("mp4", true) == true }
+            .filter { alturaDe(it.getResolution()) in 1..TETO_ALTURA }
+            .maxByOrNull { alturaDe(it.getResolution()) } ?: return null
+        val a = melhorAudio(info, "m4a", null) ?: return null
+        // Só vale a pena montar se o resultado for MELHOR que o progressivo que
+        // já temos de graça. Sem esta comparação, um vídeo cuja única faixa
+        // separada fosse 360p pagaria dois downloads e um muxer para entregar o
+        // mesmo de antes.
+        val alturaJuntada = alturaDe(v.getResolution())
+        val alturaProgressiva = melhorProgressivo(info)?.let { alturaDe(it.getResolution()) } ?: 0
+        if (alturaJuntada <= alturaProgressiva) return null
+
+        // Em locais, com o `?:`, porque `getContent()` é anulável no contrato da
+        // biblioteca: sem isto o Kotlin recusaria passá-lo adiante — e passar um
+        // nulo daqui seria um NPE dentro de um `try` que devolve `null` em
+        // silêncio, ou seja, um 1080p que "simplesmente não acontece".
+        val urlVideo = v.getContent() ?: return null
+        val urlAudio = a.getContent() ?: return null
+        val parteVideo = File(pasta(ctx), "$id-v.mp4")
+        val parteAudio = File(pasta(ctx), "$id-a.m4a")
+        val saida = arquivoDestino(ctx, id, "mp4")
+        try {
+            // A BARRA É UMA SÓ. Os dois downloads e a montagem viram um
+            // percentual contínuo (o vídeo pesa 90%, que é a proporção real),
+            // em vez de duas barras que voltam ao zero no meio — do lado do
+            // operador, uma barra que reinicia é indistinguível de travamento.
+            baixar(urlVideo, parteVideo) { lidos, total ->
+                if (total > 0) onProgresso(lidos * 90 / total, 100)
+            }
+            if (parteVideo.length() <= 0L) return null
+            baixar(urlAudio, parteAudio) { lidos, total ->
+                if (total > 0) onProgresso(90 + lidos * 9 / total, 100)
+            }
+            if (parteAudio.length() <= 0L) return null
+            onProgresso(99, 100)
+            if (!MuxMp4.juntar(parteVideo, parteAudio, saida)) return null
+            if (saida.length() <= 0L) return null
+            onProgresso(100, 100)
+            diagnostico += " → juntou ${alturaJuntada}p"
+            return JSONObject()
+                .put("url", SafRegistry.urlFor(Uri.fromFile(saida)))
+                .put("name", tituloLimpo(info.name, info.uploaderName))
+                .put("size", saida.length())
+                .put("type", "video/mp4")
+                .put("audioOnly", false)
+        } catch (e: Exception) {
+            Log.w(TAG, "não deu para juntar as faixas de $id", e)
+            saida.delete()
+            return null
+        } finally {
+            // As partes não servem para mais nada — nem em caso de sucesso (o
+            // MP4 final já as contém) nem em caso de falha. Deixá-las no cache
+            // dobraria o espaço de cada download.
+            parteVideo.delete()
+            parteAudio.delete()
         }
     }
 

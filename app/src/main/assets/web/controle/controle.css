@@ -3049,6 +3049,33 @@ body.mode-simple .bottombar { display: none; }
    é justamente a decisão que este modo poupa. */
 body.mode-simple .hymn-add-btn { display: none; }
 
+/* ---------- Campo de LOG, com o botão de copiar (v5.117) ---------- */
+/* Um diagnóstico existe para ser REPASSADO: sem o botão, a alternativa é
+   transcrever à mão uma linha cheia de números ou tirar foto da tela. O texto
+   quebra em várias linhas e o botão não encolhe — quem some primeiro numa tela
+   estreita não pode ser a saída. */
+.log-line {
+  display: flex; align-items: flex-start; gap: .35rem;
+  max-width: 100%; padding: 0 .2rem;
+}
+.log-text {
+  flex: 1; min-width: 0;
+  font-size: .7rem; line-height: 1.35; color: var(--muted);
+  text-align: center; word-break: break-word;
+  /* Selecionável, ao contrário do resto da UI (o `user-select: none` do topo da
+     folha vale para o app inteiro): quem quiser copiar um pedaço só continua
+     podendo, e o botão é o atalho para o caso comum. */
+  user-select: text; -webkit-user-select: text;
+}
+.log-copy {
+  flex-shrink: 0; width: var(--hit); height: var(--hit); padding: 0;
+  border: none; border-radius: var(--radius-btn);
+  background: var(--surface-2); color: var(--muted);
+  display: flex; align-items: center; justify-content: center; cursor: pointer;
+  appearance: none; -webkit-appearance: none;
+}
+.log-copy.copiado { background: var(--ok-soft); color: var(--ok); }
+
 /* ---------- Pulso de confirmação NO BOTÃO (v5.106) ---------- */
 /* O feedback de "adicionei" mora no botão que foi tocado, e não numa faixa em
    outro canto da tela: o dedo já está ali, o olho já está ali, e não há dúvida

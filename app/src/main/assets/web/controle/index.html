@@ -668,13 +668,25 @@
              METADADO de diagnóstico e o lugar onde se procura diagnóstico é
              junto do estado do telão e do alvo de espelhamento, não numa faixa
              de navegação. Preenchido por `renderVersionLabel`. -->
-        <span id="appVersion" class="app-version">Controle v5.116</span>
+        <span id="appVersion" class="app-version">Controle v5.117</span>
         <!-- DIAGNÓSTICO da última extração do YouTube (v5.115): quantas faixas
              de cada tipo o extrator recebeu e qual delas venceu. Fica aqui, ao
              lado das versões e do alvo de espelhamento, porque é o mesmo tipo
              de coisa — metadado que só o aparelho sabe. Só aparece DEPOIS de um
-             download, e só no app (ver `renderYtDiag`). -->
-        <span id="ytDiagLine" class="cast-target" hidden></span>
+             download, e só no app (ver `renderYtDiag`).
+             COM BOTÃO DE COPIAR (v5.117): diagnóstico existe para ser
+             REPASSADO, e a alternativa é transcrever à mão uma linha cheia de
+             números — ou tirar foto da tela. Vale como regra: todo campo de log
+             deste app nasce com o botão do lado. -->
+        <div id="ytDiagBox" class="log-line" hidden>
+          <span id="ytDiagLine" class="log-text"></span>
+          <button id="ytDiagCopy" class="log-copy" title="Copiar" aria-label="Copiar">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect x="9" y="9" width="11" height="11" rx="2"/>
+              <path d="M5 15V5a2 2 0 0 1 2-2h10"/>
+            </svg>
+          </button>
+        </div>
       </div>
     </div>
   </div>
