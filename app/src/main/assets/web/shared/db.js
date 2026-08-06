@@ -182,6 +182,17 @@
       // no Display (que sequer sabe que cues existem: um cue nunca vira `load`).
       cue: null,
       data: null,
+      // ALTURA em pixels do vídeo, quando conhecida (v5.118). É o subtítulo da
+      // linha do Cronograma — "Vídeo · 1080p" —, e ela existe como CAMPO porque
+      // a única outra forma de saber a resolução de um blob é decodificá-lo, o
+      // que significaria abrir um `<video>` por linha a cada render. Quem sabe
+      // é quem gravou: o shell devolve a altura do que de fato baixou, e a
+      // importação de arquivo a lê do mesmo `<video>` que já monta a miniatura.
+      // `null` quando não se sabe — e aí o subtítulo diz só o tipo.
+      height: null,
+      // DURAÇÃO em segundos, pela mesma razão e com a mesma regra. Ela é o
+      // detalhe do subtítulo de um ÁUDIO, que não tem resolução para mostrar.
+      seconds: null,
       createdAt: Date.now(),
     }, fields);
   }
@@ -259,6 +270,8 @@
       thumb: (meta && meta.thumb) || null,
       name: (meta && meta.name) || 'sem-nome',
       youtubeId: (meta && meta.youtubeId) || null,
+      height: (meta && meta.height) || null,
+      seconds: (meta && meta.seconds) || null,
     });
     return addMediaToList(record, (meta && meta.list) || 'imports');
   }

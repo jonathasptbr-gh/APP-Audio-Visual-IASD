@@ -90,7 +90,7 @@ class NativeBridge(
          * exijam mais do que o shell instalado oferece (ver [WebUpdater]).
          * Subir SEMPRE que a superfície da ponte mudar.
          */
-        const val SHELL_VERSION = 24
+        const val SHELL_VERSION = 25
 
         /**
          * Fila de IO da ponte, **compartilhada por todas as instâncias**.
@@ -237,11 +237,20 @@ class NativeBridge(
         SyncService.updateProgress(
             ctx,
             label = o.optString("label"),
-            done = o.optInt("done"),
-            total = o.optInt("total"),
+            done = o.optLong("done"),
+            total = o.optLong("total"),
             etaMs = o.optLong("etaMs"),
             items = itens,
             idleMs = o.optLong("idleMs"),
+            // `bytes` (v5.118): quando ligado, `done`/`total` são BYTES e não
+            // itens — é o que dá barra e estimativa a um download único, que é
+            // justamente o caso em que a notificação é a única janela. Ver
+            // `SyncService.formatBytes` e `bgTaskStart` no lado web.
+            //
+            // `Long` desde agora, e não `Int`: um vídeo de 1080p passa
+            // folgadamente dos 2 GB que o `Int` comporta, e o estouro sairia
+            // como uma barra andando para trás.
+            bytes = o.optBoolean("bytes"),
         )
     }
 
@@ -345,11 +354,41 @@ class NativeBridge(
     @JavascriptInterface
     fun ytFetchAudio(callId: String, url: String) = ytFetchInterno(callId, url, true)
 
-    private fun ytFetchInterno(callId: String, url: String, somenteAudio: Boolean) {
+    /**
+     * Vídeo com **teto de resolução escolhido pelo operador** (1080p · 720p ·
+     * 480p, na folha de download).
+     *
+     * TERCEIRO MÉTODO, pelo mesmo motivo que existe o [ytFetchAudio]: a ponte
+     * casa o método por nome **e aridade**, então acrescentar o parâmetro ao
+     * [ytFetch] deixaria todo download quebrado num shell antigo que recebesse o
+     * bundle novo por OTA. Aqui a degradação é a certa — sem este método o lado
+     * web nem desenha o seletor e continua chamando o [ytFetch] de sempre, que
+     * baixa no padrão de [YoutubeGrab.TETO_ALTURA].
+     *
+     * E é por isso que o lado web só usa este caminho quando o operador escolhe
+     * um teto MENOR que o padrão: pedir 1080p pelo `ytFetch` comum funciona em
+     * qualquer shell, então não há razão para exigir um APK novo de quem quer o
+     * comportamento de sempre.
+     */
+    @JavascriptInterface
+    fun ytFetchAte(callId: String, url: String, altura: Int) =
+        ytFetchInterno(callId, url, false, altura)
+
+    private fun ytFetchInterno(
+        callId: String,
+        url: String,
+        somenteAudio: Boolean,
+        teto: Int = YoutubeGrab.TETO_ALTURA,
+    ) {
         if (host == null) { resolve(callId, "null"); return }   // telão não baixa nada
         io.execute {
             val r = try {
-                YoutubeGrab.buscar(ctx, url, somenteAudio) { lidos, total ->
+                // O teto é SANEADO aqui, não lá dentro: este parâmetro vem de
+                // JavaScript, e um 0 (ou um negativo) esvaziaria a fila de
+                // candidatos e derrubaria o download inteiro num caminho que
+                // pareceria "vídeo indisponível".
+                val alvo = teto.coerceIn(144, YoutubeGrab.TETO_ALTURA)
+                YoutubeGrab.buscar(ctx, url, somenteAudio, alvo) { lidos, total ->
                     ytProgresso(callId, lidos, total)
                 }
             } catch (_: Exception) { null }

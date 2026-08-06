@@ -294,9 +294,20 @@
     // `callComProgresso` falha e a promise resolve null, e quem pediu áudio
     // recebe "não deu" — mas quem pediu vídeo nunca é afetado. Quem oferece a
     // escolha na tela já pergunta o `__SHELL_VERSION__` antes de desenhá-la.
-    ytFetch(url, onProgresso, somenteAudio) {
+    // `altura` (v5.118) é o TETO de resolução do vídeo — o operador o escolhe
+    // na folha de download (1080p · 720p · 480p). Ele cai num TERCEIRO destino
+    // (`ytFetchAte`) pela mesma razão do áudio, e com um cuidado a mais: só é
+    // usado quando o teto pedido é MENOR que o padrão do shell. Pedir 1080p
+    // continua saindo pelo `ytFetch` de sempre, que existe em toda versão —
+    // assim quem não mexeu no seletor nunca depende de um APK novo.
+    ytFetch(url, onProgresso, somenteAudio, altura) {
+      const teto = altura | 0;
       return callComProgresso(
-        (id) => (somenteAudio ? B.ytFetchAudio(id, String(url)) : B.ytFetch(id, String(url))),
+        (id) => {
+          if (somenteAudio) return B.ytFetchAudio(id, String(url));
+          if (teto > 0 && teto < 1080) return B.ytFetchAte(id, String(url), teto);
+          return B.ytFetch(id, String(url));
+        },
         onProgresso,
       );
     },

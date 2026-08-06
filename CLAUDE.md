@@ -234,8 +234,9 @@ window.AVNative = {
   openCast(),          // seletor de ESPELHAMENTO DE TELA do Android (≠ Google Cast)
   castTarget(),        // → string: rótulo do alvo de espelhamento deste aparelho
   openExternal(url),   // abre uma URL https FORA do app (só o Controle)
-  ytFetch(url, onProg, soAudio), // → { url, name, size, type }: baixa do YouTube
+  ytFetch(url, onProg, soAudio, altura), // → { url, name, size, type, height, seconds }
                        //   `soAudio` traz só a faixa de áudio (m4a) — exige shell 23
+                       //   `altura` é o TETO de resolução — exige shell 25 abaixo de 1080
   ytDiscard(url),      //   e apaga o arquivo depois que os bytes foram copiados
   ytDiag(),            // → string: o que o extrator recebeu na última extração
                        //   (diagnóstico do rodapé de Configurações)
@@ -248,7 +249,7 @@ window.AVNative = {
   systemVolume(step),  // devolve um passo ao volume do sistema (fader no limite)
   requestMic(),        // → bool: permissão RECORD_AUDIO (push-to-talk)
   keepAlive(bool),     // download em curso — ver "Trabalho em segundo plano"
-  bgProgress({label, done, total, etaMs, items, idleMs}), // progresso na notificação
+  bgProgress({label, done, total, etaMs, items, idleMs, bytes}), // progresso na notificação
   nowPlaying({active, title, subtitle, playing, slideMode, slideLabel, wallpaper, positionMs, durationMs}),
   onRemote(cb),        // cb('play'|'pause'|'playpause'|'prev'|'next'|'stop'|'view')
 }
@@ -256,10 +257,11 @@ window.AVNative = {
 
 São **vinte e quatro métodos**, e essa é a superfície inteira que o resto do lado web
 tem direito de usar: fora do `native.js`, tocar em `__AVBridge` direto é
-acoplamento indevido. O próprio `native.js` chama mais seis coisas no
-`__AVBridge`, e nenhuma delas é API para o app — a sexta é o `ytFetchAudio`,
-que não é um método a mais da ponte web e sim o outro DESTINO do `ytFetch`
-quando se pede só o áudio (ver "Divergências") — `shellVersion()`, `role()` e
+acoplamento indevido. O próprio `native.js` chama mais sete coisas no
+`__AVBridge`, e nenhuma delas é API para o app — a sexta e a sétima são
+`ytFetchAudio` e `ytFetchAte`, que não são métodos a mais da ponte web e sim os
+outros dois DESTINOS do `ytFetch`: um quando se pede só o áudio, outro quando se
+pede um teto de resolução menor que o padrão (ver "Divergências") — `shellVersion()`, `role()` e
 `appVersion()` viram as globais logo abaixo, `busPost()` é o relay do barramento
 e `otaConfirm()` é o watchdog do OTA.
 
@@ -325,7 +327,11 @@ esperam uma **pessoa** e ficam sem prazo, porque um timeout ali resolveria null
 com o operador ainda escolhendo a pasta.
 
 `NativeBridge.SHELL_VERSION` identifica a versão da casca — **subir sempre que
-a superfície da ponte mudar**. Hoje vale **24** — a v5.115 acrescentou `ytDiag`
+a superfície da ponte mudar**. Hoje vale **25** — a v5.118 acrescentou
+`ytFetchAte` (teto de resolução escolhido pelo operador) e o campo `bytes` do
+`bgProgress` (que sozinho não exigiria bump, porque só acrescenta um campo a um
+JSON, mas o lado Kotlin passou a formatá-lo e a web precisa saber se ele o
+entende), a v5.115 acrescentou `ytDiag`
 (diagnóstico da extração do YouTube), a v5.112 acrescentou
 `ytFetchAudio` (só a faixa de áudio de um vídeo do YouTube), a v5.100 fez `deckPages`
 devolver o MOTIVO da falha (`{ erro }`) em vez de `null`, a v5.99 mudou a ASSINATURA do
@@ -462,10 +468,33 @@ download travado nunca consumir bateria indefinidamente. No navegador tudo isso
 Com o app minimizado ela é a ÚNICA janela para o download, e era um texto fixo
 ("Baixando mídias") — não dizia quanto falta nem se ainda anda. Quem sabe o
 progresso é o lado web, então é ele que reporta, por
-`AVNative.bgProgress({label, done, total, etaMs, items, idleMs})`:
+`AVNative.bgProgress({label, done, total, etaMs, items, idleMs, bytes})`:
 `bgTaskStart`/`bgTaskStep` em `controle.js` alimentam
 `SyncService.updateProgress`, que refaz a notificação com barra, "N de M",
 percentual e o tempo restante.
+
+- **A unidade pode ser BYTES, e não itens** (`bytes`, v5.118). O registro nasceu
+  contando itens — 54 músicas, 1189 capítulos —, e para um lote é a unidade
+  certa. Mas o download de UM vídeo do YouTube abria a tarefa com `total = 1`, e
+  aí os dois números que a notificação existe para dar simplesmente não
+  existiam: a barra ficava em 0% do começo ao fim e a ETA era **zero**, porque
+  `bgTaskEta` precisa de pelo menos um item concluído para ter média. Ou seja, o
+  caso em que a notificação é a ÚNICA janela — app minimizado, centenas de MB,
+  minutos de espera — era o caso em que ela não dizia nada. Os bytes sempre
+  estiveram à mão (o shell os reporta a cada MB); faltava um canal. Como
+  percentual e ETA são RAZÕES, toda a matemática vale sem mudar uma linha —
+  trocar a unidade é só isto, e o que muda é a APRESENTAÇÃO (`formatBytes` no
+  `SyncService`). A bandeira mora no REGISTRO da tarefa, não no envio: um lote
+  de músicas pode estar rodando ao lado de um download de vídeo, e a unidade é
+  de cada tarefa.
+- `Long`, e não `Int`, do `optLong` da ponte até o `Progress`: um vídeo de 1080p
+  passa dos 2 GB que o `Int` comporta, e o estouro sairia como uma barra andando
+  para trás. Pelo mesmo motivo `setProgress` recebe **milésimos** em vez das
+  unidades cruas — ele é `Int` por assinatura, e 1/1000 é muito além do que uma
+  barra de notificação distingue.
+- **O nome do que está baixando vale também para um item só.** `ytArquivo` chama
+  `bgItemOnly` com o título do vídeo: "Baixando vídeo" sozinho não diz QUAL, e
+  com o app minimizado não há outra tela para perguntar.
 
 - **A notificação diz O QUE está baixando, não só quantos.** `bgItemStart`/
   `bgItemEnd` (e `bgItemOnly`, para fluxos sequenciais) registram os itens em
@@ -928,6 +957,7 @@ contextos.
 | Botão de cast da preview | oculto | `AVNative.openCast()` → seletor de **espelhamento de tela** (ver abaixo) |
 | PDF, PowerPoint, Google Apresentações | **PDF não existe** (não há quem o desenhe); o `.pptx` funciona, e é o MESMO caminho do app | **viram UMA IMAGEM POR PÁGINA**, cada formato pelo caminho que existe para ele: o **PDF** pelo `PdfRenderer` da PLATAFORMA (`SlideDeck.kt` + `AVNative.deckPages`) — fidelidade total, zero dependência; o **`.pptx`** pelo renderizador de OOXML em `assets/web/vendor/` (`pptxParaPaginas`, em `controle.js`), carregado por `import()` dinâmico e rasterizado com `<foreignObject>` + canvas. Daí para a frente é mídia comum: fade, cortina, telão e `MediaSession` que já existem, com ⏮/⏭ passando página. **Não há botão de "apresentação"**: uma apresentação é um arquivo como outro qualquer, e entra pelo mesmo "Importar arquivos" (que no app abre o seletor do SISTEMA, `pickDoc` — o `<input type="file">` devolve bytes, e o PDF precisa que o shell abra o ARQUIVO) ou pelo compartilhamento. O `.ppt` anterior a 2007 e o `.odp` ficam de fora: ninguém sabe desenhá-los, e aceitar para depois falhar é pior que não aceitar. O link do Google entra sozinho pela URL de exportação |
 | Vídeo do YouTube | player embutido (IFrame API) | **arquivo de vídeo baixado PELO APARELHO** (`YoutubeGrab.kt` + `AVNative.ytFetch`) — o embed pausa sozinho com o app minimizado, e a extração no próprio celular sai do IP do chip, que é o que o YouTube não bloqueia. Sem configurar nada. Cobalt continua como segunda opção para quem já mantém uma instância; falhando os dois, o link vira item de player |
+| Qualidade do download | — | **o operador escolhe o teto** (1080p · 720p · 480p, v5.118/shell 25), no mesmo seletor de Vídeo/Só áudio da folha. Ele nasce no padrão A CADA ITEM, e isso é deliberado: um teto que grudasse faria quem escolheu 480p numa rede ruim receber, sem aviso, o vídeo principal do domingo seguinte em 480p no telão — o atrito de dois toques é visível, a regressão silenciosa não seria. Pedir 1080p continua saindo pelo `ytFetch` de sempre (nenhum shell novo exigido); só um teto MENOR usa o método novo. O progressivo respeita o teto, mas nunca ao ponto de não entregar nada: não cabendo nenhum, vale o menor que existir |
 | Resolução do download | — | **até 1080p, montando as duas faixas** (v1.44; pares por contêiner na v1.45). Acima de 720p o YouTube só entrega vídeo SEM som, com o som à parte — e por isso o app baixava a pior cópia: só sabia pegar o progressivo, que neste aparelho é UM, de 360p. `MuxMp4.kt` junta as duas com o `MediaMuxer` da PLATAFORMA: é cópia de amostras, não recodificação, então não há perda nem espera. Teto de 1080p de propósito (o telão da igreja é 1080p) e só quando o resultado for melhor que o progressivo — senão dois downloads e um muxer entregariam o mesmo de antes. Os pares são do MESMO contêiner (mp4+m4a → MP4, webm+webm → WebM, este só na API 29+): "a melhor de cada lado" produziria VP9 dentro de MP4, que o muxer recusa depois de tudo baixado. Falhando qualquer etapa, o progressivo segue como piso. **Da v1.44 à v1.48 isso não saía do papel: as faixas eram listadas (1080p) e o CDN respondia 403 a todas** — com os dois pares, os dois perfis de UA e `Range`. Era o SABR, que o YouTube passou a exigir de quem pede sem PO Token. A saída não era montar o token (o `getWebClientPoToken` da biblioteca não tem uma única chamada em versão nenhuma, e o token do cliente Android — o que ela de fato consome — exige o DroidGuard do Play Services): foi **atualizar o extrator para a v0.26.4** (v1.49), que busca o cliente **visionOS** sem token nenhum e volta a entregar as adaptativas. Como as listas passaram a chegar MISTURADAS (visionOS + o cliente antigo), a escolha virou uma **fila de candidatos** — ver "O cliente visionOS destrava o 1080p" em `docs/ARQUITETURA-WEB.md`. **CONFIRMADO em aparelho:** `clientes VISIONOS 17, ANDROID 1 → juntou 1080p (mp4, 137@VISIONOS/V)`, sem uma única recusa na fila. Diagnóstico no rodapé de Configurações, agora com o itag, o cliente e o motivo de cada tentativa |
 | **Só o ÁUDIO** de um vídeo do YouTube | — | **`ytFetchAudio`** (v5.112, shell ≥ 23; **exige o APK v1.41+** — ver abaixo): a faixa de áudio, sem vídeo. A escolha é o MESMO seletor de Cantada/Playback das músicas, no topo da folha de destinos, e vale para as quatro ações. Entra como `kind: 'audio'` e **sem miniatura** — é o kind que faz o telão manter o wallpaper em vez de trocar de imagem. É também o único caminho em que o teto de 720p do progressivo não existe: o áudio do YouTube já vem em faixa separada, então aqui ele vem inteiro. **E é justamente por ser faixa separada que ele pode não vir**: adaptativo é o que o YouTube protegeu com SABR quando o app pedia sem PO Token. Daí a fila de tentativas do shell — que na v1.49 deixou de ser "m4a → qualquer outro → progressivo" e passou a ser **três candidatos de áudio na ordem do cliente que funciona** (visionOS primeiro), com o progressivo ainda no fim. **CONFIRMADO em aparelho:** `→ veio m4a 140@VISIONOS` (AAC-LC 128 kbps, primeiro candidato, primeira requisição) — até a v1.48 este caminho caía no vídeo de 360p inteiro. O registro entra como `kind: 'audio'` em todos os casos: quem decide que o telão não muda de imagem é o kind, não o container |
 | Buscar no YouTube | não existe: o botão abre o YouTube numa aba | **a busca acontece DENTRO do acervo** — a tela que o rótulo chama de **Biblioteca** desde a v5.96, e que no código segue sendo o acervo — (`AVNative.ytSearch`, `YoutubeGrab.pesquisar`, em **português** — no padrão en-GB da biblioteca o YouTube devolve o título TRADUZIDO de vídeos que são originalmente em português, e passar a localização ao `NewPipe.init` NÃO resolve: o serviço filtra o idioma por uma lista de suportados que hoje só tem `en-GB`. Quem resolve é o `forceLocalization` do próprio `Extractor`): os resultados entram na mesma lista e o toque abre a mesma folha de três escolhas das músicas (tocar · playlist · Cronograma), cada uma indo só para o seu lugar. Um iframe da página de resultados é recusado pelo `X-Frame-Options` do YouTube, e a API oficial exigiria chave com cota compartilhada pela frota |
@@ -1385,7 +1415,7 @@ aparelho nenhum.
 O `versionCode`/`versionName` do APK vêm do CI (ver "Build") e não se tocam à
 mão.
 
-**Versão atual: v5.117** (base web) · `SHELL_VERSION` **24**, e o bundle segue com
+**Versão atual: v5.118** (base web) · `SHELL_VERSION` **25**, e o bundle segue com
 `minShell: 2` — ele funciona igual num shell antigo, só sem os recursos que são
 nativos por construção (a escada do voltar, os botões de volume, a notificação de
 controles), que **só chegam instalando o APK novo**, não pelo OTA.

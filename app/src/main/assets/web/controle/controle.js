@@ -162,7 +162,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.117';
+const WEB_VERSION = '5.118';
 
 // Escrita UMA vez, na carga: o indicador mora no rodapé de Configurações desde
 // a v5.49 e não depende mais de qual aba está aberta (no cabeçalho ele
@@ -1711,7 +1711,7 @@ function thumbFromImage(file) {
     img.src = url;
   });
 }
-function thumbFromVideo(file) {
+function thumbFromVideo(file, medidas) {
   return new Promise((resolve) => {
     const url = URL.createObjectURL(file);
     const v = document.createElement('video');
@@ -1723,6 +1723,16 @@ function thumbFromVideo(file) {
       resolve(blob);
     }
     v.muted = true; v.preload = 'auto'; v.playsInline = true;
+    // A altura e a duração saem de CARONA no elemento que já vai ser carregado
+    // para a miniatura — medi-las depois custaria um segundo decode do mesmo
+    // arquivo. Em `loadedmetadata` porque é o evento mais cedo em que elas
+    // existem: se o prazo de segurança lá embaixo vencer antes do seek, os
+    // números já foram guardados.
+    v.onloadedmetadata = () => {
+      if (!medidas) return;
+      medidas.height = v.videoHeight || 0;
+      medidas.seconds = Math.round(v.duration) || 0;
+    };
     v.onloadeddata = () => {
       try { v.currentTime = Math.min(0.5, (v.duration || 1) / 3); }
       catch (e) { finish(null); }
@@ -1737,9 +1747,53 @@ function thumbFromVideo(file) {
     setTimeout(() => finish(null), 3500);
   });
 }
-async function makeThumb(file, kind) {
+async function makeThumb(file, kind, medidas) {
   if (kind !== 'image' && kind !== 'video') return null;
-  return kind === 'image' ? thumbFromImage(file) : thumbFromVideo(file);
+  return kind === 'image' ? thumbFromImage(file) : thumbFromVideo(file, medidas);
+}
+
+// A DURAÇÃO de um áudio, para o subtítulo da lista (v5.118).
+//
+// Vídeo não precisa disto: o `<video>` que monta a miniatura já sabe a altura e
+// a duração, então elas saem de carona. Áudio não tem miniatura, e um decode
+// só para medir seria caro se ele lesse o arquivo — daí `preload='metadata'`,
+// que traz o cabeçalho e para.
+//
+// Prazo curto e falha em ZERO: um formato que o WebView não sabe abrir não pode
+// travar uma importação. Sem o número, o subtítulo diz só "Áudio", que é o
+// comportamento de antes deste campo existir.
+function medirAudio(file) {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const a = document.createElement('audio');
+    let pronto = false;
+    const fim = (seg) => {
+      if (pronto) return;
+      pronto = true;
+      URL.revokeObjectURL(url);
+      resolve(seg);
+    };
+    a.preload = 'metadata';
+    a.onloadedmetadata = () => fim(Math.round(a.duration) || 0);
+    a.onerror = () => fim(0);
+    a.src = url;
+    setTimeout(() => fim(0), 4000);
+  });
+}
+
+// Miniatura + os metadados do subtítulo, numa passada só.
+//
+// Usado nos dois caminhos de IMPORTAÇÃO (o seletor de arquivos e o
+// compartilhamento), que trazem alguns arquivos por vez. A sincronização de
+// PASTA fica de fora de propósito: ela percorre centenas de arquivos, e uma
+// leitura de metadados por áudio ali é um custo que o operador sente no tempo
+// da sincronização inteira, para ganhar um detalhe numa linha. Lá o subtítulo
+// diz só o tipo, que já é a informação que faltava.
+async function prepararMidia(file, kind) {
+  const m = {};
+  const thumb = await makeThumb(file, kind, m);
+  if (kind === 'audio') m.seconds = await medirAudio(file);
+  return { thumb, height: m.height || null, seconds: m.seconds || null };
 }
 
 // ===== carregar + render =====
@@ -3186,6 +3240,45 @@ const CUES = {
 };
 
 function isCue(rec) { return !!(rec && rec.kind === 'cue' && rec.cue); }
+
+// O QUE ESTE ITEM É — a segunda linha de toda linha da lista (v5.118).
+//
+// Antes isto era um SELO ao lado do nome, e o selo tinha um defeito estrutural:
+// ele dividia a largura com o nome, num `flex` em que o nome tem `flex: 1`. Com
+// um título curto ele aparecia; com "Firme nas Promessas — Arautos do Rei (Ao
+// Vivo)" ele era espremido ou empurrado para fora. Ou seja, a informação sumia
+// exatamente nos itens em que ela era mais necessária — os de nome comprido,
+// que são justamente os que menos se distinguem entre si numa lista.
+//
+// Como subtítulo ele passa a ter linha própria e é SEMPRE visível. E não custa
+// altura nenhuma: a linha já tem 40px por causa da miniatura, e duas linhas de
+// texto cabem dentro disso com folga — a lista não ficou mais alta em um pixel.
+//
+// O detalhe que acompanha o tipo é o que o registro JÁ tem à mão. Nada aqui
+// decodifica arquivo nem mede coisa alguma: a resolução vem do shell (ou do
+// `<video>` que já monta a miniatura), a duração vem junto, as páginas são o
+// tamanho do array. Um detalhe que exigisse trabalho por linha, a cada render,
+// não valeria a informação que dá.
+function subtituloItem(item) {
+  if (!item) return '';
+  if (isCue(item)) return cueTipo(item);
+  if (item.kind === 'deck') {
+    const n = Array.isArray(item.pages) ? item.pages.length : 0;
+    return 'Apresentação' + (n ? ' · ' + n + (n === 1 ? ' página' : ' páginas') : '');
+  }
+  // O item de PLAYER: o link, sem bytes no aparelho. Dizer "YouTube" é dizer
+  // que ele depende da rede durante o culto, que é a diferença que importa
+  // entre ele e o arquivo baixado do mesmo vídeo.
+  if (item.kind === 'youtube') return 'YouTube';
+  if (item.kind === 'video') return 'Vídeo' + (item.height ? ' · ' + item.height + 'p' : '');
+  if (item.kind === 'audio') {
+    const d = fmtDur(item.seconds);
+    return 'Áudio' + (d ? ' · ' + d : '');
+  }
+  if (item.kind === 'image') return 'Imagem';
+  if (!item.blob && item.url) return 'Link externo';
+  return 'Arquivo';
+}
 
 // ===== UM SÓ CAMINHO PARA "ADICIONAR" (v5.104) =====
 //
@@ -4703,25 +4796,19 @@ function renderLibrary() {
     // é indicada só pelo highlight azul (.lib-item.selected) — sem ícone de check.
     const thumb = isCue(item) ? cueThumb(item) : thumbEl(item);
 
+    // NOME + SUBTÍTULO numa coluna só (v5.118). O tipo do item era um selo ao
+    // lado do nome e disputava largura com ele — some no primeiro título
+    // comprido, que é justamente onde ele faz falta. Ver `subtituloItem`.
+    const textWrap = document.createElement('div'); textWrap.className = 'row-text';
     const name = document.createElement('span'); name.className = 'row-name'; name.textContent = item.name;
-    // A cena de roteiro DIZ QUE TIPO É, num selo ao lado do nome: numa lista que
-    // também tem hino, vídeo e apresentação, "Salmo 23:1" e "Bem-vindos" seriam
-    // duas linhas de texto sem nada que as distinga do resto.
-    let cueBadge = null;
-    if (isCue(item)) {
-      cueBadge = document.createElement('span');
-      cueBadge.className = 'url-badge cue-badge';
-      cueBadge.textContent = cueTipo(item);
-    }
-    // Badge for URL-based items
-    let badge = null;
-    // Item de player do YouTube num shell que sabe baixar: o selo vira botão e
-    // converte o link num arquivo local (ver ytBaixarNativo). É o
-    // mesmo lugar e o mesmo símbolo — quem já sabe que "YT" quer dizer "isto
-    // depende do YouTube" descobre no toque que dá para tirar essa dependência.
+    const sub = document.createElement('span'); sub.className = 'row-sub';
+    sub.textContent = subtituloItem(item);
+    textWrap.append(name, sub);
+    // Item de player do YouTube num shell que sabe baixar: o botão converte o
+    // link num arquivo local. Quem diz que ele DEPENDE DO YOUTUBE agora é o
+    // subtítulo; aqui ficou só a ação de tirar essa dependência.
     let ytDl = null;
     if (item.kind === 'youtube') {
-      badge = document.createElement('span'); badge.className = 'url-badge yt-badge'; badge.textContent = 'YT';
       const podeBaixar = window.__NATIVE__ && (window.__SHELL_VERSION__ | 0) >= 16;
       if (podeBaixar && item.url && activeTab === 'imports') {
         ytDl = document.createElement('button');
@@ -4762,8 +4849,6 @@ function renderLibrary() {
           await load();
         });
       }
-    } else if (!item.blob && item.url) {
-      badge = document.createElement('span'); badge.className = 'url-badge'; badge.textContent = 'URL';
     }
     const handle = document.createElement('button'); handle.className = 'row-handle'; handle.title = 'Arraste para reordenar';
     handle.appendChild(msym(ICON.drag));
@@ -4799,9 +4884,7 @@ function renderLibrary() {
       thumb.appendChild(anel);
     }
 
-    const parts = [thumb, name];
-    if (badge) parts.push(badge);
-    if (cueBadge) parts.push(cueBadge);
+    const parts = [thumb, textWrap];
     if (dl) {
       const pct = document.createElement('span'); pct.className = 'dl-pct';
       pct.textContent = dl.pct >= 0 ? dl.pct + '%' : '';
@@ -5803,7 +5886,16 @@ function favItemRow(item) {
   li.className = 'lib-item' + (item.id === currentId ? ' active' : '');
   li.dataset.id = item.id;
   const row = document.createElement('div'); row.className = 'row';
+  // A MESMA coluna nome+subtítulo da biblioteca, e de propósito: uma segunda
+  // anatomia de linha divergiria da primeira no próximo ajuste. Aqui o
+  // subtítulo é ESCONDIDO por CSS (ver `#favList .row-sub`) — a gaveta agrupa
+  // por tipo em seções, então o cabeçalho já diz o que a linha diria, e ela é a
+  // lista que precisa ser compacta.
+  const textWrap = document.createElement('div'); textWrap.className = 'row-text';
   const nome = document.createElement('span'); nome.className = 'row-name'; nome.textContent = item.name;
+  const sub = document.createElement('span'); sub.className = 'row-sub';
+  sub.textContent = subtituloItem(item);
+  textWrap.append(nome, sub);
   const add = document.createElement('button');
   add.className = 'row-btn'; add.title = 'Adicionar ao Cronograma';
   add.appendChild(msym(ICON.cronoAdd));
@@ -5811,12 +5903,7 @@ function favItemRow(item) {
     e.stopPropagation();
     await adicionarNaLista('imports', item.id, item.name, add);
   });
-  const partes = [isCue(item) ? cueThumb(item) : thumbEl(item), nome];
-  if (isCue(item)) {
-    const b = document.createElement('span'); b.className = 'url-badge cue-badge';
-    b.textContent = cueTipo(item);
-    partes.push(b);
-  }
+  const partes = [isCue(item) ? cueThumb(item) : thumbEl(item), textWrap];
   partes.push(favBtn(item.id, item.name), add);
   row.append(...partes);
   li.appendChild(row);
@@ -6849,12 +6936,44 @@ async function deleteSelected() {
     // `listRemove('folders', id)` — a chave do ÍNDICE de atalhos, que guarda
     // objetos e não ids: um no-op silencioso, com o operador vendo o item
     // continuar na lista depois de mandar excluí-lo.
-    for (const id of selected) { favSet.delete(id); await AVDB.listRemove('favs', id); }
+    for (const id of selected) {
+      favSet.delete(id); await AVDB.listRemove('favs', id); await soltarAvulso(id);
+    }
     await recarregarFavoritos();
   } else {
-    for (const id of selected) await AVDB.listRemove(activeTab, id);
+    for (const id of selected) { await AVDB.listRemove(activeTab, id); await soltarAvulso(id); }
   }
   exitSelection(); load();
+}
+
+// A PRATELEIRA INVISÍVEL não sobrevive a uma exclusão explícita (v5.118).
+//
+// `avulsos` é a única lista que o operador NÃO vê: ela existe para "Tocar
+// agora" não sujar o Cronograma e para não rebaixar o mesmo vídeo duas vezes no
+// mesmo culto (ver `fixarAvulso`). Mas ela conta para o `isReferenced`, e o
+// `deleteSelected` só removia da aba ATIVA — então excluir um vídeo do
+// Cronograma deixava a prateleira segurando o registro: o blob ficava no
+// aparelho, invisível em toda tela, e a lista de resultados do YouTube
+// continuava marcando aquele vídeo como "já está aqui" sem que existisse um
+// lugar onde removê-lo. Era o que o operador via, e ele tinha razão.
+//
+// A regra: excluir é uma DECLARAÇÃO DE INTENÇÃO, e ela vale para os detentores
+// que o operador não pode enxergar. A prateleira é cache, não biblioteca.
+//
+// A ÚNICA exceção é o que está em cena agora. Ali a prateleira está fazendo
+// exatamente o trabalho para o qual foi criada — segurar a mídia projetada que
+// não pertence a lista nenhuma —, e soltá-la apagaria o blob de baixo de uma
+// projeção em andamento: o vídeo continuaria tocando (o Display já tem os
+// bytes), mas uma queda do dongle o traria de volta e o `getMedia` não acharia
+// nada. Quando essa mídia sair de cena e outra ocupar seu lugar, o rodízio de
+// `fixarAvulso` a solta sozinho.
+//
+// `listRemove` decide sozinho se o blob morre: se o Cronograma, a playlist ou um
+// Favorito ainda o tiverem, ele fica inteiro. Esta função nunca apaga nada por
+// conta própria — ela só deixa de esconder um detentor.
+async function soltarAvulso(id) {
+  if (!id || id === currentId) return;
+  await AVDB.listRemove('avulsos', id);
 }
 async function renameSelected() {
   if (selected.size !== 1) return;
@@ -8403,8 +8522,44 @@ function pintarYtLinha(li, reg) {
 // acervo, pela mesma folha (`#songMenuPopup`) e com os mesmos ícones. Antes o
 // toque baixava direto e pronto: o operador não escolhia nada e o vídeo caía no
 // Cronograma quisesse ele ou não.
+// Os tetos oferecidos, do melhor ao mais leve. 1080p é o telão da igreja e o
+// padrão; 720p corta o tamanho pela metade sem doer numa tela dessas; 480p é a
+// escolha de quem está no chip do celular minutos antes do culto — ali um
+// louvor que TERMINA vale mais que um que não.
+//
+// 360p ficou de fora de propósito: num telão de salão ele é ruim o suficiente
+// para não valer ser oferecido, e é justamente o piso em que o app ficou preso
+// por sete versões. Acima de 1080p também não: o telão não mostra a diferença e
+// o aparelho ainda guarda hinário e Bíblia.
+const YT_ALTURAS = [1080, 720, 480];
+
+// Uma linha de segmentos da folha de download — o MESMO desenho de
+// Cantada/Playback das músicas do acervo. Duas perguntas usam este formato
+// (forma e qualidade), e escrevê-lo duas vezes era garantir que a segunda
+// divergisse da primeira no primeiro ajuste de estilo.
+function ytSegRow(opcoes, atual, onPick) {
+  const li = document.createElement('li'); li.className = 'song-menu-seg-row';
+  const wrap = document.createElement('div'); wrap.className = 'fit-seg song-menu-seg';
+  opcoes.forEach(([valor, rotulo]) => {
+    const b = document.createElement('button');
+    b.className = 'fit-opt' + (atual === valor ? ' active' : '');
+    b.textContent = rotulo;
+    b.addEventListener('click', () => onPick(valor));
+    wrap.appendChild(b);
+  });
+  li.appendChild(wrap);
+  return li;
+}
+
 function openYtMenu(r) {
-  if (!songMenuFor || songMenuFor.yt !== r) songMenuFor = { yt: r, variant: 'full', audio: false };
+  // A qualidade nasce no padrão A CADA ITEM, como a forma e como a variante das
+  // músicas. Deliberado: um teto que grudasse faria o operador escolher 480p
+  // numa rede ruim e receber, sem aviso, o vídeo principal do domingo seguinte
+  // em 480p no telão. O atrito de dois toques é visível; a regressão silenciosa
+  // não seria.
+  if (!songMenuFor || songMenuFor.yt !== r) {
+    songMenuFor = { yt: r, variant: 'full', audio: false, alt: YT_ALTURAS[0] };
+  }
   songMenuTitleEl.textContent = r.name || 'Vídeo do YouTube';
   songMenuListEl.innerHTML = '';
   // VÍDEO × SÓ ÁUDIO, no MESMO seletor de Cantada/Playback das músicas do
@@ -8416,17 +8571,26 @@ function openYtMenu(r) {
   // não faria nada, e botão que não faz nada no meio de um culto é pior que
   // botão nenhum — mesma regra do botão de busca no YouTube.
   if (window.__NATIVE__ && (window.__SHELL_VERSION__ | 0) >= 23) {
-    const seg = document.createElement('li'); seg.className = 'song-menu-seg-row';
-    const wrap = document.createElement('div'); wrap.className = 'fit-seg song-menu-seg';
-    [[false, 'Vídeo'], [true, 'Só áudio']].forEach(([v, rot]) => {
-      const b = document.createElement('button');
-      b.className = 'fit-opt' + (!!songMenuFor.audio === v ? ' active' : '');
-      b.textContent = rot;
-      b.addEventListener('click', () => { songMenuFor.audio = v; openYtMenu(r); });
-      wrap.appendChild(b);
-    });
-    seg.appendChild(wrap);
-    songMenuListEl.appendChild(seg);
+    songMenuListEl.appendChild(ytSegRow(
+      [[false, 'Vídeo'], [true, 'Só áudio']],
+      !!songMenuFor.audio,
+      (v) => { songMenuFor.audio = v; openYtMenu(r); },
+    ));
+  }
+  // A QUALIDADE, logo abaixo da forma — e só quando há vídeo para qualificar:
+  // com "Só áudio" escolhido não existe resolução nenhuma, e deixar a linha na
+  // tela seria oferecer uma escolha que não faz nada (a mesma regra do botão de
+  // busca no YouTube num shell antigo).
+  //
+  // Shell ≥ 25, pelo método `ytFetchAte` da ponte. Num anterior a linha não
+  // aparece e o download sai no padrão de sempre — que é exatamente o que este
+  // app fazia até agora, então nada regride.
+  if (window.__NATIVE__ && (window.__SHELL_VERSION__ | 0) >= 25 && !songMenuFor.audio) {
+    songMenuListEl.appendChild(ytSegRow(
+      YT_ALTURAS.map((h) => [h, h + 'p']),
+      songMenuFor.alt | 0,
+      (v) => { songMenuFor.alt = v; openYtMenu(r); },
+    ));
   }
   // O subtítulo do "Tocar agora" DIZ que o Cronograma fica de fora: é a
   // diferença entre as três opções, e ela não se adivinha olhando o ícone.
@@ -8437,15 +8601,20 @@ function openYtMenu(r) {
   // já tomava, e a folha é remontada a cada toque no seletor, então o valor
   // capturado é sempre o vigente.
   const soAudio = !!songMenuFor.audio;
+  // A altura viaja no fecho junto com a forma, e pelo MESMO motivo: o
+  // `songMenuItem` chama `closeSongMenu()` antes da ação, e ela zera o
+  // `songMenuFor` — ler o teto lá dentro encontraria null e todo download sairia
+  // no padrão, calado.
+  const altura = soAudio ? 0 : (songMenuFor.alt | 0);
   songMenuListEl.appendChild(songMenuItem(msym(ICON.play), 'Tocar agora',
     soAudio ? 'Toca no fundo, sem mexer no telão' : 'Projeta em seguida, sem entrar no Cronograma',
-    () => ytAcao(r, 'tocar', null, soAudio)));
+    () => ytAcao(r, 'tocar', null, soAudio, altura)));
   songMenuListEl.appendChild(songMenuItem(msym(ICON.queue), 'Adicionar à playlist',
-    'Entra na fila, sem entrar no Cronograma', (vr, btn) => ytAcao(r, 'playlist', btn, soAudio)));
+    'Entra na fila, sem entrar no Cronograma', (vr, btn) => ytAcao(r, 'playlist', btn, soAudio, altura)));
   songMenuListEl.appendChild(songMenuItem(msym(ICON.cronoAdd), 'Adicionar ao Cronograma',
-    'A lista do culto', (vr, btn) => ytAcao(r, 'cronograma', btn, soAudio)));
+    'A lista do culto', (vr, btn) => ytAcao(r, 'cronograma', btn, soAudio, altura)));
   songMenuListEl.appendChild(songMenuItem(msym(ICON.star), 'Favoritar',
-    'Baixa e marca — fica à mão toda semana', (vr, btn) => ytAcao(r, 'favoritos', btn, soAudio)));
+    'Baixa e marca — fica à mão toda semana', (vr, btn) => ytAcao(r, 'favoritos', btn, soAudio, altura)));
   songMenuPopupEl.classList.add('open');
 }
 
@@ -8465,7 +8634,7 @@ function openYtMenu(r) {
 // entregue ao `addMedia`, que continua gravando registro e lista na mesma
 // transação.
 const YT_LISTA = { tocar: 'avulsos', playlist: 'playlist', cronograma: 'imports', favoritos: 'favs' };
-async function ytAcao(r, destino, btn, somenteAudio) {
+async function ytAcao(r, destino, btn, somenteAudio, altura) {
   const tocar = destino === 'tocar';
   if (tocar) closeHymnSearch();
   setYtEstado(r.id, 'baixando');
@@ -8487,6 +8656,7 @@ async function ytAcao(r, destino, btn, somenteAudio) {
   const rec = await ytArquivo(r, {
     lista,
     somenteAudio: soAudio,
+    altura,
     naPreview: tocar,
     aviso: destino === 'playlist' ? 'nenhum' : (tocar ? 'preview' : 'lib'),
     onPct: (pct) => setYtEstado(r.id, 'baixando', pct),
@@ -9426,6 +9596,12 @@ async function ytBaixarNativo(link, nome, opts) {
   // escolha na tela já a esconde nesse shell (ver `openYtMenu`); esta guarda é
   // para o caminho que não passa pela tela.
   const soAudio = !!(opts && opts.somenteAudio) && (window.__SHELL_VERSION__ | 0) >= 23;
+  // O TETO DE RESOLUÇÃO escolhido pelo operador (v5.118). Ausente = o padrão do
+  // shell (1080p), que é o caminho que funciona em qualquer versão: o `ytFetch`
+  // do `native.js` só usa o método novo da ponte quando o teto pedido é MENOR
+  // que o padrão. Nenhuma guarda de shell aqui, portanto — quem não pode
+  // escolher simplesmente não escolhe, e baixa como sempre.
+  const altura = (opts && opts.altura) | 0;
   const rotulo = nome || 'Vídeo do YouTube';
   const rotuloBaixando = soAudio ? 'Baixando áudio' : 'Baixando vídeo';
   const naPreview = !!(opts && opts.naPreview);
@@ -9439,6 +9615,11 @@ async function ytBaixarNativo(link, nome, opts) {
     : aviso === 'lib' ? libBusy(rotulo, opts && opts.chave)
       : { visivel: false, atualizar() {}, soltar() {} };
   const notif = bgTaskStart(rotuloBaixando, 1);
+  // O NOME DO VÍDEO na linha da notificação, pela mesma razão do lote de
+  // músicas: "Baixando vídeo" sozinho não diz QUAL, e com o app minimizado esta
+  // é a única tela que existe. Uma tarefa de um item só nunca chega a trocar de
+  // nome, então o compasso não tem o que fazer aqui — vai direto.
+  bgItemOnly(notif, rotulo);
   try {
     return await withBgWork(async () => {
       const r = await AVNative.ytFetch(link, (lidos, total) => {
@@ -9446,8 +9627,13 @@ async function ytBaixarNativo(link, nome, opts) {
         bg.atualizar(pct >= 0
           ? rotuloBaixando + ' · ' + pct + '%'
           : rotuloBaixando + ' · ' + fmtBytes(lidos), null, pct);
+        // Os MESMOS bytes que a preview já mostrava vão agora para a
+        // notificação, que até a v5.117 ficava parada em "0 de 1" (ver
+        // `bgTaskBytes`). É a diferença entre uma barra que anda e uma que
+        // parece travada durante os minutos inteiros do download.
+        bgTaskBytes(notif, lidos, total);
         if (opts && opts.onPct) opts.onPct(pct);
-      }, soAudio);
+      }, soAudio, altura);
       if (!r || !r.url) return null;
       // O shell manda `r.audioOnly` dizendo se a faixa é mesmo só áudio (ver
       // YoutubeGrab.buscar). A UI NÃO usa esse campo: quando o vídeo não
@@ -9475,6 +9661,13 @@ async function ytBaixarNativo(link, nome, opts) {
           type: r.type || (soAudio ? 'audio/mp4' : 'video/mp4'),
           kind: soAudio ? 'audio' : 'video',
           thumb,
+          // A ALTURA REAL do que veio, dita pelo shell. Ela vira o subtítulo da
+          // linha do Cronograma ("Vídeo · 1080p"), e é a única forma honesta de
+          // responder "o que eu tenho aqui?" agora que o teto é escolhido a
+          // cada download — inclusive quando o pedido não pôde ser atendido e o
+          // que veio foi outra coisa. Descobrir isso depois exigiria decodificar
+          // o arquivo.
+          height: (r.height | 0) || null,
           // O id do vídeo fica GRAVADO no registro: é ele que faz o próximo
           // toque no mesmo resultado reaproveitar este arquivo em vez de
           // baixar tudo de novo (ver `ytArquivo`).
@@ -9971,9 +10164,10 @@ async function importShare(pending) {
     // provedores do Android costumam devolver MIME genérico.
     const type = guessMediaType(name) || blob.type;
     const kind = AVDB.kindFromType(type);
-    const thumb = await makeThumb(blob, kind);
+    const { thumb, height, seconds } = await prepararMidia(blob, kind);
     const rec = await AVDB.addMedia(blob, {
-      name: name.replace(/\.[^.]+$/, ''), type, kind, thumb, list: destinoDoShare(),
+      name: name.replace(/\.[^.]+$/, ''), type, kind, thumb, height, seconds,
+      list: destinoDoShare(),
     });
     if (rec && !primeiro) primeiro = rec.id;
     if (rec) lote.push(rec.id);
@@ -10343,6 +10537,11 @@ function bgTaskStart(label, total) {
     firstStepAt: 0,
     shownEta: 0,
     etaAt: 0,        // quando shownEta foi suavizada pela última vez
+    // `done`/`total` em BYTES em vez de itens — ver `bgTaskBytes`. Fica no
+    // registro (e não num parâmetro do envio) porque a notificação mostra a
+    // tarefa DOMINANTE, e um lote de músicas pode estar rodando ao lado de um
+    // download de vídeo: a unidade é de cada tarefa, não do envio.
+    bytes: false,
   });
   bgPacerSync();
   bgTaskSend(true);
@@ -10423,6 +10622,40 @@ function bgTaskStep(id, done, label) {
   t.done = done;
   t.lastEventAt = Date.now();
   if (label) t.label = label;
+  bgTaskSend(false);
+}
+
+// Progresso em BYTES — a tarefa passa a ser medida em bytes transferidos, não
+// em itens concluídos (v5.118).
+//
+// O registro nasceu contando ITENS, e para um lote é a unidade certa: 54
+// músicas, 1189 capítulos. Mas o download de UM vídeo do YouTube abria a tarefa
+// com `total = 1`, e aí os dois números que a notificação existe para dar
+// simplesmente não existiam: a barra ficava em 0% do começo ao fim, e
+// `bgTaskEta` devolvia ZERO porque ela precisa de pelo menos um item concluído
+// para ter uma média. Ou seja, o caso em que a notificação é a ÚNICA janela —
+// app minimizado, centenas de MB, minutos de espera — era o caso em que ela não
+// dizia nada.
+//
+// Os bytes sempre estiveram à mão: o shell os reporta a cada MB pelo
+// `onProgresso` do `ytFetch`. Faltava um canal para eles. Como percentual e ETA
+// são RAZÕES, toda a matemática que já existe vale sem mudar uma linha — trocar
+// a unidade é só isto. Quem muda é a apresentação, e essa é a bandeira `bytes`
+// que viaja até o `SyncService`.
+//
+// O `total` vem AQUI e não no `bgTaskStart` porque ele só é conhecido na
+// primeira resposta do servidor. Pelo mesmo motivo o `firstStepAt` é marcado no
+// primeiro byte: a estimativa passa a medir a taxa de transferência real, sem
+// contar a extração (que roda antes e pode levar segundos).
+function bgTaskBytes(id, lidos, total) {
+  if (!window.__NATIVE__) return;
+  const t = bgTasks.get(id);
+  if (!t || !(total > 0)) return;
+  t.bytes = true;
+  t.total = total;
+  if (!t.firstStepAt) t.firstStepAt = Date.now();
+  t.done = Math.min(lidos, total);
+  t.lastEventAt = Date.now();
   bgTaskSend(false);
 }
 
@@ -10550,6 +10783,7 @@ function bgTaskSend(force) {
       total: alvo.total,
       etaMs: Math.max(0, Math.round(etaAlvo)),
       items: item ? [item] : [],
+      bytes: !!alvo.bytes,
       // Há quanto tempo NADA acontece nesta tarefa. É o que separa "travado" de
       // "esta faixa é grande" — sem isso os dois casos são a mesma tela parada.
       idleMs: alvo.lastEventAt ? Math.max(0, now - alvo.lastEventAt) : 0,
@@ -10676,8 +10910,10 @@ fileEl.addEventListener('change', async () => {
     // Mesma regra do share e da sincronização de pastas.
     const type = guessMediaType(file.name) || file.type;
     const kind = AVDB.kindFromType(type);
-    const thumb = await makeThumb(file, kind);
-    await AVDB.addMedia(file, { name: file.name.replace(/\.[^.]+$/, ''), type, kind, thumb });
+    const { thumb, height, seconds } = await prepararMidia(file, kind);
+    await AVDB.addMedia(file, {
+      name: file.name.replace(/\.[^.]+$/, ''), type, kind, thumb, height, seconds,
+    });
   }
   fileEl.value = '';
   // Importar sempre cai no Cronograma (lista `imports`, via addMedia) — a aba
