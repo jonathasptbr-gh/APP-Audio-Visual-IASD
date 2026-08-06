@@ -1666,6 +1666,20 @@ main {
   align-items: center; justify-content: center;
   background: var(--ok-soft); color: var(--ok);
 }
+/* A FALHA, no mesmo canto (v5.119) — o terceiro estado da miniatura, ao lado do
+   anel de download e do ✓. Ela morava numa faixa flutuante no fim da tela, e
+   uma faixa que aparece e some é justamente o que este app tirou de cena na
+   v5.106: aviso pertence ao lugar onde a ação aconteceu.
+   Em `--danger-text` CONTORNADO pela regra da paleta — vermelho preenchido é
+   "está no ar agora", e não pode competir com o que está de fato no telão. */
+.yt-result .yt-err {
+  display: none; position: absolute; inset: 0;
+  align-items: center; justify-content: center;
+  background: var(--danger-soft); color: var(--danger-text);
+}
+.yt-result .yt-err svg { width: 20px; height: 20px; }
+.yt-result.erro .yt-err { display: flex; }
+.yt-result.erro .yt-thumb img { opacity: .3; }
 .yt-result .yt-ok svg { width: 22px; height: 22px; }
 .yt-result.pronto .yt-ok { display: flex; }
 .yt-result.pronto .yt-thumb img { opacity: .3; }
