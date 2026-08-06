@@ -26,6 +26,28 @@
   // nem state. Fonte ÚNICA (via createStage.FADE) — antes o mesmo objeto estava
   // escrito à mão nos dois apps e podia divergir sem ninguém notar.
   const FADE = { in: true, out: true, time: 0.6 };
+
+  // O PÔSTER VAZIO — 1×1 transparente, e é isto que mata o "retângulo cinza com
+  // um play preto gigante".
+  //
+  // O contrato do WebView é explícito (`WebChromeClient.getDefaultVideoPoster`):
+  // *"o elemento de vídeo é representado por uma imagem de pôster; ela pode ser
+  // dada pelo atributo `poster`, e **se o atributo estiver ausente um pôster
+  // padrão será usado**"*. Esse padrão é o retângulo com o botão de play, e o
+  // app não tem como estilizá-lo — só como deixar de pedi-lo.
+  //
+  // O `stage` já sabia disso pela metade: ele esconde o `<video>` enquanto não
+  // há `src` (ver `load()`), justamente porque o placeholder piscava a cada
+  // troca de mídia. Com a TRANSMISSÃO DIRETA a janela deixou de ser um piscar:
+  // o `src` é um `MediaSource` que nasce VAZIO e só ganha o primeiro quadro
+  // depois de init + índice + primeiro fragmento virem da rede — segundos, com
+  // o elemento já revelado por `applyMedia()`. "Sem `src`" virou "sem dados", e
+  // a regra de esconder não alcançava esse caso.
+  //
+  // Transparente, e não preto: as camadas já pintam `--stage-bg` por baixo
+  // (`.layer` / `.pv-layer`), então o que aparece é exatamente o preto do
+  // palco — sem uma segunda definição de "qual preto" para divergir da paleta.
+  const POSTER_VAZIO = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
   // Duração dos fades de CAMADA (letra, texto, YouTube): entrar/sair de uma
   // camada paralela, em ms. Também compartilhada pelos dois apps.
   const LAYER_FADE_MS = 320;
@@ -470,7 +492,7 @@
       // parar ou limpar a mídia.
       video.hidden = true;
       clearFadeStyle(video); clearFadeStyle(img);
-      video.pause(); video.removeAttribute('src'); video.load();
+      video.pause(); video.removeAttribute('src'); video.load(); video.poster = POSTER_VAZIO;
       _revokeUrl();
     }
 
@@ -513,7 +535,7 @@
         // logo abaixo são assíncronos, essa janela dura o suficiente para o
         // placeholder piscar na tela a cada troca de mídia.
         video.hidden = true;
-        video.pause(); video.removeAttribute('src'); video.load();
+        video.pause(); video.removeAttribute('src'); video.load(); video.poster = POSTER_VAZIO;
         clearFadeStyle(video); clearFadeStyle(img);
       }
       const rec = await AVDB.getMedia(id);
@@ -528,7 +550,7 @@
       // <video> visível vira um placeholder claro com botão de play.
       // applyMedia(), no fim deste load, revela conforme o kind que entrar.
       video.hidden = true;
-      video.pause(); video.removeAttribute('src'); video.load();
+      video.pause(); video.removeAttribute('src'); video.load(); video.poster = POSTER_VAZIO;
       // Nenhum estilo de fade anterior pode sobrar na mídia que vai entrar
       // (ex: opacity 0 de um fade-in descartado com a config já alterada).
       clearFadeStyle(video); clearFadeStyle(img);
@@ -733,6 +755,15 @@
         if (seq === loadSeq && ended) instantCover(true);
       }, 400);
     });
+
+    // O PÔSTER SAI ASSIM QUE HÁ QUADRO. Ele existe só para cobrir a janela em
+    // que o elemento está em cena sem nada para mostrar (ver `POSTER_VAZIO`);
+    // mantê-lo depois disso mudaria comportamento, porque o `show poster flag`
+    // do HTML segue LIGADO num vídeo pausado que ainda não tocou — e a cena
+    // restaurada PAUSADA (reconexão do dongle) mostraria o preto do palco no
+    // lugar do quadro congelado, que é justamente o que ela existe para
+    // mostrar. Cada `load` o repõe antes de a fonte nova entrar.
+    video.addEventListener('loadeddata', () => video.removeAttribute('poster'));
 
     if (opts.onEnded) video.addEventListener('ended', opts.onEnded);
     if (opts.onTime) {
