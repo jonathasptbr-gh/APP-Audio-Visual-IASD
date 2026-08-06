@@ -90,7 +90,7 @@ class NativeBridge(
          * exijam mais do que o shell instalado oferece (ver [WebUpdater]).
          * Subir SEMPRE que a superfície da ponte mudar.
          */
-        const val SHELL_VERSION = 27
+        const val SHELL_VERSION = 28
 
         /**
          * Fila de IO da ponte, **compartilhada por todas as instâncias**.
@@ -339,6 +339,28 @@ class NativeBridge(
      */
     @JavascriptInterface
     fun ytFetch(callId: String, url: String) = ytFetchInterno(callId, url, false)
+
+    /**
+     * PARA o download deste link, se ele for o que está em curso.
+     *
+     * **NÃO vai para a fila de IO** — e não poderia: a fila é de uma thread só e
+     * está ocupada justamente pelo download que se quer parar. Enfileirar o
+     * cancelamento o faria rodar depois de o download terminar, que é o oposto
+     * de cancelar. Escrever um campo `@Volatile` da thread do WebView é seguro e
+     * imediato; quem responde é o laço de cópia, que o consulta a cada bloco.
+     *
+     * Sem `callId`: não há o que devolver. O resultado chega pelo caminho de
+     * sempre — a Promise do `ytFetch` resolve `null`, como em qualquer falha —,
+     * e quem sabe que a causa foi um cancelamento é o lado web, que o pediu.
+     *
+     * Só o Controle (`host != null`): o telão não baixa nada, logo não tem o que
+     * cancelar.
+     */
+    @JavascriptInterface
+    fun ytCancel(url: String) {
+        if (host == null) return
+        YoutubeGrab.cancelar(url)
+    }
 
     /**
      * O mesmo, mas baixando **só a faixa de áudio** (m4a) — o louvor de fundo,

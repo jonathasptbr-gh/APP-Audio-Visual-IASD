@@ -3106,6 +3106,69 @@ durante o MSE arrisca o decode nunca acontecer — e um telão preto para sempre
 falha muito pior que um piscar. O pôster não pode apagar a projeção: no limite,
 ele não faz nada.
 
+##### Cancelar o download, e os restos que ninguém coletava (v5.131)
+
+Três coisas que chegaram do aparelho na mesma rodada, e duas delas eram o mesmo
+defeito visto de ângulos diferentes.
+
+**1. O toque num download em curso não fazia nada.** A linha do resultado tinha
+`if (li.classList.contains('baixando')) return;` — literal. Um download começado
+por engano (o vídeo errado, o teto errado, a rede ruim) só terminava esperando
+ele acabar. Agora o toque CANCELA, com confirmação: o toque nessa linha era
+inerte até ontem, e quem tocar por reflexo não pode perder dez minutos de
+download por isso.
+
+Do lado nativo é um **sinalizador**, não uma interrupção de thread — o laço de
+cópia o consulta a cada bloco de 64 kB e desiste sozinho, deixando a limpeza do
+arquivo parcial para o `catch` que já existia. Interromper a thread mataria a
+extração e o `HttpURLConnection` no meio.
+
+Dois cuidados que não são detalhe:
+
+- **O `ytCancel` não vai para a fila de IO da ponte.** Ela é de UMA thread e
+  está ocupada justamente pelo download que se quer parar: enfileirar o
+  cancelamento o faria rodar depois de o download terminar, que é o oposto de
+  cancelar.
+- **O pedido morre com o download que ele cancelou.** Um "cancelar" que chega
+  tarde (o download já tinha acabado) ficaria armado e mataria o PRÓXIMO
+  download do mesmo vídeo — que é exatamente o que o operador faria em seguida.
+  Do lado web há a guarda espelhada: se o download terminar durante a pergunta,
+  o pedido não é enviado; e se o arquivo vier mesmo assim (o cancelamento
+  chegou durante o `MuxMp4`), ele é descartado em vez de virar item.
+
+**2. "Download pronto" em vídeos que não estão em seção nenhuma.** Este era o
+sintoma; a causa é de dentro do banco. O `listSet` — o outro escritor de listas,
+ao lado do `listRemove` — gravava a lista nova e ia embora, **sem coletar o que
+saía dela**. É o mesmo defeito que o `folderDrop` tinha até a v5.103.
+
+E não é hipotético: `listSet('playlist', [rec.id])` (tocar um item "só ele")
+substitui a playlist INTEIRA, e cada item que ela tinha e que não estivesse no
+Cronograma ou nos Favoritos ficava para trás — um registro que nenhuma lista
+aponta, que **a busca do YouTube ainda encontra pelo índice `youtubeId`** (daí o
+"pronto" fantasma) e que nenhum gc alcançava, com o blob junto, ocupando disco
+para sempre.
+
+A correção é o `listSet` varrer o que saiu, na MESMA transação e pela mesma
+`isReferenced` de todo o resto — reordenar (mesmo conjunto, outra ordem) não
+apaga nada, e um id que saiu daqui mas está noutro detentor continua inteiro.
+
+**3. A faxina dos restos que já existem.** Consertar o `listSet` impede órfãos
+novos; não desfaz os que já estão nos aparelhos. `AVDB.gcOrfaos()` varre o store
+`media` uma vez por abertura e remove o que nenhum detentor aponta — e o
+Registro de Configurações passa a dizer quantos removeu, porque uma limpeza
+silenciosa que apaga mídia é indistinguível de um sumiço.
+
+Não há janela de corrida: `addMediaToList` grava o registro e a lista na mesma
+transação, então um registro recém-nascido nunca está sem dono nem por um
+instante.
+
+`tools/db-gc.test.mjs` trava tudo isso contra um IndexedDB de verdade — é o
+único código do app que apaga mídia do operador, e um erro ali não dá tela
+branca: some com o vídeo do domingo, em silêncio e sem desfazer. O teste
+reproduz o defeito pelo caminho por onde ele nasceu (um `setState` cru) e
+verifica as duas metades: o que tem dono sobrevive, o que não tem some, e a
+segunda passagem não acha mais nada.
+
 ##### "Só áudio" também transmite (v5.130)
 
 O "Tocar agora · Só áudio" ficava de fora da transmissão — a guarda era literal,
@@ -5710,14 +5773,18 @@ A busca ganha assim **dois níveis**, e isso muda três coisas:
   - **Baixar/cancelar voltou para a barra** (`.coll-bar-dl`). Com a engrenagem
     dentro do aberto, baixar um hinário passava por expandir 600 linhas —
     caro para a ação mais comum do acervo.
-- **O campo não rouba o foco na abertura — no AVANÇADO.** Enquanto ela era uma
-  lista de músicas, o teclado subir junto era o certo: não havia mais nada a
-  fazer ali. Hoje a abertura é um acervo para folhear, e o teclado cobriria
-  metade dele antes de o operador decidir se vai digitar.
-- **No SIMPLIFICADO ele sobe** (v5.90). Lá o acervo é aberto por um botão que se
-  chama BUSCAR, e o modo inteiro existe para encurtar caminho — o toque na
-  música já toca, sem folha de escolha. Quem entra por ali sabe o que quer e vai
-  digitar; um toque a mais no campo é exatamente a cerimônia que esse modo tira.
+- **O campo pega o foco na abertura, NOS DOIS MODOS** (v5.131). No simplificado
+  isso vale desde a v5.90: lá o acervo é aberto por um botão que se chama
+  BUSCAR, o modo inteiro existe para encurtar caminho, e quem entra por ali sabe
+  o que quer.
+
+  No avançado a regra era o contrário, com um argumento razoável — a abertura é
+  um acervo para folhear, e o teclado cobre metade dele. O que a operação
+  mostrou é que quem abre a Biblioteca está atrás de UMA música: o preço da
+  regra antiga era um toque a mais toda vez, no meio do culto, para alcançar um
+  campo que já estava na tela. Folhear continua a um gesto de distância —
+  fechar o teclado é o gesto mais conhecido do Android.
+
   O `focus()` é SÍNCRONO, dentro do gesto do toque: adiado (um `setTimeout`) ele
   sai da interação, e aí o WebView aceita o foco mas **não abre o teclado** — o
   pior resultado possível, porque na leitura do código parece que funcionou.

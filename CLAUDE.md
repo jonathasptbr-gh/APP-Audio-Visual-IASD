@@ -256,6 +256,7 @@ window.AVNative = {
                        //   `soAudio` traz só a faixa de áudio (m4a) — exige shell 23
                        //   `altura` é o TETO de resolução — exige shell 25 abaixo de 1080
   ytDiscard(url),      //   e apaga o arquivo depois que os bytes foram copiados
+  ytCancel(url),       // PARA o download em curso deste link — exige shell 28
   ytDiag(),            // → string: o que o extrator recebeu na última extração
                        //   (diagnóstico do rodapé de Configurações)
   keepAudioAlive(bool),// mesa de som ligada: este WebView não pode ser suspenso
@@ -275,7 +276,7 @@ window.AVNative = {
 }
 ```
 
-São **vinte e cinco métodos**, e essa é a superfície inteira que o resto do lado web
+São **vinte e seis métodos**, e essa é a superfície inteira que o resto do lado web
 tem direito de usar: fora do `native.js`, tocar em `__AVBridge` direto é
 acoplamento indevido. O próprio `native.js` chama mais sete coisas no
 `__AVBridge`, e nenhuma delas é API para o app — a sexta e a sétima são
@@ -347,7 +348,12 @@ esperam uma **pessoa** e ficam sem prazo, porque um timeout ali resolveria null
 com o operador ainda escolhendo a pasta.
 
 `NativeBridge.SHELL_VERSION` identifica a versão da casca — **subir sempre que
-a superfície da ponte mudar**. Hoje vale **27** — a v5.127 não acrescentou
+a superfície da ponte mudar**. Hoje vale **28** — a v5.131 acrescentou
+`ytCancel` (parar o download em curso). Ele é o único método da ponte que **não
+vai para a fila de IO**, e não poderia: a fila é de uma thread só e está ocupada
+justamente pelo download que se quer parar. Ele escreve um campo `@Volatile` e
+volta; quem responde é o laço de cópia do `YoutubeGrab`, que o consulta a cada
+bloco de 64 kB. A v5.127 não acrescentou
 método nenhum, mas mudou o **contrato das URLs que o `ytStream` devolve**: a
 faixa de bytes passou a viajar na QUERY (`/stream/<token>?r=<ini>-<fim>`) e o
 cabeçalho `Range` sumiu do caminho nativo, porque dentro de um WebView ele é
@@ -1456,7 +1462,7 @@ aparelho nenhum.
 O `versionCode`/`versionName` do APK vêm do CI (ver "Build") e não se tocam à
 mão.
 
-**Versão atual: v5.130** (base web) · `SHELL_VERSION` **27**, e o bundle segue com
+**Versão atual: v5.131** (base web) · `SHELL_VERSION` **28**, e o bundle segue com
 `minShell: 2` — ele funciona igual num shell antigo, só sem os recursos que são
 nativos por construção (a escada do voltar, os botões de volume, a notificação de
 controles), que **só chegam instalando o APK novo**, não pelo OTA.
