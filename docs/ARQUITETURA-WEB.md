@@ -828,6 +828,43 @@ a incoerência que o CDN responde com 403. `baixarTentando` tenta os dois perfis
 e registra no diagnóstico qual funcionou (`mp4/i` = MP4 baixado com o perfil
 iOS).
 
+##### O desfecho: 403, e o 1080p fica de fora (v1.47)
+
+Com o código verdadeiro na tela, a resposta veio:
+
+```
+áudio 5 [m4a 2, webm 3] · vídeo-só 12 [mp4 6 (1080p), webm 6 (1080p)]
+  · prog 1 [mp4 1 (360p)] · mp4 403 · webm 403 → veio mp4 360p
+```
+
+As faixas de 1080p **existem e são listadas**; o CDN responde **403** a todas —
+com os dois pares de contêiner, com os dois perfis de cliente e com `Range`. É o
+portão do PO Token, e ele não se abre por cabeçalho. **1080p exigiria montar o
+desafio do BotGuard num WebView**, que é o que este projeto decidiu não fazer
+quando o `YoutubeGrab` nasceu, e a razão continua valendo: quebra sem aviso, e
+quando quebrar vai ser num domingo de manhã.
+
+O que fica no código, e por quê:
+
+- **O remux (`MuxMp4`) fica.** Ele custa zero quando as faixas são recusadas
+  (falha na primeira requisição, sem baixar nada) e entra em ação sozinho no dia
+  em que o YouTube afrouxar — ou num vídeo cujas faixas não estejam protegidas,
+  que é caso a caso.
+- **O cliente iOS fica ligado.** É ele que faz as faixas aparecerem no
+  diagnóstico; sem ele a linha voltaria a dizer `vídeo-só 0` e perderíamos a
+  capacidade de PERCEBER uma mudança.
+- **`adaptativoBloqueado` (por processo)**: depois do primeiro 403 da sessão, os
+  downloads seguintes vão direto ao progressivo. Sem essa memória, cada download
+  refazia quatro requisições condenadas antes de chegar à mesma conclusão. Não é
+  persistido de propósito — reabrir o app tenta de novo, e um estado em disco
+  transformaria a recusa de um dia numa desistência permanente.
+
+O download segue em **360p** neste aparelho: é o único formato progressivo que
+o YouTube entrega sem token. Vale lembrar o que esse caminho continua
+garantindo, que era o objetivo original e não mudou — o vídeo vira ARQUIVO, com
+fade, playlist, `MediaSession` e segundo plano, **sem depender da rede durante o
+culto**.
+
 ##### Todo campo de log tem botão de copiar (v5.117)
 
 O diagnóstico acima nasceu sem botão, e a primeira leitura chegou aqui como
