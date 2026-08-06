@@ -1261,8 +1261,9 @@ todo `.js` de `assets/web`, uma validação de `version.json`, os testes de
 `tools/` — o parser `sidx`, o **oráculo do contrato de `shouldInterceptRequest`**
 (`webview-range.test.mjs`, que trava a invariante 8: Node puro, determinístico,
 sem `continue-on-error`), uma **fumaça em Chromium** que sobe a base web e usa
-a tela, e as **mensagens de falha** da transmissão direta (os dois últimos em
-`continue-on-error`).
+a tela, as **mensagens de falha** da transmissão direta e a **transição de
+entrada do palco** (`stage-fade.test.mjs`) — os três últimos em
+`continue-on-error`.
 Os dois últimos existem porque `node --check` prova que o arquivo é
 PARSEÁVEL, não que o app funciona — a v5.121 saiu com um botão chamando uma
 função apagada, sintaxe perfeita e CI verde. O canal OTA publica
@@ -1454,7 +1455,7 @@ aparelho nenhum.
 O `versionCode`/`versionName` do APK vêm do CI (ver "Build") e não se tocam à
 mão.
 
-**Versão atual: v5.128** (base web) · `SHELL_VERSION` **27**, e o bundle segue com
+**Versão atual: v5.129** (base web) · `SHELL_VERSION` **27**, e o bundle segue com
 `minShell: 2` — ele funciona igual num shell antigo, só sem os recursos que são
 nativos por construção (a escada do voltar, os botões de volume, a notificação de
 controles), que **só chegam instalando o APK novo**, não pelo OTA.
@@ -1486,3 +1487,14 @@ controles), que **só chegam instalando o APK novo**, não pelo OTA.
 > com a transmissão, "sem `src`" virou "sem dados". Agora ele carrega um pôster
 > 1×1 transparente enquanto espera (ver `POSTER_VAZIO` em `shared/stage.js`) e o
 > devolve ao normal no primeiro quadro.
+>
+> E a v5.129 fechou o que estava embaixo do placeholder: **a transição de
+> entrada existia pela metade.** A mídia velha esmaecia até o preto e a nova
+> entrava no talo — invisível com arquivo local (o corte colava no fim do
+> esmaecimento), gritante com a transmissão. `runFadeIn` espelha o `runFadeOut`
+> que já existia, esperando o primeiro quadro e levando a rampa de volume junto.
+> Ao escrever o teste apareceu o motivo de a cortina nunca ter coberto esse
+> caso: **para um vídeo ela não esmaece** — `play()` chama
+> `instantCover(computeCover())` e a arranca instantaneamente —, então o fade de
+> conteúdo é a única transição de entrada que um vídeo tem. Detalhes em
+> `docs/ARQUITETURA-WEB.md`.

@@ -3106,6 +3106,48 @@ durante o MSE arrisca o decode nunca acontecer — e um telão preto para sempre
 falha muito pior que um piscar. O pôster não pode apagar a projeção: no limite,
 ele não faz nada.
 
+##### A transição de entrada, que existia pela metade (v5.129)
+
+Sem o placeholder, ficou visível o que estava embaixo dele: a mídia velha
+esmaecia até o preto e a nova **entrava no talo**, em opacidade cheia. A
+transição de saída existia desde sempre (`runFadeOut`); a de entrada, **não** —
+o que se chamava de "fade in" era a CORTINA do wallpaper esmaecendo por cima
+(`coverOut`), e ela só entra em cena quando estava cobrindo.
+
+E há um detalhe que só apareceu ao escrever o teste: **para um vídeo a cortina
+nunca chega a esmaecer.** `play()` chama `instantCover(computeCover())` ainda
+dentro do `load()`, e com uma mídia visual em cena isso arranca o wallpaper
+INSTANTANEAMENTE. Ou seja, no caminho de um vídeo o `coverOut()` já encontra
+`coveredNow === false` e não faz nada: o fade de conteúdo não é um caso de
+borda: **é a única transição de entrada que um vídeo tem.**
+
+`runFadeIn` espelha o `runFadeOut`, com três cuidados:
+
+- **A opacidade 0 é escrita antes de qualquer pintura**, não depois de revelar:
+  o `applyMedia()` (e o `play()` antes dele) tira o `hidden`, e um elemento
+  revelado em opacidade cheia pinta um quadro antes de a transição começar — o
+  estouro que o fade existe para evitar. Entre uma coisa e outra não há `await`,
+  então nenhum quadro escapa.
+- **Espera o primeiro quadro** (`mediaReady`) antes de subir. Sem isso o fade
+  correria sobre a camada ainda vazia e o conteúdo pipocaria no meio dela — o
+  mesmo motivo pelo qual a cortina já esperava. E o prazo de socorro do
+  `mediaReady` passou a ser do CHAMADOR: 2,5 s serve para um arquivo local, mas
+  num stream a rede inteira está no meio, e o prazo curto fazia a transição
+  correr sobre o preto (15 s ali, e enquanto ele corre o palco mostra o mesmo
+  preto que mostraria de qualquer jeito).
+- **O som entra junto.** A rampa de volume da entrada corria colada ao `play()`,
+  o que está certo para um arquivo — e errado para um stream, cujo `play()` não
+  produz som nenhum: o áudio só começa quando o primeiro fragmento chega, e a
+  essa altura a rampa já teria terminado sozinha, entregando o som no talo
+  justamente quando a imagem aparece. Num stream ela viaja com quem revela a
+  mídia (a cortina abrindo ou o `runFadeIn`).
+
+`tools/stage-fade.test.mjs` trava isso num Chromium de verdade, e o teste é
+DISCRIMINANTE por construção: ele exige um `0` seguido, em ordem, de um `1`
+**escrito** — só o `runFadeIn` escreve o `1`. Sem essa exigência a asserção
+passaria vendo o fade de SAÍDA (que escreve `0` no mesmo elemento) e chamando-o
+de entrada; foi exatamente o que a primeira versão dele fez.
+
 #### As mensagens de falha viraram produto testado (v5.125)
 
 Duas coisas quase saíram erradas nesta rodada, e as duas dizem o mesmo:

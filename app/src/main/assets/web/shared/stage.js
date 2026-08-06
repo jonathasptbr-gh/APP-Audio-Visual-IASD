@@ -48,6 +48,13 @@
   // (`.layer` / `.pv-layer`), então o que aparece é exatamente o preto do
   // palco — sem uma segunda definição de "qual preto" para divergir da paleta.
   const POSTER_VAZIO = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+  // Quanto esperar pelo primeiro quadro de uma TRANSMISSÃO antes de revelar
+  // assim mesmo. Não é o tempo esperado (init + índice + fragmento levam ~1-3 s
+  // numa rede de igreja): é o socorro para o caso em que o quadro nunca vem, e
+  // por isso é generoso. Enquanto ele corre, o palco mostra preto — o mesmo
+  // preto que mostraria de qualquer jeito, já que não há quadro. Quem falha de
+  // verdade avisa antes, por `onStreamErro`.
+  const PRONTO_STREAM_MS = 15000;
   // Duração dos fades de CAMADA (letra, texto, YouTube): entrar/sair de uma
   // camada paralela, em ms. Também compartilhada pelos dois apps.
   const LAYER_FADE_MS = 320;
@@ -287,16 +294,64 @@
       });
     }
 
+    // A ENTRADA do conteúdo, espelhando [runFadeOut] — e ela não existia.
+    //
+    // A troca de item tinha metade da transição: a mídia velha esmaecia até o
+    // preto e a nova ENTRAVA NO TALO, em opacidade cheia. Passou anos sem
+    // incomodar porque um arquivo local vira primeiro quadro em milissegundos:
+    // o corte acontecia colado no fim do esmaecimento e lia-se como um corte de
+    // vídeo. A transmissão direta escancarou a falta — entre o preto e o
+    // primeiro quadro há a rede inteira (init + índice + fragmento), e o vídeo
+    // "aparecia do nada" segundos depois.
+    //
+    // Quem chama espera o [mediaReady] ANTES: sem isso o fade correria sobre a
+    // camada ainda vazia e o conteúdo pipocaria no meio dela — o mesmo motivo
+    // pelo qual a cortina já esperava.
+    function runFadeIn(el, rampAudio) {
+      return new Promise((resolve) => {
+        if (!fadeIn || !el) { resolve(); return; }
+        // O 0 já está escrito desde antes de o elemento ser revelado (ver o
+        // `applyMedia` lá embaixo): escrevê-lo só agora daria um quadro em
+        // opacidade cheia antes da transição começar, que é exatamente o
+        // estouro que se quer evitar.
+        el.style.transition = 'opacity ' + fadeTime + 's ease';
+        el.style.opacity = '1';
+        // A rampa de áudio é PEDIDA, não presumida: no caminho normal ela já
+        // correu junto do `play()`, e refazê-la aqui zeraria um volume que já
+        // subiu. Quem pede é só o stream, cujo som ainda não existia lá atrás.
+        if (rampAudio === true && el === video && !forceMuted && !video.muted && volume > 0) {
+          rampVolume(0, volume, fadeTime);
+        }
+        setTimeout(() => { clearFadeStyle(el); resolve(); }, fadeTime * 1000);
+      });
+    }
+
+    // O elemento que ESTE registro ocupa em cena. Um só lugar decidindo isso:
+    // a mesma pergunta era feita à mão em `visibleEl`, no caminho da cortina e
+    // agora na entrada do conteúdo.
+    function elDe(rec) {
+      if (!rec) return null;
+      if (rec.kind === 'image' || rec.kind === 'deck') return img;
+      if (rec.kind === 'video' || rec.kind === 'audio') return video;
+      return null;
+    }
+
     // Resolve quando o elemento tem conteúdo pronto para pintar (imagem
     // decodificada / primeiro frame do vídeo). Sem isso o fade-in corre sobre
     // a camada preta e o conteúdo "pipoca" no meio da transição. Timeout de
     // segurança para mídia que demora/falha em carregar.
-    function mediaReady(el) {
+    function mediaReady(el, prazoMs) {
       return new Promise((resolve) => {
         let done = false;
         let t = null;
         const finish = () => { if (!done) { done = true; clearTimeout(t); resolve(); } };
-        t = setTimeout(finish, 2500);
+        // O PRAZO É DO CHAMADOR porque as duas fontes têm ordens de grandeza
+        // diferentes: um arquivo local vira quadro em milissegundos (2,5 s ali
+        // é um socorro que nunca dispara), e um stream tem a rede inteira pela
+        // frente. Com o prazo curto num stream, a transição corria sobre o
+        // preto e o primeiro quadro pipocava depois dela — a mesma "entrada no
+        // talo" que este fade existe para eliminar.
+        t = setTimeout(finish, prazoMs || 2500);
         if (el === img) {
           if (img.complete && img.naturalWidth) finish();
           else if (img.decode) img.decode().then(finish, finish);
@@ -595,6 +650,13 @@
         clear(); return;
       }
 
+      // TRANSMISSÃO DIRETA em cena: o único caso em que "carregado" e "tem o que
+      // mostrar/ouvir" estão a segundos de distância (a rede inteira entre um e
+      // outro). Duas decisões dependem disso — a rampa de volume e o fade de
+      // entrada —, e as duas ficariam erradas se lidas do `kind`, que aqui é
+      // 'video' como o de um arquivo.
+      const ehStream = !url && !!rec.stream;
+
       if (rec.kind === 'image' || rec.kind === 'deck') {
         img.src = url;
       } else {
@@ -634,9 +696,31 @@
         // assimetria era audível a cada troca de hino. `play()` restaura o
         // volume alvo (e limpa o rampTimer), então a rampa só pode vir DEPOIS
         // dele; ela mesma escreve o 0 inicial.
-        if (fadeIn && !forceMuted && !video.muted && volume > 0) {
+        //
+        // SÓ QUE NUM STREAM ELA NÃO PODE COMEÇAR AQUI. O `play()` de um
+        // `MediaSource` vazio não produz som nenhum: o áudio só começa quando o
+        // primeiro fragmento chega da rede, segundos depois — e a essa altura a
+        // rampa já teria terminado sozinha, entregando o som no talo justamente
+        // no instante em que a imagem aparece. Ela viaja junto de quem REVELA a
+        // mídia (a cortina abrindo ou o [runFadeIn] do conteúdo), logo abaixo.
+        // Com a cortina fechada por escolha do operador (`view: 'wallpaper'`)
+        // ninguém revela nada e o volume entra no alvo direto — que é o que já
+        // acontecia, porque a rampa daqui terminava antes de haver som.
+        if (fadeIn && !forceMuted && !video.muted && volume > 0 && !ehStream) {
           rampVolume(0, volume, fadeTime);
         }
+      }
+      // A OPACIDADE ZERO É ESCRITA ANTES DE REVELAR. `applyMedia()` tira o
+      // `hidden`, e um elemento revelado em opacidade cheia pinta um quadro
+      // antes de qualquer transição começar — o estouro que o fade existe para
+      // evitar. Só no caminho SEM cortina: quando ela está cobrindo, quem faz a
+      // transição é o `coverOut()` e um segundo fade por baixo dela seria uma
+      // transição dentro da outra.
+      const alvo = elDe(rec);
+      const entrada = fadeIn && !coveredNow && !!alvo && !semVisual() && view === 'visual';
+      if (entrada) {
+        alvo.style.transition = '';
+        alvo.style.opacity = '0';
       }
       applyMedia();
       // Revela (esconde a cortina) se a view pedir e ainda estiver coberto —
@@ -647,12 +731,24 @@
       // `!semVisual()`: um áudio sem letra mantém o wallpaper — abrir a cortina
       // para ele mostraria o preto do palco. Ver `computeCover`.
       if (view === 'visual' && coveredNow && !semVisual()) {
-        if (fadeIn) {
-          const el = (rec.kind === 'image' || rec.kind === 'deck') ? img
-            : (rec.kind === 'video' || rec.kind === 'audio' ? video : null);
-          if (el) { await mediaReady(el); if (seq !== loadSeq) return; }
+        if (fadeIn && alvo) {
+          await mediaReady(alvo, ehStream ? PRONTO_STREAM_MS : 0);
+          if (seq !== loadSeq) return;
+        }
+        // Num stream a rampa de volume foi adiada lá em cima justamente para
+        // cá: agora existe o que ouvir, e ela acompanha a cortina abrindo.
+        if (ehStream && fadeIn && !forceMuted && !video.muted && volume > 0) {
+          rampVolume(0, volume, fadeTime);
         }
         await coverOut();
+        if (seq !== loadSeq) return;
+      } else if (entrada) {
+        // A ENTRADA DO CONTEÚDO, quando não há cortina para abrir. Espera o
+        // primeiro quadro e só então esmaece de volta ao normal — imagem e som
+        // entram juntos (ver `runFadeIn`).
+        await mediaReady(alvo, ehStream ? PRONTO_STREAM_MS : 0);
+        if (seq !== loadSeq) return;
+        await runFadeIn(alvo, ehStream);
         if (seq !== loadSeq) return;
       }
       // E o caminho inverso: uma IMAGEM em cena, seguida de um áudio sem letra.

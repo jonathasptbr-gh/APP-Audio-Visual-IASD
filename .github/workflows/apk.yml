@@ -105,6 +105,13 @@ jobs:
           # expiram, e a única coisa que atravessa essa distância é a linha do
           # Registro. "Não deu" já custou duas rodadas de APK aqui.
           PW_CHROMIUM="" node tools/mse.test.mjs
+          # E a TRANSIÇÃO DE ENTRADA do palco. Ela ficou anos pela metade (a
+          # mídia velha esmaecia, a nova entrava no talo) e ninguém viu, porque
+          # um arquivo local vira quadro em milissegundos e o corte colava no
+          # fim do esmaecimento. Só a transmissão direta — com a rede inteira
+          # entre o preto e o primeiro quadro — tornou a falta visível. É um
+          # defeito que nenhum `--check` pega e que a congregação inteira vê.
+          PW_CHROMIUM="" node tools/stage-fade.test.mjs
 
       - name: Empacotar a base web
         run: |
