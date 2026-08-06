@@ -156,12 +156,37 @@
       }
     }
 
-    async function pegar(url, ini, fim) {
-      const r = await fetch(url, { headers: { Range: 'bytes=' + ini + '-' + fim } });
+    // O `passo` viaja junto do erro porque "não deu" não leva a lugar nenhum:
+    // este player busca três coisas por faixa — inicialização, índice e mídia —
+    // e cada uma falha por um motivo diferente, com um conserto diferente.
+    async function pegar(url, ini, fim, passo) {
+      let r;
+      try {
+        r = await fetch(url, { headers: { Range: 'bytes=' + ini + '-' + fim } });
+      } catch (e) {
+        throw new Error(passo + ': a requisição não completou (' + ((e && e.message) || '?') + ')');
+      }
       // 200 é aceito além do 206: um proxy pode responder a faixa inteira, e
       // recusar isso quebraria por preciosismo.
-      if (!r.ok && r.status !== 206) throw new Error('HTTP ' + r.status);
-      return r.arrayBuffer();
+      if (!r.ok && r.status !== 206) {
+        // O `statusText` carrega o MOTIVO quando quem respondeu foi o nosso
+        // proxy (ver `StreamProxy.erro`): "token desconhecido", "googlevideo:
+        // Forbidden", o texto de uma falha de rede. Sem ele sobra um número, e
+        // um 404 do proxy e um 404 do asset loader se leem igual — apontando
+        // para lugares opostos.
+        throw new Error(passo + ': HTTP ' + r.status
+          + (r.statusText ? ' (' + r.statusText + ')' : '')
+          + ' pedindo bytes ' + ini + '-' + fim);
+      }
+      const buf = await r.arrayBuffer();
+      // ZERO BYTES com status bom é o caso mais traiçoeiro: o `appendBuffer`
+      // aceita sem reclamar e o vídeo simplesmente nunca começa. Melhor falhar
+      // aqui, com o número na mão.
+      if (!buf.byteLength) {
+        throw new Error(passo + ': resposta vazia (HTTP ' + r.status + ', pedidos '
+          + (fim - ini + 1) + ' bytes)');
+      }
+      return buf;
     }
 
     // Quanto já está bufferizado À FRENTE de `t`, na faixa dada.
@@ -234,12 +259,22 @@
         // progresso do app lê no `loadedmetadata`, e somar as durações dos
         // fragmentos daria um valor levemente diferente entre as duas faixas.
         if (man.seconds > 0) ms.duration = man.seconds;
-        [['video', man.video], ['audio', man.audio]].forEach(([papel, t]) => {
+        // Os papéis em PORTUGUÊS porque eles vão parar no Registro, que o
+        // operador lê e repassa. Um "video sourcebuffer" no meio de um log em
+        // português é ruído a mais para quem já está com um problema na mão.
+        [['vídeo', man.video], ['áudio', man.audio]].forEach(([papel, t]) => {
           const sb = ms.addSourceBuffer(t.mime);
           sb.mode = 'segments';
           const f = { papel, sb, url: t.url, meta: t, segs: null, i: 0, ocupada: false };
           sb.addEventListener('updateend', bombear);
-          sb.addEventListener('error', () => morrer(papel + ' sourcebuffer'));
+          // MESMA REDAÇÃO do erro de `appendBuffer`, e é o mesmo defeito visto
+          // de outro ângulo: os bytes chegaram e o navegador não os quis. Ele
+          // dispara por evento (e não por exceção) quando a recusa acontece
+          // depois do append aceitar o buffer — e "vídeo sourcebuffer", que era
+          // o texto antigo, não dizia nada a ninguém.
+          sb.addEventListener('error', () => morrer(
+            papel + ': o decodificador recusou os dados — mime ' + t.mime,
+          ));
           faixas.push(f);
         });
       } catch (e) {

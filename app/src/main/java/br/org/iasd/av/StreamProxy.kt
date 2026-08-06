@@ -110,14 +110,39 @@ object StreamProxy {
         val caminho = u.path ?: return null
         if (!caminho.startsWith(ROTA)) return null
         val token = caminho.removePrefix(ROTA).trim('/')
-        val alvo = porToken[token] ?: return WebViewFactory.notFound()
+        // 404 = TOKEN DESCONHECIDO, e só isso. A distinção importa para quem lê
+        // o log: um 404 aqui significa que o proxy foi alcançado e não achou o
+        // token (registro velho, processo reiniciado), enquanto um 404 vindo do
+        // asset loader significaria que o proxy nem foi consultado. Se os dois
+        // saíssem com o mesmo código, a leitura apontaria para o lugar errado.
+        val alvo = porToken[token] ?: return erro(404, "token desconhecido")
         return try {
             abrir(alvo, request.requestHeaders?.get("Range"))
         } catch (e: Exception) {
             Log.w(TAG, "falhou servindo $token", e)
-            WebViewFactory.notFound()
+            // 502 = O PROXY FALHOU FALANDO COM O CDN (DNS, timeout, TLS). Antes
+            // isto virava 404 junto com o caso acima, e aí o log dizia "não
+            // achei" para uma falha de REDE — a leitura mais enganosa possível,
+            // porque manda procurar o defeito no roteamento.
+            erro(502, (e.message ?: e.javaClass.simpleName).take(120))
         }
     }
+
+    /**
+     * Uma resposta de erro cujo MOTIVO viaja na razão HTTP.
+     *
+     * O lado web a lê em `response.statusText` e a escreve no Registro, então
+     * uma falha de rede chega ao operador com o texto da exceção em vez de um
+     * número solto.
+     */
+    private fun erro(codigo: Int, razao: String): WebResourceResponse = WebResourceResponse(
+        "text/plain",
+        "utf-8",
+        codigo,
+        razao.ifBlank { "erro" },
+        mapOf("Cache-Control" to "no-store"),
+        java.io.ByteArrayInputStream(ByteArray(0)),
+    )
 
     private fun abrir(alvo: String, range: String?): WebResourceResponse {
         val conn = (URL(alvo).openConnection() as HttpURLConnection).apply {
@@ -143,11 +168,7 @@ object StreamProxy {
             // que sabe o que fazer com essa distinção (pedir um manifesto novo,
             // ou cair no player embutido). Traduzir tudo para "não achei"
             // apagaria justamente o que diferencia os dois casos.
-            return WebResourceResponse(
-                "text/plain", "utf-8", codigo, "Erro",
-                mapOf("Cache-Control" to "no-store"),
-                java.io.ByteArrayInputStream(ByteArray(0)),
-            )
+            return erro(codigo, "googlevideo: " + (conn.responseMessage ?: "?"))
         }
         val mime = conn.contentType?.substringBefore(';')?.trim().orEmpty()
             .ifEmpty { "application/octet-stream" }
