@@ -150,7 +150,10 @@
       // os buffers — num app que troca de mídia dezenas de vezes por culto isso
       // é vazamento de verdade.
       if (objUrl) { try { URL.revokeObjectURL(objUrl); } catch (_) {} objUrl = null; }
-      if (porque) onErro(porque);
+      if (porque) {
+        global.AVStream.ultimoErro = porque;
+        onErro(porque);
+      }
     }
 
     async function pegar(url, ini, fim) {
@@ -204,7 +207,7 @@
       f.ocupada = true;
       try {
         const seg = f.segs[f.i];
-        const buf = await pegar(f.url, seg.ini, seg.fim);
+        const buf = await pegar(f.url, seg.ini, seg.fim, 'mídia ' + f.papel + ' #' + f.i);
         if (morto || ms.readyState !== 'open') return;
         try {
           f.sb.appendBuffer(buf);
@@ -217,7 +220,7 @@
           throw e;
         }
       } catch (e) {
-        morrer((e && e.message) || 'append');
+        morrer((e && e.message) || ('mídia ' + f.papel + ': append falhou'));
       } finally {
         f.ocupada = false;
       }
@@ -251,13 +254,23 @@
         for (const f of faixas) {
           // O SEGMENTO DE INICIALIZAÇÃO (`ftyp` + `moov`) primeiro: ele descreve
           // a faixa, e um fragmento de mídia entregue antes dele é rejeitado.
-          const init = await pegar(f.url, f.meta.initStart, f.meta.initEnd);
+          const init = await pegar(f.url, f.meta.initStart, f.meta.initEnd, 'init ' + f.papel);
           if (morto) return;
-          await aplicar(f, init);
-          const idx = await pegar(f.url, f.meta.indexStart, f.meta.indexEnd);
+          try {
+            await aplicar(f, init);
+          } catch (e2) {
+            morrer('init ' + f.papel + ': o decodificador recusou (' + ((e2 && e2.message) || '?')
+              + ') — mime ' + f.meta.mime);
+            return;
+          }
+          const idx = await pegar(f.url, f.meta.indexStart, f.meta.indexEnd, 'índice ' + f.papel);
           if (morto) return;
           f.segs = lerSidx(idx, f.meta.indexEnd + 1);
-          if (!f.segs || !f.segs.length) { morrer('sidx ' + f.papel); return; }
+          if (!f.segs || !f.segs.length) {
+            morrer('índice ' + f.papel + ': sidx não reconhecido ('
+              + idx.byteLength + ' bytes em ' + f.meta.indexStart + '-' + f.meta.indexEnd + ')');
+            return;
+          }
         }
         bombear();
         tick = setInterval(bombear, TICK_MS);
@@ -303,5 +316,8 @@
     };
   }
 
-  global.AVStream = { suportado, criar, lerSidx };
+  // O ÚLTIMO erro de transmissão, para o Registro de Configurações. Um
+  // `console.warn` não chega a quem opera o culto — e é justamente quem opera
+  // que vê a falha acontecer.
+  global.AVStream = { suportado, criar, lerSidx, ultimoErro: '' };
 })(window);

@@ -569,7 +569,11 @@ object YoutubeGrab {
             val ex = ServiceList.YouTube.getStreamExtractor(link)
             aportuguesar(ex)
             val info = StreamInfo.getInfo(ex)
-            diagnostico = resumo(info)
+            // NO CAMPO DA TRANSMISSÃO, não no do download. Escrever em
+            // `diagnostico` aqui fazia o Registro exibir uma linha "download:"
+            // para uma extração em que download NENHUM aconteceu — e ela vinha
+            // sem desfecho, o que se lê como um download travado.
+            diagnosticoStream = resumo(info) + " · "
             // A MESMA fila de candidatos do download, e não uma segunda regra:
             // a ordem por cliente (visionOS primeiro) é o que faz a faixa
             // escolhida ser uma que o CDN de fato serve.
@@ -581,10 +585,10 @@ object YoutubeGrab {
             val a = audios.firstOrNull { it.dash }
             val contas = porQueNaoDash("vídeo mp4", videos) + " · " + porQueNaoDash("áudio m4a", audios)
             if (v == null || a == null) {
-                diagnosticoStream = contas + " → SEM PAR DASH, caindo no download"
+                diagnosticoStream += contas + " → SEM PAR DASH, caindo no download"
                 return null
             }
-            diagnosticoStream = contas + " → transmitindo ${v.altura}p (${v.etiqueta} + ${a.etiqueta})" +
+            diagnosticoStream += contas + " → transmitindo ${v.altura}p (${v.etiqueta} + ${a.etiqueta})" +
                 " · v=${v.mime};${v.codec} a=${a.mime};${a.codec}"
             JSONObject()
                 .put("name", tituloLimpo(info.name, info.uploaderName))
