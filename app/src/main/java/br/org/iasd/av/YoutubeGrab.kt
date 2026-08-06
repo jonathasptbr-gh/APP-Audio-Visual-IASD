@@ -91,6 +91,18 @@ object YoutubeGrab {
      */
     private const val TETO_ALTURA = 1080
 
+    /**
+     * O UA do app do YouTube no iPhone.
+     *
+     * As faixas adaptativas deste aparelho vêm do cliente iOS (é ele que as
+     * destravou — ver `setFetchIosClient`), e uma URL emitida para um cliente
+     * costuma ser servida só a ele: baixá-la anunciando um Chrome de Android é
+     * o tipo de incoerência que o CDN responde com 403. Quando a primeira
+     * tentativa falha, [baixar] repete com este UA antes de desistir.
+     */
+    private const val UA_IOS =
+        "com.google.ios.youtube/19.29.1 (iPhone16,2; U; CPU iOS 17_5_1 like Mac OS X;)"
+
     private const val CONECTA_MS = 15_000
     private const val LE_MS = 30_000
 
@@ -209,9 +221,13 @@ object YoutubeGrab {
      * lança — ele vai no texto da exceção —, daí a extração pelo regex.
      */
     private fun motivo(e: Exception): String {
+        // A mensagem de "HTTP nnn" é NOSSA (ver `baixar`), então dá para usá-la
+        // como está. Nada de procurar três dígitos no texto: a v1.45 fazia isso
+        // e leu a duração de dentro da URL (`dur=423.061`) como se fosse um
+        // código HTTP — o diagnóstico apontou para um erro que não existia.
         val msg = e.message.orEmpty()
-        val cod = Regex("\\b([45]\\d\\d)\\b").find(msg)?.groupValues?.get(1)
-        return cod ?: e.javaClass.simpleName.ifEmpty { "erro" }
+        if (msg.startsWith("HTTP ")) return msg.removePrefix("HTTP ")
+        return e.javaClass.simpleName.ifEmpty { "erro" }
     }
 
     /** `NewPipe.init` é global e só pode acontecer uma vez por processo. */
@@ -329,7 +345,7 @@ object YoutubeGrab {
                 if (url.isNullOrBlank()) continue
                 val destino = arquivoDestino(ctx, id, alvo.ext)
                 try {
-                    baixar(url, destino, onProgresso)
+                    baixarTentando(url, destino, onProgresso)
                 } catch (e: Exception) {
                     Log.w(TAG, "falhou baixando ${alvo.ext} de $link", e)
                     diagnostico += " · ${alvo.ext} " + motivo(e)
@@ -423,11 +439,11 @@ object YoutubeGrab {
                 // real), em vez de duas barras que voltam ao zero no meio — do
                 // lado do operador, uma barra que reinicia é indistinguível de
                 // travamento.
-                baixar(urlVideo, parteVideo) { lidos, total ->
+                val perfil = baixarTentando(urlVideo, parteVideo) { lidos, total ->
                     if (total > 0) onProgresso(lidos * 90 / total, 100)
                 }
                 if (parteVideo.length() <= 0L) { diagnostico += " · $ext vídeo vazio"; continue }
-                baixar(urlAudio, parteAudio) { lidos, total ->
+                baixarTentando(urlAudio, parteAudio) { lidos, total ->
                     if (total > 0) onProgresso(90 + lidos * 9 / total, 100)
                 }
                 if (parteAudio.length() <= 0L) { diagnostico += " · $ext áudio vazio"; continue }
@@ -438,7 +454,7 @@ object YoutubeGrab {
                 }
                 if (saida.length() <= 0L) { diagnostico += " · $ext saída vazia"; continue }
                 onProgresso(100, 100)
-                diagnostico += " → juntou ${altura}p ($ext)"
+                diagnostico += " → juntou ${altura}p ($ext/$perfil)"
                 return JSONObject()
                     .put("url", SafRegistry.urlFor(Uri.fromFile(saida)))
                     .put("name", tituloLimpo(info.name, info.uploaderName))
@@ -661,14 +677,65 @@ object YoutubeGrab {
      * e o percentual é a única coisa que separa "baixando" de "travado" na tela
      * do operador.
      */
-    private fun baixar(url: String, destino: File, onProgresso: (Long, Long) -> Unit) {
+    /**
+     * Baixa tentando os dois perfis de cliente, e devolve o que funcionou
+     * ("A" = Android/Chrome, "i" = iOS) — o rótulo entra no diagnóstico.
+     *
+     * Uma URL emitida para um cliente costuma ser servida só a ele. As faixas
+     * adaptativas deste aparelho vêm do cliente iOS, e pedi-las anunciando um
+     * Chrome de Android é o tipo de incoerência que o CDN responde com 403.
+     * Tentar os dois custa uma requisição perdida no pior caso — e evita
+     * desistir de um 1080p que estava a um cabeçalho de distância.
+     */
+    private fun baixarTentando(
+        url: String,
+        destino: File,
+        onProgresso: (Long, Long) -> Unit,
+    ): String {
+        var erro: Exception? = null
+        for ((rotulo, ua) in listOf("A" to UA, "i" to UA_IOS)) {
+            try {
+                baixar(url, destino, ua, onProgresso)
+                if (destino.length() > 0L) return rotulo
+            } catch (e: Exception) {
+                erro = e
+                destino.delete()
+            }
+        }
+        throw erro ?: IOException("download vazio")
+    }
+
+    private fun baixar(
+        url: String,
+        destino: File,
+        ua: String = UA,
+        onProgresso: (Long, Long) -> Unit,
+    ) {
         val conn = (URL(url).openConnection() as HttpURLConnection).apply {
             connectTimeout = CONECTA_MS
             readTimeout = LE_MS
             instanceFollowRedirects = true
-            setRequestProperty("User-Agent", UA)
+            setRequestProperty("User-Agent", ua)
+            // `Range` DESDE O PRIMEIRO BYTE (v1.46). As URLs adaptativas do
+            // googlevideo costumam recusar uma requisição sem faixa — é assim
+            // que um player de verdade as consome (aos pedaços), e é a
+            // diferença entre 403 e 206 em vários casos. Para o progressivo,
+            // que já funcionava, pedir a faixa inteira não muda nada.
+            setRequestProperty("Range", "bytes=0-")
         }
         try {
+            // O CÓDIGO LIDO DA CONEXÃO, e não adivinhado depois na mensagem da
+            // exceção: `conn.inputStream` lança `FileNotFoundException` cuja
+            // mensagem é só a URL, e uma URL do googlevideo tem `dur=423.061`
+            // dentro. Foi assim que o diagnóstico da v1.45 anunciou um "HTTP
+            // 423" que nunca existiu — ele leu a DURAÇÃO do vídeo e chamou de
+            // código de erro. Diagnóstico que inventa número é pior que
+            // diagnóstico nenhum: manda consertar o que não está quebrado.
+            val codigo = conn.responseCode
+            // 206 é a resposta ESPERADA agora que pedimos `Range`.
+            if (codigo != HttpURLConnection.HTTP_OK && codigo != HttpURLConnection.HTTP_PARTIAL) {
+                throw IOException("HTTP $codigo")
+            }
             val total = conn.contentLengthLong.coerceAtLeast(0L)
             var lidos = 0L
             var ultimo = 0L

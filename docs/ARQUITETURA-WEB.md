@@ -807,6 +807,27 @@ Três guardas que valem registrar:
 Falhando qualquer etapa, a fila de tentativas de sempre continua valendo — o
 progressivo é o piso, e um louvor em 360p é melhor que nenhum.
 
+##### O diagnóstico que inventou um erro (v1.46)
+
+A leitura seguinte trouxe `· mp4 423 · webm 423`, e **HTTP 423 nunca aconteceu**.
+O `motivo()` procurava três dígitos começando em 4 ou 5 no TEXTO da exceção —
+mas `conn.inputStream` lança `FileNotFoundException` cuja mensagem é só a URL, e
+toda URL do googlevideo carrega `dur=423.061`, a duração do vídeo em segundos. O
+regex leu a duração e a apresentou como código de erro.
+
+Vale registrar porque é a falha mais cara que um diagnóstico pode ter: ele não
+ficou em silêncio, ele **apontou para o lugar errado com confiança**. Hoje o
+código vem de `conn.responseCode`, lido antes de abrir o fluxo, e a mensagem
+("HTTP nnn") é escrita por nós — não há mais o que adivinhar.
+
+Junto vieram as duas hipóteses do 403 nas faixas adaptativas, ambas baratas:
+`Range: bytes=0-` (é assim que um player de verdade consome essas URLs, e o
+googlevideo costuma recusar quem não pede faixa) e o **UA do cliente que emitiu
+a URL** — elas vêm do cliente iOS, e pedi-las anunciando um Chrome de Android é
+a incoerência que o CDN responde com 403. `baixarTentando` tenta os dois perfis
+e registra no diagnóstico qual funcionou (`mp4/i` = MP4 baixado com o perfil
+iOS).
+
 ##### Todo campo de log tem botão de copiar (v5.117)
 
 O diagnóstico acima nasceu sem botão, e a primeira leitura chegou aqui como
