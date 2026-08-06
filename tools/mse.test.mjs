@@ -28,12 +28,19 @@ const MSE = fs.readFileSync(path.join(AQUI, '..', 'app', 'src', 'main', 'assets'
 // cenário, de fora.
 let modo = 'ok';
 
+// O que o servidor VIU: [url, cabeçalho Range]. É por aqui que se verifica o
+// contrato entre o player e o `StreamProxy` — o proxy repassa este `Range` ao
+// googlevideo, e um formato diferente do esperado quebraria tudo do lado de lá,
+// onde não há teste possível.
+const vistos = [];
+
 const servidor = http.createServer((req, res) => {
   if (req.url === '/') {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     res.end('<!doctype html><meta charset="utf-8"><video id="v" muted></video><script>' + MSE + '</script>');
     return;
   }
+  if (req.url.startsWith('/stream/')) vistos.push([req.url, req.headers.range]);
   if (modo === '404') { res.writeHead(404, 'token desconhecido'); res.end(); return; }
   if (modo === '403') { res.writeHead(403, 'googlevideo: Forbidden'); res.end(); return; }
   if (modo === 'vazio') { res.writeHead(206, { 'Content-Length': '0' }); res.end(); return; }
@@ -117,6 +124,13 @@ for (const [qual] of casos) todos.push(await motivo(qual));
 checar(!todos.some((m) => /undefined/.test(m)),
   'nenhuma mensagem contém "undefined" (rótulo de passo perdido)',
   todos.find((m) => /undefined/.test(m)));
+
+// O PRIMEIRO pedido de todos é o segmento de inicialização do VÍDEO, com a
+// faixa fechada que o manifesto declarou. Fechada importa: uma faixa aberta
+// (`bytes=0-`) traria o arquivo inteiro pelo proxy, que é o oposto de transmitir.
+checar(vistos.length > 0 && vistos[0][0] === '/stream/v' && vistos[0][1] === 'bytes=0-739',
+  'o primeiro pedido é o init do vídeo, com Range fechado',
+  vistos.length ? vistos[0].join(' ') : '(nenhum pedido)');
 
 await navegador.close();
 servidor.close();

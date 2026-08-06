@@ -2927,6 +2927,54 @@ As quatro células:
 - **Mensagens** — foi para a aba **Ferramentas** (v5.31), como seção do
   acordeão. Antes era um botão flutuante sobre a preview; ver abaixo.
 
+#### O fluxo vivo, e a segunda requisição que morria (v1.54)
+
+O log, finalmente, apontou o dedo:
+
+```
+falhou ao tocar: índice vídeo: a requisição não completou (Failed to fetch)
+```
+
+Leitura por eliminação, e ela descarta quase tudo:
+
+- **O proxy funciona.** O segmento de inicialização (`bytes=0-739`) passou — com
+  o UA certo, o `Range` repassado — e o decodificador ACEITOU os bytes (o
+  `aplicar` resolveu). Todo o caminho novo está de pé.
+- **A falha é da SEGUNDA requisição, à mesma URL.** E "Failed to fetch" não é
+  status HTTP: é a resposta nunca ter se formado. Recusa do YouTube seria `403`,
+  token inválido `404`, falha nossa com o CDN `502` — todos existem e nenhum
+  apareceu.
+
+Sobra o ciclo de vida da conexão. E ali estava: `abrir()` devolvia o
+`conn.inputStream` embrulhado, soltando a conexão só no `close()` — ou seja, **o
+WebView virava dono do socket por tempo indeterminado**. A primeira requisição
+passava; a segunda saía com a primeira ainda pendurada e morria num ponto
+DEPOIS de o nosso método ter retornado, onde não há como capturar erro nenhum.
+
+Agora os bytes são lidos INTEIROS ali, e a conexão morre com o método
+(`try/finally`). Três coisas ficam certas de uma vez:
+
+- **Nenhum socket meio-lido volta para a piscina** do `HttpURLConnection` para
+  atrapalhar o pedido seguinte.
+- **O `Content-Length` é exatamente o corpo entregue**, porque é o mesmo array —
+  um cabeçalho que discorde do corpo é uma das formas de o WebView abortar a
+  resposta sem explicar.
+- **Todo erro de IO vira um 502 com texto**, em vez de um "Failed to fetch"
+  opaco do outro lado.
+
+O custo é a memória de UM pedaço, e ele é pequeno por construção: o player pede
+o init (centenas de bytes), o índice (poucos kB) e um fragmento por vez. O teto
+de 24 MB não existe para economizar — existe como trava, para o dia em que
+alguém apontar este proxy para uma faixa aberta e um vídeo inteiro tentar caber
+na memória do processo que hospeda os dois WebViews e a `Presentation`.
+
+> **O que ainda não é testável aqui.** O caminho FELIZ (init → índice →
+> fragmentos → imagem no telão) exige um fMP4 de verdade, e não há ffmpeg neste
+> ambiente para gerar um. O que dá para travar é o contrato: `tools/mse.test.mjs`
+> confere que o primeiro pedido é o init do vídeo com **faixa fechada**
+> (`bytes=0-739`) — uma faixa ABERTA traria o arquivo inteiro pelo proxy, que é
+> o oposto de transmitir.
+
 #### As mensagens de falha viraram produto testado (v5.125)
 
 Duas coisas quase saíram erradas nesta rodada, e as duas dizem o mesmo:
