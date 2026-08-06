@@ -3,7 +3,6 @@ package br.org.iasd.av
 import android.util.Log
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
-import java.io.FilterInputStream
 import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
@@ -144,7 +143,14 @@ object StreamProxy {
         java.io.ByteArrayInputStream(ByteArray(0)),
     )
 
-    private fun abrir(alvo: String, range: String?): WebResourceResponse {
+    private fun abrir(alvo: String, range: String?): WebResourceResponse =
+        conectar(alvo, range).let { conn ->
+            // `use` não serve num `HttpURLConnection` (ele não é Closeable), daí
+            // o try/finally explícito: a conexão morre com este método, sempre.
+            try { responder(conn) } finally { conn.disconnect() }
+        }
+
+    private fun conectar(alvo: String, range: String?): HttpURLConnection {
         val conn = (URL(alvo).openConnection() as HttpURLConnection).apply {
             connectTimeout = CONECTA_MS
             readTimeout = LE_MS
@@ -160,9 +166,12 @@ object StreamProxy {
             // quem não pede faixa.
             setRequestProperty("Range", range ?: "bytes=0-")
         }
+        return conn
+    }
+
+    private fun responder(conn: HttpURLConnection): WebResourceResponse {
         val codigo = conn.responseCode
         if (codigo >= 400) {
-            conn.disconnect()
             // O código do YouTube é repassado COMO ESTÁ, e isso é deliberado: um
             // 403 aqui significa URL expirada ou faixa recusada, e é o lado web
             // que sabe o que fazer com essa distinção (pedir um manifesto novo,
@@ -172,31 +181,79 @@ object StreamProxy {
         }
         val mime = conn.contentType?.substringBefore(';')?.trim().orEmpty()
             .ifEmpty { "application/octet-stream" }
+        val faixaRespondida = conn.getHeaderField("Content-Range")
+        // OS BYTES SÃO LIDOS AQUI, INTEIROS, e não entregues como um fluxo vivo.
+        //
+        // A primeira versão devolvia o `conn.inputStream` embrulhado, com a
+        // conexão sendo solta no `close()` — ou seja, o WebView virava dono do
+        // socket por tempo indeterminado. Em aparelho, a PRIMEIRA requisição
+        // (o segmento de inicialização) passava e a SEGUNDA (o índice) morria
+        // com "Failed to fetch": sem status, sem exceção do nosso lado, sem
+        // nada para diagnosticar — porque a falha acontecia depois de este
+        // método já ter retornado.
+        //
+        // Lendo aqui, três coisas ficam certas de uma vez:
+        //
+        // - **A conexão fecha quando este método termina**, sempre, no
+        //   `finally`. Nenhum socket meio-lido volta para a piscina do
+        //   `HttpURLConnection` para atrapalhar o pedido seguinte.
+        // - **O `Content-Length` é exatamente o corpo entregue**, porque é o
+        //   mesmo array. Um cabeçalho que discorde do corpo é uma das formas de
+        //   o WebView abortar a resposta sem explicar.
+        // - **Todo erro de IO vira um 502 com texto** (ver o `catch` de
+        //   [tryHandle]), em vez de um "Failed to fetch" opaco do outro lado.
+        //
+        // O custo é a memória de UM pedaço, e ele é pequeno por construção: o
+        // player pede o init (centenas de bytes), o índice (poucos kB) e um
+        // fragmento por vez. Não há caminho em que isto segure um vídeo inteiro.
+        val corpo = conn.inputStream.use { it.readBytes(TETO_PEDACO) }
         val cabecalhos = mutableMapOf(
             "Cache-Control" to "no-store",
             "Accept-Ranges" to "bytes",
+            "Content-Length" to corpo.size.toString(),
         )
-        // `Content-Range` e `Content-Length` REPASSADOS: é por eles que o
-        // `fetch` do lado web sabe que recebeu a faixa que pediu, e é o que
-        // permite ao MSE montar o índice sem baixar o arquivo inteiro.
-        conn.getHeaderField("Content-Range")?.let { cabecalhos["Content-Range"] = it }
-        val tamanho = conn.contentLengthLong
-        if (tamanho >= 0) cabecalhos["Content-Length"] = tamanho.toString()
+        // `Content-Range` REPASSADO: é por ele que o `fetch` do lado web sabe
+        // que recebeu a faixa que pediu.
+        faixaRespondida?.let { cabecalhos["Content-Range"] = it }
         return WebResourceResponse(
             mime,
             null,
             codigo,
             if (codigo == 206) "Partial Content" else "OK",
             cabecalhos,
-            // O fluxo VIVE depois daqui: quem o fecha é o WebView, quando
-            // terminar de ler. Um `disconnect()` neste ponto mataria a resposta
-            // antes do primeiro byte — daí o wrapper, que solta a conexão no
-            // `close` e não antes.
-            object : FilterInputStream(conn.inputStream) {
-                override fun close() {
-                    try { super.close() } finally { conn.disconnect() }
-                }
-            } as InputStream,
+            java.io.ByteArrayInputStream(corpo),
         )
+    }
+
+    /**
+     * Teto de um pedaço lido de uma vez.
+     *
+     * Ele não existe para economizar memória — o player pede fragmentos de
+     * alguns kB a alguns MB. Existe como TRAVA: se algum dia alguém apontar
+     * este proxy para uma requisição sem `Range` (ou com faixa aberta), sem o
+     * teto ele carregaria um vídeo inteiro na memória do processo que também
+     * hospeda os dois WebViews e a `Presentation`. Estourá-lo é uma exceção,
+     * que vira um 502 legível — e não um OOM no meio do culto.
+     */
+    private const val TETO_PEDACO = 24 * 1024 * 1024
+
+    /**
+     * Lê o fluxo até o fim, recusando passar de [limite].
+     *
+     * `readBytes()` da biblioteca padrão não tem teto: é justamente o que esta
+     * versão evita.
+     */
+    private fun InputStream.readBytes(limite: Int): ByteArray {
+        val saida = java.io.ByteArrayOutputStream()
+        val buf = ByteArray(64 * 1024)
+        while (true) {
+            val n = read(buf)
+            if (n < 0) break
+            if (saida.size() + n > limite) {
+                throw java.io.IOException("pedaço acima de ${limite / (1024 * 1024)} MB")
+            }
+            saida.write(buf, 0, n)
+        }
+        return saida.toByteArray()
     }
 }
