@@ -88,13 +88,13 @@ checar(!(await pg.evaluate((m) => window.AVStream.suportado(
 ), MANIFESTO)), 'e um codec inventado é RECUSADO (a guarda não passa qualquer coisa)');
 
 // Roda um cenário e devolve a mensagem que chegou ao `onErro`.
-async function motivo(qual) {
+async function motivo(qual, man) {
   modo = qual;
   return pg.evaluate((m) => new Promise((resolve) => {
     const v = document.getElementById('v');
     const t = setTimeout(() => resolve('(nenhum erro em 6s)'), 6000);
     window.AVStream.criar(v, m, { onErro: (p) => { clearTimeout(t); resolve(p); } });
-  }), MANIFESTO);
+  }), man || MANIFESTO);
 }
 
 const casos = [
@@ -131,6 +131,29 @@ checar(!todos.some((m) => /undefined/.test(m)),
 checar(vistos.length > 0 && vistos[0][0] === '/stream/v' && vistos[0][1] === 'bytes=0-739',
   'o primeiro pedido é o init do vídeo, com Range fechado',
   vistos.length ? vistos[0].join(' ') : '(nenhum pedido)');
+
+// ---------------------------------------------------------------------------
+// SÓ ÁUDIO — o "Tocar agora · Só áudio" (v5.130).
+//
+// O shell monta sempre o PAR no mesmo manifesto; quem quer só o som descarta a
+// faixa de vídeo no lado web. Exigir as duas, como o `suportado` fazia, barrava
+// a transmissão justamente no caso mais leve — o que menos deveria esperar por
+// download. As duas asserções abaixo são o contrato inteiro: aceita, e não pede
+// um único byte de vídeo.
+// ---------------------------------------------------------------------------
+const SO_AUDIO = Object.assign({}, MANIFESTO, { video: null });
+checar(await pg.evaluate((m) => window.AVStream.suportado(m), SO_AUDIO),
+  'um manifesto SÓ COM ÁUDIO é aceito');
+checar(!(await pg.evaluate((m) => window.AVStream.suportado(
+  Object.assign({}, m, { audio: null }),
+), SO_AUDIO)), 'e um manifesto sem faixa NENHUMA é recusado');
+
+const marcaAudio = vistos.length;
+await motivo('404', SO_AUDIO);
+const pedidosAudio = vistos.slice(marcaAudio);
+checar(pedidosAudio.length > 0 && pedidosAudio.every(([u]) => u.startsWith('/stream/a')),
+  'e nenhuma requisição de VÍDEO é feita (o 1080p não é baixado para ser jogado fora)',
+  JSON.stringify(pedidosAudio.map((x) => x[0])));
 
 // ---------------------------------------------------------------------------
 // O TRANSPORTE DA FAIXA — o contrato que a v1.55 conserta.

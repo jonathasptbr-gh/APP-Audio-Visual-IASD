@@ -3106,6 +3106,38 @@ durante o MSE arrisca o decode nunca acontecer — e um telão preto para sempre
 falha muito pior que um piscar. O pôster não pode apagar a projeção: no limite,
 ele não faz nada.
 
+##### "Só áudio" também transmite (v5.130)
+
+O "Tocar agora · Só áudio" ficava de fora da transmissão — a guarda era literal,
+`if (tocar && !soAudio && …)`. A razão era histórica: a transmissão nasceu como
+um PAR de faixas adaptativas, e `AVStream.suportado` exigia as duas. O efeito é
+que o caso mais leve do app era o único obrigado a esperar um download.
+
+E "rápido" não é o pedido. Um m4a de alguns MB baixa em segundos — segundos com
+o culto rodando e o operador parado. A transmissão começa a tocar com o primeiro
+fragmento, na casa dos kB.
+
+**Não custou nada ao shell**, e é o detalhe que faz este recurso chegar por OTA:
+o `manifesto()` do Kotlin já monta o par no MESMO JSON, então pedir "só o áudio"
+é **descartar um descritor** (`man.video = null`) — não um segundo pedido, não
+uma segunda extração, e nenhum byte de 1080p baixado para ser jogado fora. Do
+lado do motor, `faixasDe(man)` passou a listar as faixas PRESENTES, e tanto o
+`suportado` quanto o `addSourceBuffer` seguem essa lista.
+
+Três consequências que precisam andar juntas, e o `kind` é quem as amarra:
+
+- **`kind: 'audio'`** no registro (e sem miniatura): é ele que faz o telão
+  manter o wallpaper em vez de trocar de imagem — a mesma regra do
+  `ytFetchAudio`.
+- **O fallback baixa a MESMA forma.** Se a transmissão morrer, `recuperarStream`
+  passa `somenteAudio` ao `ytArquivo`; sem isso quem pediu só o som receberia o
+  vídeo de 80 MB de volta.
+- **A re-extração também.** Um manifesto novo (URL expirada) volta com o par, e
+  ele é reduzido do mesmo jeito antes de ser gravado.
+
+O que continua valendo só para "Tocar agora": as outras três ações GUARDAM o
+item, e um manifesto expira em horas. Ali o download é o certo.
+
 ##### A transição de entrada, que existia pela metade (v5.129)
 
 Sem o placeholder, ficou visível o que estava embaixo dele: a mídia velha

@@ -58,11 +58,27 @@
   // resposta que nunca vem vire ERRO em vez de silêncio eterno.
   const APPEND_MS = 15000;
 
+  // AS FAIXAS QUE ESTE MANIFESTO TEM — uma ou duas.
+  //
+  // O manifesto do shell traz sempre o par (vídeo + áudio), mas o "Tocar agora ·
+  // Só áudio" descarta a de vídeo antes de chegar aqui: quem pediu só o som não
+  // tem por que baixar 1080p para jogar fora. Exigir as duas, como esta função
+  // fazia, barrava a transmissão justamente no caso mais leve — o que menos
+  // deveria esperar por download.
+  //
+  // Os papéis em PORTUGUÊS porque eles vão parar no Registro, que o operador lê
+  // e repassa.
+  function faixasDe(man) {
+    if (!man) return [];
+    return [['vídeo', man.video], ['áudio', man.audio]].filter((par) => par[1] && par[1].url);
+  }
+
   function suportado(man) {
-    if (!global.MediaSource || !man || !man.video || !man.audio) return false;
+    if (!global.MediaSource) return false;
+    const faixas = faixasDe(man);
+    if (!faixas.length) return false;
     try {
-      return MediaSource.isTypeSupported(man.video.mime)
-        && MediaSource.isTypeSupported(man.audio.mime);
+      return faixas.every((par) => MediaSource.isTypeSupported(par[1].mime));
     } catch (_) { return false; }
   }
 
@@ -324,10 +340,11 @@
         // progresso do app lê no `loadedmetadata`, e somar as durações dos
         // fragmentos daria um valor levemente diferente entre as duas faixas.
         if (man.seconds > 0) ms.duration = man.seconds;
-        // Os papéis em PORTUGUÊS porque eles vão parar no Registro, que o
-        // operador lê e repassa. Um "video sourcebuffer" no meio de um log em
-        // português é ruído a mais para quem já está com um problema na mão.
-        [['vídeo', man.video], ['áudio', man.audio]].forEach(([papel, t]) => {
+        // UMA OU DUAS faixas, conforme o manifesto (ver `faixasDe`): o "Só
+        // áudio" chega aqui com a de vídeo já descartada, e um `addSourceBuffer`
+        // de vídeo para uma faixa que não existe lançaria antes de qualquer byte
+        // ser pedido.
+        faixasDe(man).forEach(([papel, t]) => {
           const sb = ms.addSourceBuffer(t.mime);
           sb.mode = 'segments';
           const f = { papel, sb, url: t.url, meta: t, segs: null, i: 0, ocupada: false };
