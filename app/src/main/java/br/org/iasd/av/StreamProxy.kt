@@ -33,16 +33,51 @@ import java.util.concurrent.ConcurrentHashMap
  * Passando por aqui, os três somem de uma vez: é o mesmo origin, o UA é o certo
  * e a invariante fica de pé.
  *
- * ## Range é o ponto, e é por isso que isto NÃO é um `PathHandler`
+ * ## A FAIXA VIAJA NA URL, e essa é a regra que não pode cair (v1.55)
+ *
+ * O contrato do `shouldInterceptRequest` **não é** "devolva o que pediram": o
+ * `InputStream` devolvido é lido pelo Chromium como **o recurso INTEIRO a
+ * partir do byte 0**, e é o próprio WebView quem aplica o `Range` da
+ * requisição em cima dele — `AndroidStreamReaderURLLoader::Start` chama
+ * `ParseRange(resource_request_.headers)` incondicionalmente e manda
+ * `InputStreamReader::Seek` pular `first_byte_position()` bytes do nosso
+ * stream, conferindo antes com `available()`.
+ *
+ * Devolver só a fatia pedida, como esta classe fazia até a v1.54, faz o
+ * deslocamento ser aplicado DUAS vezes:
+ *
+ * | faixa pedida | o que acontecia | o que o operador via |
+ * |---|---|---|
+ * | `bytes=0-739` (init) | pular 0 é no-op | funcionava — e escondia o resto |
+ * | `bytes=A-B` com `A ≥ tamanho da fatia` | `ComputeBounds` reprova → `ERR_FAILED` **sem status** | "índice vídeo: a requisição não completou (Failed to fetch)" |
+ * | `bytes=A-B` com `A < tamanho da fatia` | pula A DENTRO da fatia e entrega bytes do offset absoluto `2A` | pior: `fetch` resolve e o vídeo simplesmente não toca |
+ *
+ * Ou seja: só a primeira requisição de cada faixa podia funcionar, sempre — e
+ * todo fragmento de mídia começa a megabytes do início do arquivo. Não existe
+ * versão disto que funcione com a faixa viajando no CABEÇALHO.
+ *
+ * A correção é sair do contrato em vez de emulá-lo: o `shared/mse.js` do shell
+ * 27 em diante pede `/stream/<token>?r=<ini>-<fim>` **sem cabeçalho `Range`
+ * nenhum**. Sem cabeçalho, `ParseRange` não acha nada, o seek não acontece, e a
+ * fatia sai inteira e correta. A resposta é um **200 seco**: nada de 206, de
+ * `Content-Range` ou de `Accept-Ranges` — anunciar suporte a faixa nesta URL é
+ * o oposto do que este caminho quer, e o `Content-Length` quem escreve é o
+ * loader, a partir do `available()` do nosso array.
+ *
+ * O caminho do CABEÇALHO continua atendido (um bundle web antigo num shell
+ * novo — a janela entre instalar o APK e o OTA chegar), mas embrulhado em
+ * [FatiaComoTodo]: o stream mente o tamanho total e absorve o primeiro `skip`,
+ * de modo que a maquinaria de faixa do próprio WebView produza o resultado
+ * certo em vez do dobro do deslocamento.
+ *
+ * ## Por que isto NÃO é um `PathHandler`
  *
  * O `WebViewAssetLoader.PathHandler` recebe só o CAMINHO (`handle(path)`) — os
- * cabeçalhos da requisição não chegam lá. E o MSE é feito de requisições por
- * FAIXA DE BYTES: o segmento de inicialização, o índice, cada trecho de mídia.
- * Sem repassar o `Range`, cada pedido traria o arquivo inteiro e o player
- * baixaria centenas de MB para usar 200 kB.
- *
- * Daí este objeto ser chamado de dentro do `shouldInterceptRequest`, que recebe
- * o [WebResourceRequest] completo, ANTES de o asset loader ver a URL.
+ * cabeçalhos da requisição não chegam lá, e sem eles o ramo de compatibilidade
+ * acima seria impossível. Daí este objeto ser chamado de dentro do
+ * `shouldInterceptRequest`, que recebe o [WebResourceRequest] completo, ANTES
+ * de o asset loader ver a URL. (A query `?r=` sozinha caberia num
+ * `PathHandler`; o `Range` do bundle antigo, não.)
  *
  * ## O que ele NÃO faz
  *
@@ -109,23 +144,98 @@ object StreamProxy {
         val caminho = u.path ?: return null
         if (!caminho.startsWith(ROTA)) return null
         val token = caminho.removePrefix(ROTA).trim('/')
+
+        // O DESLOCAMENTO QUE O WEBVIEW VAI PULAR sozinho, e ele depende só do
+        // CABEÇALHO — é `ParseRange(resource_request_.headers)` lá dentro que
+        // decide, não a nossa query. Zero quando não há cabeçalho nenhum, que é
+        // o caminho novo. Vale para TODA resposta, inclusive as de erro: um
+        // corpo vazio com deslocamento > 0 é reprovado pelo `ComputeBounds`
+        // (`size == 0` → false) e vira erro de rede SEM STATUS — foi assim que
+        // toda a tabela de mensagens da v5.125 (404/403/502) ficou
+        // indeliverável para qualquer requisição que não fosse a primeira, e a
+        // investigação da v1.54 leu esse silêncio como "não é o CDN nem o
+        // token".
+        val cabecalho = rangeDoCabecalho(request)
+        val fantasma = inicioDe(cabecalho)
+
+        val naQuery = try { u.getQueryParameter("r") } catch (_: Exception) { null }
+        // 400 = A FAIXA PEDIDA NÃO PRESTA. É um quarto caso, e por isso um
+        // código próprio: 404 é token desconhecido, 502 é o proxy falhando com
+        // o CDN, e o código do YouTube é repassado como está. Validar não é
+        // preciosismo — este valor vira o `Range` enviado ao googlevideo.
+        val daQuery = naQuery?.let { faixaDaQuery(it) ?: return erro(400, "faixa invalida: $it", fantasma) }
+
         // 404 = TOKEN DESCONHECIDO, e só isso. A distinção importa para quem lê
         // o log: um 404 aqui significa que o proxy foi alcançado e não achou o
         // token (registro velho, processo reiniciado), enquanto um 404 vindo do
         // asset loader significaria que o proxy nem foi consultado. Se os dois
         // saíssem com o mesmo código, a leitura apontaria para o lugar errado.
-        val alvo = porToken[token] ?: return erro(404, "token desconhecido")
+        val alvo = porToken[token] ?: return erro(404, "token desconhecido", fantasma)
         return try {
-            abrir(alvo, request.requestHeaders?.get("Range"))
-        } catch (e: Exception) {
+            val faixa = daQuery?.let { "bytes=${it.first}-${it.second}" } ?: cabecalho
+            abrir(alvo, faixa, daQuery != null, fantasma)
+        } catch (e: Throwable) {
+            // `Throwable`, e não `Exception`: um `Error` (OutOfMemoryError num
+            // pedaço grande, por exemplo) escaparia daqui pela thread de
+            // recursos do WebView e chegaria ao lado web como mais um erro de
+            // rede sem status — exatamente a forma de falha que este arquivo
+            // inteiro existe para eliminar.
             Log.w(TAG, "falhou servindo $token", e)
             // 502 = O PROXY FALHOU FALANDO COM O CDN (DNS, timeout, TLS). Antes
             // isto virava 404 junto com o caso acima, e aí o log dizia "não
             // achei" para uma falha de REDE — a leitura mais enganosa possível,
             // porque manda procurar o defeito no roteamento.
-            erro(502, (e.message ?: e.javaClass.simpleName).take(120))
+            erro(502, redigir(e), fantasma)
         }
     }
+
+    /**
+     * O `Range` da requisição, procurado SEM CAIXA.
+     *
+     * O mapa do [WebResourceRequest] é sensível à caixa e o Fetch normaliza
+     * nomes de cabeçalho para minúsculas. Hoje `get("Range")` funciona (o init
+     * do bundle antigo prova), mas o modo de falhar seria mudo: sem enxergar o
+     * cabeçalho, [conectar] pediria `bytes=0-` e a faixa de 1080p inteira
+     * estouraria o teto de 24 MB.
+     */
+    private fun rangeDoCabecalho(request: WebResourceRequest): String? =
+        request.requestHeaders?.entries?.firstOrNull { it.key.equals("Range", true) }?.value
+
+    /** O primeiro byte de um `bytes=A-B`; 0 quando não há faixa ou ela não presta. */
+    private fun inicioDe(range: String?): Long {
+        val bruto = range?.substringAfter("bytes=", "")?.substringBefore('-')?.trim().orEmpty()
+        return bruto.toLongOrNull()?.coerceAtLeast(0) ?: 0
+    }
+
+    /** `?r=<ini>-<fim>` → o par, ou `null` se estiver malformado ou for grande demais. */
+    private fun faixaDaQuery(r: String): Pair<Long, Long>? {
+        val m = FAIXA.matchEntire(r.trim()) ?: return null
+        val ini = m.groupValues[1].toLongOrNull() ?: return null
+        val fim = m.groupValues[2].toLongOrNull() ?: return null
+        if (fim < ini) return null
+        if (fim - ini + 1 > TETO_PEDACO) return null
+        return ini to fim
+    }
+
+    private val FAIXA = Regex("""(\d{1,15})-(\d{1,15})""")
+
+    /**
+     * O texto de uma exceção, sem a URL do googlevideo e sem acento.
+     *
+     * Duas razões independentes, e as duas doem em produção:
+     *
+     * - A mensagem vai parar no Registro que o operador COPIA e repassa, e uma
+     *   URL assinada do googlevideo não tem por que viajar junto.
+     * - `WebResourceResponse` **lança `IllegalArgumentException`** para qualquer
+     *   caractere fora de `0x20..0x7E` na razão HTTP. `IOException("pedaço acima
+     *   de 24 MB")` tem cedilha: estourar o teto não produzia um 502 legível,
+     *   produzia uma segunda exceção de dentro do `catch`.
+     */
+    private fun redigir(e: Throwable): String =
+        (e.message ?: e.javaClass.simpleName).replace(Regex("""https?://\S+"""), "<url>")
+
+    private fun ascii(s: String): String =
+        s.map { if (it.code in 0x20..0x7e) it else '?' }.joinToString("").take(120)
 
     /**
      * Uma resposta de erro cujo MOTIVO viaja na razão HTTP.
@@ -134,20 +244,37 @@ object StreamProxy {
      * uma falha de rede chega ao operador com o texto da exceção em vez de um
      * número solto.
      */
-    private fun erro(codigo: Int, razao: String): WebResourceResponse = WebResourceResponse(
-        "text/plain",
-        "utf-8",
-        codigo,
-        razao.ifBlank { "erro" },
-        mapOf("Cache-Control" to "no-store"),
-        java.io.ByteArrayInputStream(ByteArray(0)),
-    )
+    private fun erro(codigo: Int, razao: String, fantasma: Long = 0): WebResourceResponse {
+        val texto = ascii(razao).ifBlank { "erro" }
+        // CORPO NÃO VAZIO, e isso é conserto e não enfeite: com `available() ==
+        // 0` e um `Range` fora do zero, o `ComputeBounds` do WebView reprova
+        // antes de qualquer cabeçalho ser montado e a resposta inteira vira um
+        // erro de rede sem status. Um erro que não chega é igual a erro nenhum.
+        val corpo = texto.toByteArray(Charsets.US_ASCII)
+        return WebResourceResponse(
+            "text/plain",
+            "utf-8",
+            codigo,
+            texto,
+            mapOf("Cache-Control" to "no-store"),
+            corpoServivel(corpo, fantasma),
+        )
+    }
 
-    private fun abrir(alvo: String, range: String?): WebResourceResponse =
+    /** O corpo pronto para o que o WebView vai fazer com ele (ver [FatiaComoTodo]). */
+    private fun corpoServivel(corpo: ByteArray, fantasma: Long): InputStream =
+        if (fantasma > 0) FatiaComoTodo(corpo, fantasma) else java.io.ByteArrayInputStream(corpo)
+
+    private fun abrir(
+        alvo: String,
+        range: String?,
+        daQuery: Boolean,
+        fantasma: Long,
+    ): WebResourceResponse =
         conectar(alvo, range).let { conn ->
             // `use` não serve num `HttpURLConnection` (ele não é Closeable), daí
             // o try/finally explícito: a conexão morre com este método, sempre.
-            try { responder(conn) } finally { conn.disconnect() }
+            try { responder(conn, daQuery, fantasma) } finally { conn.disconnect() }
         }
 
     private fun conectar(alvo: String, range: String?): HttpURLConnection {
@@ -169,7 +296,11 @@ object StreamProxy {
         return conn
     }
 
-    private fun responder(conn: HttpURLConnection): WebResourceResponse {
+    private fun responder(
+        conn: HttpURLConnection,
+        daQuery: Boolean,
+        fantasma: Long,
+    ): WebResourceResponse {
         val codigo = conn.responseCode
         if (codigo >= 400) {
             // O código do YouTube é repassado COMO ESTÁ, e isso é deliberado: um
@@ -177,29 +308,31 @@ object StreamProxy {
             // que sabe o que fazer com essa distinção (pedir um manifesto novo,
             // ou cair no player embutido). Traduzir tudo para "não achei"
             // apagaria justamente o que diferencia os dois casos.
-            return erro(codigo, "googlevideo: " + (conn.responseMessage ?: "?"))
+            return erro(codigo, "googlevideo: " + (conn.responseMessage ?: "?"), fantasma)
         }
         val mime = conn.contentType?.substringBefore(';')?.trim().orEmpty()
             .ifEmpty { "application/octet-stream" }
         val faixaRespondida = conn.getHeaderField("Content-Range")
         // OS BYTES SÃO LIDOS AQUI, INTEIROS, e não entregues como um fluxo vivo.
         //
-        // A primeira versão devolvia o `conn.inputStream` embrulhado, com a
-        // conexão sendo solta no `close()` — ou seja, o WebView virava dono do
-        // socket por tempo indeterminado. Em aparelho, a PRIMEIRA requisição
-        // (o segmento de inicialização) passava e a SEGUNDA (o índice) morria
-        // com "Failed to fetch": sem status, sem exceção do nosso lado, sem
-        // nada para diagnosticar — porque a falha acontecia depois de este
-        // método já ter retornado.
+        // ATENÇÃO À HISTÓRIA, porque ela já enganou uma rodada inteira: a v1.54
+        // fez esta mudança acreditando que ela consertaria o "Failed to fetch"
+        // da segunda requisição. NÃO CONSERTOU — a causa era o refatiamento do
+        // WebView (ver o KDoc do arquivo), e o socket estava a montante dela. A
+        // mudança trocou o RAMO da falha sem trocar o desfecho: `available()` de
+        // um socket costuma ser 0 e reprovava no `SkipToRequestedRange`; o de um
+        // `ByteArrayInputStream` é o tamanho da fatia e passou a reprovar no
+        // `ComputeBounds`.
         //
-        // Lendo aqui, três coisas ficam certas de uma vez:
+        // Ela fica porque é certa por si — ler aqui deixa três coisas garantidas:
         //
         // - **A conexão fecha quando este método termina**, sempre, no
         //   `finally`. Nenhum socket meio-lido volta para a piscina do
         //   `HttpURLConnection` para atrapalhar o pedido seguinte.
-        // - **O `Content-Length` é exatamente o corpo entregue**, porque é o
-        //   mesmo array. Um cabeçalho que discorde do corpo é uma das formas de
-        //   o WebView abortar a resposta sem explicar.
+        // - **O corpo é um array**, e não um fluxo que pode acabar no meio: é
+        //   isso que faz o `available()` do stream devolvido bater com o que
+        //   existe de verdade — e o `available()` é justamente o número que o
+        //   WebView usa para decidir se atende a faixa.
         // - **Todo erro de IO vira um 502 com texto** (ver o `catch` de
         //   [tryHandle]), em vez de um "Failed to fetch" opaco do outro lado.
         //
@@ -207,13 +340,38 @@ object StreamProxy {
         // player pede o init (centenas de bytes), o índice (poucos kB) e um
         // fragmento por vez. Não há caminho em que isto segure um vídeo inteiro.
         val corpo = conn.inputStream.use { it.readBytes(TETO_PEDACO) }
+
+        // CAMINHO NOVO (faixa na query, shell 27+): um 200 SECO.
+        //
+        // Sem `Content-Range` — ninguém o lê: o caminho de intercepção do
+        // Chromium não tem uma única ocorrência de 206/Partial/Content-Range, e
+        // o `mse.js` aceita 200 de propósito desde a v5.120. Sem
+        // `Accept-Ranges` — anunciar suporte a faixa nesta URL é o oposto do que
+        // este caminho quer. E sem `Content-Length` NOSSO: o loader escreve o
+        // dele a partir do `available()` do array (com `SetHeader`), e o nosso
+        // entraria depois com `AddHeader` — hoje saem DOIS `Content-Length` na
+        // resposta do init, coincidindo por acaso.
+        if (daQuery && fantasma == 0L) {
+            return WebResourceResponse(
+                mime,
+                null,
+                200,
+                "OK",
+                mapOf("Cache-Control" to "no-store"),
+                java.io.ByteArrayInputStream(corpo),
+            )
+        }
+
+        // CAMINHO DE COMPATIBILIDADE (a faixa veio no cabeçalho): o WebView VAI
+        // pular `fantasma` bytes deste stream, então ele precisa se comportar
+        // como o recurso inteiro — ver [FatiaComoTodo].
         val cabecalhos = mutableMapOf(
             "Cache-Control" to "no-store",
             "Accept-Ranges" to "bytes",
-            "Content-Length" to corpo.size.toString(),
         )
-        // `Content-Range` REPASSADO: é por ele que o `fetch` do lado web sabe
-        // que recebeu a faixa que pediu.
+        // `Content-Range` REPASSADO: é por ele que um consumidor fora do WebView
+        // (o navegador, onde este ramo é o único que existe) sabe que recebeu a
+        // faixa que pediu.
         faixaRespondida?.let { cabecalhos["Content-Range"] = it }
         return WebResourceResponse(
             mime,
@@ -221,8 +379,63 @@ object StreamProxy {
             codigo,
             if (codigo == 206) "Partial Content" else "OK",
             cabecalhos,
-            java.io.ByteArrayInputStream(corpo),
+            corpoServivel(corpo, fantasma),
         )
+    }
+
+    /**
+     * Uma FATIA que se comporta como o recurso INTEIRO a partir do byte 0.
+     *
+     * Existe só para o ramo de compatibilidade: quando a requisição traz um
+     * cabeçalho `Range`, o Chromium do WebView pula `first_byte_position()`
+     * bytes do stream que devolvemos, conferindo antes com `available()`. Como
+     * os nossos bytes JÁ começam nesse ponto, o deslocamento sairia aplicado
+     * duas vezes.
+     *
+     * A saída é mentir exatamente o necessário: [available] soma o prefixo que
+     * não existe, [skip] o absorve, e a primeira leitura real o zera — assim, se
+     * um dia o WebView deixar de refatiar, a fatia sai crua e correta em vez de
+     * curta.
+     *
+     * `Int` no [available] porque a assinatura é essa (e o Chromium a lê como
+     * `int32`): saturar é o comportamento certo, um teto de ~2 GiB não muda
+     * nada aqui, onde cada pedaço tem no máximo [TETO_PEDACO].
+     */
+    private class FatiaComoTodo(
+        private val corpo: ByteArray,
+        deslocamento: Long,
+    ) : InputStream() {
+        private var fantasma = deslocamento.coerceAtLeast(0)
+        private var pos = 0
+
+        override fun available(): Int =
+            (fantasma + (corpo.size - pos)).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+
+        override fun skip(n: Long): Long {
+            if (n <= 0) return 0
+            if (fantasma > 0) {
+                val k = minOf(n, fantasma)
+                fantasma -= k
+                return k
+            }
+            val k = minOf(n, (corpo.size - pos).toLong())
+            pos += k.toInt()
+            return k
+        }
+
+        override fun read(): Int {
+            fantasma = 0
+            return if (pos < corpo.size) corpo[pos++].toInt() and 0xff else -1
+        }
+
+        override fun read(b: ByteArray, off: Int, len: Int): Int {
+            fantasma = 0
+            if (pos >= corpo.size) return -1
+            val n = minOf(len, corpo.size - pos)
+            System.arraycopy(corpo, pos, b, off, n)
+            pos += n
+            return n
+        }
     }
 
     /**

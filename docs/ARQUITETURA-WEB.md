@@ -2927,40 +2927,104 @@ As quatro células:
 - **Mensagens** — foi para a aba **Ferramentas** (v5.31), como seção do
   acordeão. Antes era um botão flutuante sobre a preview; ver abaixo.
 
-#### O fluxo vivo, e a segunda requisição que morria (v1.54)
+#### A segunda requisição que morria — e o contrato que ninguém tinha lido (v1.55)
 
-O log, finalmente, apontou o dedo:
+O log dizia sempre a mesma coisa, em três versões seguidas do shell:
 
 ```
 falhou ao tocar: índice vídeo: a requisição não completou (Failed to fetch)
 ```
 
-Leitura por eliminação, e ela descarta quase tudo:
+**A causa é um contrato, não um cálculo.** O `InputStream` devolvido por
+`shouldInterceptRequest` **não é "a resposta"**: o Chromium o lê como **o
+recurso INTEIRO a partir do byte 0**, e é ELE quem aplica o `Range` da
+requisição em cima do que o app entregou. A cadeia, na fonte:
 
-- **O proxy funciona.** O segmento de inicialização (`bytes=0-739`) passou — com
-  o UA certo, o `Range` repassado — e o decodificador ACEITOU os bytes (o
-  `aplicar` resolveu). Todo o caminho novo está de pé.
-- **A falha é da SEGUNDA requisição, à mesma URL.** E "Failed to fetch" não é
-  status HTTP: é a resposta nunca ter se formado. Recusa do YouTube seria `403`,
-  token inválido `404`, falha nossa com o CDN `502` — todos existem e nenhum
-  apareceu.
+```
+AndroidStreamReaderURLLoader::Start          → ParseRange(resource_request_.headers)   ← incondicional
+AndroidStreamReaderURLLoader::OnInputStreamOpened → InputStreamReader::Seek(byte_range_)
+InputStreamReader::Seek                      → VerifyRequestedRange + SkipToRequestedRange
+net::HttpByteRange::ComputeBounds            → confere contra InputStream.available()
+```
 
-Sobra o ciclo de vida da conexão. E ali estava: `abrir()` devolvia o
-`conn.inputStream` embrulhado, soltando a conexão só no `close()` — ou seja, **o
-WebView virava dono do socket por tempo indeterminado**. A primeira requisição
-passava; a segunda saía com a primeira ainda pendurada e morria num ponto
-DEPOIS de o nosso método ter retornado, onde não há como capturar erro nenhum.
+Não há válvula, flag nem ramo por status que desligue isso, e vale para **toda**
+resposta de `shouldInterceptRequest` — não só para `file:///android_asset`.
 
-Agora os bytes são lidos INTEIROS ali, e a conexão morre com o método
-(`try/finally`). Três coisas ficam certas de uma vez:
+O `StreamProxy` devolvia só a fatia pedida. Resultado: **o deslocamento era
+aplicado duas vezes.**
 
-- **Nenhum socket meio-lido volta para a piscina** do `HttpURLConnection` para
-  atrapalhar o pedido seguinte.
-- **O `Content-Length` é exatamente o corpo entregue**, porque é o mesmo array —
-  um cabeçalho que discorde do corpo é uma das formas de o WebView abortar a
-  resposta sem explicar.
-- **Todo erro de IO vira um 502 com texto**, em vez de um "Failed to fetch"
-  opaco do outro lado.
+| faixa pedida | o que acontecia | o que aparecia no Registro |
+|---|---|---|
+| `bytes=0-739` (init) | pular 0 é no-op | **funcionava** — e escondia o resto atrás de si |
+| `A ≥ tamanho da fatia` | `ComputeBounds` reprova → `ERR_FAILED` **antes de qualquer cabeçalho** | `a requisição não completou (Failed to fetch)` |
+| `A < tamanho da fatia` | pula `A` DENTRO da fatia e entrega bytes do offset absoluto `2A` | pior: o `fetch` RESOLVE e o vídeo não toca |
+
+Ou seja: **só a primeira requisição de cada faixa podia funcionar, sempre** — e
+todo fragmento de mídia começa a megabytes do início do arquivo. Não existia
+versão desta arquitetura que funcionasse com a faixa viajando no cabeçalho.
+
+**A correção é sair do contrato, não emulá-lo.** Do shell 27 em diante o
+`shared/mse.js` pede `/stream/<token>?r=<ini>-<fim>` **sem cabeçalho `Range`
+nenhum**: sem cabeçalho, `ParseRange` não acha nada, o seek não acontece, e a
+fatia chega inteira. A resposta é um **200 seco** — sem 206, sem `Content-Range`,
+sem `Accept-Ranges`, e sem `Content-Length` nosso (o loader escreve o dele a
+partir do `available()`; o nosso entrava depois com `AddHeader`, e hoje saem
+dois na resposta do init, coincidindo por acaso).
+
+O ramo do cabeçalho continua atendido para a janela em que um bundle web antigo
+roda num shell novo, embrulhado em `FatiaComoTodo`: o stream soma o prefixo que
+não existe no `available()`, absorve o primeiro `skip` e zera o fantasma na
+primeira leitura real — assim a maquinaria do próprio WebView produz o resultado
+certo, e se um dia ela deixar de refatiar a fatia sai crua e correta.
+
+##### Por que a v1.54 não resolveu, e por que o log não avisou
+
+A v1.54 acertou que devolver o `conn.inputStream` vivo era errado — a conexão
+agora morre com o método (`try/finally`), nenhum socket meio-lido volta para a
+piscina do `HttpURLConnection`. Só que o socket estava **a montante** do
+defeito: nada do que o proxy faz com a conexão remove o cabeçalho `Range` da
+requisição. A mudança trocou o RAMO da falha sem trocar o desfecho —
+`available()` de um socket costuma ser 0 (reprovava no `SkipToRequestedRange`),
+`available()` de um `ByteArrayInputStream` é o tamanho da fatia (passou a
+reprovar no `ComputeBounds`) —, e o `ERR_FAILED` é o mesmo dos dois lados.
+
+E há a parte desconfortável: **a v1.54 não podia mudar a mensagem nem se
+tivesse consertado algo.** As respostas de erro do proxy tinham corpo vazio; com
+`available() == 0` e uma faixa fora do zero, o `ComputeBounds` reprova
+(`size == 0` → false) e a resposta inteira vira erro de rede sem status. Toda a
+tabela de mensagens da v5.125 — `404 token desconhecido`, `403 googlevideo:
+Forbidden`, `502` com o texto da exceção — era **indeliverável para qualquer
+requisição que não fosse a primeira**. A leitura por eliminação que abriu a
+v1.54 ("não apareceu 403, 404 nem 502, logo não é o CDN nem o token") estava
+cega por construção: três rodadas foram medidas com o instrumento quebrado.
+
+Por isso a v1.55 também mexe no canal de erro: **corpo não vazio** (a razão em
+ASCII, embrulhada no `FatiaComoTodo` quando há deslocamento) e razão **saneada
+para ASCII** — `WebResourceResponse` lança `IllegalArgumentException` para
+qualquer caractere fora de `0x20..0x7E`, e `IOException("pedaço acima de 24 MB")`
+tem cedilha: estourar o teto não produzia um 502 legível, produzia uma segunda
+exceção de dentro do `catch`.
+
+##### O que ficou travado no CI
+
+`tools/webview-range.test.mjs` **transcreve** a regra do Chromium (com
+`arquivo:função` de cada trecho) e roda os dois modelos de `InputStream` contra
+ela, sobre um recurso sintético em que o byte `i` vale `i % 251` — primo, de
+propósito: um deslocamento errado sai como **bytes errados**, e não como tamanho
+errado, que é o único jeito de um teste enxergar a corrupção silenciosa do
+terceiro ramo. Ele prova que a fatia crua **não atende** um pedido no meio do
+arquivo, que o `FatiaComoTodo` atende, e que sem cabeçalho atende sempre.
+
+É Node puro, determinístico, sem rede: entra no CI **sem** `continue-on-error`.
+A transcrição é a hipótese ficando explícita e versionada — se o Chromium mudar
+essa regra, o lugar de descobrir isso é o CI, não o culto.
+
+E `tools/mse.test.mjs` ganhou as duas asserções **negativas** que resumem o
+desenho: no app (shell 27) o primeiro pedido é `/stream/v?r=0-739` e
+`req.headers.range` é `undefined`; num shell antigo o player desiste na hora,
+sem uma única requisição, para o dono cair no download.
+
+##### As três coisas que a leitura dos bytes inteiros continua garantindo
 
 O custo é a memória de UM pedaço, e ele é pequeno por construção: o player pede
 o init (centenas de bytes), o índice (poucos kB) e um fragmento por vez. O teto
@@ -2970,41 +3034,34 @@ na memória do processo que hospeda os dois WebViews e a `Presentation`.
 
 > **O que ainda não é testável aqui.** O caminho FELIZ (init → índice →
 > fragmentos → imagem no telão) exige um fMP4 de verdade, e não há ffmpeg neste
-> ambiente para gerar um. O que dá para travar é o contrato: `tools/mse.test.mjs`
-> confere que o primeiro pedido é o init do vídeo com **faixa fechada**
-> (`bytes=0-739`) — uma faixa ABERTA traria o arquivo inteiro pelo proxy, que é
-> o oposto de transmitir.
+> ambiente para gerar um. O que dá para travar é o contrato — e é o que os dois
+> testes fazem, cada um do seu lado: `tools/webview-range.test.mjs` prova a
+> REGRA (o WebView refatia o que devolvemos) e `tools/mse.test.mjs` prova o que
+> sai pelo FIO (a faixa na URL, sem cabeçalho).
 
-##### Isto é um diagnóstico, e ele ainda NÃO foi confirmado em aparelho
+##### O que a v1.55 fecha, e o que ela NÃO fecha
 
-O raciocínio acima é por eliminação, não por medição: ninguém viu a segunda
-requisição completar. Por um tempo nem dava para ver, porque **o APK v1.54 não
-chegava a existir** — em 06/08/2026 o GitHub Actions passou a tarde recusando o
-job `apk` de oito maneiras (resolução de action indisponível, 15 min de fila sem
-runner seguidos de cancelamento, e um runner atribuído que nunca reportou e
-falhou 48 min depois sem produzir log). Nada disso era do repositório: no mesmo
-período o job `web-ota` subiu e publicou normalmente — e o disparo seguinte, com
-runner disponível, compilou e publicou a v1.54 em 2 min, sem uma linha alterada.
+**Fecha:** o mecanismo está verificado em fonte primária (a cadeia
+`ParseRange` → `Seek` → `ComputeBounds` acima), foi lido de forma independente
+três vezes, e explica com uma linha de código a assimetria que três rodadas não
+explicaram — `first_byte_position() > 0`.
 
-**A v1.54 está publicada** (release `v1.54`, APK assinado com a keystore fixa).
-O que continua NÃO confirmado é o comportamento em aparelho — publicar não é
-medir. A consequência prática, para quem retomar isto:
+**Não fecha:** ninguém ainda viu a segunda requisição completar **em aparelho**.
+Publicar não é medir, e é exatamente essa distinção que a v1.54 borrou. O passo
+seguinte é um só: instalar a v1.55, tocar um vídeo do YouTube e ler o Registro.
 
-- **A base web da v5.126 já estava na frota** (canal OTA) antes de o shell
-  chegar. Um Registro tirado num aparelho que ainda não instalou a v1.54 vai
-  repetir, palavra por palavra, `índice vídeo: a requisição não completou
-  (Failed to fetch)`. Isso é o esperado, não uma regressão nova — o
-  `StreamProxy.kt` é Kotlin, e Kotlin só viaja dentro do APK.
-- **O passo seguinte é um só:** instalar a v1.54 e ler o Registro de novo. Ou a
-  linha da transmissão passa do índice, ou ela dirá em que passo morreu agora —
-  que é justamente o que as v5.123–v5.125 construíram.
-- **Se ainda falhar no mesmo ponto**, há uma segunda hipótese ainda NÃO tentada,
-  guardada aqui de propósito para não ser embarcada junto e contaminar a
-  atribuição: dar uma URL distinta a cada faixa de bytes (`?r=<ini>-<fim>`), o
-  que dispensaria mexer no Kotlin (o `tryHandle` roteia por `u.path` e ignora a
-  query) e contornaria qualquer coalescência por URL no caminho de intercepção
-  do WebView. Ela só faz sentido depois que a correção do ciclo de vida tiver
-  sido medida sozinha.
+E há uma armadilha na leitura desse Registro, guardada aqui de propósito:
+**se a mensagem mudar de "Failed to fetch" para "sidx não reconhecido", isso NÃO
+significa que a correção falhou.** São dois ramos do mesmo defeito (`A ≥ L` e
+`A < L` na tabela acima), e vê-los trocar de lugar com outro vídeo é o previsto
+pela hipótese — não um defeito novo. O que prova a correção é a linha
+`transmitindo <altura>p` **sem** uma linha de falha atrás dela.
+
+Os números que apareceram nas rodadas anteriores (`bytes=740-1200`, 461 bytes)
+**nunca foram medidos**: saíram da fixture de `tools/mse.test.mjs` e foram
+lidos como se fossem dump de aparelho. Não podiam ter sido medidos, aliás — até
+a v5.127 o ramo de falha de REDE do `pegar()` era o único dos três que **não
+imprimia a faixa**. Agora imprime.
 
 #### As mensagens de falha viraram produto testado (v5.125)
 

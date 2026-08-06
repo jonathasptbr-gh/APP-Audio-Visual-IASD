@@ -163,6 +163,22 @@ silêncio:
    falha silenciosamente — e a preview em tela cheia é a projeção quando não
    há TV conectada. É aqui que mora a trava de paisagem nativa.
 
+**No `shouldInterceptRequest` (`WebViewFactory.create`)** — a que custou três
+rodadas de APK para ser aprendida:
+
+8. **O `InputStream` que você devolve é o RECURSO INTEIRO a partir do byte 0.**
+   Não é "a resposta": quem aplica o `Range` da requisição é o **próprio
+   WebView**, sobre o que o app entregou
+   (`AndroidStreamReaderURLLoader::Start` → `ParseRange` → `InputStreamReader::
+   Seek` → `ComputeBounds` contra `available()`), incondicionalmente e para toda
+   resposta interceptada. Devolver só a fatia pedida aplica o deslocamento DUAS
+   vezes — e a requisição que começa no byte 0 é a única em que isso é um no-op,
+   então ela passa e esconde o defeito atrás de si. **Corolário: um erro com
+   corpo VAZIO não chega** quando a requisição tem faixa fora do zero
+   (`ComputeBounds` reprova com `size == 0`), o que apaga a mensagem inteira e
+   deixa só um erro de rede sem status. Ver `StreamProxy.kt` e
+   `tools/webview-range.test.mjs`, que trava a regra no CI.
+
 **No `AndroidManifest.xml`:** `android:hardwareAccelerated="true"` e
 `android:largeHeap="true"` — os dois WebViews, um vídeo grande e o player do
 YouTube dividem o mesmo processo.
@@ -331,7 +347,12 @@ esperam uma **pessoa** e ficam sem prazo, porque um timeout ali resolveria null
 com o operador ainda escolhendo a pasta.
 
 `NativeBridge.SHELL_VERSION` identifica a versão da casca — **subir sempre que
-a superfície da ponte mudar**. Hoje vale **26** — a v5.120 acrescentou `ytStream`
+a superfície da ponte mudar**. Hoje vale **27** — a v5.127 não acrescentou
+método nenhum, mas mudou o **contrato das URLs que o `ytStream` devolve**: a
+faixa de bytes passou a viajar na QUERY (`/stream/<token>?r=<ini>-<fim>`) e o
+cabeçalho `Range` sumiu do caminho nativo, porque dentro de um WebView ele é
+fatal (invariante 8). Contrato mudado é superfície mudada, e sem o bump o lado
+web não teria como perguntar por onde a faixa deve ir. A v5.120 acrescentou `ytStream`
 (o manifesto da transmissão direta), a v5.118 acrescentou
 `ytFetchAte` (teto de resolução escolhido pelo operador) e o campo `bytes` do
 `bgProgress` (que sozinho não exigiria bump, porque só acrescenta um campo a um
@@ -961,7 +982,7 @@ contextos.
 | Estado do telão (rodapé de Configurações) | atalho `window.open('../display/')`, útil só para desenvolver | **indicador ao vivo** (desabilitado como botão) — a Presentation é criada sozinha |
 | Botão de cast da preview | oculto | `AVNative.openCast()` → seletor de **espelhamento de tela** (ver abaixo) |
 | PDF, PowerPoint, Google Apresentações | **PDF não existe** (não há quem o desenhe); o `.pptx` funciona, e é o MESMO caminho do app | **viram UMA IMAGEM POR PÁGINA**, cada formato pelo caminho que existe para ele: o **PDF** pelo `PdfRenderer` da PLATAFORMA (`SlideDeck.kt` + `AVNative.deckPages`) — fidelidade total, zero dependência; o **`.pptx`** pelo renderizador de OOXML em `assets/web/vendor/` (`pptxParaPaginas`, em `controle.js`), carregado por `import()` dinâmico e rasterizado com `<foreignObject>` + canvas. Daí para a frente é mídia comum: fade, cortina, telão e `MediaSession` que já existem, com ⏮/⏭ passando página. **Não há botão de "apresentação"**: uma apresentação é um arquivo como outro qualquer, e entra pelo mesmo "Importar arquivos" (que no app abre o seletor do SISTEMA, `pickDoc` — o `<input type="file">` devolve bytes, e o PDF precisa que o shell abra o ARQUIVO) ou pelo compartilhamento. O `.ppt` anterior a 2007 e o `.odp` ficam de fora: ninguém sabe desenhá-los, e aceitar para depois falhar é pior que não aceitar. O link do Google entra sozinho pela URL de exportação |
-| **Tocar agora** de um vídeo do YouTube | player embutido (IFrame API) | **TRANSMISSÃO DIRETA** (v5.120/shell 26): o shell monta o manifesto das duas faixas adaptativas (`ytStream`), o `StreamProxy` as serve pelo NOSSO origin com o UA que combina com a URL, e o `MediaSource` de `shared/mse.js` as vira um `<video>` COMUM — fade, cortina, `MediaSession`, barra e segundo plano de graça, **e zero pixel de YouTube no telão**. Sem esperar o download. Só em "Tocar agora": as outras três ações GUARDAM o item, e um manifesto expira em horas. Falhando qualquer coisa (shell antigo, vídeo sem par adaptativo, WebView sem o codec) cai no download, calado — o operador pediu o louvor, não o método |
+| **Tocar agora** de um vídeo do YouTube | player embutido (IFrame API) | **TRANSMISSÃO DIRETA** (v5.120/shell 26; **funcionando só do shell 27 em diante**): o shell monta o manifesto das duas faixas adaptativas (`ytStream`), o `StreamProxy` as serve pelo NOSSO origin com o UA que combina com a URL, e o `MediaSource` de `shared/mse.js` as vira um `<video>` COMUM — fade, cortina, `MediaSession`, barra e segundo plano de graça, **e zero pixel de YouTube no telão**. Sem esperar o download. A faixa de bytes viaja na QUERY (`?r=<ini>-<fim>`), nunca no cabeçalho `Range` — ver a invariante 8, que é a razão de o recurso ter passado três versões sem tocar um único vídeo. Só em "Tocar agora": as outras três ações GUARDAM o item, e um manifesto expira em horas. Falhando qualquer coisa (shell < 27, vídeo sem par adaptativo, WebView sem o codec) cai no download, calado — o operador pediu o louvor, não o método |
 | Vídeo do YouTube | player embutido (IFrame API) | **arquivo de vídeo baixado PELO APARELHO** (`YoutubeGrab.kt` + `AVNative.ytFetch`) — o embed pausa sozinho com o app minimizado, e a extração no próprio celular sai do IP do chip, que é o que o YouTube não bloqueia. Sem configurar nada. Cobalt continua como segunda opção para quem já mantém uma instância; falhando os dois, o link vira item de player |
 | Qualidade do download | — | **o operador escolhe o teto** (1080p · 720p · 480p, v5.118/shell 25), no mesmo seletor de Vídeo/Só áudio da folha. Ele nasce no padrão A CADA ITEM, e isso é deliberado: um teto que grudasse faria quem escolheu 480p numa rede ruim receber, sem aviso, o vídeo principal do domingo seguinte em 480p no telão — o atrito de dois toques é visível, a regressão silenciosa não seria. Pedir 1080p continua saindo pelo `ytFetch` de sempre (nenhum shell novo exigido); só um teto MENOR usa o método novo. O progressivo respeita o teto, mas nunca ao ponto de não entregar nada: não cabendo nenhum, vale o menor que existir |
 | Resolução do download | — | **até 1080p, montando as duas faixas** (v1.44; pares por contêiner na v1.45). Acima de 720p o YouTube só entrega vídeo SEM som, com o som à parte — e por isso o app baixava a pior cópia: só sabia pegar o progressivo, que neste aparelho é UM, de 360p. `MuxMp4.kt` junta as duas com o `MediaMuxer` da PLATAFORMA: é cópia de amostras, não recodificação, então não há perda nem espera. Teto de 1080p de propósito (o telão da igreja é 1080p) e só quando o resultado for melhor que o progressivo — senão dois downloads e um muxer entregariam o mesmo de antes. Os pares são do MESMO contêiner (mp4+m4a → MP4, webm+webm → WebM, este só na API 29+): "a melhor de cada lado" produziria VP9 dentro de MP4, que o muxer recusa depois de tudo baixado. Falhando qualquer etapa, o progressivo segue como piso. **Da v1.44 à v1.48 isso não saía do papel: as faixas eram listadas (1080p) e o CDN respondia 403 a todas** — com os dois pares, os dois perfis de UA e `Range`. Era o SABR, que o YouTube passou a exigir de quem pede sem PO Token. A saída não era montar o token (o `getWebClientPoToken` da biblioteca não tem uma única chamada em versão nenhuma, e o token do cliente Android — o que ela de fato consome — exige o DroidGuard do Play Services): foi **atualizar o extrator para a v0.26.4** (v1.49), que busca o cliente **visionOS** sem token nenhum e volta a entregar as adaptativas. Como as listas passaram a chegar MISTURADAS (visionOS + o cliente antigo), a escolha virou uma **fila de candidatos** — ver "O cliente visionOS destrava o 1080p" em `docs/ARQUITETURA-WEB.md`. **CONFIRMADO em aparelho:** `clientes VISIONOS 17, ANDROID 1 → juntou 1080p (mp4, 137@VISIONOS/V)`, sem uma única recusa na fila. Diagnóstico no rodapé de Configurações, agora com o itag, o cliente e o motivo de cada tentativa |
@@ -1237,7 +1258,9 @@ produziria exatamente o mesmo estado, por isso a fila espera.
 
 **Antes de publicar, o job confere a sanidade do bundle:** `node --check` em
 todo `.js` de `assets/web`, uma validação de `version.json`, os testes de
-`tools/` — o parser `sidx`, uma **fumaça em Chromium** que sobe a base web e usa
+`tools/` — o parser `sidx`, o **oráculo do contrato de `shouldInterceptRequest`**
+(`webview-range.test.mjs`, que trava a invariante 8: Node puro, determinístico,
+sem `continue-on-error`), uma **fumaça em Chromium** que sobe a base web e usa
 a tela, e as **mensagens de falha** da transmissão direta (os dois últimos em
 `continue-on-error`).
 Os dois últimos existem porque `node --check` prova que o arquivo é
@@ -1431,23 +1454,26 @@ aparelho nenhum.
 O `versionCode`/`versionName` do APK vêm do CI (ver "Build") e não se tocam à
 mão.
 
-**Versão atual: v5.126** (base web) · `SHELL_VERSION` **26**, e o bundle segue com
+**Versão atual: v5.127** (base web) · `SHELL_VERSION` **27**, e o bundle segue com
 `minShell: 2` — ele funciona igual num shell antigo, só sem os recursos que são
 nativos por construção (a escada do voltar, os botões de volume, a notificação de
 controles), que **só chegam instalando o APK novo**, não pelo OTA.
 
-> **A Release v1.54 saiu** (06/08/2026, tag em `4731022`, APK assinado com a
-> keystore fixa). Ela levou ao aparelho as mudanças de shell das v1.53 e v1.54 —
-> entre elas a correção do ciclo de vida da conexão no `StreamProxy.kt`, que é o
-> que faz a transmissão direta passar da segunda requisição. Ficou pendente por
-> algumas horas, e não por esquecimento do ritual: naquela tarde o GitHub
-> recusou o job `apk` oito vezes seguidas por indisponibilidade de runner — 15
-> min de fila e cancelamento, com `runner_name` VAZIO nos jobs, que é a
-> assinatura de "ninguém pegou o trabalho" e não de erro do repositório (o
-> `web-ota` subiu normalmente no mesmo período, e a base web v5.126 já estava na
-> frota). **A resposta a esse modo de falha é re-disparar**, não mexer no
-> workflow: o mesmo `Run workflow` com `release_tag` = **v1.54**, sem `retag`
-> (a tag ainda não existia), passou em 2 min quando havia runner. O diagnóstico
-> da transmissão direta está em `docs/ARQUITETURA-WEB.md`, em "O fluxo vivo, e a
-> segunda requisição que morria (v1.54)" — e o passo seguinte agora é ler o
-> Registro **num aparelho com a v1.54 instalada**.
+> **A transmissão direta exige o APK v1.55.** A v5.127 corrigiu o defeito que a
+> mantinha quebrada desde a v5.120 — a faixa de bytes viajava no cabeçalho
+> `Range` e o WebView aplicava o deslocamento uma segunda vez sobre a fatia (ver
+> a invariante 8 e, em `docs/ARQUITETURA-WEB.md`, "A segunda requisição que
+> morria — e o contrato que ninguém tinha lido"). **A correção é metade Kotlin:
+> o OTA sozinho não a leva.** Num shell < 27 o bundle novo nem tenta transmitir
+> e vai direto ao download — o que é melhor que o comportamento anterior, em que
+> ele projetava uma cena que morria, abria a cortina sobre o preto e ainda pagava
+> uma re-extração antes de baixar. O rodapé de Configurações passou a dizer por
+> onde a faixa viaja, justamente para essa leitura não depender de adivinhação:
+> `faixa na URL` (funcionando) × `DESLIGADA: shell N < 27`.
+>
+> **Ainda não medido em aparelho.** O mecanismo está verificado em fonte
+> primária do Chromium, mas ninguém viu a segunda requisição completar num
+> celular — publicar não é medir, e foi essa distinção que a v1.54 borrou. Ao
+> ler o Registro depois de instalar: se a mensagem mudar de "Failed to fetch"
+> para "sidx não reconhecido", isso é o OUTRO ramo do mesmo defeito previsto
+> pela hipótese, não um defeito novo.

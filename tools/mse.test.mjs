@@ -132,6 +132,30 @@ checar(vistos.length > 0 && vistos[0][0] === '/stream/v' && vistos[0][1] === 'by
   'o primeiro pedido é o init do vídeo, com Range fechado',
   vistos.length ? vistos[0].join(' ') : '(nenhum pedido)');
 
+// ---------------------------------------------------------------------------
+// O TRANSPORTE DA FAIXA — o contrato que a v1.55 conserta.
+//
+// Dentro de um WebView o cabeçalho `Range` é FATAL: o Chromium o aplica ele
+// mesmo sobre o `InputStream` que o `StreamProxy` devolve, e o deslocamento sai
+// somado duas vezes (a mecânica está travada em `tools/webview-range.test.mjs`;
+// aqui trava-se o que sai pelo fio). As duas asserções abaixo são NEGATIVAS de
+// propósito: elas quebram no segundo em que alguém reintroduzir o cabeçalho.
+// ---------------------------------------------------------------------------
+const marcaNativo = vistos.length;
+await pg.evaluate(() => { window.__NATIVE__ = true; window.__SHELL_VERSION__ = 27; });
+await motivo('404');
+const noApp = vistos.slice(marcaNativo);
+checar(noApp.length > 0 && noApp[0][0] === '/stream/v?r=0-739' && noApp[0][1] === undefined,
+  'no app (shell 27) a faixa vai na URL e NENHUM cabeçalho Range é enviado',
+  noApp.length ? noApp[0][0] + ' · Range: ' + noApp[0][1] : '(nenhum pedido)');
+
+const marcaAntigo = vistos.length;
+await pg.evaluate(() => { window.__SHELL_VERSION__ = 26; });
+const recusa = await motivo('404');
+checar(/exige o shell 27/.test(recusa) && vistos.length === marcaAntigo,
+  'num shell antigo ele desiste na hora, sem uma única requisição (o dono cai no download)',
+  recusa + ' · pedidos: ' + (vistos.length - marcaAntigo));
+
 await navegador.close();
 servidor.close();
 console.log(falhas.length ? '\n' + falhas.length + ' FALHA(S)' : '\nTodos passaram.');

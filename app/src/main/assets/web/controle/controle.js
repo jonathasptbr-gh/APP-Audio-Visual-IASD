@@ -162,7 +162,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.126';
+const WEB_VERSION = '5.127';
 
 // Escrita UMA vez, na carga: o indicador mora no rodapé de Configurações desde
 // a v5.49 e não depende mais de qual aba está aberta (no cabeçalho ele
@@ -8610,7 +8610,16 @@ async function tentarTransmitir(r, altura) {
   if (window.AVStream) window.AVStream.ultimoErro = '';
   if (!window.__NATIVE__) { motivoStream = 'navegador (sem ponte)'; return false; }
   const shell = window.__SHELL_VERSION__ | 0;
-  if (shell < 26) { motivoStream = 'shell ' + shell + ' — a transmissão exige 26'; return false; }
+  // PISO 27, e não 26. Do shell 26 a transmissão está quebrada por construção —
+  // a faixa ia no cabeçalho `Range` e o WebView aplicava o deslocamento uma
+  // segunda vez sobre a fatia (ver o cabeçalho de `shared/mse.js`). Tentar ali
+  // não é "tentar de graça": projeta uma cena que morre, abre a cortina sobre o
+  // preto e ainda paga uma re-extração antes de finalmente baixar. Com o piso,
+  // o download começa no primeiro toque.
+  if (shell < 27) {
+    motivoStream = 'shell ' + shell + ' — a transmissão exige 27 (instale o APK novo)';
+    return false;
+  }
   if (!window.AVStream) { motivoStream = 'shared/mse.js não carregou'; return false; }
   if (!r || !r.url) { motivoStream = 'resultado sem URL'; return false; }
   let man = null;
@@ -8664,9 +8673,21 @@ async function tentarTransmitir(r, altura) {
 const streamRetentado = new Set();
 async function recuperarStream(rec, porque) {
   console.warn('[stream] falhou:', porque);
-  if (!rec || !rec.youtubeId) return;
+  if (!rec || !rec.youtubeId) {
+    // Sem o vídeo de origem não há para onde cair, e insistir numa cena morta é
+    // pior que assumir. Tira do telão e diz por quê.
+    stopClear();
+    return;
+  }
   const link = 'https://www.youtube.com/watch?v=' + rec.youtubeId;
-  if (!streamRetentado.has(rec.id)) {
+  // RE-EXTRAIR SÓ QUANDO A CAUSA É EXPIRAÇÃO, que é a única coisa que um
+  // manifesto novo conserta — e ela se manifesta como 401/403 do googlevideo.
+  // O discriminador já existia na mensagem desde a v5.124 (`HTTP n` × `a
+  // requisição não completou`) e não era usado: qualquer falha pagava ~2 s de
+  // extração para projetar uma SEGUNDA cena morta antes de baixar. São os dois
+  // pares "play 0s / PAUSA ESPONTÂNEA 0s" da linha do tempo.
+  const expirou = /HTTP 40[13]\b/.test(String(porque || ''));
+  if (expirou && !streamRetentado.has(rec.id)) {
     streamRetentado.add(rec.id);
     let man = null;
     try { man = await AVNative.ytStream(link, rec.height | 0); } catch (_) {}
@@ -8676,7 +8697,12 @@ async function recuperarStream(rec, porque) {
       return;
     }
   }
-  // Segunda falha: o vídeo vira ARQUIVO, que é o caminho de sempre.
+  // O TELÃO SAI DA CENA MORTA ANTES DO DOWNLOAD, que leva minutos. Sem isto a
+  // projeção fica no preto o tempo todo, com o operador sem saber se o app
+  // ainda está fazendo alguma coisa — o wallpaper diz "nada em cena", que é a
+  // verdade, e o aviso do download aparece na preview.
+  if (currentId === rec.id) stopClear();
+  // Fim da linha da transmissão: o vídeo vira ARQUIVO, que é o caminho de sempre.
   const novo = await ytArquivo(
     { id: rec.youtubeId, url: link, name: rec.name },
     { lista: 'avulsos', aviso: 'preview' },
@@ -9607,7 +9633,15 @@ function diagMse() {
   const faltam = testes
     .filter(([, t]) => { try { return !MediaSource.isTypeSupported(t); } catch (_) { return true; } })
     .map(([n]) => n);
-  return faltam.length ? 'MediaSource sem ' + faltam.join('+') : 'MediaSource ok (avc1+aac)';
+  const codecs = faltam.length ? 'MediaSource sem ' + faltam.join('+') : 'MediaSource ok (avc1+aac)';
+  // POR ONDE A FAIXA VIAJA. É a diferença entre transmitir e não transmitir
+  // (ver o cabeçalho de `shared/mse.js`), e é decidida pelo shell instalado —
+  // ou seja, não dá para inferir da versão web que o rodapé já mostra.
+  if (!window.__NATIVE__) return codecs + ' · navegador (faixa no cabeçalho)';
+  const podeStream = !!(window.AVStream && window.AVStream.disponivel && AVStream.disponivel());
+  return codecs + ' · ' + (podeStream
+    ? 'faixa na URL'
+    : 'DESLIGADA: shell ' + (window.__SHELL_VERSION__ | 0) + ' < 27 (instale o APK novo)');
 }
 
 // A LINHA DO TEMPO dos dois processos, em ordem de relógio.
