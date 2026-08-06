@@ -162,7 +162,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.118';
+const WEB_VERSION = '5.119';
 
 // Escrita UMA vez, na carga: o indicador mora no rodapé de Configurações desde
 // a v5.49 e não depende mais de qual aba está aberta (no cabeçalho ele
@@ -8511,9 +8511,15 @@ function setYtEstado(id, estado, pct) {
     pintarYtLinha(li, ytEstado.get(id));
   });
 }
+// Quanto tempo a linha fica marcada como falha antes de voltar ao normal. Curto
+// o bastante para não parecer permanente (o vídeo continua lá, e tentar de novo
+// costuma funcionar), longo o bastante para ser visto por quem estava olhando a
+// tela quando o download terminou.
+const YT_ERRO_MS = 4000;
 function pintarYtLinha(li, reg) {
   li.classList.toggle('baixando', !!reg && reg.estado === 'baixando');
   li.classList.toggle('pronto', !!reg && reg.estado === 'pronto');
+  li.classList.toggle('erro', !!reg && reg.estado === 'erro');
   const t = li.querySelector('.dl-pct');
   if (t) t.textContent = (reg && reg.estado === 'baixando' && reg.pct >= 0) ? reg.pct + '%' : '';
 }
@@ -8666,8 +8672,14 @@ async function ytAcao(r, destino, btn, somenteAudio, altura) {
   // minutos que termina em nada é o pior silêncio possível do app, e ele valia
   // para todos os destinos, não só para o áudio.
   if (!rec) {
-    setYtEstado(r.id, null);
-    responder(btn, 'erro', 'Não foi possível baixar ' + (soAudio ? 'o áudio' : 'o vídeo'));
+    // A FALHA FICA NA PRÓPRIA LINHA, não numa faixa flutuante (v5.119). O
+    // estado `erro` pinta a miniatura do resultado — o mesmo canto que já
+    // mostrava o anel de download e o ✓ de concluído. Ele é transitório: some
+    // sozinho, e a linha volta a aceitar o toque, porque tentar de novo é
+    // justamente o que se quer depois de uma falha de rede.
+    setYtEstado(r.id, 'erro');
+    setTimeout(() => { if ((ytEstado.get(r.id) || {}).estado === 'erro') setYtEstado(r.id, null); }, YT_ERRO_MS);
+    pulsar(btn, 'erro');
     return;
   }
   setYtEstado(r.id, 'pronto');
@@ -8680,9 +8692,22 @@ async function ytAcao(r, destino, btn, somenteAudio, altura) {
     // segurar o que não tem outro dono. A ordem importa: primeiro entra na
     // lista nova, senão o `listRemove` coletaria o blob.
     await AVDB.listRemove('avulsos', rec.id);
-    const onde = LISTA_ROTULO[lista] || ROTULO_PADRAO;
-    responder(btn, jaNaLista ? 'dup' : 'ok', rotuloItem(rec.name || r.name || 'Vídeo')
-      + (jaNaLista ? 'já está ' + onde.em : 'adicionado ' + onde.para));
+    // SEM FAIXA DE AVISO NO FIM DO DOWNLOAD (v5.119). `responder` cai no
+    // `avisar` quando o botão não está visível — e no caminho do YouTube ele
+    // NUNCA está: a folha de destinos fecha antes da ação rodar. Ou seja, todo
+    // download terminava numa faixa flutuante, que é exatamente o que este app
+    // tirou de cena na v5.106.
+    //
+    // E ela não fazia falta: quem já responde é a MINIATURA do resultado, que
+    // troca o anel de download pelo ✓ (`setYtEstado('pronto')`), e a linha que
+    // aparece na lista de destino. O aviso repetia por escrito o que a tela
+    // acabara de mostrar.
+    //
+    // O `pulsar` fica, e só ele: quando o botão POR ACASO está visível (a
+    // conversão de um link já no Cronograma, que não passa por folha nenhuma),
+    // o pulso é o feedback no lugar certo. Sem botão visível, silêncio — a
+    // miniatura já falou.
+    pulsar(btn, jaNaLista ? 'dup' : 'ok');
   } else {
     await fixarAvulso(rec.id);
   }
@@ -8721,6 +8746,12 @@ function ytResultRow(r) {
   const ok = document.createElement('span'); ok.className = 'yt-ok';
   ok.innerHTML = checkIconSvg();
   thumb.appendChild(ok);
+  // E o TERCEIRO estado do mesmo canto: a falha. Ela morava numa faixa
+  // flutuante no fim da tela, que foi para onde todo aviso deste app já não
+  // vai — e o lugar certo é o mesmo em que o download foi anunciado.
+  const err = document.createElement('span'); err.className = 'yt-err';
+  err.innerHTML = closeIconSvg();
+  thumb.appendChild(err);
 
   const info = document.createElement('div'); info.className = 'hymn-info';
   const nome = document.createElement('span'); nome.className = 'row-name';

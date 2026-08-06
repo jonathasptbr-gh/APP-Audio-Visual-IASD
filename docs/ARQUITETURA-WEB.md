@@ -2822,6 +2822,40 @@ As quatro células:
 - **Mensagens** — foi para a aba **Ferramentas** (v5.31), como seção do
   acordeão. Antes era um botão flutuante sobre a preview; ver abaixo.
 
+#### O download termina na MINIATURA, não numa faixa (v5.119)
+
+A v5.106 tirou de cena o toast flutuante — aviso pertence ao lugar onde a ação
+aconteceu, e não a uma faixa que cobre o transporte. Restou uma porta dos
+fundos: `responder(btn, tipo, texto)` pulsa o botão **se ele estiver visível** e,
+se não estiver, cai no `avisar()` (a faixa `#saveHint`).
+
+No caminho do YouTube o botão NUNCA está visível — o `songMenuItem` chama
+`closeSongMenu()` antes de rodar a ação. Ou seja, **todo download terminava numa
+faixa flutuante**, justamente o que a v5.106 tinha removido, e no fluxo mais
+demorado do app.
+
+Ela também não fazia falta: quem já responde é a miniatura do resultado, que
+troca o anel de download pelo ✓ (`setYtEstado('pronto')`), mais a linha que
+aparece na lista de destino. O aviso repetia por escrito o que a tela acabara de
+mostrar.
+
+Agora o download só pulsa — e só quando o botão por acaso está na tela (a
+conversão de um link já no Cronograma, que não passa por folha nenhuma). Sem
+botão visível, silêncio.
+
+**A falha ganhou o terceiro estado da mesma miniatura.** Ela não podia
+simplesmente sumir junto com o aviso: um download de minutos que termina em nada
+é o pior silêncio possível do app (foi o buraco da v5.112). Então `erro` entrou
+ao lado de `baixando` e `pronto`, no mesmo canto, em `--danger-text` sobre
+`--danger-soft` — contornado e não preenchido, pela regra da paleta: vermelho
+preenchido é "está no ar agora" e não pode competir com o que está de fato no
+telão. Ele se desfaz sozinho em 4 s e a linha volta a aceitar o toque, porque
+tentar de novo é o que se quer depois de uma falha de rede.
+
+> Nota de paleta: `--danger-text` estava documentado em `tokens.css` como um
+> token SEM NENHUM CONSUMIDOR, guardado "para o caso de um dia existir uma
+> superfície". Este é o caso.
+
 #### A linha da lista: nome + SUBTÍTULO (v5.118)
 
 Até a v5.117 o tipo de um item era um **selo** ao lado do nome (`.url-badge`:
