@@ -1,0 +1,124 @@
+// As MENSAGENS DE FALHA do player de transmissão direta (`shared/mse.js`),
+// contra um servidor de mentira que responde o que se pedir.
+//
+// ## Por que testar mensagem de erro
+//
+// Porque neste recurso ela é o produto. A transmissão roda no aparelho do
+// operador, num WebView, contra URLs que expiram — não há como depurar de fora.
+// A única coisa que atravessa essa distância é a linha do Registro, e ela só
+// serve se disser em QUE PASSO morreu e COM QUE RESPOSTA. "Não deu" já custou
+// duas rodadas de APK nesta funcionalidade.
+//
+// E há um motivo mecânico: uma refatoração deixou `pegar()` com três parâmetros
+// enquanto três chamadas passavam quatro. O rótulo do passo virava `undefined`
+// silenciosamente — `node --check` não vê aridade, e a fumaça do Controle não
+// exercita streaming. Este teste vê.
+//
+//   node tools/mse.test.mjs
+import { chromium } from 'playwright';
+import http from 'node:http';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const AQUI = path.dirname(fileURLToPath(import.meta.url));
+const MSE = fs.readFileSync(path.join(AQUI, '..', 'app', 'src', 'main', 'assets', 'web', 'shared', 'mse.js'), 'utf8');
+
+// O que o servidor deve responder na próxima requisição de faixa. Trocado por
+// cenário, de fora.
+let modo = 'ok';
+
+const servidor = http.createServer((req, res) => {
+  if (req.url === '/') {
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end('<!doctype html><meta charset="utf-8"><video id="v" muted></video><script>' + MSE + '</script>');
+    return;
+  }
+  if (modo === '404') { res.writeHead(404, 'token desconhecido'); res.end(); return; }
+  if (modo === '403') { res.writeHead(403, 'googlevideo: Forbidden'); res.end(); return; }
+  if (modo === 'vazio') { res.writeHead(206, { 'Content-Length': '0' }); res.end(); return; }
+  // 'lixo': bytes que não são um `moov` — o decodificador tem de recusar.
+  res.writeHead(206, { 'Content-Type': 'video/webm' });
+  res.end(Buffer.alloc(64, 7));
+});
+
+const falhas = [];
+function checar(cond, msg, obtido) {
+  if (cond) console.log('ok      ' + msg);
+  else { console.log('FALHOU  ' + msg + (obtido ? '\n        obtido: ' + obtido : '')); falhas.push(msg); }
+}
+
+await new Promise((r) => servidor.listen(0, r));
+const base = `http://localhost:${servidor.address().port}`;
+const navegador = await chromium.launch(
+  process.env.PW_CHROMIUM ? { executablePath: process.env.PW_CHROMIUM } : {},
+);
+const pg = await (await navegador.newContext()).newPage();
+await pg.goto(base + '/', { waitUntil: 'domcontentloaded' });
+
+// VP9 + Opus, e NÃO o avc1 + aac que o aparelho usa. O Chromium do Playwright é
+// o build open-source, que não traz os codecs proprietários — `addSourceBuffer`
+// recusaria `avc1` e todo cenário morreria antes do que se quer medir. O motor
+// não sabe a diferença: ele repassa a string ao navegador e busca byte-ranges.
+// Quem confere o suporte REAL do aparelho é o próprio Registro, no bloco
+// "Transmissão".
+const MANIFESTO = {
+  seconds: 100,
+  video: {
+    url: base + '/stream/v', mime: 'video/webm; codecs="vp9"',
+    initStart: 0, initEnd: 739, indexStart: 740, indexEnd: 1200,
+  },
+  audio: {
+    url: base + '/stream/a', mime: 'audio/webm; codecs="opus"',
+    initStart: 0, initEnd: 631, indexStart: 632, indexEnd: 900,
+  },
+};
+
+checar(await pg.evaluate((m) => window.AVStream.suportado(m), MANIFESTO),
+  'o manifesto de referência é aceito');
+checar(!(await pg.evaluate((m) => window.AVStream.suportado(
+  Object.assign({}, m, { video: Object.assign({}, m.video, { mime: 'video/nada; codecs="x"' }) }),
+), MANIFESTO)), 'e um codec inventado é RECUSADO (a guarda não passa qualquer coisa)');
+
+// Roda um cenário e devolve a mensagem que chegou ao `onErro`.
+async function motivo(qual) {
+  modo = qual;
+  return pg.evaluate((m) => new Promise((resolve) => {
+    const v = document.getElementById('v');
+    const t = setTimeout(() => resolve('(nenhum erro em 6s)'), 6000);
+    window.AVStream.criar(v, m, { onErro: (p) => { clearTimeout(t); resolve(p); } });
+  }), MANIFESTO);
+}
+
+const casos = [
+  ['404', /^init vídeo: HTTP 404 \(token desconhecido\) pedindo bytes 0-739$/,
+    'o 404 do proxy chega com o motivo, o passo e a faixa de bytes'],
+  ['403', /^init vídeo: HTTP 403 \(googlevideo: Forbidden\) pedindo bytes 0-739$/,
+    'o 403 do googlevideo é repassado com o texto dele'],
+  ['vazio', /^init vídeo: resposta vazia \(HTTP 206, pedidos 740 bytes\)$/,
+    'status bom com zero bytes é FALHA, não silêncio'],
+  // A recusa pode chegar como exceção do `appendBuffer` OU como evento de erro
+  // do SourceBuffer, dependendo de quando o navegador percebe. As duas dizem a
+  // mesma coisa, de propósito — quem lê o log não deve precisar saber a
+  // diferença.
+  ['lixo', /o decodificador recusou.* — mime video\/webm/,
+    'bytes que não são mídia: o erro nomeia o decodificador e o mime'],
+];
+
+for (const [qual, esperado, msg] of casos) {
+  const m = await motivo(qual);
+  checar(esperado.test(m), msg, m);
+}
+
+// A armadilha da aridade, dita em voz alta: nenhuma mensagem pode conter
+// `undefined`. É o que aparece quando um rótulo deixa de ser passado.
+const todos = [];
+for (const [qual] of casos) todos.push(await motivo(qual));
+checar(!todos.some((m) => /undefined/.test(m)),
+  'nenhuma mensagem contém "undefined" (rótulo de passo perdido)',
+  todos.find((m) => /undefined/.test(m)));
+
+await navegador.close();
+servidor.close();
+console.log(falhas.length ? '\n' + falhas.length + ' FALHA(S)' : '\nTodos passaram.');
+process.exit(falhas.length ? 1 : 0);

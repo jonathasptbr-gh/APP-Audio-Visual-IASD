@@ -2927,6 +2927,58 @@ As quatro células:
 - **Mensagens** — foi para a aba **Ferramentas** (v5.31), como seção do
   acordeão. Antes era um botão flutuante sobre a preview; ver abaixo.
 
+#### As mensagens de falha viraram produto testado (v5.125)
+
+Duas coisas quase saíram erradas nesta rodada, e as duas dizem o mesmo:
+
+**A aridade que ninguém vê.** Uma refatoração deixou `pegar()` com três
+parâmetros enquanto três chamadas passavam quatro. O rótulo do passo virava
+`undefined` em silêncio: as mensagens ricas que estas versões inteiras existem
+para produzir sairiam mutiladas. `node --check` não vê aridade, e a fumaça do
+Controle não exercita streaming.
+
+**O 404 ambíguo.** Qualquer exceção no `StreamProxy` virava `notFound()` — o
+mesmo 404 de "token desconhecido". Uma falha de REDE se leria como "não achei",
+que manda procurar o defeito no roteamento. Agora são códigos distintos, e o
+MOTIVO viaja na razão HTTP (`statusText`), que o lado web escreve no Registro:
+
+| Resposta | Significa |
+|---|---|
+| `404 (token desconhecido)` | o proxy foi alcançado e não achou o token |
+| `502 (<texto da exceção>)` | o proxy falhou falando com o CDN |
+| `403 (googlevideo: Forbidden)` | o CDN recusou — o proxy chegou lá |
+| `404` **sem** razão | o proxy NEM foi consultado (respondeu o asset loader) |
+
+##### Por que testar mensagem de erro
+
+Porque neste recurso **a mensagem é o produto**. A transmissão roda no aparelho
+do operador, num WebView, contra URLs que expiram — não há como depurar de fora.
+A única coisa que atravessa essa distância é a linha do Registro, e ela só serve
+se disser em que passo morreu e com que resposta.
+
+`tools/mse.test.mjs` sobe um servidor de mentira que responde o que se pedir e
+confere as mensagens que chegam ao `onErro`: os quatro cenários da tabela acima,
+mais um que só se pega olhando — **nenhuma mensagem pode conter `undefined`**, que
+é exatamente o que a armadilha da aridade produz.
+
+Ele roda com **VP9 + Opus**, e não com o `avc1`+`aac` do aparelho: o Chromium do
+Playwright é o build open-source e não traz os codecs proprietários, então
+`addSourceBuffer` recusaria `avc1` e todo cenário morreria antes do que se quer
+medir. O motor não sabe a diferença — ele repassa a string ao navegador e busca
+byte-ranges. Quem confere o suporte REAL do aparelho é o próprio Registro.
+
+##### Duas correções que vieram do teste, e no código
+
+O teste reprovou duas coisas, e as duas eram do código, não das expectativas:
+
+- os papéis saíam como `video`/`audio` num log inteiro em português — agora
+  `vídeo`/`áudio`;
+- bytes inválidos produziam `video sourcebuffer`, que não diz nada a ninguém. A
+  recusa do decodificador chega por DUAS vias (exceção do `appendBuffer` ou
+  evento de erro do SourceBuffer, dependendo de quando o navegador percebe), e
+  agora as duas têm a mesma redação: quem lê o log não deve precisar saber a
+  diferença.
+
 #### Decidir e conseguir são duas coisas (v5.124)
 
 A v5.123 respondeu a pergunta errada. O log passou a dizer, corretamente,

@@ -91,6 +91,11 @@ jobs:
           npm i --no-audit --no-fund --silent playwright
           npx playwright install --with-deps chromium
           PW_CHROMIUM="" node tools/smoke.mjs
+          # E as MENSAGENS DE FALHA da transmissão direta. Nelas a mensagem é o
+          # produto: a transmissão roda no aparelho do operador, contra URLs que
+          # expiram, e a única coisa que atravessa essa distância é a linha do
+          # Registro. "Não deu" já custou duas rodadas de APK aqui.
+          PW_CHROMIUM="" node tools/mse.test.mjs
 
       - name: Empacotar a base web
         run: |

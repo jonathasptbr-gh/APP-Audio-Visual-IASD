@@ -1236,9 +1236,10 @@ até o próximo push em `main`, sem nenhum sinal. Cancelar no meio do upload
 produziria exatamente o mesmo estado, por isso a fila espera.
 
 **Antes de publicar, o job confere a sanidade do bundle:** `node --check` em
-todo `.js` de `assets/web`, uma validação de `version.json`, o teste do parser
-`sidx` (`tools/sidx.test.mjs`) e uma **fumaça em Chromium**
-(`tools/smoke.mjs`, `continue-on-error`) que sobe a base web e usa a tela.
+todo `.js` de `assets/web`, uma validação de `version.json`, os testes de
+`tools/` — o parser `sidx`, uma **fumaça em Chromium** que sobe a base web e usa
+a tela, e as **mensagens de falha** da transmissão direta (os dois últimos em
+`continue-on-error`).
 Os dois últimos existem porque `node --check` prova que o arquivo é
 PARSEÁVEL, não que o app funciona — a v5.121 saiu com um botão chamando uma
 função apagada, sintaxe perfeita e CI verde. O canal OTA publica
@@ -1430,7 +1431,7 @@ aparelho nenhum.
 O `versionCode`/`versionName` do APK vêm do CI (ver "Build") e não se tocam à
 mão.
 
-**Versão atual: v5.124** (base web) · `SHELL_VERSION` **26**, e o bundle segue com
+**Versão atual: v5.125** (base web) · `SHELL_VERSION` **26**, e o bundle segue com
 `minShell: 2` — ele funciona igual num shell antigo, só sem os recursos que são
 nativos por construção (a escada do voltar, os botões de volume, a notificação de
 controles), que **só chegam instalando o APK novo**, não pelo OTA.
