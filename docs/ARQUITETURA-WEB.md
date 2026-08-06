@@ -729,6 +729,34 @@ Três correções, e a terceira valia para todo download, não só para o áudio
    destinos. Agora responde `erro` no botão (ou na faixa, quando o toque veio de
    uma folha que já fechou).
 
+##### O diagnóstico da extração, no rodapé de Configurações (v5.115)
+
+Em aparelho, o "só áudio" caiu no vídeo progressivo — e isso levanta a pergunta
+seguinte, que é a do **1080p**: acima de 720p tudo mora nas faixas *video-only*,
+a MESMA classe da faixa de áudio que não veio. Se elas não chegam a este
+aparelho, implementar o remux (juntar vídeo e áudio com o `MediaMuxer` da
+plataforma, sem recodificar) seria construir uma engrenagem que nunca gira.
+
+A pergunta **não se responde lendo código**: sem `PoTokenProvider` a biblioteca
+busca os streams pelo endpoint `reel/reel_item_watch`, cujo conjunto de formatos
+varia por vídeo. Então o app passou a medir: `YoutubeGrab.diagnostico` guarda,
+em uma linha, quantas faixas de cada tipo o extrator recebeu, a maior altura de
+cada grupo e qual tentativa venceu —
+
+```
+áudio 0 · vídeo-só 0 · progressivo 2 (720p) → veio mp4 720p
+```
+
+— e `AVNative.ytDiag()` a entrega ao rodapé de **Configurações**, ao lado das
+versões e do alvo de espelhamento, que é onde o resto do diagnóstico já mora. É
+lido a cada ABERTURA do popup, não uma vez na carga: o valor muda a cada
+download, e a graça é comparar antes e depois de um teste. Só aparece no app
+(shell ≥ 24) e depois da primeira extração.
+
+Com "vídeo-só" em zero, o 1080p depende do PO Token — o desafio do BotGuard num
+WebView, por vídeo, que este projeto evitou de propósito. Com "vídeo-só" trazendo
+1080p, o que falta é só o remux, que é platform-only.
+
 **Não exige subir o `DB_VERSION`** (nenhum índice novo; o IDB não tem esquema
 por registro), e é isso que o mantém barato: ver o preço da VOLTA descrito em
 `DB_VERSION`, em `db.js`. Um bundle anterior que encontre um cue o trata como

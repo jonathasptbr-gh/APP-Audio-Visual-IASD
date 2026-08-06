@@ -668,7 +668,13 @@
              METADADO de diagnóstico e o lugar onde se procura diagnóstico é
              junto do estado do telão e do alvo de espelhamento, não numa faixa
              de navegação. Preenchido por `renderVersionLabel`. -->
-        <span id="appVersion" class="app-version">Controle v5.114</span>
+        <span id="appVersion" class="app-version">Controle v5.115</span>
+        <!-- DIAGNÓSTICO da última extração do YouTube (v5.115): quantas faixas
+             de cada tipo o extrator recebeu e qual delas venceu. Fica aqui, ao
+             lado das versões e do alvo de espelhamento, porque é o mesmo tipo
+             de coisa — metadado que só o aparelho sabe. Só aparece DEPOIS de um
+             download, e só no app (ver `renderYtDiag`). -->
+        <span id="ytDiagLine" class="cast-target" hidden></span>
       </div>
     </div>
   </div>
