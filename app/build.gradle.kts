@@ -169,6 +169,21 @@ dependencies {
     //
     // Extrair AQUI, no aparelho, sai do IP do chip do operador — é por isso que
     // o NewPipe funciona no celular enquanto os servidores públicos apanham.
-    implementation("com.github.TeamNewPipe:NewPipeExtractor:v0.26.1")
+    //
+    // O PIN É ESTA VERSÃO, E POR UM MOTIVO (v1.49). Da v0.26.1 até a v0.26.2 o
+    // YouTube passou a exigir SABR de quem pede sem PO Token, e o que sobrava
+    // era um progressivo de 360p — exatamente o que este aparelho mediu, e o
+    // que a issue NewPipe #13320 descreve palavra por palavra. A v0.26.3 trouxe
+    // o PR #1508 ("Workaround SABR enforcement by using another player
+    // client"): um cliente **visionOS**, buscado incondicionalmente e SEM token
+    // nenhum, que volta a listar as faixas adaptativas de verdade. Baixar daqui
+    // é o que destrava o 1080p; nada disso está na v0.26.1.
+    //
+    // Ressalvas conhecidas do cliente novo: ele não extrai vídeo marcado como
+    // "made for kids" (ali o app cai no progressivo, como antes), e as faixas
+    // dele chegam MISTURADAS com as do cliente antigo na mesma lista — é por
+    // isso que a escolha em `YoutubeGrab.tentarJuntar` virou uma fila de
+    // candidatos em vez de "a de maior altura".
+    implementation("com.github.TeamNewPipe:NewPipeExtractor:v0.26.4")
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs_nio:2.1.2")
 }

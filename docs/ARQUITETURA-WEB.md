@@ -762,8 +762,15 @@ download, e a graça é comparar antes e depois de um teste. Só aparece no app
 Uma faixa só, a mais baixa que existe (itag 18). Não há adaptativas — logo não
 há 1080p para juntar, e o remux não teria o que fazer — e **nem o progressivo de
 720p está vindo**: o app baixava em 360p, não em 720p como se supunha. É o
-conjunto reduzido do endpoint dos Shorts, e atualizar a biblioteca não resolve
-(conferido no fonte da v0.26.4: o fallback sem token continua sendo o mesmo).
+conjunto reduzido do endpoint dos Shorts.
+
+> **Esta frase dizia "e atualizar a biblioteca não resolve", e ela estava
+> errada** — a v1.49 mostrou que era exatamente o que resolvia. A conferência da
+> época olhou o *fallback sem token* (que de fato continuava igual) e concluiu
+> sobre a biblioteca inteira; o que a v0.26.3 trouxe foi um **cliente novo**, que
+> não passa por aquele fallback. Fica registrado como está: ler uma peça e
+> concluir sobre o conjunto é o erro, não a conclusão. Ver "O cliente visionOS
+> destrava o 1080p", no fim desta série.
 
 A alavanca que sobrou antes do BotGuard é o **cliente iOS** (v1.43): ele vem
 DESLIGADO na biblioteca (`private static boolean fetchIosClient;`, sem valor) e
@@ -839,10 +846,14 @@ Com o código verdadeiro na tela, a resposta veio:
 
 As faixas de 1080p **existem e são listadas**; o CDN responde **403** a todas —
 com os dois pares de contêiner, com os dois perfis de cliente e com `Range`. É o
-portão do PO Token, e ele não se abre por cabeçalho. **1080p exigiria montar o
-desafio do BotGuard num WebView**, que é o que este projeto decidiu não fazer
-quando o `YoutubeGrab` nasceu, e a razão continua valendo: quebra sem aviso, e
-quando quebrar vai ser num domingo de manhã.
+portão do PO Token, e ele não se abre por cabeçalho. A conclusão da época foi
+que **1080p exigiria montar o desafio do BotGuard num WebView**, o que este
+projeto decidiu não fazer quando o `YoutubeGrab` nasceu.
+
+> A primeira metade estava certa e a segunda não: o portão era real, mas o
+> BotGuard não era a chave — nem sequer serviria (ver a v1.49, no fim desta
+> série). O 403 tem nome, **SABR enforcement**, e a correção veio da própria
+> biblioteca.
 
 O que fica no código, e por quê:
 
@@ -852,52 +863,138 @@ O que fica no código, e por quê:
   que é caso a caso.
 - **O cliente iOS fica ligado.** É ele que faz as faixas aparecerem no
   diagnóstico; sem ele a linha voltaria a dizer `vídeo-só 0` e perderíamos a
-  capacidade de PERCEBER uma mudança.
+  capacidade de PERCEBER uma mudança. *(Desligado de novo na v1.49: com o
+  visionOS listando as faixas, ele só acrescenta candidatos que dão 403.)*
 - **`adaptativoBloqueado` (por processo)**: depois do primeiro 403 da sessão, os
   downloads seguintes vão direto ao progressivo. Sem essa memória, cada download
   refazia quatro requisições condenadas antes de chegar à mesma conclusão. Não é
   persistido de propósito — reabrir o app tenta de novo, e um estado em disco
-  transformaria a recusa de um dia numa desistência permanente.
+  transformaria a recusa de um dia numa desistência permanente. *(Na v1.49 ele
+  passou a exigir unanimidade: com o pool de faixas misturado, desligar tudo no
+  primeiro 403 seria o autogol.)*
 
-O download segue em **360p** neste aparelho: é o único formato progressivo que
-o YouTube entrega sem token. Vale lembrar o que esse caminho continua
-garantindo, que era o objetivo original e não mudou — o vídeo vira ARQUIVO, com
-fade, playlist, `MediaSession` e segundo plano, **sem depender da rede durante o
-culto**.
+O download seguiu em **360p** neste aparelho por mais duas versões: era o único
+formato progressivo que o YouTube entregava sem token. Vale lembrar o que esse
+caminho continua garantindo, que era o objetivo original e não mudou — o vídeo
+vira ARQUIVO, com fade, playlist, `MediaSession` e segundo plano, **sem depender
+da rede durante o culto**.
 
-##### A fonte alternativa: pedir direto à API interna (v1.48)
+##### A fonte alternativa, e por que ela saiu (v1.48 → v1.49)
 
-Depois do 403 confirmado, sobraram dois caminhos para o 1080p. O caro é montar
-o **PO Token** (rodar o BotGuard do Google num WebView oculto) — existe uma
-implementação de referência no app do NewPipe, mas ela gera o token do cliente
-**WEB**, e a versão do extrator que este app usa tira os streams dos clientes
-**ANDROID/iOS** (o web só entrega metadados). Ou seja, ali seriam duas
-empreitadas, não uma: o token e a troca de qual cliente fornece as faixas.
+Depois do 403 confirmado, a v1.48 tentou o caminho barato: `InnerTube.kt`, **um
+POST** para `youtubei/v1/player` anunciando-se como um cliente que não exige
+token — o do **Quest** (`ANDROID_VR`) e, em seguida, um de **TV**. Sem executar
+JavaScript ofuscado, sem atestação, sem decifrar assinatura.
 
-O barato é `InnerTube.kt`: **um POST** para `youtubei/v1/player` anunciando-se
-como um cliente que não exige token — o do **Quest** (`ANDROID_VR`) e, em
-seguida, o de **TV** (`TVHTML5_SIMPLY_EMBEDDED_PLAYER`). Não executa JavaScript
-ofuscado, não precisa de atestação e não decifra assinatura: formatos que
-venham com `signatureCipher` em vez de `url` são descartados, porque decifrar é
-justamente o trabalho que a biblioteca faz e que este atalho não pretende
-refazer.
+Em aparelho:
 
-Como ele entra sem ameaçar o que funciona:
+```
+· vr: 0 (LOGIN_REQUIRED) · tv: 0 (ERROR)
+```
 
-- **É a ÚLTIMA fonte tentada.** Primeiro as faixas da biblioteca; só quando elas
-  não produzem arquivo é que o pedido direto acontece. Falhando também, o
-  caminho segue para o progressivo — que é o que o app entrega hoje.
-- **A montagem é a MESMA** (`montar`), compartilhada pelas duas fontes: os dois
-  downloads, o muxer, a barra única e a limpeza das partes existem uma vez só.
-- **A URL viaja com o UA do cliente que a emitiu.** Uma URL emitida para um
-  cliente costuma ser servida só a ele — é o caminho conhecido para um 403.
-- **`clienteBloqueado`** desliga a fonte pelo resto da sessão, e **só no 403**:
-  um muxer que falhou pode ser característica daquele vídeo, não da fonte
-  inteira. Por processo, como o `adaptativoBloqueado`.
-- **Busca, títulos e idioma continuam com a biblioteca.** É ela que absorve as
-  mudanças do YouTube, e esse é o motivo de ela existir aqui. O que passa a ser
-  nosso é um pedido, de um formato estável — e o dia em que ele parar, o
-  diagnóstico do rodapé é quem conta.
+Nenhuma faixa, pelos dois. O arquivo inteiro **saiu na v1.49**, e não por ter
+falhado uma vez: o que ele buscava a biblioteca passou a entregar sozinha (logo
+abaixo), e mantê-lo seria manter superfície nossa contra um alvo que muda toda
+semana — que é justamente o que a dependência existe para evitar. Fica a lição,
+que vale para a próxima ideia do mesmo tipo: um cliente de dispositivo escolhido
+por reputação de fórum envelhece em silêncio, e do lado de cá isso é um zero mudo
+no diagnóstico.
+
+##### O cliente visionOS destrava o 1080p, e a escolha vira uma FILA (v1.49)
+
+O 403 tem nome — **SABR enforcement** — e a correção estava publicada havia
+meses, do lado da biblioteca.
+
+**Primeiro, o que NÃO era a saída.** O PO Token via WebView foi descartado com
+verificação, não por preguiça: `PoTokenProvider.getWebClientPoToken()` **não tem
+uma única chamada** em nenhuma versão do extrator (v0.26.0 → v0.26.4 e `dev`) —
+o cliente web só serve para metadados, e o `onFetchPage` consome apenas os tokens
+**ANDROID** e **iOS**. O próprio NewPipe implementa só o token web e devolve
+`null` para os outros dois. E o token do cliente Android, que *seria* consumido,
+exige o **DroidGuard** do Play Services, atrelado à assinatura do app oficial.
+Um WebView rodando BotGuard aqui alimentaria um campo que ninguém lê.
+
+**O que era a saída.** A issue NewPipe **#13320** ("Only MP4 360p / no separate
+audio tracks available") descreve o nosso caso palavra por palavra, e o PR
+**#1508** ("Workaround SABR enforcement by using another player client") a
+corrigiu na **v0.26.3**: um cliente **visionOS**, buscado
+incondicionalmente e **sem token nenhum** — a assinatura de
+`fetchVisionOsClient(localization, contentCountry, videoId)` sequer recebe um
+`PoTokenResult`. O app estava pinado na **v0.26.1**. O conserto foi **uma linha
+de `build.gradle.kts`**.
+
+Isso é a dependência fazendo o serviço pelo qual ela existe, e vale registrar do
+jeito certo: sete versões de shell foram gastas medindo um portão, e quem o
+abriu foi quem publica a biblioteca. Antes de reescrever extração à mão, olhar o
+CHANGELOG dela.
+
+###### A parte que o bump sozinho NÃO resolveria
+
+Depois do bump, `StreamInfo` traz uma **mistura**: faixas do visionOS (que
+baixam) ao lado das do cliente antigo (que respondem 403). A escolha anterior
+pegava **uma** faixa por contêiner, a de maior altura — e com o pool misturado
+essa pode ser justamente a envenenada. Seria perder o 1080p tendo um 1080p bom
+na mesma lista: o bump entraria e não mudaria nada visível.
+
+Por isso `tentarJuntar` virou uma **fila de candidatos**:
+
+- **A ordem é cliente primeiro, altura depois.** Parece invertido e não é: as
+  duas listas trazem 1080p, mas só a do visionOS baixa. Ordenar por altura
+  intercalaria as duas e gastaria as tentativas no lado que o CDN recusa.
+  Empatados, mp4 antes de WebM — o WebView toca H.264 em qualquer aparelho.
+- **O áudio é a sonda barata, e vem primeiro.** Ele tem alguns MB contra
+  centenas do vídeo: descobrir por ele que um contêiner não serve custa uma
+  fração. O arquivo baixado fica **guardado por contêiner**, então um segundo
+  candidato de vídeo mp4 reaproveita o m4a que já veio.
+- **Tetos assimétricos.** Um 403 falha antes do primeiro byte, então um candidato
+  de vídeo perdido custa uma requisição — daí caber quatro. Já uma **montagem**
+  que falha custou o download inteiro do vídeo, e tem teto de dois. Isto roda na
+  rede do chip do operador, possivelmente minutos antes do culto.
+- **O UA acompanha a URL.** `baixarTentando` lê o `c=` da própria URL e tenta
+  primeiro o perfil que combina com ela (visionOS, iOS ou Chrome/Android); os
+  outros ficam atrás como rede de segurança. Antes a ordem era fixa, e a faixa
+  boa podia ser perdida logo na primeira tentativa. A constante `UA_VISIONOS` é
+  copiada caractere a caractere do que a biblioteca monta — **ao trocar a versão
+  do extrator, conferir `ClientsConstants` e trazer os números novos junto**.
+- **`adaptativoBloqueado` ficou muito mais difícil de levantar.** Antes, qualquer
+  403 desligava o caminho adaptativo pelo resto da sessão. Com o pool misturado
+  isso seria o autogol: um 403 isolado é o comportamento NORMAL de uma faixa
+  envenenada com uma boa logo atrás. Agora exige **unanimidade** — todos os
+  candidatos tentados, no mínimo dois, mortos com 403.
+- **O cliente iOS voltou a ficar DESLIGADO.** Ele foi ligado à mão na v1.43 como
+  a única alavanca disponível, e não resolveu (as faixas dele vêm como
+  manifestos HLS, que o `isUrl` descarta). Agora ele atrapalha: cada faixa a mais
+  é um candidato que a fila pode gastar uma requisição tentando.
+- **O mesmo vale para o "só áudio"**, que deixou de ser "m4a → qualquer outro" e
+  passou a ser três candidatos na mesma ordem de cliente.
+
+###### O diagnóstico passou a dizer DE QUEM veio cada faixa
+
+A linha do rodapé ganhou duas coisas, e as duas respondem a perguntas que as
+sete versões anteriores não conseguiam responder:
+
+```
+… · clientes VISIONOS 16, ANDROID 1 · a:140@ANDROID 403 · v:137@VISIONOS/V
+  → juntou 1080p (mp4, 137@VISIONOS/V)
+```
+
+- **`· clientes VISIONOS 16, ANDROID 1`** — de qual cliente veio cada faixa
+  LISTADA. Sem isso, dezessete faixas parecem a mesma coisa vindo do cliente que
+  funciona ou do que só entrega 403.
+- **`itag@CLIENTE` em cada tentativa** (`a:` para áudio, `v:` para vídeo) — uma
+  falha futura se correlaciona com o formato exato em vez de virar mais um zero
+  mudo.
+
+Os dois saem do **`c=` e do `itag=` da própria URL**, não de um campo da
+biblioteca: é o CDN quem os carimba, e o que ele carimbou é o que ele vai cobrar
+na hora do download. De quebra, o diagnóstico não acrescenta superfície de API
+a uma dependência que acabou de ser atualizada.
+
+###### O que continua valendo
+
+O progressivo segue como **piso**: falhando tudo, o app entrega o arquivo de
+360p em vez de nada. Um caso conhecido em que o visionOS não extrai é o vídeo
+marcado como "made for kids" — ali o app cai no progressivo sem quebrar nada.
 
 ##### Todo campo de log tem botão de copiar (v5.117)
 
@@ -3863,7 +3960,8 @@ pesquisar de novo, compartilhar de volta, esperar. Agora é digitar uma vez.
   - A v1.32 passou `Localization("pt","BR")` para o `NewPipe.init`, **e não
     adiantou**: `StreamingService.getLocalization()` FILTRA o pedido pela lista
     de idiomas suportados do serviço, e a do YouTube no `NewPipeExtractor`
-    v0.26.1 tem um item só — `"en-GB"`, com o resto da lista **comentado** no
+    (v0.26.1 então, v0.26.4 hoje — segue igual) tem um item só — `"en-GB"`, com
+    o resto da lista **comentado** no
     fonte. Qualquer outro idioma cai no `Localization.DEFAULT`, que é o mesmo
     en-GB, em silêncio e sem erro nenhum: o código PARECIA certo. O país
     escapava do filtro (a lista de países é completa e tem "BR"), então só
@@ -5995,10 +6093,12 @@ ao lado web uma **URL servível** (`/saf/<token>`) — daí para a frente o cami
 - **Some o problema de CORS**: o `fetch` do WebView nunca alcançaria o
   `googlevideo.com`, que não manda os cabeçalhos — era por isso que o caminho do
   Cobalt precisava de `alwaysProxy`.
-- **MP4 progressivo**, com teto prático de 720p: o YouTube reserva as
-  resoluções altas para faixas separadas de vídeo e áudio, que só servem
-  remuxadas, e remuxar exigiria um ffmpeg embarcado. Num telão de igreja 720p
-  basta, e é infinitamente melhor que um vídeo que para no meio.
+- **MP4 de até 1080p** (v1.44 para o remux, v1.49 para ele passar a funcionar de
+  verdade). O YouTube reserva as resoluções altas para faixas separadas de vídeo
+  e áudio; juntá-las é o `MediaMuxer` da plataforma (`MuxMp4.kt`), cópia de
+  amostras e não recodificação — nada de ffmpeg embarcado. O progressivo segue
+  como piso quando a montagem não sai; ver a série "O cliente visionOS destrava
+  o 1080p" acima.
 - **Sem `PoTokenProvider`, por enquanto.** O extrator faz "o melhor esforço"
   sem ele; montá-lo exige rodar o desafio do BotGuard num WebView — o app tem
   dois, então é factível, mas é outra empreitada. Se um vídeo resistir, o app
