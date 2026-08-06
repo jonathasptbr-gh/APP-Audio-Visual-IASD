@@ -454,7 +454,24 @@ class NativeBridge(
         // `JSONObject.quote` e não uma concatenação com aspas: o texto é montado
         // a partir do que o YouTube devolveu, e é ele que vai INLINE dentro de
         // um `evaluateJavascript` (ver `resolve`).
-        resolve(callId, JSONObject.quote(if (host == null) "" else YoutubeGrab.diagnostico))
+        // OS DOIS CAMINHOS, em linhas separadas. A transmissão direta e o
+        // download escrevem em campos diferentes de propósito (ver
+        // `diagnosticoStream`): quando a primeira desiste, o segundo roda em
+        // seguida, e com um campo só o motivo da desistência era apagado pela
+        // linha do download — o log dizia o que aconteceu depois, nunca por quê.
+        //
+        // Multi-linha não incomoda ninguém: do lado web isto vai para dentro de
+        // um `<pre>` que rola (o "Registro" de Configurações).
+        val texto = if (host == null) "" else buildString {
+            YoutubeGrab.diagnosticoStream.takeIf { it.isNotEmpty() }?.let {
+                append("transmissão: ").append(it)
+            }
+            YoutubeGrab.diagnostico.takeIf { it.isNotEmpty() }?.let {
+                if (isNotEmpty()) append('\n')
+                append("download: ").append(it)
+            }
+        }
+        resolve(callId, JSONObject.quote(texto))
     }
 
     /**
