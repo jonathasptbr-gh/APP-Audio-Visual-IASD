@@ -1393,6 +1393,10 @@ Rodar local: `./gradlew assembleDebug` (exige Android SDK instalado).
 - Toda operação IDB multi-passo que precise de atomicidade usa `storeTx()`.
 - Ao mudar a superfície da ponte, subir `NativeBridge.SHELL_VERSION` **e**
   atualizar a seção "A ponte" acima.
+- **O diagnóstico é UM só, e mora numa caixa que ROLA** (`#diagBox`, o
+  "Registro" de Configurações). Um log em espaço fixo esconde o fim quando o
+  texto cresce — e o fim é onde está o desfecho. Diagnóstico novo entra como
+  mais um BLOCO ali, nunca como uma faixa nova em outro canto.
 - **Todo campo de LOG nasce com um botão de copiar** (`.log-line`/`.log-copy`,
   ver `copiarTexto` em `controle.js`). Diagnóstico existe para ser REPASSADO, e
   sem o botão a alternativa é transcrever números à mão ou fotografar a tela —
@@ -1421,7 +1425,7 @@ aparelho nenhum.
 O `versionCode`/`versionName` do APK vêm do CI (ver "Build") e não se tocam à
 mão.
 
-**Versão atual: v5.120** (base web) · `SHELL_VERSION` **26**, e o bundle segue com
+**Versão atual: v5.121** (base web) · `SHELL_VERSION` **26**, e o bundle segue com
 `minShell: 2` — ele funciona igual num shell antigo, só sem os recursos que são
 nativos por construção (a escada do voltar, os botões de volume, a notificação de
 controles), que **só chegam instalando o APK novo**, não pelo OTA.

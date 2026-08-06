@@ -2927,6 +2927,61 @@ As quatro células:
 - **Mensagens** — foi para a aba **Ferramentas** (v5.31), como seção do
   acordeão. Antes era um botão flutuante sobre a preview; ver abaixo.
 
+#### UM registro só, numa caixa que rola (v5.121)
+
+O diagnóstico deste app cresceu por acréscimo, e acabou em dois lugares com
+naturezas opostas dentro da MESMA folha de Configurações:
+
+| Onde | O quê | O problema |
+|---|---|---|
+| `#diagBox` (`<pre>`, rola) | a caixa-preta do telão | nenhum |
+| `#ytDiagBox` (rodapé) | a última extração do YouTube | **conteúdo de tamanho variável em espaço fixo** |
+
+O segundo era o defeito. Uma extração com várias tentativas — e a fila de
+candidatos da v1.49 produz exatamente isso — transbordava a faixa do rodapé, e a
+parte de baixo ficava **inalcançável**: sem rolagem, sem "ver mais", sem nada.
+Um log que esconde o fim é pior que um log curto, porque o fim é justamente onde
+está o desfecho (`→ juntou 1080p`, `→ NADA baixou`).
+
+Agora é **um registro só**, dentro da caixa que já rolava, com quatro blocos:
+
+1. **Identificação** — versões da base web, do shell e da ponte; estado do
+   telão; alvo de espelhamento; e o `User-Agent` do aparelho.
+2. **Transmissão** — se este WebView tem `MediaSource` e se ele aceita
+   `avc1`+`aac`. É o dado mais útil desde a v5.120: quando um "Tocar agora" cai
+   no download em vez de transmitir, a primeira pergunta é essa, e ela não se
+   responde de fora.
+3. **A última extração do YouTube** — o que era a faixa do rodapé.
+4. **A linha do tempo** dos dois processos, em ordem de relógio.
+
+Três detalhes que decidem se isso funciona na prática:
+
+- **`white-space: pre-wrap`, não `pre`.** A linha do YouTube tem centenas de
+  caracteres; com `pre` ela virava rolagem HORIZONTAL, e ninguém encontra isso
+  num celular. Com quebra, a coluna de horário das linhas curtas continua
+  alinhada e as longas dobram.
+- **O botão de copiar fica FORA do `<pre>`.** Dentro de uma área que rola, ele
+  sairia de cena junto com o texto — exatamente o problema que se está
+  corrigindo.
+- **Ele copia o registro MONTADO, não o visível.** A caixa rola; copiar a janela
+  entregaria um pedaço do meio. O texto completo fica guardado em `diagTexto`.
+
+O cabeçalho existe por uma razão prática: um log colado sem contexto obriga a
+primeira resposta a ser sempre a mesma pergunta ("qual versão? tem
+transmissão?"). Agora ele chega respondido.
+
+> `renderDiag` passou a ser **assíncrona** (pergunta o diagnóstico do YouTube à
+> ponte) e é chamada duas vezes ao abrir a folha — uma com o que já se tem,
+> outra quando a resposta do telão chega. Daí a guarda de sequência: sem ela a
+> primeira poderia terminar depois da segunda e sobrescrevê-la com a linha do
+> tempo SEM os eventos do telão, que é justamente o que se foi buscar. Mesmo
+> padrão do `loadSeq` do stage.
+
+> Achado de passagem: `diagCopyEl` já existia no `controle.js` — um `const`
+> apontando para um `#diagCopy` que o HTML **não tinha**, sem nenhum listener.
+> Referência pendurada desde a introdução da caixa-preta; agora o elemento
+> existe e ela tem função.
+
 #### O download termina na MINIATURA, não numa faixa (v5.119)
 
 A v5.106 tirou de cena o toast flutuante — aviso pertence ao lugar onde a ação
