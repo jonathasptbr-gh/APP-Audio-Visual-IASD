@@ -1454,7 +1454,7 @@ aparelho nenhum.
 O `versionCode`/`versionName` do APK vêm do CI (ver "Build") e não se tocam à
 mão.
 
-**Versão atual: v5.127** (base web) · `SHELL_VERSION` **27**, e o bundle segue com
+**Versão atual: v5.128** (base web) · `SHELL_VERSION` **27**, e o bundle segue com
 `minShell: 2` — ele funciona igual num shell antigo, só sem os recursos que são
 nativos por construção (a escada do voltar, os botões de volume, a notificação de
 controles), que **só chegam instalando o APK novo**, não pelo OTA.
@@ -1471,9 +1471,18 @@ controles), que **só chegam instalando o APK novo**, não pelo OTA.
 > onde a faixa viaja, justamente para essa leitura não depender de adivinhação:
 > `faixa na URL` (funcionando) × `DESLIGADA: shell N < 27`.
 >
-> **Ainda não medido em aparelho.** O mecanismo está verificado em fonte
-> primária do Chromium, mas ninguém viu a segunda requisição completar num
-> celular — publicar não é medir, e foi essa distinção que a v1.54 borrou. Ao
-> ler o Registro depois de instalar: se a mensagem mudar de "Failed to fetch"
-> para "sidx não reconhecido", isso é o OUTRO ramo do mesmo defeito previsto
-> pela hipótese, não um defeito novo.
+> **CONFIRMADO em aparelho** (S24 Ultra, Android 16, WebView 150): `Transmissão:
+> MediaSource ok (avc1+aac) · faixa na URL` e `transmitindo 1080p
+> (137@VISIONOS + 140@VISIONOS)` **sem nenhuma linha de falha atrás** — o vídeo
+> entra no telão sem download. Três rodadas de APK (v1.52 → v1.54) foram gastas
+> num diagnóstico plausível e errado; o que fechou o caso foi ler a fonte do
+> Chromium em vez de deduzir por eliminação de mensagens que, como se descobriu,
+> nem chegavam.
+>
+> A v5.128 tirou o resto que aparecia na estreia: o `<video>` fica segundos em
+> cena sem um quadro (init + índice + primeiro fragmento vêm da rede) e o
+> WebView pintava ali o **pôster padrão** dele — o retângulo cinza com o play
+> preto gigante. O `stage` já escondia o elemento enquanto não houvesse `src`;
+> com a transmissão, "sem `src`" virou "sem dados". Agora ele carrega um pôster
+> 1×1 transparente enquanto espera (ver `POSTER_VAZIO` em `shared/stage.js`) e o
+> devolve ao normal no primeiro quadro.

@@ -3039,29 +3039,72 @@ na memória do processo que hospeda os dois WebViews e a `Presentation`.
 > REGRA (o WebView refatia o que devolvemos) e `tools/mse.test.mjs` prova o que
 > sai pelo FIO (a faixa na URL, sem cabeçalho).
 
-##### O que a v1.55 fecha, e o que ela NÃO fecha
+##### CONFIRMADO em aparelho (v1.55)
 
-**Fecha:** o mecanismo está verificado em fonte primária (a cadeia
-`ParseRange` → `Seek` → `ComputeBounds` acima), foi lido de forma independente
-três vezes, e explica com uma linha de código a assimetria que três rodadas não
-explicaram — `first_byte_position() > 0`.
+```
+Transmissão: MediaSource ok (avc1+aac) · faixa na URL
+transmitindo 1080p (137@VISIONOS + 140@VISIONOS)
+```
 
-**Não fecha:** ninguém ainda viu a segunda requisição completar **em aparelho**.
-Publicar não é medir, e é exatamente essa distinção que a v1.54 borrou. O passo
-seguinte é um só: instalar a v1.55, tocar um vídeo do YouTube e ler o Registro.
+Sem nenhuma linha de falha atrás — o vídeo entra no telão sem download, em
+1080p adaptativo, montado pelo `MediaSource`. O mecanismo estava verificado em
+fonte primária (a cadeia `ParseRange` → `Seek` → `ComputeBounds` acima, lida de
+forma independente três vezes) e agora está **medido**.
 
-E há uma armadilha na leitura desse Registro, guardada aqui de propósito:
-**se a mensagem mudar de "Failed to fetch" para "sidx não reconhecido", isso NÃO
-significa que a correção falhou.** São dois ramos do mesmo defeito (`A ≥ L` e
-`A < L` na tabela acima), e vê-los trocar de lugar com outro vídeo é o previsto
-pela hipótese — não um defeito novo. O que prova a correção é a linha
-`transmitindo <altura>p` **sem** uma linha de falha atrás dela.
+Vale guardar as duas lições de método, porque elas custaram três rodadas de APK:
 
-Os números que apareceram nas rodadas anteriores (`bytes=740-1200`, 461 bytes)
-**nunca foram medidos**: saíram da fixture de `tools/mse.test.mjs` e foram
-lidos como se fossem dump de aparelho. Não podiam ter sido medidos, aliás — até
-a v5.127 o ramo de falha de REDE do `pegar()` era o único dos três que **não
+- **Publicar não é medir.** A v1.54 saiu como conserto de um mecanismo deduzido
+  por eliminação, sem uma única medição que o distinguisse das alternativas.
+- **Nem toda ausência de mensagem é evidência.** A eliminação que abriu a v1.54
+  ("não apareceu 403, 404 nem 502") raciocinava sobre mensagens que **não podiam
+  chegar** — corpo de erro vazio + faixa fora do zero é reprovado pelo mesmo
+  `ComputeBounds`. Antes de concluir do silêncio, é preciso provar que o canal
+  falava.
+
+E os números que apareceram nas rodadas anteriores (`bytes=740-1200`, 461 bytes)
+**nunca foram medidos**: saíram da fixture de `tools/mse.test.mjs` e foram lidos
+como se fossem dump de aparelho. Não podiam ter sido medidos, aliás — até a
+v5.127 o ramo de falha de REDE do `pegar()` era o único dos três que **não
 imprimia a faixa**. Agora imprime.
+
+##### O pôster padrão do WebView, que aparecia na estreia (v5.128)
+
+Com a transmissão funcionando, sobrou um defeito visual que só ela produz: um
+retângulo **cinza com um play preto gigante** piscando algumas vezes antes do
+primeiro quadro.
+
+Não é do app: é o **pôster padrão do WebView**. O contrato está escrito em
+`WebChromeClient.getDefaultVideoPoster` — *"o elemento de vídeo é representado
+por uma imagem de pôster; ela pode ser dada pelo atributo `poster`, e se o
+atributo estiver ausente **um pôster padrão será usado**"*. Não há como
+estilizá-lo; só como deixar de pedi-lo.
+
+O `stage.js` já conhecia esse placeholder pela metade — ele esconde o `<video>`
+enquanto não há `src`, com o comentário dizendo em voz alta que "um elemento de
+vídeo visível e sem `src` é pintado como um retângulo claro com botão de play".
+O que a transmissão mudou foi a **duração da janela**: com um arquivo local o
+`src` vira quadro em milissegundos; com um `MediaSource`, o elemento entra em
+cena vazio e só ganha o primeiro quadro depois de init + índice + primeiro
+fragmento virem da REDE. "Sem `src`" virou "sem dados", e a regra de esconder
+não alcançava esse caso.
+
+A correção é um **pôster 1×1 transparente** (`POSTER_VAZIO`), posto a cada
+`load` junto com a limpeza da fonte, e **removido no `loadeddata`**. As duas
+metades importam:
+
+- Transparente, e não preto: as camadas já pintam `--stage-bg` por baixo, então
+  o que aparece é exatamente o preto do palco — sem uma segunda definição de
+  "qual preto" para divergir da paleta.
+- Removido no primeiro quadro porque o `show poster flag` do HTML continua
+  LIGADO num vídeo pausado que ainda não tocou: mantê-lo faria a cena
+  restaurada PAUSADA (a reconexão do dongle) mostrar o preto do palco no lugar
+  do quadro congelado — justamente o que ela existe para mostrar.
+
+**O que NÃO foi feito, e por quê:** esconder o `<video>` (via `hidden`) até
+haver quadro seria a extensão literal da regra existente, mas `display:none`
+durante o MSE arrisca o decode nunca acontecer — e um telão preto para sempre é
+falha muito pior que um piscar. O pôster não pode apagar a projeção: no limite,
+ele não faz nada.
 
 #### As mensagens de falha viraram produto testado (v5.125)
 
