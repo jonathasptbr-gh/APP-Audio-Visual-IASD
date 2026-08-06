@@ -990,6 +990,39 @@ biblioteca: é o CDN quem os carimba, e o que ele carimbou é o que ele vai cobr
 na hora do download. De quebra, o diagnóstico não acrescenta superfície de API
 a uma dependência que acabou de ser atualizada.
 
+###### A medição que fecha a série
+
+Em aparelho, com o APK da v1.49:
+
+```
+áudio 5 [m4a 2, webm 3] · vídeo-só 12 [mp4 6 (1080p), webm 6 (1080p)]
+  · prog 1 [mp4 1 (360p)] · clientes VISIONOS 17, ANDROID 1
+  → juntou 1080p (mp4, 137@VISIONOS/V)
+```
+
+Cada pedaço confirma uma peça:
+
+- **`VISIONOS 17, ANDROID 1`** — o cliente novo trouxe 17 das 18 faixas, e o
+  único `ANDROID` é justamente o progressivo de 360p, que era tudo o que o app
+  conseguia baixar antes. As contas fecham nos dois sentidos (5 + 12 + 1 = 18),
+  o que também mostra que as três listas do `StreamInfo` não se sobrepõem.
+- **`137@VISIONOS`** — itag 137 é o AVC de 1080p, e é EXATAMENTE a faixa que
+  respondia 403 nas sete versões anteriores.
+- **`/V`** — o perfil de UA que baixou foi o do visionOS, escolhido pelo `c=` da
+  própria URL. O CDN serviu na primeira requisição.
+- **Nenhum `403` na linha.** A fila não precisou de um segundo candidato: o
+  primeiro áudio e o primeiro vídeo passaram direto. É a prova de que a ordem
+  "cliente primeiro, altura depois" põe a faixa certa no topo — com a ordem
+  antiga (só altura), uma das seis faixas de 1080p do pool poderia ter sido a do
+  cliente errado.
+
+O app passou de entregar a **pior cópia que o YouTube oferece** (itag 18, 360p)
+para 1080p AVC remuxado pela plataforma, sem recodificar e sem perda.
+
+> A linha só menciona o itag do ÁUDIO quando ele falha — no sucesso ela nomeia
+> apenas o vídeo. É de propósito: um diagnóstico que narra o caminho feliz vira
+> ruído, e o que interessa registrar é onde alguma coisa parou.
+
 ###### O que continua valendo
 
 O progressivo segue como **piso**: falhando tudo, o app entrega o arquivo de
