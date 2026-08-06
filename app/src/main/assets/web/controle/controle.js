@@ -162,7 +162,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.121';
+const WEB_VERSION = '5.122';
 
 // Escrita UMA vez, na carga: o indicador mora no rodapé de Configurações desde
 // a v5.49 e não depende mais de qual aba está aberta (no cabeçalho ele
@@ -9633,6 +9633,43 @@ function juntarDiag(doTelao) {
 function pedirDiag() {
   juntarDiag([]);
   if (displayActive()) AVDB.sendCommand({ type: 'diag-ask' });
+}
+
+// COPIAR UM CAMPO DE LOG. Regra do projeto: todo campo de diagnóstico nasce com
+// este botão — ele existe para ser repassado, e a alternativa é transcrever
+// números à mão ou fotografar a tela.
+//
+// `navigator.clipboard` exige contexto seguro, e o app tem um (a base é servida
+// por `https://appassets.androidplatform.net`) — mas o WebView pode negar a
+// permissão sem aviso, então o caminho antigo (`execCommand`) fica como reserva.
+// A confirmação é o mesmo pulso do resto do app: o ícone vira ✓ por um instante.
+//
+// Ela viveu no meio do bloco do diagnóstico do YouTube até a v5.121, e por isso
+// foi APAGADA junto quando aquele bloco saiu — o botão do registro passou a
+// chamar uma função inexistente e não fazia nada. Um helper compartilhado
+// morando dentro do escopo visual de um único consumidor é um convite a isso;
+// agora ele fica ao lado de quem o usa e com o nome do que é.
+async function copiarTexto(texto, btn) {
+  let ok = false;
+  try {
+    await navigator.clipboard.writeText(texto);
+    ok = true;
+  } catch (_) {
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = texto;
+      // Fora da vista, mas NÃO `display:none` nem `hidden`: um campo que não
+      // está no layout não pode ser selecionado, e sem seleção o `copy` copia
+      // nada — em silêncio.
+      ta.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0';
+      document.body.appendChild(ta);
+      ta.select();
+      ok = document.execCommand('copy');
+      ta.remove();
+    } catch (__) { ok = false; }
+  }
+  if (btn) responder(btn, ok ? 'ok' : 'erro', ok ? null : 'Não foi possível copiar');
+  return ok;
 }
 
 // O botão de copiar do registro. O `diagCopyEl` já existia lá em cima como

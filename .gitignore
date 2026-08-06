@@ -12,3 +12,8 @@ dist/
 *.keystore
 *.jks
 release.jks
+
+# Playwright para o teste de fumaça (tools/smoke.mjs) — nunca versionado.
+node_modules/
+package-lock.json
+package.json

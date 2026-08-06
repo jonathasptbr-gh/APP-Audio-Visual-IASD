@@ -74,6 +74,24 @@ jobs:
           # publique um bundle que não carrega; isto é da mesma natureza.
           node tools/sidx.test.mjs
 
+      # FUMAÇA DO CONTROLE, num Chromium de verdade. O passo acima prova que os
+      # arquivos são PARSEÁVEIS; este prova que o app SOBE e responde ao toque.
+      # A distinção não é acadêmica: a v5.121 saiu com o botão de copiar o
+      # Registro chamando uma função que uma limpeza tinha apagado — sintaxe
+      # perfeita, `node --check` verde, botão morto no aparelho.
+      #
+      # `continue-on-error` de propósito: um teste de navegador tem mais formas
+      # de falhar por infraestrutura (download do Chromium, runner sem rede) do
+      # que por defeito real, e barrar o OTA por causa disso seria trocar um
+      # risco raro por um bloqueio frequente. Ele grita no log; quem lê decide.
+      - name: Fumaça do Controle (Chromium)
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          npm i --no-audit --no-fund --silent playwright
+          npx playwright install --with-deps chromium
+          PW_CHROMIUM="" node tools/smoke.mjs
+
       - name: Empacotar a base web
         run: |
           set -euo pipefail
