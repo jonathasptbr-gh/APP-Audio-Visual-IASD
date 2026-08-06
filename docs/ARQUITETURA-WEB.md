@@ -1023,6 +1023,31 @@ para 1080p AVC remuxado pela plataforma, sem recodificar e sem perda.
 > apenas o vídeo. É de propósito: um diagnóstico que narra o caminho feliz vira
 > ruído, e o que interessa registrar é onde alguma coisa parou.
 
+E o caminho **só áudio**, medido em seguida no mesmo vídeo:
+
+```
+áudio 5 [m4a 2, webm 3] · … · clientes VISIONOS 17, ANDROID 1
+  → veio m4a 140@VISIONOS
+```
+
+Itag 140 é o AAC-LC de 128 kbps — o **primeiro** candidato da fila
+(`candidatosAudio(info, null, TETO_AUDIO_SO)` ordena cliente → m4a antes de
+webm → maior bitrate), aceito na primeira requisição. Sem `(Np)` porque faixa
+de áudio não tem altura, e sem cair no progressivo, que é o que acontecia até a
+v1.48: ali o operador pedia áudio e recebia o vídeo de 360p inteiro, tocando no
+fundo por causa do `kind: 'audio'` do registro, mas pagando o tamanho de um
+vídeo. Agora são poucos MB.
+
+As duas medições juntas fecham a questão: as faixas adaptativas de **vídeo e de
+áudio** vêm da MESMA resposta de player assinada pelo visionOS, e as duas
+baixam. O que as separava do app era um número de versão no `build.gradle.kts`.
+
+> **Assimetria conhecida, e pequena:** o caminho só-áudio não registra a LETRA
+> do perfil de UA (`/V`) no sucesso — o `baixarTentando` a devolve e o `buscar`
+> a descarta, enquanto o `montar` a escreve. O itag e o cliente, que é o que
+> decide, estão lá nos dois. Não paga uma Release sozinha; se outro ajuste do
+> shell aparecer, entra junto.
+
 ###### O que continua valendo
 
 O progressivo segue como **piso**: falhando tudo, o app entrega o arquivo de
