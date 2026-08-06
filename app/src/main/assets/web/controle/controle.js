@@ -162,7 +162,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.119';
+const WEB_VERSION = '5.120';
 
 // Escrita UMA vez, na carga: o indicador mora no rodapé de Configurações desde
 // a v5.49 e não depende mais de qual aba está aberta (no cabeçalho ele
@@ -902,6 +902,11 @@ const scrollPos = {};      // posição de scroll por aba/pasta (sessão)
 const preview = createStage({
   wallpaper: pvWallEl, img: pvImgEl, video: pvVideoEl, forceMuted: true,
   onTime: previewTick,
+  // A PREVIEW É A CANÁRIA da transmissão direta: ela toca o mesmo registro que
+  // o telão, na mesma hora, e é aqui — na tela do operador — que uma URL
+  // expirada aparece primeiro. Quem recupera é o Controle, porque é ele que
+  // tem a ponte (o Display recebe `host = null`) e é ele que manda a cena.
+  onStreamErro: (rec, porque) => { recuperarStream(rec, porque); },
   // Display presente é a fonte de verdade do avanço automático: quando ele
   // está ativo, quem avança é o `media-ended` remoto (com guarda de mediaId).
   // Sem este early-return, se o Display chegar ao fim antes da preview (drift
@@ -8640,6 +8645,76 @@ function openYtMenu(r) {
 // entregue ao `addMedia`, que continua gravando registro e lista na mesma
 // transação.
 const YT_LISTA = { tocar: 'avulsos', playlist: 'playlist', cronograma: 'imports', favoritos: 'favs' };
+
+// Projeta um vídeo do YouTube SEM baixá-lo antes: o shell monta o manifesto das
+// duas faixas adaptativas e o `MediaSource` do lado web as transforma num
+// `<video>` comum (ver shared/mse.js).
+//
+// Devolve `true` quando assumiu a projeção. `false` significa "não deu" e o
+// chamador segue para o download — não há nenhum aviso ao operador nesse
+// caminho, de propósito: ele pediu o louvor, não o método, e um cartão dizendo
+// "não deu para transmitir, vou baixar" seria ruído sobre uma decisão que não
+// é dele.
+async function tentarTransmitir(r, altura) {
+  if (!window.__NATIVE__ || (window.__SHELL_VERSION__ | 0) < 26) return false;
+  if (!window.AVStream || !r || !r.url) return false;
+  let man = null;
+  try { man = await AVNative.ytStream(r.url, altura | 0); } catch (_) { return false; }
+  // O `suportado` é do APARELHO, não do manifesto: um WebView sem o codec
+  // precisa cair no download em vez de projetar preto.
+  if (!man || !AVStream.suportado(man)) return false;
+  const rec = await AVDB.addStreamMedia(man, {
+    name: man.name || r.name || 'Vídeo',
+    youtubeId: r.id || null,
+    height: man.height || null,
+    seconds: man.seconds || null,
+    list: 'avulsos',
+  });
+  if (!rec) return false;
+  setYtEstado(r.id, null);
+  await fixarAvulso(rec.id);
+  await load();
+  await send(rec.id);
+  return true;
+}
+
+// A RECUPERAÇÃO quando um stream falha em cena.
+//
+// A causa esperada é a URL expirada: o manifesto vale algumas horas, e o
+// registro pode ficar na prateleira mais que isso. Pedir um manifesto NOVO para
+// o mesmo vídeo é barato (uma extração) e resolve o caso comum sem o operador
+// saber que houve algo.
+//
+// Uma tentativa só: se a segunda também falhar, o problema não é a validade — é
+// rede, codec ou um vídeo que ficou restrito —, e insistir num laço em cima de
+// uma projeção morta é pior que parar. Aí a mídia é substituída pelo DOWNLOAD,
+// que é o caminho que sempre funcionou.
+const streamRetentado = new Set();
+async function recuperarStream(rec, porque) {
+  console.warn('[stream] falhou:', porque);
+  if (!rec || !rec.youtubeId) return;
+  const link = 'https://www.youtube.com/watch?v=' + rec.youtubeId;
+  if (!streamRetentado.has(rec.id)) {
+    streamRetentado.add(rec.id);
+    let man = null;
+    try { man = await AVNative.ytStream(link, rec.height | 0); } catch (_) {}
+    if (man && window.AVStream && AVStream.suportado(man)) {
+      await AVDB.setMediaStream(rec.id, man);
+      if (currentId === rec.id) await send(rec.id);
+      return;
+    }
+  }
+  // Segunda falha: o vídeo vira ARQUIVO, que é o caminho de sempre.
+  const novo = await ytArquivo(
+    { id: rec.youtubeId, url: link, name: rec.name },
+    { lista: 'avulsos', aviso: 'preview' },
+  );
+  if (!novo) return;
+  await fixarAvulso(novo.id);
+  await AVDB.listRemove('avulsos', rec.id);
+  await load();
+  if (currentId === rec.id || !currentId) await send(novo.id);
+}
 async function ytAcao(r, destino, btn, somenteAudio, altura) {
   const tocar = destino === 'tocar';
   if (tocar) closeHymnSearch();
@@ -8657,6 +8732,20 @@ async function ytAcao(r, destino, btn, somenteAudio, altura) {
   // atravessa tudo o que vem abaixo: a pergunta "já está na lista?", o
   // reaproveitamento do arquivo e o download.
   const soAudio = !!somenteAudio;
+
+  // TRANSMISSÃO DIRETA, e só em "Tocar agora" (v5.120).
+  //
+  // As outras três ações guardam o item para depois — playlist, Cronograma,
+  // Favoritos —, e um manifesto de stream EXPIRA em algumas horas: guardar um
+  // seria guardar algo que não abre no domingo. "Tocar agora" é o caso em que
+  // o vídeo é visto uma vez, agora, e é exatamente onde esperar o download
+  // inteiro dói mais.
+  //
+  // Falhando qualquer coisa — shell antigo, vídeo sem par adaptativo, WebView
+  // sem o codec — o caminho segue para o download de sempre. Nada aqui é
+  // caminho único.
+  if (tocar && !soAudio && await tentarTransmitir(r, altura)) return;
+
   const existente = r && r.id ? await AVDB.mediaByYoutube(r.id, soAudio ? 'audio' : 'video') : null;
   const jaNaLista = !!(existente && existente.blob && await AVDB.listHas(lista, existente.id));
   const rec = await ytArquivo(r, {

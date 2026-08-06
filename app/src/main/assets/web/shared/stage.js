@@ -111,6 +111,11 @@
     let fit = 'contain'; // object-fit: 'contain' (ajustar) | 'cover' (preencher) | 'fill' (esticar)
     let url = null;
     let isBlobUrl = false;
+    // O controlador da TRANSMISSÃO DIRETA (ver shared/mse.js), quando a mídia
+    // em cena é um stream em vez de um arquivo. Um por vez, como o `url`: cada
+    // load derruba o anterior, senão duas MediaSource continuariam pedindo
+    // bytes da rede para um vídeo que já saiu do telão.
+    let stream = null;
     let deckIdx = 0;      // página em cena da apresentação (kind 'deck')
     let ended = false;
     let loadSeq = 0;
@@ -447,6 +452,7 @@
     }
 
     function _revokeUrl() {
+      if (stream) { try { stream.destruir(); } catch (_) {} stream = null; }
       if (url && isBlobUrl) { URL.revokeObjectURL(url); }
       url = null;
       isBlobUrl = false;
@@ -552,6 +558,14 @@
         if (!file) { clear(); return; }
         url = URL.createObjectURL(file);
         isBlobUrl = true;
+      } else if (rec.stream && global.AVStream && AVStream.suportado(rec.stream)) {
+        // TRANSMISSÃO DIRETA: não há URL nenhuma a atribuir — quem escreve o
+        // `video.src` é o próprio motor, com um `MediaSource`. O `suportado`
+        // é conferido AQUI e não só no Controle porque este mesmo código roda
+        // no telão: um aparelho cujo WebView não aceite o codec precisa cair
+        // no `else` abaixo em vez de projetar preto.
+        url = null;
+        isBlobUrl = false;
       } else if (rec.url) {
         url = rec.url;
         isBlobUrl = false;
@@ -562,7 +576,20 @@
       if (rec.kind === 'image' || rec.kind === 'deck') {
         img.src = url;
       } else {
-        video.src = url;
+        if (!url && rec.stream) {
+          stream = AVStream.criar(video, rec.stream, {
+            // A falha do stream não é tratada AQUI: o stage não tem uma
+            // segunda fonte para esta mídia, e inventar uma seria adivinhar. O
+            // dono (Controle ou Display) é quem sabe para onde cair — ver
+            // `onStreamErro`, que o `createStage` recebe.
+            onErro: (porque) => {
+              if (seq !== loadSeq) return;
+              try { opts.onStreamErro && opts.onStreamErro(rec, porque); } catch (_) {}
+            },
+          });
+        } else {
+          video.src = url;
+        }
         video.muted = forceMuted ? true : muted;
         if (!forceMuted) video.volume = volume;
         // A posição só "gruda" depois que a duração é conhecida — escrever

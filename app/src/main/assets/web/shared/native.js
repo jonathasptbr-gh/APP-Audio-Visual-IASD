@@ -311,6 +311,17 @@
         onProgresso,
       );
     },
+    // O MANIFESTO DA TRANSMISSÃO DIRETA de um vídeo do YouTube: as duas faixas
+    // adaptativas com os byte-ranges do DASH e URLs servíveis pelo próprio
+    // origin (ver StreamProxy.kt). `null` num shell antigo, quando não há par
+    // transmissível, ou quando o vídeo é restrito — e aí quem chamou cai no
+    // download, que continua inteiro.
+    //
+    // Sem prazo, como o `ytFetch`: aqui há uma extração de verdade no meio.
+    ytStream: (url, altura) => call(
+      (id) => B.ytStream(id, String(url), altura | 0),
+    ),
+
     // Busca no YouTube DENTRO do app: devolve
     // `[{ id, url, name, author, seconds, thumb }]`. Lista vazia num shell
     // antigo (o `call` resolve null) — quem chama já não desenha a seção.

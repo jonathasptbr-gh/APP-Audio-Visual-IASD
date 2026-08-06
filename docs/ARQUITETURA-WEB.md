@@ -735,6 +735,111 @@ quatro ações abaixo, em vez de dobrar a folha para oito linhas.
   aquele objeto — consultá-lo lá dentro encontraria null e todo download sairia
   como vídeo. É o mesmo cuidado que a `variante` das músicas já tomava.
 
+##### TRANSMISSÃO DIRETA: o vídeo sem baixar e sem o player do YouTube (v5.120)
+
+O "Tocar agora" de um resultado do YouTube tinha dois caminhos, e os dois
+cobravam caro:
+
+- **Baixar antes** — centenas de MB de espera antes do primeiro quadro.
+- **O player embutido** — que traz a UI dele junto. E aqui vale ser exato: o
+  embed deste app já está no limite do que a IFrame API permite (`controls: 0`,
+  `disablekb: 1`, `fs: 0`, `iv_load_policy: 3`, `rel: 0`, `pointer-events: none`,
+  escudo anti-UI e legendas removidas por `unloadModule`). O que ainda aparece —
+  a rodinha de carregamento, o botão grande na pausa, a tela final — **não tem
+  parâmetro que desligue**, porque não são *controles*.
+
+Agora o vídeo vira um `<video>` COMUM alimentado por `MediaSource`. Daí para a
+frente ele é mídia como qualquer outra: fade, cortina, `MediaSession`, barra de
+progresso e segundo plano são os mesmos que já funcionavam, e não há um pixel de
+YouTube no telão.
+
+###### As três peças
+
+| Peça | Onde | O que faz |
+|---|---|---|
+| manifesto | `YoutubeGrab.manifesto` + `AVNative.ytStream` | escolhe as duas faixas adaptativas pela MESMA fila de candidatos do download (visionOS primeiro) e devolve os byte-ranges do DASH |
+| proxy | `StreamProxy.kt` | serve o `googlevideo` em `/stream/<token>`, no nosso origin |
+| player | `shared/mse.js` | lê o `sidx`, pede os pedaços e os entrega ao `MediaSource` |
+
+**Por que o proxy não é opcional.** Um `fetch` direto ao googlevideo falha por
+três motivos independentes, cada um suficiente sozinho: **CORS** (o googlevideo
+não manda `Access-Control-Allow-Origin`), o **User-Agent** (uma faixa do visionOS
+pedida com o UA do WebView responde 403 — é o mesmo desencontro que custou sete
+versões até a v1.49) e a **invariante 2** (o WebView recusa buscar fora do
+origin, e afrouxar isso é a última coisa que este projeto pode fazer).
+
+**Por que ele NÃO é um `PathHandler`.** O `WebViewAssetLoader.PathHandler`
+recebe só o caminho — os cabeçalhos não chegam lá. E MSE é feito de requisições
+por FAIXA DE BYTES: sem repassar o `Range`, cada pedido traria o arquivo inteiro
+para usar 200 kB. Por isso ele é chamado de dentro do `shouldInterceptRequest`,
+que recebe o `WebResourceRequest` completo, ANTES de o asset loader ver a URL. É
+o único ponto do app que enxerga os cabeçalhos de uma requisição.
+
+Ele vale para os DOIS WebViews, ao contrário do handler `/saf/`: quem projeta é
+o telão, então negá-lo ao Display seria negar o recurso inteiro. A exposição é de
+outra natureza — um token de stream aponta para uma faixa do vídeo que já está
+em cena, não para o índice de uma pasta do aparelho.
+
+###### O `sidx`, e por que ele é a peça testada
+
+O índice DASH é o que torna a coisa viável: com alguns kilobytes o player sabe
+onde começa cada fragmento, e daí em diante pede só o que precisa. Sem ele,
+"tocar aos 3:20" significaria baixar tudo até os 3:20.
+
+É também a peça que falha em SILÊNCIO: um erro de deslocamento não dá exceção —
+dá vídeo que não toca. E é a única do caminho inteiro que se verifica sem
+aparelho, porque os boxes podem ser construídos byte a byte a partir da
+especificação. Daí `tools/sidx.test.mjs`, que roda no mesmo passo de sanidade do
+CI que já impede o OTA de publicar um bundle que não carrega. Ele cobre v0 e v1
+(o tamanho do cabeçalho MUDA entre as duas, e errá-lo desloca todas as
+entradas), `first_offset`, um box anterior ao `sidx`, o bit de `reference_type`
+(que sem máscara viraria um tamanho absurdo), buffer curto, ausência do box e
+`timescale` zero.
+
+###### O que este player deliberadamente NÃO é
+
+A regra do projeto manda não reimplementar em casa o que uma biblioteca faz. Um
+player DASH de prateleira (dash.js, Shaka) são centenas de kB de terceiro para
+resolver um caso que aqui é minúsculo: duas faixas, um perfil, sem DRM, sem
+múltiplas qualidades, sem legenda. `mse.js` **não** troca de qualidade, **não**
+lê MPD e **não** faz ABR — ele lê um índice, pede pedaços e os entrega. É menos
+que um player DASH, e o suficiente.
+
+O preço está declarado: isto é superfície NOSSA. Por isso cada ponto de falha
+avisa quem chamou (`onErro` → `onStreamErro` do stage), e quem chamou tem para
+onde cair.
+
+###### A recuperação, e quem a faz
+
+As URLs do googlevideo expiram em algumas horas, então um registro de stream é
+transitório por natureza. Quando ele falha em cena:
+
+1. **A preview do Controle é a canária.** Ela toca o MESMO registro, na mesma
+   hora, e é na tela do operador que a falha aparece primeiro.
+2. O Controle pede um manifesto NOVO para o mesmo `youtubeId` e o regrava
+   (`AVDB.setMediaStream`). Uma extração barata resolve o caso comum sem o
+   operador saber que houve algo.
+3. **Uma tentativa só.** Se a segunda falhar, o problema não é validade — é
+   rede, codec ou um vídeo que ficou restrito —, e insistir em cima de uma
+   projeção morta é pior que parar. Aí a mídia é substituída pelo DOWNLOAD, que
+   é o caminho que sempre funcionou.
+
+**O telão não recupera sozinho**, e não é omissão: ele recebe a ponte com
+`host = null` e não pode pedir manifesto nenhum; e duas recuperações
+independentes para a mesma cena brigariam entre si.
+
+###### Só em "Tocar agora"
+
+As outras três ações da folha (playlist, Cronograma, Favoritos) GUARDAM o item
+para depois, e um manifesto que expira em horas seria algo que não abre no
+domingo. "Tocar agora" é o caso em que o vídeo é visto uma vez, agora — e é
+exatamente onde esperar o download inteiro dói mais.
+
+Falhando qualquer coisa (shell antigo, vídeo sem par adaptativo, WebView sem o
+codec), o caminho segue para o download **sem avisar nada ao operador**. Ele
+pediu o louvor, não o método; um cartão dizendo "não deu para transmitir, vou
+baixar" seria ruído sobre uma decisão que não é dele.
+
 ##### E a QUALIDADE, logo abaixo (v5.118)
 
 Uma segunda linha de segmentos, no mesmo desenho: **1080p · 720p · 480p**. As
