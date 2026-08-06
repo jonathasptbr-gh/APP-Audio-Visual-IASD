@@ -162,7 +162,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.114';
+const WEB_VERSION = '5.115';
 
 // Escrita UMA vez, na carga: o indicador mora no rodapé de Configurações desde
 // a v5.49 e não depende mais de qual aba está aberta (no cabeçalho ele
@@ -182,6 +182,29 @@ function renderVersionLabel() {
 }
 
 renderVersionLabel();
+
+// DIAGNÓSTICO da última extração do YouTube, no rodapé de Configurações.
+//
+// Ele responde uma pergunta que não se responde lendo código: o extrator está
+// recebendo as faixas ADAPTATIVAS deste vídeo (é onde moram o 1080p e o áudio
+// puro) ou só o progressivo, que é o que tem teto de 720p? Sem PO Token a
+// biblioteca busca os streams por um endpoint de conjunto reduzido, e o que
+// cabe nesse conjunto varia por vídeo — só o aparelho responde.
+//
+// É lido a cada ABERTURA de Configurações, não uma vez na carga: o valor muda a
+// cada download, e a graça é justamente comparar antes e depois de um teste.
+const ytDiagEl = document.getElementById('ytDiagLine');
+async function renderYtDiag() {
+  if (!ytDiagEl) return;
+  if (!window.__NATIVE__ || (window.__SHELL_VERSION__ | 0) < 24) { ytDiagEl.hidden = true; return; }
+  let txt = '';
+  try { txt = await AVNative.ytDiag(); } catch (_) { txt = ''; }
+  ytDiagEl.hidden = !txt;
+  ytDiagEl.textContent = txt ? 'Último YouTube: ' + txt : '';
+  ytDiagEl.title = 'O que o extrator recebeu na última extração — faixas de áudio'
+    + ' separadas, faixas de vídeo sem áudio (é onde mora o 1080p) e progressivas'
+    + ' (vídeo + áudio no mesmo arquivo, teto de 720p).';
+}
 
 const selbarEl = document.getElementById('selbar');
 const selCountEl = document.getElementById('selCount');
@@ -9215,6 +9238,7 @@ function openFadePopup() {
   renderLyricsBgSeg();
   renderWallSeg();
   pedirDiag();
+  renderYtDiag();
   fadePopupEl.classList.add('open');
 }
 function closeFadePopup() {

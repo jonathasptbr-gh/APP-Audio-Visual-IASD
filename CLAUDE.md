@@ -236,6 +236,8 @@ window.AVNative = {
   ytFetch(url, onProg, soAudio), // → { url, name, size, type }: baixa do YouTube
                        //   `soAudio` traz só a faixa de áudio (m4a) — exige shell 23
   ytDiscard(url),      //   e apaga o arquivo depois que os bytes foram copiados
+  ytDiag(),            // → string: o que o extrator recebeu na última extração
+                       //   (diagnóstico do rodapé de Configurações)
   keepAudioAlive(bool),// mesa de som ligada: este WebView não pode ser suspenso
   ytSearch(termo),     // → [{ id, url, name, author, seconds, thumb }] do YouTube
   deckPages(origem, nome, onProg), // → { name, pages:[url] } ou { erro }: PDF em imagens
@@ -251,7 +253,7 @@ window.AVNative = {
 }
 ```
 
-São **vinte e três métodos**, e essa é a superfície inteira que o resto do lado web
+São **vinte e quatro métodos**, e essa é a superfície inteira que o resto do lado web
 tem direito de usar: fora do `native.js`, tocar em `__AVBridge` direto é
 acoplamento indevido. O próprio `native.js` chama mais seis coisas no
 `__AVBridge`, e nenhuma delas é API para o app — a sexta é o `ytFetchAudio`,
@@ -322,7 +324,8 @@ esperam uma **pessoa** e ficam sem prazo, porque um timeout ali resolveria null
 com o operador ainda escolhendo a pasta.
 
 `NativeBridge.SHELL_VERSION` identifica a versão da casca — **subir sempre que
-a superfície da ponte mudar**. Hoje vale **23** — a v5.112 acrescentou
+a superfície da ponte mudar**. Hoje vale **24** — a v5.115 acrescentou `ytDiag`
+(diagnóstico da extração do YouTube), a v5.112 acrescentou
 `ytFetchAudio` (só a faixa de áudio de um vídeo do YouTube), a v5.100 fez `deckPages`
 devolver o MOTIVO da falha (`{ erro }`) em vez de `null`, a v5.99 mudou a ASSINATURA do
 `pickDoc` (que passou a receber os mimes e a devolver uma LISTA, porque virou a
@@ -1371,7 +1374,7 @@ aparelho nenhum.
 O `versionCode`/`versionName` do APK vêm do CI (ver "Build") e não se tocam à
 mão.
 
-**Versão atual: v5.114** (base web) · `SHELL_VERSION` **23**, e o bundle segue com
+**Versão atual: v5.115** (base web) · `SHELL_VERSION` **24**, e o bundle segue com
 `minShell: 2` — ele funciona igual num shell antigo, só sem os recursos que são
 nativos por construção (a escada do voltar, os botões de volume, a notificação de
 controles), que **só chegam instalando o APK novo**, não pelo OTA.

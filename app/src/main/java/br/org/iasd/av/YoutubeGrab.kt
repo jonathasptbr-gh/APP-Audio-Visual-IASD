@@ -134,6 +134,33 @@ object YoutubeGrab {
         ex.forceContentCountry(PAIS)
     }
 
+    /**
+     * O que o extrator devolveu na ÚLTIMA extração, em uma linha — lido pela
+     * ponte (`ytDiag`) e mostrado no rodapé de Configurações. É diagnóstico, não
+     * recurso: a única forma de saber se as faixas adaptativas chegam a ESTE
+     * aparelho é olhar o que chegou nele.
+     *
+     * `@Volatile` porque quem escreve é a fila de IO e quem lê é a thread do
+     * WebView.
+     */
+    @Volatile
+    var diagnostico: String = ""
+        private set
+
+    /** "áudio 2 · vídeo-só 5 (1080p) · progressivo 2 (720p)" */
+    private fun resumo(info: StreamInfo): String {
+        val aud = info.audioStreams.count { it.isUrl && !it.getContent().isNullOrBlank() }
+        val vOnly = info.videoOnlyStreams.filter { it.isUrl && !it.getContent().isNullOrBlank() }
+        val prog = info.videoStreams.filter {
+            it.isUrl && !it.getContent().isNullOrBlank() && !it.isVideoOnly
+        }
+        val maiorVOnly = vOnly.maxOfOrNull { alturaDe(it.getResolution()) } ?: 0
+        val maiorProg = prog.maxOfOrNull { alturaDe(it.getResolution()) } ?: 0
+        return "áudio " + aud +
+            " · vídeo-só " + vOnly.size + (if (maiorVOnly > 0) " (${maiorVOnly}p)" else "") +
+            " · progressivo " + prog.size + (if (maiorProg > 0) " (${maiorProg}p)" else "")
+    }
+
     /** `NewPipe.init` é global e só pode acontecer uma vez por processo. */
     @Volatile
     private var pronto = false
@@ -190,6 +217,15 @@ object YoutubeGrab {
             // lado web, não o container do arquivo. O operador ouve o louvor no
             // fundo do mesmo jeito; o que ele paga é o tamanho do arquivo, e é
             // por isso que esta é a ÚLTIMA tentativa, não a primeira.
+            // DIAGNÓSTICO (v1.42). A pergunta que só o aparelho responde: o
+            // extrator está recebendo as faixas ADAPTATIVAS (áudio separado e
+            // vídeo-only, que é onde moram 1080p e o áudio puro) ou só o
+            // progressivo? Sem PO Token a biblioteca busca os streams pelo
+            // endpoint `reel/reel_item_watch`, e o que ele devolve varia por
+            // vídeo — não dá para decidir por leitura de código se vale
+            // implementar o remux para 1080p. Isto mede, uma vez, na mão de
+            // quem opera.
+            diagnostico = resumo(info)
             val tentativas = mutableListOf<Alvo>()
             if (somenteAudio) {
                 // 1) AAC, a primeira escolha: o WebView decodifica em qualquer
@@ -214,6 +250,8 @@ object YoutubeGrab {
                     continue
                 }
                 if (destino.length() <= 0L) { destino.delete(); continue }
+                diagnostico += " → veio " + alvo.ext +
+                    (alvo.stream as? VideoStream)?.let { " " + (it.getResolution() ?: "?") }.orEmpty()
                 return JSONObject()
                     .put("url", SafRegistry.urlFor(Uri.fromFile(destino)))
                     .put("name", nome)
@@ -228,7 +266,8 @@ object YoutubeGrab {
                     // lado web poder avisar quando teve de cair no vídeo.
                     .put("audioOnly", alvo.soAudio)
             }
-            Log.w(TAG, "nenhum stream utilizável para $link (somenteAudio=$somenteAudio)")
+            diagnostico += " → NADA baixou"
+            Log.w(TAG, "nenhum stream utilizável para $link ($diagnostico)")
             null
         } catch (e: Exception) {
             Log.w(TAG, "falhou em $link", e)

@@ -90,7 +90,7 @@ class NativeBridge(
          * exijam mais do que o shell instalado oferece (ver [WebUpdater]).
          * Subir SEMPRE que a superfície da ponte mudar.
          */
-        const val SHELL_VERSION = 23
+        const val SHELL_VERSION = 24
 
         /**
          * Fila de IO da ponte, **compartilhada por todas as instâncias**.
@@ -369,6 +369,27 @@ class NativeBridge(
             val r = try { YoutubeGrab.pesquisar(termo) } catch (_: Exception) { JSONArray() }
             resolve(callId, r.toString())
         }
+    }
+
+    /**
+     * O QUE O EXTRATOR DEVOLVEU na última extração, em uma linha — para o
+     * rodapé de Configurações. Diagnóstico, não recurso.
+     *
+     * A pergunta que ele responde não se responde lendo código: sem PO Token a
+     * biblioteca busca os streams por um endpoint que devolve um conjunto
+     * reduzido de formatos, e o que cabe nesse conjunto varia por vídeo. Saber
+     * se as faixas ADAPTATIVAS (1080p e o áudio puro moram nelas) chegam a este
+     * aparelho é o que decide se vale implementar o remux — e só o aparelho
+     * responde.
+     *
+     * String vazia antes da primeira extração.
+     */
+    @JavascriptInterface
+    fun ytDiag(callId: String) {
+        // `JSONObject.quote` e não uma concatenação com aspas: o texto é montado
+        // a partir do que o YouTube devolveu, e é ele que vai INLINE dentro de
+        // um `evaluateJavascript` (ver `resolve`).
+        resolve(callId, JSONObject.quote(if (host == null) "" else YoutubeGrab.diagnostico))
     }
 
     /**

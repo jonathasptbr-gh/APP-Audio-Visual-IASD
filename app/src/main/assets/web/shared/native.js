@@ -310,6 +310,11 @@
     // biblioteca — senão o vídeo fica DUAS vezes no aparelho.
     ytDiscard(url) { try { B.ytDiscard(String(url)); } catch (_) { /* shell antigo */ } },
 
+    // DIAGNÓSTICO da última extração do YouTube: uma linha dizendo quantas
+    // faixas de cada tipo o extrator recebeu e qual venceu. Vazio num shell
+    // antigo (o `call` resolve null) e antes da primeira extração.
+    ytDiag: () => call((id) => B.ytDiag(id), CALL_TIMEOUT_MS).then((r) => r || ''),
+
     // O SELETOR DE ARQUIVOS do aparelho: resolve `[{ url, name, type }]`, uma
     // entrada por arquivo escolhido (lista vazia se o operador desistir). É a
     // importação inteira do app no nativo — imagem, vídeo, áudio, PDF e PPTX
