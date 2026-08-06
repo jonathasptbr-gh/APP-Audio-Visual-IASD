@@ -169,6 +169,26 @@ object YoutubeGrab {
         private set
 
     /**
+     * As faixas adaptativas já foram recusadas nesta execução do app.
+     *
+     * Medido em aparelho: elas são LISTADAS (12 de vídeo-só até 1080p, 5 de
+     * áudio) e o CDN responde **403** a todas — com os dois perfis de cliente e
+     * com `Range`. É o portão do PO Token, que este app não monta.
+     *
+     * Sem esta memória, todo download refazia as quatro requisições condenadas
+     * antes de cair no progressivo: alguns segundos de espera, por download,
+     * para chegar sempre à mesma conclusão. Com ela, o primeiro download da
+     * sessão paga o teste e os seguintes vão direto ao que funciona.
+     *
+     * Por PROCESSO, e não persistido: se o YouTube afrouxar (ou se o vídeo
+     * seguinte não for protegido), basta reabrir o app para tentar de novo — e
+     * um estado gravado em disco transformaria uma recusa de um dia numa
+     * desistência permanente.
+     */
+    @Volatile
+    private var adaptativoBloqueado = false
+
+    /**
      * "áudio 2 · vídeo-só 5 (1080p) · progressivo 2 (720p)"
      *
      * Cada grupo conta primeiro o que dá para BAIXAR (URL direta de arquivo) e,
@@ -415,6 +435,10 @@ object YoutubeGrab {
             diagnostico += " · sem par completo"
             return null
         }
+        if (adaptativoBloqueado) {
+            diagnostico += " · adaptativo bloqueado nesta sessão"
+            return null
+        }
 
         // O progressivo que já temos de graça é o piso: montar só compensa se o
         // resultado for melhor. Sem esta conta, um vídeo cuja faixa separada
@@ -463,7 +487,12 @@ object YoutubeGrab {
                     .put("audioOnly", false)
             } catch (e: Exception) {
                 Log.w(TAG, "não deu para juntar $ext de $id", e)
-                diagnostico += " · $ext " + motivo(e)
+                val porque = motivo(e)
+                diagnostico += " · $ext " + porque
+                // 403 é o portão do PO Token, e ele não muda de ideia no
+                // download seguinte. Qualquer outro motivo (rede, arquivo) pode
+                // ser passageiro e não desliga nada.
+                if (porque == "403") adaptativoBloqueado = true
                 saida.delete()
             } finally {
                 // As partes não servem para mais nada — nem em caso de sucesso
