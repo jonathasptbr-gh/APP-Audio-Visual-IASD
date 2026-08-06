@@ -82,6 +82,13 @@ const stage = createStage({
   video: videoEl,
   forceMuted: false,
   onTime: sendStatus,
+  // O TELÃO NÃO RECUPERA SOZINHO uma transmissão que falhou, e não é omissão:
+  // ele não tem a ponte (`host = null`, ver NativeBridge) para pedir um
+  // manifesto novo, e duas recuperações independentes para a mesma cena
+  // brigariam entre si. Quem conserta é o Controle, cuja preview toca o MESMO
+  // registro e vê o mesmo erro no mesmo instante — e que reenvia a cena
+  // arrumada pelo caminho de sempre.
+  onStreamErro: (rec, porque) => { console.warn('[stream] telão:', porque); },
   onBlocked: () => {
     // A guarda de nativo fica AQUI, e não só dentro de beginAudioRecovery():
     // no APK não há política de gesto (ver #startBtn), então um NotAllowedError

@@ -668,7 +668,7 @@
              METADADO de diagnóstico e o lugar onde se procura diagnóstico é
              junto do estado do telão e do alvo de espelhamento, não numa faixa
              de navegação. Preenchido por `renderVersionLabel`. -->
-        <span id="appVersion" class="app-version">Controle v5.119</span>
+        <span id="appVersion" class="app-version">Controle v5.120</span>
         <!-- DIAGNÓSTICO da última extração do YouTube (v5.115): quantas faixas
              de cada tipo o extrator recebeu e qual delas venceu. Fica aqui, ao
              lado das versões e do alvo de espelhamento, porque é o mesmo tipo
@@ -856,6 +856,10 @@
        qualquer outro script consulte essas guardas. No navegador é no-op. -->
   <script src="../shared/native.js"></script>
   <script src="../shared/db.js"></script>
+  <!-- ANTES do stage.js: é ele quem consulta `AVStream` ao carregar uma mídia
+       de transmissão direta, e um script carregado depois chegaria tarde para
+       o primeiro `load` de uma sessão. -->
+  <script src="../shared/mse.js"></script>
   <script src="../shared/stage.js"></script>
   <script src="louvorja.js"></script>
   <script src="bible.js"></script>

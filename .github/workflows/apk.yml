@@ -66,6 +66,13 @@ jobs:
           assert m['version'] and int(m['minShell']) > 0, m
           print('version.json OK:', m)
           "
+          # O parser do índice DASH (`sidx`) da transmissão direta. Ele entra
+          # aqui, e não num framework de teste, porque é a ÚNICA peça daquele
+          # caminho que se verifica sem aparelho — e porque um erro de
+          # deslocamento nele não dá erro: dá vídeo que não toca, no telão, no
+          # meio de um culto. O passo já existe para impedir que o canal OTA
+          # publique um bundle que não carrega; isto é da mesma natureza.
+          node tools/sidx.test.mjs
 
       - name: Empacotar a base web
         run: |

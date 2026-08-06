@@ -1,0 +1,181 @@
+package br.org.iasd.av
+
+import android.util.Log
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
+import java.io.FilterInputStream
+import java.io.InputStream
+import java.net.HttpURLConnection
+import java.net.URL
+import java.security.SecureRandom
+import java.util.Base64
+import java.util.concurrent.ConcurrentHashMap
+
+/**
+ * Serve uma faixa do `googlevideo` **pelo nosso próprio origin**, em
+ * `https://appassets.androidplatform.net/stream/<token>`.
+ *
+ * ## Por que um proxy, e não a URL direta
+ *
+ * O lado web precisa dos BYTES de faixas adaptativas para alimentar o
+ * `MediaSource` (ver `shared/mse.js`) — e um `fetch()` direto ao googlevideo
+ * falha por três motivos independentes, cada um suficiente sozinho:
+ *
+ * 1. **CORS.** O googlevideo não manda `Access-Control-Allow-Origin`, então o
+ *    `fetch` do WebView nunca enxerga a resposta. É o mesmo muro que obrigava o
+ *    caminho antigo do Cobalt a usar um túnel.
+ * 2. **User-Agent.** Uma URL emitida para um cliente é servida a quem se anuncia
+ *    como ele. O WebView manda o UA dele (um Chrome de Android) e a faixa do
+ *    visionOS responde 403 — foi exatamente esse desencontro que custou sete
+ *    versões até a v1.49.
+ * 3. **A invariante 2.** O WebView RECUSA navegar/buscar fora do origin do app,
+ *    e afrouxar isso é a última coisa que este projeto pode fazer.
+ *
+ * Passando por aqui, os três somem de uma vez: é o mesmo origin, o UA é o certo
+ * e a invariante fica de pé.
+ *
+ * ## Range é o ponto, e é por isso que isto NÃO é um `PathHandler`
+ *
+ * O `WebViewAssetLoader.PathHandler` recebe só o CAMINHO (`handle(path)`) — os
+ * cabeçalhos da requisição não chegam lá. E o MSE é feito de requisições por
+ * FAIXA DE BYTES: o segmento de inicialização, o índice, cada trecho de mídia.
+ * Sem repassar o `Range`, cada pedido traria o arquivo inteiro e o player
+ * baixaria centenas de MB para usar 200 kB.
+ *
+ * Daí este objeto ser chamado de dentro do `shouldInterceptRequest`, que recebe
+ * o [WebResourceRequest] completo, ANTES de o asset loader ver a URL.
+ *
+ * ## O que ele NÃO faz
+ *
+ * Não interpreta mídia, não decide qualidade e não guarda nada em disco: é um
+ * cano. Quem escolhe as faixas é o [YoutubeGrab] (a mesma fila de candidatos do
+ * download), e quem as monta em vídeo é o `MediaSource` do lado web.
+ */
+object StreamProxy {
+
+    private const val TAG = "StreamProxy"
+
+    /** O prefixo do caminho servido aqui. */
+    const val ROTA = "/stream/"
+
+    private const val CONECTA_MS = 15_000
+    private const val LE_MS = 30_000
+
+    /**
+     * Token opaco → URL do googlevideo.
+     *
+     * As mesmas três razões do `SafRegistry`, e uma quarta que só existe aqui:
+     *
+     * - **Opaco**, e não a URL codificada: uma URL do googlevideo tem centenas
+     *   de caracteres e barras dentro dos parâmetros, e o caminho chega
+     *   DECODIFICADO ao interceptador.
+     * - **Aleatório** (128 bits, `SecureRandom`), não um contador: um contador é
+     *   adivinhável por construção.
+     * - **Sem expiração própria.** A URL do googlevideo já expira sozinha (algumas
+     *   horas), e é ela que manda: um token vivo apontando para uma URL morta
+     *   falha com o 403 do próprio YouTube, que é a informação certa.
+     * - **Reaproveita a mesma URL.** Um `load` do Controle e outro do Display
+     *   pedem a mesma faixa; sem isso, cada projeção acrescentaria duas entradas
+     *   novas num processo mantido vivo durante todo o culto.
+     */
+    private val porToken = ConcurrentHashMap<String, String>()
+    private val porUrl = ConcurrentHashMap<String, String>()
+    private val random = SecureRandom()
+
+    fun registrar(url: String): String {
+        porUrl[url]?.let { return it }
+        val bytes = ByteArray(16)
+        random.nextBytes(bytes)
+        val token = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
+        porToken[token] = url
+        porUrl[url] = token
+        return token
+    }
+
+    /** A URL servível desta faixa, no origin do app. */
+    fun urlFor(url: String): String = WebViewFactory.ORIGIN + ROTA + registrar(url)
+
+    /**
+     * Atende a requisição se ela for nossa; `null` deixa o asset loader seguir.
+     *
+     * **BLOQUEANTE** — roda na thread de carregamento de recursos do WebView,
+     * que é exatamente onde um `PathHandler` também rodaria.
+     */
+    fun tryHandle(request: WebResourceRequest): WebResourceResponse? {
+        val u = request.url
+        // Pelo COMPONENTE do Uri, nunca por prefixo de string — a mesma regra da
+        // invariante 2: `appassets.androidplatform.net.evil.com` começa com o
+        // origin e é um domínio que qualquer um registra.
+        if (u.scheme != "https" || u.host != WebViewFactory.ORIGIN_HOST) return null
+        val caminho = u.path ?: return null
+        if (!caminho.startsWith(ROTA)) return null
+        val token = caminho.removePrefix(ROTA).trim('/')
+        val alvo = porToken[token] ?: return WebViewFactory.notFound()
+        return try {
+            abrir(alvo, request.requestHeaders?.get("Range"))
+        } catch (e: Exception) {
+            Log.w(TAG, "falhou servindo $token", e)
+            WebViewFactory.notFound()
+        }
+    }
+
+    private fun abrir(alvo: String, range: String?): WebResourceResponse {
+        val conn = (URL(alvo).openConnection() as HttpURLConnection).apply {
+            connectTimeout = CONECTA_MS
+            readTimeout = LE_MS
+            instanceFollowRedirects = true
+            // O UA QUE COMBINA COM A URL. É a mesma leitura do `c=` que o
+            // download faz (ver `YoutubeGrab.baixarTentando`), e pela mesma
+            // razão: pedir uma faixa do visionOS anunciando um Chrome de
+            // Android é o caminho conhecido para um 403.
+            setRequestProperty("User-Agent", YoutubeGrab.uaPara(alvo))
+            // O `Range` do PLAYER, repassado como veio. Quando ele não manda
+            // nenhum (o primeiro toque de alguns players), pedimos a partir do
+            // byte zero: as URLs adaptativas do googlevideo costumam recusar
+            // quem não pede faixa.
+            setRequestProperty("Range", range ?: "bytes=0-")
+        }
+        val codigo = conn.responseCode
+        if (codigo >= 400) {
+            conn.disconnect()
+            // O código do YouTube é repassado COMO ESTÁ, e isso é deliberado: um
+            // 403 aqui significa URL expirada ou faixa recusada, e é o lado web
+            // que sabe o que fazer com essa distinção (pedir um manifesto novo,
+            // ou cair no player embutido). Traduzir tudo para "não achei"
+            // apagaria justamente o que diferencia os dois casos.
+            return WebResourceResponse(
+                "text/plain", "utf-8", codigo, "Erro",
+                mapOf("Cache-Control" to "no-store"),
+                java.io.ByteArrayInputStream(ByteArray(0)),
+            )
+        }
+        val mime = conn.contentType?.substringBefore(';')?.trim().orEmpty()
+            .ifEmpty { "application/octet-stream" }
+        val cabecalhos = mutableMapOf(
+            "Cache-Control" to "no-store",
+            "Accept-Ranges" to "bytes",
+        )
+        // `Content-Range` e `Content-Length` REPASSADOS: é por eles que o
+        // `fetch` do lado web sabe que recebeu a faixa que pediu, e é o que
+        // permite ao MSE montar o índice sem baixar o arquivo inteiro.
+        conn.getHeaderField("Content-Range")?.let { cabecalhos["Content-Range"] = it }
+        val tamanho = conn.contentLengthLong
+        if (tamanho >= 0) cabecalhos["Content-Length"] = tamanho.toString()
+        return WebResourceResponse(
+            mime,
+            null,
+            codigo,
+            if (codigo == 206) "Partial Content" else "OK",
+            cabecalhos,
+            // O fluxo VIVE depois daqui: quem o fecha é o WebView, quando
+            // terminar de ler. Um `disconnect()` neste ponto mataria a resposta
+            // antes do primeiro byte — daí o wrapper, que solta a conexão no
+            // `close` e não antes.
+            object : FilterInputStream(conn.inputStream) {
+                override fun close() {
+                    try { super.close() } finally { conn.disconnect() }
+                }
+            } as InputStream,
+        )
+    }
+}

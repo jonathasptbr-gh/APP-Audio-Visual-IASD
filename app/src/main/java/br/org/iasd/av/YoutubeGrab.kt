@@ -16,6 +16,7 @@ import org.schabi.newpipe.extractor.exceptions.ReCaptchaException
 import org.schabi.newpipe.extractor.localization.ContentCountry
 import org.schabi.newpipe.extractor.localization.Localization
 import org.schabi.newpipe.extractor.search.SearchInfo
+import org.schabi.newpipe.extractor.services.youtube.ItagItem
 import org.schabi.newpipe.extractor.services.youtube.extractors.YoutubeStreamExtractor
 import org.schabi.newpipe.extractor.stream.AudioStream
 import org.schabi.newpipe.extractor.stream.Stream
@@ -520,6 +521,77 @@ object YoutubeGrab {
     }
 
     /**
+     * O MANIFESTO da transmissão direta: as duas melhores faixas adaptativas,
+     * com URLs já servíveis pelo nosso origin ([StreamProxy]) e com os
+     * byte-ranges que o `MediaSource` do lado web precisa.
+     *
+     * ## Por que isto existe ao lado do [buscar]
+     *
+     * Baixar resolve a projeção mas cobra a ESPERA: um louvor de 1080p são
+     * centenas de MB antes do primeiro quadro. O caminho alternativo era o
+     * player embutido do YouTube, e ele traz a UI dele junto — o rodinha de
+     * carregamento, o botão grande na pausa, a tela final — coisas que
+     * `controls: 0` não desliga porque não são controles.
+     *
+     * Transmitindo, o vídeo vira um `<video>` COMUM alimentado por MSE: fade,
+     * cortina, `MediaSession`, barra de progresso e segundo plano continuam
+     * sendo os mesmos que já funcionam, e não há um pixel de YouTube no telão.
+     *
+     * ## Só mp4/AVC + m4a/AAC
+     *
+     * O par WebM (VP9 + Opus) existe e o Chromium o toca, mas o `MediaSource`
+     * de um WebView é território de fabricante e o AVC/AAC é o que decodifica
+     * em qualquer aparelho. Aqui a recusa é barata — quem não achar par
+     * transmissível cai no download, que aceita os dois contêineres.
+     *
+     * **BLOQUEANTE** — rede e parsing, como todo o resto deste arquivo.
+     * `null` quando não há par adaptativo: quem chamou cai no caminho de antes.
+     */
+    fun manifesto(link: String, teto: Int = TETO_ALTURA): JSONObject? {
+        return try {
+            garantirInit()
+            val ex = ServiceList.YouTube.getStreamExtractor(link)
+            aportuguesar(ex)
+            val info = StreamInfo.getInfo(ex)
+            diagnostico = resumo(info)
+            // A MESMA fila de candidatos do download, e não uma segunda regra:
+            // a ordem por cliente (visionOS primeiro) é o que faz a faixa
+            // escolhida ser uma que o CDN de fato serve.
+            val v = candidatosVideo(info, 0, teto).firstOrNull { it.dash && !it.webm }
+            val a = candidatosAudio(info, "m4a", TETO_AUDIO).firstOrNull { it.dash }
+            if (v == null || a == null) {
+                diagnostico += " · sem par DASH para transmitir"
+                return null
+            }
+            diagnostico += " → transmitindo ${v.altura}p (${v.etiqueta} + ${a.etiqueta})"
+            JSONObject()
+                .put("name", tituloLimpo(info.name, info.uploaderName))
+                .put("seconds", info.duration)
+                .put("height", v.altura)
+                .put("video", faixaJson(v))
+                .put("audio", faixaJson(a))
+        } catch (e: Exception) {
+            Log.w(TAG, "não deu para montar o manifesto de $link", e)
+            null
+        }
+    }
+
+    /**
+     * Uma faixa do manifesto. O `mime` sai COMPLETO (`video/mp4;
+     * codecs="avc1.640028"`) porque é assim que o `MediaSource.isTypeSupported`
+     * e o `addSourceBuffer` o exigem — sem o `codecs`, o navegador recusa.
+     */
+    private fun faixaJson(f: Faixa): JSONObject = JSONObject()
+        .put("url", StreamProxy.urlFor(f.url))
+        .put("mime", f.mime + "; codecs=\"" + f.codec + "\"")
+        .put("initStart", f.initIni)
+        .put("initEnd", f.initFim)
+        .put("indexStart", f.idxIni)
+        .put("indexEnd", f.idxFim)
+        .put("size", f.tamanho)
+        .put("itag", f.etiqueta)
+
+    /**
      * Baixa uma faixa de vídeo (até 1080p) mais a de áudio do mesmo contêiner e
      * as junta. Devolve o JSON pronto, ou `null` quando este caminho não serve —
      * e aí quem chamou cai no progressivo de sempre.
@@ -769,8 +841,32 @@ object YoutubeGrab {
         val bitrate: Int,
         itag: Int,
         val cliente: String,
+        /**
+         * Os byte-ranges do DASH, quando o YouTube os informa: o segmento de
+         * INICIALIZAÇÃO (`ftyp`+`moov`, o cabeçalho que descreve a faixa) e o
+         * ÍNDICE (`sidx`, o mapa de tempo → posição de cada fragmento).
+         *
+         * São eles que tornam a transmissão direta possível: com os dois, o
+         * player do lado web monta a linha do tempo inteira lendo alguns
+         * kilobytes, e daí em diante pede só os pedaços de que precisa. Sem
+         * eles, "tocar" significaria baixar o arquivo todo primeiro — que é
+         * exatamente o que se quer evitar.
+         *
+         * Zerados quando a faixa não é adaptativa (o progressivo não tem sidx).
+         */
+        val initIni: Int = 0,
+        val initFim: Int = 0,
+        val idxIni: Int = 0,
+        val idxFim: Int = 0,
+        /** O tamanho total da faixa, para o player saber onde ela acaba. */
+        val tamanho: Long = 0,
+        /** `avc1.640028`, `mp4a.40.2` — o que o `MediaSource` exige saber. */
+        val codec: String = "",
     ) {
         val webm: Boolean = ext == "webm"
+
+        /** Dá para transmitir esta faixa por MSE? */
+        val dash: Boolean = idxFim > idxIni && initFim > initIni && tamanho > 0 && codec.isNotEmpty()
 
         /** "137@VISIONOS" — o formato exato e de quem ele veio. */
         val etiqueta: String = (if (itag > 0) itag.toString() else ext) + "@" + cliente
@@ -789,6 +885,9 @@ object YoutubeGrab {
         val fmt = s.getFormat() ?: return null
         val ext = fmt.getSuffix()?.lowercase() ?: return null
         val mime = fmt.getMimeType() ?: return null
+        // O `ItagItem` é NULO fora do YouTube e pode faltar mesmo dentro dele;
+        // a faixa continua valendo para DOWNLOAD, só não serve para transmitir.
+        val it: ItagItem? = try { s.getItagItem() } catch (_: Exception) { null }
         return Faixa(
             url = url,
             ext = ext,
@@ -797,6 +896,12 @@ object YoutubeGrab {
             bitrate = (s as? AudioStream)?.averageBitrate ?: 0,
             itag = itagDe(url),
             cliente = clienteDe(url),
+            initIni = it?.getInitStart() ?: 0,
+            initFim = it?.getInitEnd() ?: 0,
+            idxIni = it?.getIndexStart() ?: 0,
+            idxFim = it?.getIndexEnd() ?: 0,
+            tamanho = it?.getContentLength() ?: 0L,
+            codec = it?.getCodec().orEmpty(),
         )
     }
 
@@ -1053,6 +1158,21 @@ object YoutubeGrab {
      * Os outros perfis continuam atrás, como rede de segurança: no pior caso
      * custam uma requisição perdida, e um 403 falha antes do primeiro byte.
      */
+    /**
+     * O `User-Agent` que combina com esta URL, lido do `c=` que o CDN carimbou
+     * nela.
+     *
+     * Público porque o [StreamProxy] precisa exatamente da mesma decisão: ele
+     * serve as MESMAS URLs, e pedi-las anunciando outro cliente é o caminho
+     * conhecido para um 403. Uma segunda tabela lá envelheceria em silêncio na
+     * primeira vez que a biblioteca trocasse de cliente.
+     */
+    fun uaPara(url: String): String = when (clienteDe(url)) {
+        "VISIONOS" -> UA_VISIONOS
+        "IOS" -> UA_IOS
+        else -> UA
+    }
+
     private fun baixarTentando(
         url: String,
         destino: File,
@@ -1063,6 +1183,7 @@ object YoutubeGrab {
             "IOS" -> "i"
             else -> "A"
         }
+        
         // `sortedBy` é estável, então os perfis que não combinam mantêm a ordem
         // em que estão escritos aqui.
         val perfis = listOf("V" to UA_VISIONOS, "i" to UA_IOS, "A" to UA)

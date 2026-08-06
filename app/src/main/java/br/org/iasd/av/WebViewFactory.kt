@@ -187,7 +187,22 @@ object WebViewFactory {
             override fun shouldInterceptRequest(
                 view: WebView,
                 request: WebResourceRequest,
-            ): WebResourceResponse? = loader.shouldInterceptRequest(request.url)
+            ): WebResourceResponse? {
+                // O PROXY DE TRANSMISSÃO vem ANTES do asset loader, e tem de
+                // vir: ele é o único ponto do app que enxerga os CABEÇALHOS da
+                // requisição, e a transmissão direta é feita de pedidos por
+                // faixa de bytes (`Range`). Um `PathHandler` recebe só o
+                // caminho — ver o KDoc do [StreamProxy].
+                //
+                // Ele vale para os DOIS WebViews, ao contrário do handler
+                // `/saf/`: aqui quem projeta é o telão, então negá-lo ao
+                // Display seria negar o recurso inteiro. A exposição é
+                // diferente da do `/saf/` — um token de stream aponta para uma
+                // faixa do vídeo que já está em cena, não para o índice de uma
+                // pasta do aparelho.
+                StreamProxy.tryHandle(request)?.let { return it }
+                return loader.shouldInterceptRequest(request.url)
+            }
 
             override fun shouldOverrideUrlLoading(
                 view: WebView,

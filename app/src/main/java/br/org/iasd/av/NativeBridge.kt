@@ -90,7 +90,7 @@ class NativeBridge(
          * exijam mais do que o shell instalado oferece (ver [WebUpdater]).
          * Subir SEMPRE que a superfície da ponte mudar.
          */
-        const val SHELL_VERSION = 25
+        const val SHELL_VERSION = 26
 
         /**
          * Fila de IO da ponte, **compartilhada por todas as instâncias**.
@@ -391,6 +391,32 @@ class NativeBridge(
                 YoutubeGrab.buscar(ctx, url, somenteAudio, alvo) { lidos, total ->
                     ytProgresso(callId, lidos, total)
                 }
+            } catch (_: Exception) { null }
+            resolve(callId, r?.toString() ?: "null")
+        }
+    }
+
+    /**
+     * O MANIFESTO da transmissão direta de um vídeo do YouTube: as duas faixas
+     * adaptativas e seus byte-ranges, com URLs servíveis pelo próprio origin do
+     * app (ver [StreamProxy]).
+     *
+     * Devolve `null` quando não há par adaptativo transmissível — e aí o lado
+     * web cai no que já existia (baixar, ou o player embutido). É esse `null`
+     * que torna o recurso inteiro opcional: nenhum caminho que funciona hoje
+     * depende dele.
+     *
+     * **Privilégio do Controle**, como toda a superfície com `host`. O telão
+     * não monta manifesto: ele recebe o já montado pelo registro da mídia, do
+     * mesmo IndexedDB compartilhado, e só CONSOME os `/stream/` — que é o que
+     * ele precisa para projetar.
+     */
+    @JavascriptInterface
+    fun ytStream(callId: String, url: String, altura: Int) {
+        if (host == null) { resolve(callId, "null"); return }
+        io.execute {
+            val r = try {
+                YoutubeGrab.manifesto(url, altura.coerceIn(144, YoutubeGrab.TETO_ALTURA))
             } catch (_: Exception) { null }
             resolve(callId, r?.toString() ?: "null")
         }
