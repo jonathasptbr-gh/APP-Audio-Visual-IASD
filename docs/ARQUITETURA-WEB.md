@@ -753,9 +753,30 @@ lido a cada ABERTURA do popup, não uma vez na carga: o valor muda a cada
 download, e a graça é comparar antes e depois de um teste. Só aparece no app
 (shell ≥ 24) e depois da primeira extração.
 
-Com "vídeo-só" em zero, o 1080p depende do PO Token — o desafio do BotGuard num
-WebView, por vídeo, que este projeto evitou de propósito. Com "vídeo-só" trazendo
-1080p, o que falta é só o remux, que é platform-only.
+**A primeira medição em aparelho** (v1.42) devolveu:
+
+```
+áudio 0 · vídeo-só 0 · progressivo 1 (360p) → veio mp4 360p
+```
+
+Uma faixa só, a mais baixa que existe (itag 18). Não há adaptativas — logo não
+há 1080p para juntar, e o remux não teria o que fazer — e **nem o progressivo de
+720p está vindo**: o app baixava em 360p, não em 720p como se supunha. É o
+conjunto reduzido do endpoint dos Shorts, e atualizar a biblioteca não resolve
+(conferido no fonte da v0.26.4: o fallback sem token continua sendo o mesmo).
+
+A alavanca que sobrou antes do BotGuard é o **cliente iOS** (v1.43): ele vem
+DESLIGADO na biblioteca (`private static boolean fetchIosClient;`, sem valor) e
+é o único outro cliente consultado sem PO Token —
+`YoutubeStreamExtractor.setFetchIosClient(true)` acrescenta uma segunda resposta
+de player à mesma extração. A ressalva está na javadoc do próprio método: as
+faixas do iOS vêm "especialmente" como **manifestos HLS**, e manifesto não é URL
+de arquivo — o `isUrl` das nossas escolhas o descarta. Por isso o diagnóstico
+passou a contar também o que veio SEM ser URL direta (`+N manif.`): é o que
+separa "o YouTube não mandou nada" de "mandou, mas noutro formato", duas
+leituras que levam a decisões opostas e que sem esse `+` apareceriam como o
+mesmo zero. Custa uma requisição a mais por extração; se a medição seguinte não
+mostrar ganho, a linha sai.
 
 **Não exige subir o `DB_VERSION`** (nenhum índice novo; o IDB não tem esquema
 por registro), e é isso que o mantém barato: ver o preço da VOLTA descrito em

@@ -15,6 +15,7 @@ import org.schabi.newpipe.extractor.exceptions.ReCaptchaException
 import org.schabi.newpipe.extractor.localization.ContentCountry
 import org.schabi.newpipe.extractor.localization.Localization
 import org.schabi.newpipe.extractor.search.SearchInfo
+import org.schabi.newpipe.extractor.services.youtube.extractors.YoutubeStreamExtractor
 import org.schabi.newpipe.extractor.stream.AudioStream
 import org.schabi.newpipe.extractor.stream.StreamInfo
 import org.schabi.newpipe.extractor.stream.Stream
@@ -147,18 +148,33 @@ object YoutubeGrab {
     var diagnostico: String = ""
         private set
 
-    /** "áudio 2 · vídeo-só 5 (1080p) · progressivo 2 (720p)" */
+    /**
+     * "áudio 2 · vídeo-só 5 (1080p) · progressivo 2 (720p)"
+     *
+     * Cada grupo conta primeiro o que dá para BAIXAR (URL direta de arquivo) e,
+     * entre parênteses com `+`, o que veio mas NÃO é URL — manifesto HLS/DASH,
+     * que precisaria de um caminho de download próprio. A distinção é o que
+     * separa "o YouTube não mandou nada" de "mandou, mas noutro formato": as
+     * duas leituras levam a decisões opostas, e sem o `+` elas apareceriam aqui
+     * como o mesmo zero.
+     */
     private fun resumo(info: StreamInfo): String {
-        val aud = info.audioStreams.count { it.isUrl && !it.getContent().isNullOrBlank() }
-        val vOnly = info.videoOnlyStreams.filter { it.isUrl && !it.getContent().isNullOrBlank() }
-        val prog = info.videoStreams.filter {
-            it.isUrl && !it.getContent().isNullOrBlank() && !it.isVideoOnly
+        fun parte(nome: String, todos: List<Stream>, altura: (Stream) -> Int): String {
+            val baixaveis = todos.filter { it.isUrl && !it.getContent().isNullOrBlank() }
+            val outros = todos.size - baixaveis.size
+            val maior = baixaveis.maxOfOrNull(altura) ?: 0
+            return nome + " " + baixaveis.size +
+                (if (maior > 0) " (${maior}p)" else "") +
+                (if (outros > 0) " +$outros manif." else "")
         }
-        val maiorVOnly = vOnly.maxOfOrNull { alturaDe(it.getResolution()) } ?: 0
-        val maiorProg = prog.maxOfOrNull { alturaDe(it.getResolution()) } ?: 0
-        return "áudio " + aud +
-            " · vídeo-só " + vOnly.size + (if (maiorVOnly > 0) " (${maiorVOnly}p)" else "") +
-            " · progressivo " + prog.size + (if (maiorProg > 0) " (${maiorProg}p)" else "")
+        val semAltura = { _: Stream -> 0 }
+        return parte("áudio", info.audioStreams, semAltura) +
+            " · " + parte("vídeo-só", info.videoOnlyStreams) {
+                alturaDe((it as? VideoStream)?.getResolution())
+            } +
+            " · " + parte("progressivo", info.videoStreams.filter { !it.isVideoOnly }) {
+                alturaDe((it as? VideoStream)?.getResolution())
+            }
     }
 
     /** `NewPipe.init` é global e só pode acontecer uma vez por processo. */
@@ -169,6 +185,31 @@ object YoutubeGrab {
     private fun garantirInit() {
         if (pronto) return
         NewPipe.init(NpDownloader, IDIOMA, PAIS)
+        // O CLIENTE iOS, LIGADO À MÃO (v1.43). Ele vem DESLIGADO na biblioteca
+        // (`private static boolean fetchIosClient;`, sem valor = false), e é o
+        // único outro cliente que ela consulta sem PO Token.
+        //
+        // Por que mexer nisso: medido em aparelho, o que chega hoje é UMA faixa
+        // progressiva de 360p e mais nada — nem adaptativas (onde moram o 1080p
+        // e o áudio puro), nem o progressivo de 720p. É o conjunto reduzido do
+        // endpoint `reel/reel_item_watch`, para onde a biblioteca cai quando não
+        // há token. Ligar o iOS acrescenta uma segunda resposta de player à
+        // mesma extração, e é a única coisa que dá para tentar sem assinar o
+        // contrato de manutenção do BotGuard.
+        //
+        // A ressalva está na própria javadoc do método: as faixas do iOS vêm
+        // "especialmente" como manifestos HLS, e manifesto não é URL de arquivo
+        // — o `isUrl` das nossas escolhas o descarta. Por isso o diagnóstico
+        // passou a contar também o que veio SEM ser URL direta: é o que diz se
+        // valeu a pena, e o que ainda faltaria fazer.
+        //
+        // Custo: mais uma requisição por extração. Se a medição seguinte
+        // mostrar que não veio nada, esta linha sai.
+        try {
+            YoutubeStreamExtractor.setFetchIosClient(true)
+        } catch (e: Throwable) {
+            Log.w(TAG, "não deu para ligar o cliente iOS", e)
+        }
         pronto = true
     }
 
