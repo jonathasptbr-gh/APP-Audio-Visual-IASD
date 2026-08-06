@@ -1436,15 +1436,18 @@ mão.
 nativos por construção (a escada do voltar, os botões de volume, a notificação de
 controles), que **só chegam instalando o APK novo**, não pelo OTA.
 
-> **Pendência aberta: a Release v1.54 não saiu.** O último APK publicado é a
-> **v1.52**; as mudanças de shell das v1.53 e v1.54 — entre elas a correção do
-> ciclo de vida da conexão no `StreamProxy.kt`, que é o que faz a transmissão
-> direta passar da segunda requisição — estão em `main` e **não estão em
-> aparelho nenhum**. Não é esquecimento do ritual: em 06/08/2026 o GitHub
-> recusou o job `apk` oito vezes seguidas por indisponibilidade de runner (o
-> `web-ota` subiu normalmente no mesmo período, e a base web v5.126 ESTÁ na
-> frota). Publicar continua sendo o passo pendente: Actions → *Build APK* → Run
-> workflow, `release_tag` = **v1.54**. Enquanto isso não acontecer, a
-> transmissão direta cai no download — que é o fallback correto, não um defeito
-> novo. O diagnóstico completo está em `docs/ARQUITETURA-WEB.md`, em "O fluxo
-> vivo, e a segunda requisição que morria (v1.54)".
+> **A Release v1.54 saiu** (06/08/2026, tag em `4731022`, APK assinado com a
+> keystore fixa). Ela levou ao aparelho as mudanças de shell das v1.53 e v1.54 —
+> entre elas a correção do ciclo de vida da conexão no `StreamProxy.kt`, que é o
+> que faz a transmissão direta passar da segunda requisição. Ficou pendente por
+> algumas horas, e não por esquecimento do ritual: naquela tarde o GitHub
+> recusou o job `apk` oito vezes seguidas por indisponibilidade de runner — 15
+> min de fila e cancelamento, com `runner_name` VAZIO nos jobs, que é a
+> assinatura de "ninguém pegou o trabalho" e não de erro do repositório (o
+> `web-ota` subiu normalmente no mesmo período, e a base web v5.126 já estava na
+> frota). **A resposta a esse modo de falha é re-disparar**, não mexer no
+> workflow: o mesmo `Run workflow` com `release_tag` = **v1.54**, sem `retag`
+> (a tag ainda não existia), passou em 2 min quando havia runner. O diagnóstico
+> da transmissão direta está em `docs/ARQUITETURA-WEB.md`, em "O fluxo vivo, e a
+> segunda requisição que morria (v1.54)" — e o passo seguinte agora é ler o
+> Registro **num aparelho com a v1.54 instalada**.
