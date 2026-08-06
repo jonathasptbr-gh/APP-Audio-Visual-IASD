@@ -53,6 +53,10 @@
   // passou é o único jeito de continuar, e 30 s atrás do cursor é folga
   // suficiente para um retrocesso curto continuar instantâneo.
   const GUARDA_S = 30;
+  // Prazo de um `appendBuffer` do caminho de inicialização. Generoso de
+  // propósito: ele não existe para apertar o aparelho, existe para que uma
+  // resposta que nunca vem vire ERRO em vez de silêncio eterno.
+  const APPEND_MS = 15000;
 
   function suportado(man) {
     if (!global.MediaSource || !man || !man.video || !man.audio) return false;
@@ -60,6 +64,44 @@
       return MediaSource.isTypeSupported(man.video.mime)
         && MediaSource.isTypeSupported(man.audio.mime);
     } catch (_) { return false; }
+  }
+
+  // --------------------------------------------------------------------------
+  // A FAIXA VIAJA NA URL, NÃO NO CABEÇALHO (v5.127, shell 27)
+  //
+  // Num WebView, o `InputStream` devolvido por `shouldInterceptRequest` é lido
+  // pelo Chromium como o recurso INTEIRO a partir do byte 0: é ELE quem aplica
+  // o `Range` da requisição, pulando `first_byte_position` bytes do que o app
+  // entregou. Como o `StreamProxy` entrega só a fatia pedida, o deslocamento
+  // saía aplicado duas vezes — e a única requisição que podia funcionar era a
+  // que começa em 0, porque ali pular é um no-op. Era exatamente o que o
+  // aparelho reportava: o `init` passava, o `índice` morria com "Failed to
+  // fetch", sem status nenhum.
+  //
+  // Pedindo `?r=<ini>-<fim>` SEM cabeçalho `Range`, não há o que parsear e não
+  // há seek: a fatia chega inteira. No navegador nada disso existe (não há
+  // interceptador), então lá o `Range` continua sendo o jeito certo — e é o
+  // caminho padrão, como manda a regra do projeto.
+  // --------------------------------------------------------------------------
+  const FAIXA_NA_URL_DESDE = 27;
+
+  function faixaNaUrl() {
+    return !!(global.__NATIVE__ && (global.__SHELL_VERSION__ | 0) >= FAIXA_NA_URL_DESDE);
+  }
+
+  // Este aparelho consegue transmitir? No navegador, sempre. No app, só com o
+  // shell que entende a faixa na URL — num shell antigo a transmissão está
+  // quebrada por construção (ver acima), e tentar assim mesmo projeta uma cena
+  // morta em vez de cair no download.
+  function disponivel() {
+    return !global.__NATIVE__ || faixaNaUrl();
+  }
+
+  // Devolve [url, opções] do `fetch`. Guarda na ordem da regra: o navegador é o
+  // padrão, o nativo é a exceção declarada.
+  function pedido(url, ini, fim) {
+    if (!faixaNaUrl()) return [url, { headers: { Range: 'bytes=' + ini + '-' + fim } }];
+    return [url + (url.indexOf('?') < 0 ? '?' : '&') + 'r=' + ini + '-' + fim, {}];
   }
 
   // --------------------------------------------------------------------------
@@ -134,6 +176,17 @@
 
   function criar(video, man, opts) {
     const onErro = (opts && opts.onErro) || function () {};
+    // SHELL ANTIGO: desistir AQUI, e nunca calado. O chamador já entrou no ramo
+    // de stream, e um registro de stream não tem blob, opfsPath nem url — sair
+    // em silêncio deixaria o telão preto sem fallback nenhum. O erro sai
+    // assíncrono de propósito: quem chamou ainda não recebeu o retorno.
+    if (!disponivel()) {
+      const porque = 'a transmissão exige o shell 27 (instale o APK novo) — este é o '
+        + (global.__SHELL_VERSION__ | 0);
+      global.AVStream.ultimoErro = porque;
+      setTimeout(() => { try { onErro(porque); } catch (_) {} }, 0);
+      return { destruir() {} };
+    }
     let morto = false;
     let tick = null;
     let objUrl = null;
@@ -144,7 +197,13 @@
       if (morto) return;
       morto = true;
       clearInterval(tick);
-      try { if (ms.readyState === 'open') ms.endOfStream(); } catch (_) {}
+      // NADA DE `endOfStream()` AQUI. Ele existe para dizer "a mídia acabou", e
+      // num MediaSource que nunca recebeu um byte isso é mentira com
+      // consequência: o `<video>` dispara `ended`, o stage cobre com o
+      // wallpaper e o `autoAdvance` do Controle pula para o próximo item da
+      // playlist — um segundo depois do "Tocar agora", sem ninguém entender
+      // por quê. Quem sinaliza fim de verdade é `alimentar()`, quando todos os
+      // fragmentos entraram. Aqui só se solta o que foi alocado.
       // A URL do objeto é revogada SEMPRE, inclusive na falha: cada
       // `createObjectURL` que não é revogado prende o MediaSource e, por ele,
       // os buffers — num app que troca de mídia dezenas de vezes por culto isso
@@ -160,11 +219,17 @@
     // este player busca três coisas por faixa — inicialização, índice e mídia —
     // e cada uma falha por um motivo diferente, com um conserto diferente.
     async function pegar(url, ini, fim, passo) {
+      const alvo = pedido(url, ini, fim);
       let r;
       try {
-        r = await fetch(url, { headers: { Range: 'bytes=' + ini + '-' + fim } });
+        r = await fetch(alvo[0], alvo[1]);
       } catch (e) {
-        throw new Error(passo + ': a requisição não completou (' + ((e && e.message) || '?') + ')');
+        // A FAIXA VAI JUNTO, e isto não é enfeite: este era o único dos três
+        // ramos de `pegar()` que não imprimia os números, e foi justamente ele
+        // que falhou em aparelho. A investigação inteira teve de deduzir por
+        // aritmética o que uma linha de log teria dito.
+        throw new Error(passo + ': a requisição não completou (' + ((e && e.message) || '?')
+          + ') pedindo bytes ' + ini + '-' + fim);
       }
       // 200 é aceito além do 206: um proxy pode responder a faixa inteira, e
       // recusar isso quebraria por preciosismo.
@@ -319,9 +384,25 @@
     // natureza (init antes de índice, índice antes de mídia).
     function aplicar(f, buf) {
       return new Promise((resolve, reject) => {
-        const ok = () => { f.sb.removeEventListener('updateend', ok); resolve(); };
+        let prazo = null;
+        const limpar = () => {
+          clearTimeout(prazo);
+          f.sb.removeEventListener('updateend', ok);
+          f.sb.removeEventListener('error', ruim);
+        };
+        const ok = () => { limpar(); resolve(); };
+        const ruim = () => { limpar(); reject(new Error('o SourceBuffer recusou por evento')); };
         f.sb.addEventListener('updateend', ok);
-        try { f.sb.appendBuffer(buf); } catch (e) { f.sb.removeEventListener('updateend', ok); reject(e); }
+        f.sb.addEventListener('error', ruim);
+        // PRAZO. Sem ele, um `updateend` que não vem deixa `iniciar()`
+        // pendurado para SEMPRE: a transmissão para sem erro nenhum, que é o
+        // único desfecho pior que falhar — ninguém avisa o dono da cena e o
+        // download nem chega a ser acionado.
+        prazo = setTimeout(() => {
+          limpar();
+          reject(new Error('o append não respondeu em ' + (APPEND_MS / 1000) + ' s'));
+        }, APPEND_MS);
+        try { f.sb.appendBuffer(buf); } catch (e) { limpar(); reject(e); }
       });
     }
 
@@ -354,5 +435,5 @@
   // O ÚLTIMO erro de transmissão, para o Registro de Configurações. Um
   // `console.warn` não chega a quem opera o culto — e é justamente quem opera
   // que vê a falha acontecer.
-  global.AVStream = { suportado, criar, lerSidx, ultimoErro: '' };
+  global.AVStream = { suportado, disponivel, criar, lerSidx, ultimoErro: '' };
 })(window);

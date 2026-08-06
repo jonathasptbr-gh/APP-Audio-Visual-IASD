@@ -73,6 +73,15 @@ jobs:
           # meio de um culto. O passo já existe para impedir que o canal OTA
           # publique um bundle que não carrega; isto é da mesma natureza.
           node tools/sidx.test.mjs
+          # O CONTRATO do `shouldInterceptRequest`: o `InputStream` devolvido é
+          # o recurso INTEIRO a partir do byte 0, e quem aplica o `Range` é o
+          # WebView. Violar isso custou três rodadas de APK (v1.52 → v1.54) com
+          # o CI verde o tempo todo — porque a camada que falha não existe fora
+          # do aparelho. O oráculo transcreve a regra do Chromium e prova, em
+          # Node puro, que a fatia crua NÃO atende e a faixa na URL atende.
+          # Determinístico, sem rede e sem navegador: entra aqui, e sem
+          # `continue-on-error`.
+          node tools/webview-range.test.mjs
 
       # FUMAÇA DO CONTROLE, num Chromium de verdade. O passo acima prova que os
       # arquivos são PARSEÁVEIS; este prova que o app SOBE e responde ao toque.

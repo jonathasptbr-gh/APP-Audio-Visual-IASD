@@ -90,7 +90,7 @@ class NativeBridge(
          * exijam mais do que o shell instalado oferece (ver [WebUpdater]).
          * Subir SEMPRE que a superfície da ponte mudar.
          */
-        const val SHELL_VERSION = 26
+        const val SHELL_VERSION = 27
 
         /**
          * Fila de IO da ponte, **compartilhada por todas as instâncias**.
