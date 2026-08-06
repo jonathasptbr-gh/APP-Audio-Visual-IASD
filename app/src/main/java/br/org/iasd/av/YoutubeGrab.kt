@@ -237,6 +237,22 @@ object YoutubeGrab {
         private set
 
     /**
+     * O mesmo, para a TRANSMISSÃO DIRETA — e separado de propósito.
+     *
+     * Quando o `manifesto()` desiste, quem chama cai no [buscar], e o `buscar`
+     * começa com `diagnostico = resumo(info)`: o motivo da desistência era
+     * APAGADO pela linha do download que veio logo atrás. Na prática o log
+     * nunca conseguia dizer por que a transmissão não entrou — só mostrava o
+     * download que a substituiu, o que parecia "nem tentou".
+     *
+     * Dois campos, dois caminhos, nenhum sobrescreve o outro. [ytDiag] entrega
+     * os dois.
+     */
+    @Volatile
+    var diagnosticoStream: String = ""
+        private set
+
+    /**
      * TODA faixa adaptativa foi recusada (403) nesta execução do app.
      *
      * Enquanto a biblioteca só sabia pedir sem token, isso era a regra e não a
@@ -557,13 +573,19 @@ object YoutubeGrab {
             // A MESMA fila de candidatos do download, e não uma segunda regra:
             // a ordem por cliente (visionOS primeiro) é o que faz a faixa
             // escolhida ser uma que o CDN de fato serve.
-            val v = candidatosVideo(info, 0, teto).firstOrNull { it.dash && !it.webm }
-            val a = candidatosAudio(info, "m4a", TETO_AUDIO).firstOrNull { it.dash }
+            // As listas INTEIRAS, antes do filtro de `dash`: é a diferença
+            // entre elas e o que sobra que diz o que faltou.
+            val videos = candidatosVideo(info, 0, teto).filter { !it.webm }
+            val audios = candidatosAudio(info, "m4a", TETO_AUDIO)
+            val v = videos.firstOrNull { it.dash }
+            val a = audios.firstOrNull { it.dash }
+            val contas = porQueNaoDash("vídeo mp4", videos) + " · " + porQueNaoDash("áudio m4a", audios)
             if (v == null || a == null) {
-                diagnostico += " · sem par DASH para transmitir"
+                diagnosticoStream = contas + " → SEM PAR DASH, caindo no download"
                 return null
             }
-            diagnostico += " → transmitindo ${v.altura}p (${v.etiqueta} + ${a.etiqueta})"
+            diagnosticoStream = contas + " → transmitindo ${v.altura}p (${v.etiqueta} + ${a.etiqueta})" +
+                " · v=${v.mime};${v.codec} a=${a.mime};${a.codec}"
             JSONObject()
                 .put("name", tituloLimpo(info.name, info.uploaderName))
                 .put("seconds", info.duration)
@@ -574,6 +596,23 @@ object YoutubeGrab {
             Log.w(TAG, "não deu para montar o manifesto de $link", e)
             null
         }
+    }
+
+    /**
+     * "vídeo mp4 6 (init 6 · índice 0 · codec 6)" — quantas faixas passam em
+     * CADA pré-requisito da transmissão.
+     *
+     * Existe porque "sem par DASH" é um diagnóstico inútil: ele diz que não deu,
+     * não o que faltou. Com as contas separadas, uma leitura em aparelho
+     * responde de uma vez se o problema é o YouTube não mandar os byte-ranges,
+     * a biblioteca não preencher o codec, ou simplesmente não haver faixa mp4.
+     */
+    private fun porQueNaoDash(nome: String, fs: List<Faixa>): String {
+        if (fs.isEmpty()) return "$nome 0"
+        val init = fs.count { it.initFim > it.initIni }
+        val idx = fs.count { it.idxFim > it.idxIni }
+        val cod = fs.count { it.codec.isNotEmpty() }
+        return "$nome ${fs.size} (init $init · índice $idx · codec $cod)"
     }
 
     /**
@@ -865,8 +904,22 @@ object YoutubeGrab {
     ) {
         val webm: Boolean = ext == "webm"
 
-        /** Dá para transmitir esta faixa por MSE? */
-        val dash: Boolean = idxFim > idxIni && initFim > initIni && tamanho > 0 && codec.isNotEmpty()
+        /**
+         * Dá para transmitir esta faixa por MSE?
+         *
+         * São só DUAS exigências, e as duas são de fato indispensáveis: o
+         * segmento de inicialização (sem ele o `SourceBuffer` rejeita qualquer
+         * mídia) e o índice (sem ele não há como saber onde cada fragmento
+         * começa).
+         *
+         * O `tamanho` NÃO entra, e essa era a v5.120: o `contentLength` do
+         * `ItagItem` nasce em **-1** quando o YouTube não o informa, e exigi-lo
+         * derrubava a transmissão inteira por um campo que o player nem usa —
+         * quem diz onde a faixa acaba é o próprio `sidx`, que lista todos os
+         * fragmentos. Era uma condição a mais para dar errado, sem nada em
+         * troca.
+         */
+        val dash: Boolean = idxFim > idxIni && initFim > initIni && codec.isNotEmpty()
 
         /** "137@VISIONOS" — o formato exato e de quem ele veio. */
         val etiqueta: String = (if (itag > 0) itag.toString() else ext) + "@" + cliente

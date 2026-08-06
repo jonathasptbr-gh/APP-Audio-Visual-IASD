@@ -2927,6 +2927,60 @@ As quatro células:
 - **Mensagens** — foi para a aba **Ferramentas** (v5.31), como seção do
   acordeão. Antes era um botão flutuante sobre a preview; ver abaixo.
 
+#### Por que a transmissão não entrou — o log passa a dizer (v5.123)
+
+Em aparelho, "Tocar agora" continuou BAIXANDO. E o Registro não ajudava: ele
+mostrava `→ juntou 1080p (mp4, 137@VISIONOS/V)`, que é a linha do **download**.
+Lido de fora, parecia que a transmissão nem tinha sido tentada.
+
+Duas causas estruturais, e as duas eram de diagnóstico, não de projeto:
+
+**1. O motivo era APAGADO pelo que veio depois.** `manifesto()` e `buscar()`
+escreviam no mesmo `YoutubeGrab.diagnostico`, e `buscar()` começa com
+`diagnostico = resumo(info)`. Como a desistência da transmissão é justamente o
+que dispara o download, o motivo durava até a linha seguinte. Agora são dois
+campos — `diagnostico` e `diagnosticoStream` —, nenhum sobrescreve o outro, e
+`ytDiag()` entrega os dois em linhas separadas (o destino é um `<pre>` que rola,
+então multi-linha não custa nada).
+
+**2. Cinco pontos de desistência mudos, e três deles antes da ponte.**
+`tentarTransmitir` desistia sem dizer nada quando: não há ponte, o shell é
+anterior ao 26, o `mse.js` não carregou, o resultado não tem URL, a ponte
+falhou, o manifesto veio nulo, os codecs foram recusados ou o registro não foi
+criado. Os três primeiros acontecem no lado web — ali o Kotlin não tem o que
+dizer, por isso o motivo tem um bloco próprio no Registro.
+
+No caso dos **codecs recusados**, o log agora mostra as STRINGS testadas
+(`video/mp4; codecs="avc1.640028"`) e o veredito de cada uma. "Não deu" não leva
+a lugar nenhum; a string exata leva.
+
+##### E as contas que dizem o que faltou
+
+`sem par DASH para transmitir` tinha o mesmo defeito em miniatura: dizia que não
+deu, não o que faltou. Agora `porQueNaoDash` conta, por tipo de faixa, quantas
+passam em **cada** pré-requisito:
+
+```
+transmissão: vídeo mp4 6 (init 6 · índice 0 · codec 6) · áudio m4a 2 (init 2 · índice 0 · codec 2)
+             → SEM PAR DASH, caindo no download
+```
+
+Uma leitura assim responde de uma vez se o problema é o YouTube não mandar os
+byte-ranges para este cliente, a biblioteca não preencher o codec, ou
+simplesmente não haver faixa mp4 — três correções completamente diferentes.
+
+##### Uma exigência que saiu porque não era exigência
+
+`Faixa.dash` pedia `tamanho > 0`, e o `contentLength` do `ItagItem` nasce em
+**-1** quando o YouTube não o informa. Ou seja, a transmissão inteira podia estar
+sendo barrada por um campo que **o player nem usa**: quem diz onde cada
+fragmento começa e acaba é o `sidx`, que lista todos eles. Restaram as duas
+exigências de fato indispensáveis — o segmento de inicialização (sem ele o
+`SourceBuffer` rejeita qualquer mídia) e o índice.
+
+Se era essa a causa, a v1.52 já transmite. Se não era, o log agora diz qual das
+outras foi — que é o ponto.
+
 #### O botão morto, e o teste que faltava (v5.122)
 
 A v5.121 saiu com o botão de copiar o Registro **sem fazer nada**. A causa é

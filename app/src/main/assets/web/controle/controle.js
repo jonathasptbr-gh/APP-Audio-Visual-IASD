@@ -162,7 +162,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.122';
+const WEB_VERSION = '5.123';
 
 // Escrita UMA vez, na carga: o indicador mora no rodapé de Configurações desde
 // a v5.49 e não depende mais de qual aba está aberta (no cabeçalho ele
@@ -8596,14 +8596,43 @@ const YT_LISTA = { tocar: 'avulsos', playlist: 'playlist', cronograma: 'imports'
 // caminho, de propósito: ele pediu o louvor, não o método, e um cartão dizendo
 // "não deu para transmitir, vou baixar" seria ruído sobre uma decisão que não
 // é dele.
+// POR QUE a última tentativa de transmitir não entrou. Lido pelo Registro.
+//
+// Ele existe porque `tentarTransmitir` desiste em CINCO pontos e todos eram
+// mudos: do lado do operador, "Tocar agora" simplesmente baixava, como sempre
+// fizera, sem nada dizendo que uma transmissão tinha sido tentada. E o
+// diagnóstico do shell não cobria estes casos — três deles acontecem ANTES de a
+// ponte ser chamada.
+let motivoStream = '';
+
 async function tentarTransmitir(r, altura) {
-  if (!window.__NATIVE__ || (window.__SHELL_VERSION__ | 0) < 26) return false;
-  if (!window.AVStream || !r || !r.url) return false;
+  motivoStream = '';
+  if (!window.__NATIVE__) { motivoStream = 'navegador (sem ponte)'; return false; }
+  const shell = window.__SHELL_VERSION__ | 0;
+  if (shell < 26) { motivoStream = 'shell ' + shell + ' — a transmissão exige 26'; return false; }
+  if (!window.AVStream) { motivoStream = 'shared/mse.js não carregou'; return false; }
+  if (!r || !r.url) { motivoStream = 'resultado sem URL'; return false; }
   let man = null;
-  try { man = await AVNative.ytStream(r.url, altura | 0); } catch (_) { return false; }
+  try {
+    man = await AVNative.ytStream(r.url, altura | 0);
+  } catch (e) {
+    motivoStream = 'a ponte falhou: ' + ((e && e.message) || '?');
+    return false;
+  }
+  if (!man) { motivoStream = 'o shell não montou o manifesto (ver a linha "transmissão" abaixo)'; return false; }
   // O `suportado` é do APARELHO, não do manifesto: um WebView sem o codec
-  // precisa cair no download em vez de projetar preto.
-  if (!man || !AVStream.suportado(man)) return false;
+  // precisa cair no download em vez de projetar preto. E quando ele recusa, o
+  // que interessa é QUAL string foi recusada — sem ela a informação é "não
+  // deu", que não leva a lugar nenhum.
+  if (!AVStream.suportado(man)) {
+    const testar = (t) => {
+      try { return MediaSource.isTypeSupported(t) ? 'ok' : 'RECUSADO'; } catch (_) { return 'erro'; }
+    };
+    motivoStream = !window.MediaSource ? 'este WebView não tem MediaSource'
+      : 'codecs recusados — vídeo [' + (man.video && man.video.mime) + '] ' + testar(man.video && man.video.mime)
+        + ' · áudio [' + (man.audio && man.audio.mime) + '] ' + testar(man.audio && man.audio.mime);
+    return false;
+  }
   const rec = await AVDB.addStreamMedia(man, {
     name: man.name || r.name || 'Vídeo',
     youtubeId: r.id || null,
@@ -8611,7 +8640,8 @@ async function tentarTransmitir(r, altura) {
     seconds: man.seconds || null,
     list: 'avulsos',
   });
-  if (!rec) return false;
+  if (!rec) { motivoStream = 'o registro da mídia não foi criado'; return false; }
+  motivoStream = 'transmitindo ' + (man.height || '?') + 'p';
   setYtEstado(r.id, null);
   await fixarAvulso(rec.id);
   await load();
@@ -9616,6 +9646,12 @@ async function renderDiag() {
     let yt = '';
     try { yt = await AVNative.ytDiag(); } catch (_) {}
     if (yt) blocos.push('Última extração do YouTube\n' + yt);
+  }
+  // O lado WEB da última tentativa de transmitir. Ele vem à parte do
+  // diagnóstico do shell porque três dos cinco pontos de desistência acontecem
+  // antes de a ponte ser chamada — ali o Kotlin não tem o que dizer.
+  if (motivoStream) {
+    blocos.push('Transmissão direta (último "Tocar agora")\n' + motivoStream);
   }
   if (meu !== diagSeq) return;   // outro render assumiu durante a espera
   blocos.push(eventosDiag());
