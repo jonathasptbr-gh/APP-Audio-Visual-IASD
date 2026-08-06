@@ -2927,6 +2927,58 @@ As quatro células:
 - **Mensagens** — foi para a aba **Ferramentas** (v5.31), como seção do
   acordeão. Antes era um botão flutuante sobre a preview; ver abaixo.
 
+#### Decidir e conseguir são duas coisas (v5.124)
+
+A v5.123 respondeu a pergunta errada. O log passou a dizer, corretamente,
+`→ transmitindo 1080p (137@VISIONOS + 140@VISIONOS)` — e o operador continuou
+vendo download. Não havia contradição: a transmissão **foi escolhida** e depois
+**falhou tocando**. O log cobria a decisão e não o resultado.
+
+A linha do tempo já contava a história, para quem soubesse lê-la:
+
+```
+12:17:57  📱 play  0s
+12:17:58  📱 PAUSA ESPONTÂNEA  0s
+12:18:00  📱 play  0s
+12:18:00  📱 PAUSA ESPONTÂNEA  0s
+```
+
+`PAUSA ESPONTÂNEA` **não é vídeo travando** — um `<video>` que fica sem dados
+emite `waiting`, não `pause`. O que emite `pause` é o `video.pause()` no topo do
+`load()`, ou seja, uma mídia NOVA entrando. É a recuperação rodando: falhou →
+manifesto novo → falhou → download. E tudo em cerca de um segundo, o que aponta
+para a **primeira requisição**, não para o meio da reprodução.
+
+Duas correções:
+
+**O erro de reprodução entrou no Registro.** `AVStream.ultimoErro` guarda o
+último motivo e o Registro o mostra como `falhou ao tocar: …`. Ele existia
+apenas como `console.warn`, que não chega a quem opera o culto — e é justamente
+quem opera que vê a falha acontecer.
+
+**E cada falha passou a dizer em que PASSO morreu.** Este player busca três
+coisas por faixa — inicialização, índice e mídia — e elas falham por motivos
+diferentes, com consertos diferentes. Agora a mensagem carrega o passo, a faixa,
+a faixa de bytes pedida e o status:
+
+| Mensagem | O que aconteceu |
+|---|---|
+| `init vídeo: HTTP 403 pedindo bytes 0-739` | o googlevideo recusou — o proxy chegou lá, a URL é que não serve |
+| `init vídeo: HTTP 404 …` | o **proxy não foi alcançado**; quem respondeu foi o asset loader |
+| `init vídeo: a requisição não completou` | o `fetch` nem saiu |
+| `init vídeo: resposta vazia (HTTP 206, pedidos 740 bytes)` | veio status bom e zero bytes — o caso mais traiçoeiro, porque o `appendBuffer` aceita sem reclamar e o vídeo simplesmente nunca começa |
+| `init vídeo: o decodificador recusou (…) — mime …` | os bytes vieram e o WebView não os quis |
+| `índice vídeo: sidx não reconhecido (N bytes em …)` | o `indexRange` não continha um `sidx` |
+
+Os três primeiros são distinguíveis entre si, e essa é a graça: eles apontam
+para lugares completamente diferentes do caminho.
+
+> **De quebra, uma linha que mentia.** `manifesto()` escrevia o `resumo(info)` em
+> `diagnostico` — o campo do DOWNLOAD. O Registro então exibia um bloco
+> `download:` para uma extração em que download nenhum aconteceu, e sem
+> desfecho, o que se lê como um download travado. Agora o resumo da extração de
+> transmissão fica no campo da transmissão, onde ele pertence.
+
 #### Por que a transmissão não entrou — o log passa a dizer (v5.123)
 
 Em aparelho, "Tocar agora" continuou BAIXANDO. E o Registro não ajudava: ele

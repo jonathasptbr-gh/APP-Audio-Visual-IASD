@@ -162,7 +162,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.123';
+const WEB_VERSION = '5.124';
 
 // Escrita UMA vez, na carga: o indicador mora no rodapé de Configurações desde
 // a v5.49 e não depende mais de qual aba está aberta (no cabeçalho ele
@@ -8607,6 +8607,7 @@ let motivoStream = '';
 
 async function tentarTransmitir(r, altura) {
   motivoStream = '';
+  if (window.AVStream) window.AVStream.ultimoErro = '';
   if (!window.__NATIVE__) { motivoStream = 'navegador (sem ponte)'; return false; }
   const shell = window.__SHELL_VERSION__ | 0;
   if (shell < 26) { motivoStream = 'shell ' + shell + ' — a transmissão exige 26'; return false; }
@@ -9651,7 +9652,12 @@ async function renderDiag() {
   // diagnóstico do shell porque três dos cinco pontos de desistência acontecem
   // antes de a ponte ser chamada — ali o Kotlin não tem o que dizer.
   if (motivoStream) {
-    blocos.push('Transmissão direta (último "Tocar agora")\n' + motivoStream);
+    // O erro de REPRODUÇÃO entra junto, e é o que faltava: a v5.123 mostrava
+    // "transmitindo 1080p" — a decisão — e nada sobre o vídeo ter morrido no
+    // segundo zero logo depois. Decidir e conseguir são duas coisas.
+    const falha = (window.AVStream && window.AVStream.ultimoErro) || '';
+    blocos.push('Transmissão direta (último "Tocar agora")\n' + motivoStream
+      + (falha ? '\nfalhou ao tocar: ' + falha : ''));
   }
   if (meu !== diagSeq) return;   // outro render assumiu durante a espera
   blocos.push(eventosDiag());
