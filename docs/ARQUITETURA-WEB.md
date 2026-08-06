@@ -2975,6 +2975,34 @@ na memória do processo que hospeda os dois WebViews e a `Presentation`.
 > (`bytes=0-739`) — uma faixa ABERTA traria o arquivo inteiro pelo proxy, que é
 > o oposto de transmitir.
 
+##### Isto é um diagnóstico, e ele ainda NÃO foi confirmado em aparelho
+
+O raciocínio acima é por eliminação, não por medição: ninguém viu a segunda
+requisição completar. E não viu porque **o APK v1.54 não chegou a existir** — em
+06/08/2026 o GitHub Actions passou a tarde recusando o job `apk` de oito
+maneiras (resolução de action indisponível, 15 min de fila sem runner seguidos
+de cancelamento, e um runner atribuído que nunca reportou e falhou 48 min depois
+sem produzir log). Nada disso é do repositório: no mesmo período o job `web-ota`
+subiu e publicou normalmente.
+
+A consequência prática, para quem retomar isto:
+
+- **A base web da v5.126 ESTÁ na frota** (canal OTA), e a do shell **não**. Um
+  Registro tirado antes de instalar a v1.54 vai repetir, palavra por palavra,
+  `índice vídeo: a requisição não completou (Failed to fetch)`. Isso é o
+  esperado, não uma regressão nova — o `StreamProxy.kt` é Kotlin, e Kotlin só
+  viaja dentro do APK.
+- **O passo seguinte é um só:** instalar a v1.54 e ler o Registro de novo. Ou a
+  linha da transmissão passa do índice, ou ela dirá em que passo morreu agora —
+  que é justamente o que as v5.123–v5.125 construíram.
+- **Se ainda falhar no mesmo ponto**, há uma segunda hipótese ainda NÃO tentada,
+  guardada aqui de propósito para não ser embarcada junto e contaminar a
+  atribuição: dar uma URL distinta a cada faixa de bytes (`?r=<ini>-<fim>`), o
+  que dispensaria mexer no Kotlin (o `tryHandle` roteia por `u.path` e ignora a
+  query) e contornaria qualquer coalescência por URL no caminho de intercepção
+  do WebView. Ela só faz sentido depois que a correção do ciclo de vida tiver
+  sido medida sozinha.
+
 #### As mensagens de falha viraram produto testado (v5.125)
 
 Duas coisas quase saíram erradas nesta rodada, e as duas dizem o mesmo:
