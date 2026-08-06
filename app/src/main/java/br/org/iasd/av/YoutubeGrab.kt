@@ -2,6 +2,7 @@ package br.org.iasd.av
 
 import android.content.Context
 import android.net.Uri
+import android.os.Build
 import android.util.Log
 import org.json.JSONArray
 import org.json.JSONObject
@@ -17,8 +18,8 @@ import org.schabi.newpipe.extractor.localization.Localization
 import org.schabi.newpipe.extractor.search.SearchInfo
 import org.schabi.newpipe.extractor.services.youtube.extractors.YoutubeStreamExtractor
 import org.schabi.newpipe.extractor.stream.AudioStream
-import org.schabi.newpipe.extractor.stream.StreamInfo
 import org.schabi.newpipe.extractor.stream.Stream
+import org.schabi.newpipe.extractor.stream.StreamInfo
 import org.schabi.newpipe.extractor.stream.StreamInfoItem
 import org.schabi.newpipe.extractor.stream.VideoStream
 import java.io.File
@@ -169,9 +170,22 @@ object YoutubeGrab {
         fun parte(nome: String, todos: List<Stream>, altura: (Stream) -> Int): String {
             val baixaveis = todos.filter { it.isUrl && !it.getContent().isNullOrBlank() }
             val outros = todos.size - baixaveis.size
-            val maior = baixaveis.maxOfOrNull(altura) ?: 0
+            // POR CONTÊINER, e não só o total (v1.45). "vídeo-só 12 (1080p)"
+            // parecia resposta suficiente e não era: se os doze forem VP9/WebM,
+            // nenhum deles entra num MP4 — e a linha dizia exatamente o mesmo
+            // que diria se fossem doze AVC. Era a diferença entre "o formato
+            // não serve" e "o download foi recusado", que é a única pergunta
+            // que ainda restava.
+            val porTipo = baixaveis
+                .groupBy { it.getFormat()?.getSuffix()?.lowercase() ?: "?" }
+                .map { (ext, lista) ->
+                    val h = lista.maxOfOrNull(altura) ?: 0
+                    ext + " " + lista.size + (if (h > 0) " (${h}p)" else "")
+                }
+                .sorted()
+                .joinToString(", ")
             return nome + " " + baixaveis.size +
-                (if (maior > 0) " (${maior}p)" else "") +
+                (if (porTipo.isNotEmpty()) " [$porTipo]" else "") +
                 (if (outros > 0) " +$outros manif." else "")
         }
         val semAltura = { _: Stream -> 0 }
@@ -179,9 +193,25 @@ object YoutubeGrab {
             " · " + parte("vídeo-só", info.videoOnlyStreams) {
                 alturaDe((it as? VideoStream)?.getResolution())
             } +
-            " · " + parte("progressivo", info.videoStreams.filter { !it.isVideoOnly }) {
+            " · " + parte("prog", info.videoStreams.filter { !it.isVideoOnly }) {
                 alturaDe((it as? VideoStream)?.getResolution())
             }
+    }
+
+    /**
+     * Por que uma tentativa morreu, em duas ou três palavras — para caber na
+     * linha do diagnóstico.
+     *
+     * O código HTTP é o que separa as duas causas possíveis: **403** é o YouTube
+     * recusando a URL (é o que acontece com as faixas protegidas por PO Token,
+     * e nesse caso não há o que fazer no app), qualquer outra coisa é rede ou
+     * arquivo. `HttpURLConnection` não devolve o código quando o `inputStream`
+     * lança — ele vai no texto da exceção —, daí a extração pelo regex.
+     */
+    private fun motivo(e: Exception): String {
+        val msg = e.message.orEmpty()
+        val cod = Regex("\\b([45]\\d\\d)\\b").find(msg)?.groupValues?.get(1)
+        return cod ?: e.javaClass.simpleName.ifEmpty { "erro" }
     }
 
     /** `NewPipe.init` é global e só pode acontecer uma vez por processo. */
@@ -247,51 +277,41 @@ object YoutubeGrab {
             val nome = tituloLimpo(info.name, info.uploaderName)
             val id = info.id ?: "video"
 
-            // AS TENTATIVAS, EM ORDEM. Pedindo só o áudio, as faixas de áudio
-            // vêm primeiro — e o VÍDEO PROGRESSIVO fica como último recurso, em
-            // vez de o download inteiro falhar.
-            //
-            // Isso não é zelo teórico: as faixas separadas (as "adaptativas")
-            // são exatamente as que o YouTube protege com PO Token, e este app
-            // não monta o desafio do BotGuard de propósito (ver o cabeçalho).
-            // Sem token, `audioStreams` pode voltar vazio ou com URLs que o CDN
-            // responde 403 — enquanto o progressivo, que é o formato antigo,
-            // costuma passar. Era esse o buraco: a v5.112 tentava só a faixa de
-            // áudio e, quando ela não vinha, devolvia `null` — do lado do
-            // operador, um cartão de download que some sem dizer nada.
-            //
-            // E cair no progressivo NÃO desmente a escolha: quem decide que o
-            // telão não muda de imagem é o `kind: 'audio'` do registro, lá no
-            // lado web, não o container do arquivo. O operador ouve o louvor no
-            // fundo do mesmo jeito; o que ele paga é o tamanho do arquivo, e é
-            // por isso que esta é a ÚLTIMA tentativa, não a primeira.
-            // DIAGNÓSTICO (v1.42). A pergunta que só o aparelho responde: o
-            // extrator está recebendo as faixas ADAPTATIVAS (áudio separado e
-            // vídeo-only, que é onde moram 1080p e o áudio puro) ou só o
-            // progressivo? Sem PO Token a biblioteca busca os streams pelo
-            // endpoint `reel/reel_item_watch`, e o que ele devolve varia por
-            // vídeo — não dá para decidir por leitura de código se vale
-            // implementar o remux para 1080p. Isto mede, uma vez, na mão de
-            // quem opera.
+            // DIAGNÓSTICO (v1.42, ampliado na v1.45). A pergunta que só o
+            // aparelho responde: quais faixas o extrator recebeu, em que
+            // contêiner, e — quando alguma coisa dá errado — em que ponto. Sem
+            // PO Token a biblioteca busca os streams por um endpoint de
+            // conjunto reduzido, e o que cabe nele varia por vídeo.
             diagnostico = resumo(info)
+
             // 1080p: BAIXAR AS DUAS FAIXAS E JUNTAR (v1.44).
             //
             // Acima de 720p o YouTube só entrega vídeo SEM som, com o som à
             // parte — e é por isso que baixar "o vídeo" dava 360p: o app só
             // sabia pegar o progressivo, e o único progressivo deste aparelho é
-            // o pior deles. Medido aqui: `vídeo-só 12 (1080p) · áudio 5 ·
-            // progressivo 1 (360p)`.
+            // o pior deles. Juntar é cópia, não conversão (ver MuxMp4).
             //
-            // Juntar é cópia, não conversão (ver MuxMp4): os bits são os mesmos
-            // que vieram do YouTube, e quem faz o trabalho é o `MediaMuxer` da
-            // plataforma. Se qualquer etapa falhar, a lista de tentativas abaixo
-            // continua valendo — o progressivo de 360p segue como piso, e é
-            // melhor um louvor em 360p do que nenhum.
+            // Falhando qualquer etapa, a fila abaixo continua valendo.
             if (!somenteAudio) {
                 val juntado = tentarJuntar(ctx, info, id, onProgresso)
                 if (juntado != null) return juntado
             }
 
+            // A FILA DE TENTATIVAS, EM ORDEM. Pedindo só o áudio, as faixas de
+            // áudio vêm primeiro — e o VÍDEO PROGRESSIVO fica como último
+            // recurso, em vez de o download inteiro falhar.
+            //
+            // Isso não é zelo teórico: as faixas separadas são as que o YouTube
+            // protege com PO Token, e este app não monta o desafio do BotGuard
+            // de propósito (ver o cabeçalho). Sem token elas podem vir vazias ou
+            // com URLs que o CDN responde 403 — enquanto o progressivo, que é o
+            // formato antigo, costuma passar. Era esse o buraco da v5.112: ela
+            // tentava só a faixa de áudio e devolvia `null`, e do lado do
+            // operador isso era um cartão de download que some sem dizer nada.
+            //
+            // E cair no progressivo NÃO desmente a escolha de "só áudio": quem
+            // decide que o telão não muda de imagem é o `kind: 'audio'` do
+            // registro, lá no lado web, não o contêiner do arquivo.
             val tentativas = mutableListOf<Alvo>()
             if (somenteAudio) {
                 // 1) AAC, a primeira escolha: o WebView decodifica em qualquer
@@ -312,6 +332,7 @@ object YoutubeGrab {
                     baixar(url, destino, onProgresso)
                 } catch (e: Exception) {
                     Log.w(TAG, "falhou baixando ${alvo.ext} de $link", e)
+                    diagnostico += " · ${alvo.ext} " + motivo(e)
                     destino.delete()
                     continue
                 }
@@ -362,65 +383,100 @@ object YoutubeGrab {
         id: String,
         onProgresso: (Long, Long) -> Unit,
     ): JSONObject? {
+        // OS PARES POSSÍVEIS, na ordem de preferência. Cada um é do MESMO
+        // contêiner dos dois lados, porque é assim que o muxer aceita (ver
+        // MuxMp4): AVC/AAC num MP4, VP9/Opus num WebM. Pegar "a melhor de cada
+        // lado" produziria VP9 dentro de MP4, que só falha no fim.
+        //
+        // O par WebM exige Android 10: o muxer só passou a escrever Opus dentro
+        // de WebM na API 29. Abaixo disso ele simplesmente não é tentado.
+        val pares = mutableListOf<Triple<VideoStream, AudioStream, Boolean>>()
+        parear(info, "mp4", "m4a")?.let { pares += Triple(it.first, it.second, false) }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            parear(info, "webm", "webm")?.let { pares += Triple(it.first, it.second, true) }
+        }
+        if (pares.isEmpty()) {
+            diagnostico += " · sem par completo"
+            return null
+        }
+
+        // O progressivo que já temos de graça é o piso: montar só compensa se o
+        // resultado for melhor. Sem esta conta, um vídeo cuja faixa separada
+        // fosse 360p pagaria dois downloads e um muxer para entregar o mesmo.
+        val alturaProgressiva = melhorProgressivo(info)?.let { alturaDe(it.getResolution()) } ?: 0
+
+        for ((v, a, webm) in pares) {
+            val altura = alturaDe(v.getResolution())
+            val ext = if (webm) "webm" else "mp4"
+            if (altura <= alturaProgressiva) {
+                diagnostico += " · $ext não supera o prog"
+                continue
+            }
+            val urlVideo = v.getContent() ?: continue
+            val urlAudio = a.getContent() ?: continue
+            val parteVideo = File(pasta(ctx), "$id-v.$ext")
+            val parteAudio = File(pasta(ctx), "$id-a.$ext")
+            val saida = arquivoDestino(ctx, id, ext)
+            try {
+                // A BARRA É UMA SÓ. Os dois downloads e a montagem viram um
+                // percentual contínuo (o vídeo pesa 90%, que é a proporção
+                // real), em vez de duas barras que voltam ao zero no meio — do
+                // lado do operador, uma barra que reinicia é indistinguível de
+                // travamento.
+                baixar(urlVideo, parteVideo) { lidos, total ->
+                    if (total > 0) onProgresso(lidos * 90 / total, 100)
+                }
+                if (parteVideo.length() <= 0L) { diagnostico += " · $ext vídeo vazio"; continue }
+                baixar(urlAudio, parteAudio) { lidos, total ->
+                    if (total > 0) onProgresso(90 + lidos * 9 / total, 100)
+                }
+                if (parteAudio.length() <= 0L) { diagnostico += " · $ext áudio vazio"; continue }
+                onProgresso(99, 100)
+                if (!MuxMp4.juntar(parteVideo, parteAudio, saida, webm)) {
+                    diagnostico += " · $ext muxer falhou"
+                    continue
+                }
+                if (saida.length() <= 0L) { diagnostico += " · $ext saída vazia"; continue }
+                onProgresso(100, 100)
+                diagnostico += " → juntou ${altura}p ($ext)"
+                return JSONObject()
+                    .put("url", SafRegistry.urlFor(Uri.fromFile(saida)))
+                    .put("name", tituloLimpo(info.name, info.uploaderName))
+                    .put("size", saida.length())
+                    .put("type", if (webm) "video/webm" else "video/mp4")
+                    .put("audioOnly", false)
+            } catch (e: Exception) {
+                Log.w(TAG, "não deu para juntar $ext de $id", e)
+                diagnostico += " · $ext " + motivo(e)
+                saida.delete()
+            } finally {
+                // As partes não servem para mais nada — nem em caso de sucesso
+                // (o arquivo final já as contém) nem em caso de falha. Deixá-las
+                // no cache dobraria o espaço de cada download.
+                parteVideo.delete()
+                parteAudio.delete()
+            }
+        }
+        return null
+    }
+
+    /**
+     * O melhor par vídeo-só + áudio de um mesmo contêiner, dentro do teto de
+     * altura. `null` se faltar qualquer um dos dois lados.
+     */
+    private fun parear(
+        info: StreamInfo,
+        extVideo: String,
+        extAudio: String,
+    ): Pair<VideoStream, AudioStream>? {
         val v = info.videoOnlyStreams
             .asSequence()
             .filter { it.isUrl && !it.getContent().isNullOrBlank() }
-            .filter { it.getFormat()?.getSuffix()?.equals("mp4", true) == true }
+            .filter { it.getFormat()?.getSuffix()?.equals(extVideo, true) == true }
             .filter { alturaDe(it.getResolution()) in 1..TETO_ALTURA }
             .maxByOrNull { alturaDe(it.getResolution()) } ?: return null
-        val a = melhorAudio(info, "m4a", null) ?: return null
-        // Só vale a pena montar se o resultado for MELHOR que o progressivo que
-        // já temos de graça. Sem esta comparação, um vídeo cuja única faixa
-        // separada fosse 360p pagaria dois downloads e um muxer para entregar o
-        // mesmo de antes.
-        val alturaJuntada = alturaDe(v.getResolution())
-        val alturaProgressiva = melhorProgressivo(info)?.let { alturaDe(it.getResolution()) } ?: 0
-        if (alturaJuntada <= alturaProgressiva) return null
-
-        // Em locais, com o `?:`, porque `getContent()` é anulável no contrato da
-        // biblioteca: sem isto o Kotlin recusaria passá-lo adiante — e passar um
-        // nulo daqui seria um NPE dentro de um `try` que devolve `null` em
-        // silêncio, ou seja, um 1080p que "simplesmente não acontece".
-        val urlVideo = v.getContent() ?: return null
-        val urlAudio = a.getContent() ?: return null
-        val parteVideo = File(pasta(ctx), "$id-v.mp4")
-        val parteAudio = File(pasta(ctx), "$id-a.m4a")
-        val saida = arquivoDestino(ctx, id, "mp4")
-        try {
-            // A BARRA É UMA SÓ. Os dois downloads e a montagem viram um
-            // percentual contínuo (o vídeo pesa 90%, que é a proporção real),
-            // em vez de duas barras que voltam ao zero no meio — do lado do
-            // operador, uma barra que reinicia é indistinguível de travamento.
-            baixar(urlVideo, parteVideo) { lidos, total ->
-                if (total > 0) onProgresso(lidos * 90 / total, 100)
-            }
-            if (parteVideo.length() <= 0L) return null
-            baixar(urlAudio, parteAudio) { lidos, total ->
-                if (total > 0) onProgresso(90 + lidos * 9 / total, 100)
-            }
-            if (parteAudio.length() <= 0L) return null
-            onProgresso(99, 100)
-            if (!MuxMp4.juntar(parteVideo, parteAudio, saida)) return null
-            if (saida.length() <= 0L) return null
-            onProgresso(100, 100)
-            diagnostico += " → juntou ${alturaJuntada}p"
-            return JSONObject()
-                .put("url", SafRegistry.urlFor(Uri.fromFile(saida)))
-                .put("name", tituloLimpo(info.name, info.uploaderName))
-                .put("size", saida.length())
-                .put("type", "video/mp4")
-                .put("audioOnly", false)
-        } catch (e: Exception) {
-            Log.w(TAG, "não deu para juntar as faixas de $id", e)
-            saida.delete()
-            return null
-        } finally {
-            // As partes não servem para mais nada — nem em caso de sucesso (o
-            // MP4 final já as contém) nem em caso de falha. Deixá-las no cache
-            // dobraria o espaço de cada download.
-            parteVideo.delete()
-            parteAudio.delete()
-        }
+        val a = melhorAudio(info, extAudio, null) ?: return null
+        return v to a
     }
 
     /**
