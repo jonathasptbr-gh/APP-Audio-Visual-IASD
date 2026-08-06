@@ -2978,20 +2978,23 @@ na memória do processo que hospeda os dois WebViews e a `Presentation`.
 ##### Isto é um diagnóstico, e ele ainda NÃO foi confirmado em aparelho
 
 O raciocínio acima é por eliminação, não por medição: ninguém viu a segunda
-requisição completar. E não viu porque **o APK v1.54 não chegou a existir** — em
-06/08/2026 o GitHub Actions passou a tarde recusando o job `apk` de oito
-maneiras (resolução de action indisponível, 15 min de fila sem runner seguidos
-de cancelamento, e um runner atribuído que nunca reportou e falhou 48 min depois
-sem produzir log). Nada disso é do repositório: no mesmo período o job `web-ota`
-subiu e publicou normalmente.
+requisição completar. Por um tempo nem dava para ver, porque **o APK v1.54 não
+chegava a existir** — em 06/08/2026 o GitHub Actions passou a tarde recusando o
+job `apk` de oito maneiras (resolução de action indisponível, 15 min de fila sem
+runner seguidos de cancelamento, e um runner atribuído que nunca reportou e
+falhou 48 min depois sem produzir log). Nada disso era do repositório: no mesmo
+período o job `web-ota` subiu e publicou normalmente — e o disparo seguinte, com
+runner disponível, compilou e publicou a v1.54 em 2 min, sem uma linha alterada.
 
-A consequência prática, para quem retomar isto:
+**A v1.54 está publicada** (release `v1.54`, APK assinado com a keystore fixa).
+O que continua NÃO confirmado é o comportamento em aparelho — publicar não é
+medir. A consequência prática, para quem retomar isto:
 
-- **A base web da v5.126 ESTÁ na frota** (canal OTA), e a do shell **não**. Um
-  Registro tirado antes de instalar a v1.54 vai repetir, palavra por palavra,
-  `índice vídeo: a requisição não completou (Failed to fetch)`. Isso é o
-  esperado, não uma regressão nova — o `StreamProxy.kt` é Kotlin, e Kotlin só
-  viaja dentro do APK.
+- **A base web da v5.126 já estava na frota** (canal OTA) antes de o shell
+  chegar. Um Registro tirado num aparelho que ainda não instalou a v1.54 vai
+  repetir, palavra por palavra, `índice vídeo: a requisição não completou
+  (Failed to fetch)`. Isso é o esperado, não uma regressão nova — o
+  `StreamProxy.kt` é Kotlin, e Kotlin só viaja dentro do APK.
 - **O passo seguinte é um só:** instalar a v1.54 e ler o Registro de novo. Ou a
   linha da transmissão passa do índice, ou ela dirá em que passo morreu agora —
   que é justamente o que as v5.123–v5.125 construíram.
