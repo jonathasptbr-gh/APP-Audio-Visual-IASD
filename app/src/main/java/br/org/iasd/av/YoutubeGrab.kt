@@ -101,11 +101,17 @@ object YoutubeGrab {
             "Chrome/124.0.0.0 Mobile Safari/537.36"
 
     /**
-     * Teto de resolução do download montado. Ver [tentarJuntar]: o telão da
+     * Teto de resolução PADRÃO do download. Ver [tentarJuntar]: o telão da
      * igreja é 1080p, e subir daí é pagar tamanho por uma diferença que aquela
      * tela não mostra.
+     *
+     * Desde a v1.50 ele é só o padrão: o operador escolhe o teto na folha de
+     * download (1080p · 720p · 480p) e o valor chega por parâmetro em [buscar].
+     * O motivo é o de sempre neste app — rede de celular, minutos antes do
+     * culto, e um louvor em 720p que TERMINA vale mais que um 1080p que não.
+     * `public` porque a ponte precisa dele como valor de omissão.
      */
-    private const val TETO_ALTURA = 1080
+    const val TETO_ALTURA = 1080
 
     /**
      * Quantos candidatos de cada tipo a fila de [tentarJuntar] chega a tentar.
@@ -405,6 +411,7 @@ object YoutubeGrab {
         ctx: Context,
         link: String,
         somenteAudio: Boolean,
+        teto: Int = TETO_ALTURA,
         onProgresso: (Long, Long) -> Unit,
     ): JSONObject? {
         return try {
@@ -433,7 +440,7 @@ object YoutubeGrab {
             //
             // Falhando qualquer etapa, a fila abaixo continua valendo.
             if (!somenteAudio) {
-                val juntado = tentarJuntar(ctx, info, id, onProgresso)
+                val juntado = tentarJuntar(ctx, info, id, teto, onProgresso)
                 if (juntado != null) return juntado
             }
 
@@ -463,7 +470,7 @@ object YoutubeGrab {
                 // aparelho), maior bitrate por último critério.
                 candidatosAudio(info, null, TETO_AUDIO_SO).forEach { tentativas += Alvo(it, true) }
             }
-            faixaDe(melhorProgressivo(info))?.let { tentativas += Alvo(it, false) }
+            faixaDe(melhorProgressivo(info, teto))?.let { tentativas += Alvo(it, false) }
 
             for (alvo in tentativas) {
                 val destino = arquivoDestino(ctx, id, alvo.faixa.ext, alvo.soAudio)
@@ -491,6 +498,17 @@ object YoutubeGrab {
                     // ...e este campo diz se a faixa é MESMO só áudio, para o
                     // lado web poder avisar quando teve de cair no vídeo.
                     .put("audioOnly", alvo.soAudio)
+                    // A ALTURA REAL do que veio (0 para áudio). O lado web a
+                    // grava no registro e a mostra no subtítulo do Cronograma:
+                    // com o teto agora escolhido pelo operador, "Vídeo" sozinho
+                    // deixou de dizer o que ele tem na mão — e adivinhar a
+                    // resolução depois exigiria decodificar o arquivo.
+                    .put("height", alvo.faixa.altura)
+                    // ...e a DURAÇÃO, em segundos, que o extrator já traz de
+                    // graça. Ela completa o subtítulo do Cronograma ("Áudio ·
+                    // 4:32") — e para uma faixa de áudio é o único detalhe que
+                    // existe, já que altura ali é sempre 0.
+                    .put("seconds", info.duration)
             }
             diagnostico += " → NADA baixou"
             Log.w(TAG, "nenhum stream utilizável para $link ($diagnostico)")
@@ -545,6 +563,7 @@ object YoutubeGrab {
         ctx: Context,
         info: StreamInfo,
         id: String,
+        teto: Int,
         onProgresso: (Long, Long) -> Unit,
     ): JSONObject? {
         if (adaptativoBloqueado) {
@@ -555,13 +574,14 @@ object YoutubeGrab {
         // O progressivo que já temos de graça é o PISO: montar só compensa se o
         // resultado for melhor. Sem esta conta, um vídeo cuja faixa separada
         // fosse 360p pagaria dois downloads e um muxer para entregar o mesmo.
-        val piso = melhorProgressivo(info)?.let { alturaDe(it.getResolution()) } ?: 0
-        val candidatos = candidatosVideo(info, piso)
+        val piso = melhorProgressivo(info, teto)?.let { alturaDe(it.getResolution()) } ?: 0
+        val candidatos = candidatosVideo(info, piso, teto)
         if (candidatos.isEmpty()) {
             diagnostico += " · sem vídeo-só acima de ${piso}p"
             return null
         }
         val nome = tituloLimpo(info.name, info.uploaderName)
+        val segundos = info.duration
 
         // O áudio JÁ BAIXADO de cada contêiner. Um `null` guardado é memória de
         // que aquele contêiner não tem áudio utilizável: insistir nele com outro
@@ -593,7 +613,7 @@ object YoutubeGrab {
                 }
                 val parteAudio = audioDe[extAudio] ?: continue
                 tentados++
-                when (val d = montar(ctx, id, nome, v, parteAudio, onProgresso)) {
+                when (val d = montar(ctx, id, nome, v, segundos, parteAudio, onProgresso)) {
                     is Desfecho.Pronto -> return d.json
                     is Desfecho.Recusado -> if (d.motivo == "403") recusas403++
                     Desfecho.NaoMontou -> montagens++
@@ -664,6 +684,7 @@ object YoutubeGrab {
         id: String,
         nome: String,
         v: Faixa,
+        segundos: Long,
         parteAudio: File,
         onProgresso: (Long, Long) -> Unit,
     ): Desfecho {
@@ -694,7 +715,9 @@ object YoutubeGrab {
                     .put("name", nome)
                     .put("size", saida.length())
                     .put("type", if (v.webm) "video/webm" else "video/mp4")
-                    .put("audioOnly", false),
+                    .put("audioOnly", false)
+                    .put("height", v.altura)
+                    .put("seconds", segundos),
             )
         } catch (e: Exception) {
             Log.w(TAG, "não deu para juntar ${v.etiqueta} de $id", e)
@@ -789,7 +812,7 @@ object YoutubeGrab {
      * [piso] é a altura do progressivo que já temos de graça: igual ou abaixo
      * dela, montar não compensa.
      */
-    private fun candidatosVideo(info: StreamInfo, piso: Int): List<Faixa> =
+    private fun candidatosVideo(info: StreamInfo, piso: Int, teto: Int): List<Faixa> =
         info.videoOnlyStreams
             .mapNotNull { faixaDe(it) }
             // O par WebM exige Android 10: o muxer só passou a escrever Opus
@@ -798,7 +821,7 @@ object YoutubeGrab {
                 it.ext == "mp4" ||
                     (it.webm && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
             }
-            .filter { it.altura in (piso + 1)..TETO_ALTURA }
+            .filter { it.altura in (piso + 1)..teto }
             .sortedWith(
                 compareBy<Faixa>({ ordemCliente(it.cliente) }, { -it.altura })
                     .thenBy { if (it.webm) 1 else 0 },
@@ -987,14 +1010,24 @@ object YoutubeGrab {
      * WebView do Android toca H.264/MP4 em qualquer aparelho, e um `.webm` em
      * VP9/AV1 depende do modelo. Um vídeo que não abre no telão no meio do culto
      * é pior que um arquivo maior.
+     *
+     * **[teto] respeitado, mas nunca ao ponto de não entregar nada.** O maior
+     * que couber; se NENHUM couber (o operador pediu 480p e este vídeo só tem
+     * progressivo de 720p), vale o MENOR que existe. Devolver `null` ali seria
+     * transformar "quero economizar dados" em "não baixa" — e o operador que
+     * escolheu 480p quer o louvor, não a recusa. O menor é o que menos
+     * desrespeita a escolha.
      */
-    private fun melhorProgressivo(info: StreamInfo): VideoStream? =
-        info.videoStreams
-            .asSequence()
+    private fun melhorProgressivo(info: StreamInfo, teto: Int): VideoStream? {
+        val mp4 = info.videoStreams
             .filter { it.isUrl && !it.getContent().isNullOrBlank() }
             .filter { !it.isVideoOnly }
             .filter { it.getFormat()?.getSuffix()?.equals("mp4", true) == true }
+        if (mp4.isEmpty()) return null
+        return mp4.filter { alturaDe(it.getResolution()) <= teto }
             .maxByOrNull { alturaDe(it.getResolution()) }
+            ?: mp4.minByOrNull { alturaDe(it.getResolution()) }
+    }
 
     /** "1080p60" → 1080. Resolução ilegível vira 0: ela nunca ganha do resto. */
     private fun alturaDe(res: String?): Int =

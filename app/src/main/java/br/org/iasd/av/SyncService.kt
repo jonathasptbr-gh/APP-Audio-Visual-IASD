@@ -13,6 +13,7 @@ import android.os.PowerManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
+import java.util.Locale
 
 /**
  * Mantém o app vivo enquanto há download em andamento.
@@ -195,11 +196,30 @@ class SyncService : Service() {
          */
         data class Progress(
             val label: String,
-            val done: Int,
-            val total: Int,
+            val done: Long,
+            val total: Long,
             val etaMs: Long,
             val items: List<String> = emptyList(),
             val idleMs: Long = 0,
+            /**
+             * `done`/`total` são BYTES, e não uma contagem de itens.
+             *
+             * O registro de tarefas do lado web nasceu contando ITENS (54
+             * músicas, 1189 capítulos), e para um lote isso é a unidade certa.
+             * Mas o download de UM vídeo do YouTube abria a tarefa com
+             * `total = 1`: a barra ficava em 0% do início ao fim e a estimativa
+             * era literalmente zero, porque ela precisa de pelo menos um item
+             * concluído para ter uma média. Ou seja, o único caso em que a
+             * notificação é a ÚNICA janela para o download — app minimizado,
+             * centenas de MB — era o caso em que ela não dizia nada.
+             *
+             * Os bytes sempre foram conhecidos (o `onProgresso` do shell os
+             * reporta a cada MB); faltava um canal para eles. Como toda a
+             * matemática de percentual e de ETA é uma razão, ela funciona
+             * igual nas duas unidades — só a APRESENTAÇÃO muda, e é isso que
+             * esta bandeira decide.
+             */
+            val bytes: Boolean = false,
         )
 
         /**
@@ -282,13 +302,14 @@ class SyncService : Service() {
         fun updateProgress(
             ctx: Context,
             label: String,
-            done: Int,
-            total: Int,
+            done: Long,
+            total: Long,
             etaMs: Long,
             items: List<String> = emptyList(),
             idleMs: Long = 0,
+            bytes: Boolean = false,
         ) {
-            progress = Progress(label, done, total, etaMs, items, idleMs)
+            progress = Progress(label, done, total, etaMs, items, idleMs, bytes)
             val nm = ctx.getSystemService(NotificationManager::class.java) ?: return
             try {
                 if (!running) {
@@ -347,6 +368,27 @@ class SyncService : Service() {
             return "${h}h" + String.format("%02d", min % 60)
         }
 
+        /**
+         * "284 MB", "1,4 GB" — o tamanho como o operador o reconhece.
+         *
+         * Uma casa decimal só a partir de GB: "284,3 MB" muda de dígito a cada
+         * atualização e vira ruído numa linha que já tem percentual e tempo,
+         * enquanto em GB a casa é a diferença entre "1 GB" e "1,9 GB", que é
+         * grande demais para esconder. Vírgula porque a notificação está em
+         * português; o resto do app escreve assim.
+         */
+        private fun formatBytes(n: Long): String {
+            val kb = 1024.0
+            val mb = kb * 1024
+            val gb = mb * 1024
+            return when {
+                n >= gb -> String.format(Locale("pt", "BR"), "%.1f GB", n / gb)
+                n >= mb -> "${Math.round(n / mb)} MB"
+                n >= kb -> "${Math.round(n / kb)} kB"
+                else -> "$n B"
+            }
+        }
+
         private fun buildNotification(ctx: Context, p: Progress?): Notification {
             val open = Intent(ctx, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_NEW_TASK
@@ -372,7 +414,8 @@ class SyncService : Service() {
                     .setContentText("A sincronização continua com o app minimizado.")
                     .build()
             }
-            val pct = (p.done.coerceAtMost(p.total) * 100) / p.total
+            val feito = p.done.coerceIn(0, p.total)
+            val pct = ((feito * 100) / p.total).toInt()
             val parado = p.idleMs >= STALL_MS
 
             // Com o download parado, o tempo restante vira ficção: ele foi
@@ -381,7 +424,12 @@ class SyncService : Service() {
             // enganosa que esta notificação pode fazer. Melhor dizer o que de
             // fato se sabe — que faz X sem novidade.
             val cauda = if (parado) "sem resposta há ${formatIdle(p.idleMs)}" else formatEta(p.etaMs)
-            val contagem = "${p.done} de ${p.total}" + (if (cauda.isNotEmpty()) " · $cauda" else "")
+            val quanto = if (p.bytes) {
+                "${formatBytes(feito)} de ${formatBytes(p.total)}"
+            } else {
+                "${p.done} de ${p.total}"
+            }
+            val contagem = quanto + (if (cauda.isNotEmpty()) " · $cauda" else "")
 
             // A LINHA PRINCIPAL é o nome do que está baixando agora, não o
             // número: "23 de 54" é abstrato, "002. Ó Adorai o Senhor" é o que o
@@ -396,7 +444,11 @@ class SyncService : Service() {
             b.setContentTitle(if (p.label.isNotEmpty()) p.label else "Baixando mídias")
                 .setContentText(atual ?: contagem)
                 .setSubText(if (atual != null) "$contagem · $pct%" else "$pct%")
-                .setProgress(p.total, p.done.coerceAtMost(p.total), false)
+                // EM MILÉSIMOS, e não nas unidades cruas: `setProgress` recebe
+                // `Int`, e um total em bytes passa de 2 GB num vídeo de 1080p —
+                // o estouro faria a barra andar para trás. A resolução de 1/1000
+                // é muito além do que uma barra de notificação distingue.
+                .setProgress(1000, ((feito * 1000) / p.total).toInt(), false)
             return b.build()
         }
 

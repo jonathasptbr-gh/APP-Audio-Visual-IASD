@@ -414,6 +414,45 @@ liberar espaço; o rodapé de uso é só informativo). Três cobre o uso real �
 alternar entre dois ou três vídeos num mesmo culto. O que ele quiser guardar,
 guarda pelas outras duas opções da mesma folha.
 
+##### Uma prateleira invisível que segurava o que já tinha sido excluído (v5.118)
+
+Sintoma relatado do aparelho: um vídeo já removido de TODAS as telas continuava
+marcado como "já está aqui" (✓) na lista de resultados do YouTube — e não havia
+onde removê-lo.
+
+A causa é o encontro de duas peças que estavam certas separadamente.
+`deleteSelected` chama `listRemove(activeTab, id)` — só da aba ATIVA, o que é o
+comportamento correto (excluir do Cronograma não pode tirar da playlist). E
+`avulsos` conta para o `isReferenced`, o que também é correto — é o que impede o
+gc de apagar a mídia projetada. Juntas: quem tocasse "Tocar agora" e depois
+adicionasse o mesmo vídeo ao Cronograma ficava com DOIS detentores, e excluir
+pelo Cronograma deixava a prateleira segurando o registro. O blob permanecia no
+aparelho, invisível em toda tela, e o ✓ da busca — que pergunta `mediaByYoutube`,
+isto é, "existe blob?" — continuava aceso, com razão e sem saída.
+
+A regra que faltava: **excluir é uma declaração de intenção, e ela vale para os
+detentores que o operador não pode enxergar.** A prateleira é cache, não
+biblioteca. `soltarAvulso(id)` roda junto de toda exclusão explícita.
+
+Com **uma** exceção, e ela é o motivo de a função existir em vez de a linha ser
+escrita inline: o que está em CENA agora. Ali a prateleira faz exatamente o
+trabalho para o qual foi criada, e soltá-la apagaria o blob de baixo de uma
+projeção em andamento — o vídeo seguiria tocando (o Display já tem os bytes),
+mas uma queda do dongle o traria de volta e o `getMedia` não acharia nada.
+Quando essa mídia sair de cena, o rodízio de `fixarAvulso` a solta sozinho.
+
+`soltarAvulso` nunca apaga nada por conta própria: ela chama `listRemove`, que
+decide na mesma transação — se o Cronograma, a playlist ou um Favorito ainda
+tiverem o id, o blob fica inteiro. Ela só deixa de esconder um detentor.
+
+> **A auditoria que veio junto**, porque a pergunta era "o que mais pode ficar
+> órfão?": todo caminho que cria registro passa por `addMedia`/`addUrlMedia`/
+> `addDeck`/`addCue`, e os quatro exigem uma lista. As chaves de fato usadas são
+> `imports`, `playlist`, `avulsos`, `favs` (as quatro de `LISTS`) e `folder_<id>`
+> (que o `isReferenced` alcança pelo índice `folders`). Nenhuma outra. O único
+> `listRemove('folders', …)` que aparece no fonte está DENTRO de um comentário,
+> descrevendo o bug que a v5.103 corrigiu.
+
 **Subir o `DB_VERSION` tem um preço, e ele não é o upgrade — é a VOLTA.**
 `open` com uma versão MENOR do que a do banco lança `VersionError`, e a base
 web ANTERIOR é exatamente para onde o watchdog do OTA volta quando um bundle
@@ -695,6 +734,40 @@ quatro ações abaixo, em vez de dobrar a folha para oito linhas.
   `songMenuItem` chama `closeSongMenu()` ANTES da ação, e `closeSongMenu` zera
   aquele objeto — consultá-lo lá dentro encontraria null e todo download sairia
   como vídeo. É o mesmo cuidado que a `variante` das músicas já tomava.
+
+##### E a QUALIDADE, logo abaixo (v5.118)
+
+Uma segunda linha de segmentos, no mesmo desenho: **1080p · 720p · 480p**. As
+duas perguntas passaram a compartilhar o construtor (`ytSegRow`) — escrevê-lo
+duas vezes era garantir que a segunda divergisse da primeira no primeiro ajuste
+de estilo.
+
+- **Ela some com "Só áudio" escolhido.** Ali não existe resolução nenhuma, e uma
+  escolha que não faz nada é a mesma coisa que o app já evita no botão de busca
+  num shell antigo.
+- **O teto nasce no padrão A CADA ITEM**, como a forma e como a variante das
+  músicas. Deliberado: um teto que grudasse faria quem escolheu 480p numa rede
+  ruim receber, sem aviso, o vídeo principal do domingo seguinte em 480p no
+  telão. O atrito de dois toques é visível; a regressão silenciosa não seria — e
+  agora o subtítulo do Cronograma mostra a resolução real, então um engano
+  também não fica escondido.
+- **360p ficou de fora.** Num telão de salão ele é ruim o suficiente para não
+  valer ser oferecido — é justamente o piso em que o app ficou preso por sete
+  versões (ver a série do 1080p).
+- **Ponte:** um TERCEIRO destino (`ytFetchAte`), pela mesma regra de aridade do
+  `ytFetchAudio`. Com um cuidado a mais: ele só é usado quando o teto pedido é
+  **menor** que o padrão. Pedir 1080p continua saindo pelo `ytFetch` de sempre,
+  que existe em toda versão — quem não mexeu no seletor nunca passa a depender
+  de um APK novo.
+- **O progressivo respeita o teto, mas nunca ao ponto de não entregar nada**
+  (`melhorProgressivo`): o maior que couber; se NENHUM couber (pediu 480p e o
+  vídeo só tem progressivo de 720p), vale o MENOR que existe. Devolver `null`
+  ali transformaria "quero economizar dados" em "não baixa", e quem escolheu
+  480p quer o louvor, não a recusa.
+- **O shell devolve a altura e a duração REAIS** (`height`, `seconds`) do que de
+  fato veio — não do que foi pedido. É isso que alimenta o subtítulo da linha, e
+  é a única forma honesta de responder "o que eu tenho aqui?" quando o pedido
+  não pôde ser atendido.
 
 ##### Por que a primeira versão não baixou nada (corrigido na v5.113)
 
@@ -2748,6 +2821,63 @@ As quatro células:
   porque é ele que está atrás.
 - **Mensagens** — foi para a aba **Ferramentas** (v5.31), como seção do
   acordeão. Antes era um botão flutuante sobre a preview; ver abaixo.
+
+#### A linha da lista: nome + SUBTÍTULO (v5.118)
+
+Até a v5.117 o tipo de um item era um **selo** ao lado do nome (`.url-badge`:
+"YT", "URL", e o subtipo das cenas de roteiro). O selo tinha um defeito
+estrutural, não de estilo: ele era irmão do nome num `flex` em que o nome tem
+`flex: 1`, ou seja, disputava largura com ele. Título curto, o selo aparecia;
+"Firme nas Promessas — Arautos do Rei (Ao Vivo em Brasília)", ele era espremido
+ou empurrado para fora. **A informação sumia exatamente nos itens de nome
+comprido — que são os que menos se distinguem entre si numa lista.** E vídeo,
+áudio e imagem nunca tiveram selo nenhum: para eles a pergunta "o que é isto?"
+não tinha resposta na tela.
+
+Agora o nome e o tipo vivem numa coluna (`.row-text`), e o tipo é a **segunda
+linha**, sempre visível. Medido: a linha continua com **51 px**, exatamente como
+antes — a altura já era ditada pela miniatura de 40 px, e duas linhas de texto
+somam ~35 px, que cabem dentro dela. A lista não ficou um pixel mais alta.
+
+O subtítulo é `subtituloItem()`, e ele diz **tipo + o detalhe que o registro já
+tem à mão**:
+
+| Item | Subtítulo |
+|---|---|
+| vídeo | `Vídeo · 1080p` (a altura, quando conhecida) |
+| áudio | `Áudio · 4:32` |
+| apresentação | `Apresentação · 12 páginas` (o tamanho do array `pages`) |
+| item de player | `YouTube` — isto é, **depende da rede durante o culto** |
+| item de URL | `Link externo` |
+| cena de roteiro | o subtipo (`Versículo`, `Mensagem`, `Cronômetro`…) |
+
+**Nada aqui mede coisa alguma a cada render**, e essa é a regra que decide o que
+entra: a resolução vem do shell (que sabe a altura do que baixou) ou do mesmo
+`<video>` que já monta a miniatura; a duração de um áudio sai de um
+`preload='metadata'` na importação; as páginas são um `.length`. Um detalhe que
+exigisse decodificar arquivo por linha não valeria a informação que dá — daí os
+campos `height` e `seconds` nascerem no REGISTRO (`makeMediaRecord`).
+
+Duas exceções conscientes:
+
+- **A sincronização de PASTA não mede.** Ela percorre centenas de arquivos, e
+  uma leitura de metadados por áudio ali é tempo que o operador sente na
+  sincronização inteira para ganhar um detalhe numa linha. Lá o subtítulo diz só
+  o tipo, que já é a informação que faltava.
+- **A gaveta de Favoritos esconde o subtítulo** (`#favList .row-sub`). Ela
+  agrupa por tipo em SEÇÕES, então o cabeçalho já diz o que a linha diria — e é
+  a lista que precisa ser compacta (miniatura de 32 px, onde as duas linhas de
+  fato cresceriam). A marcação é a MESMA nas duas, de propósito: uma segunda
+  anatomia de linha divergiria da primeira no próximo ajuste, e quem decide é o
+  CSS.
+
+**A armadilha do `flex: 1`**, que quase passou: `.row-name` é filho DIRETO de
+`.row` em sete outras listas (pastas, versões da Bíblia, resultados de busca), e
+é o `flex: 1` dele que empurra os botões para a direita. Tirá-lo da regra base
+para acomodar a coluna quebraria as sete de uma vez. Ele fica, e é desfeito só
+dentro da coluna (`.row-text > .row-name { flex: none }`) — num pai em coluna,
+crescer significaria esticar na VERTICAL e descolar o nome do subtítulo. É a
+mesma nota que `.hymn-name` já carregava.
 
 #### O rodapé fixo da caixa da lista (`#listFoot`, v5.107)
 

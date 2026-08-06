@@ -1357,7 +1357,34 @@ main {
 .thumb { width: 40px; height: 40px; flex-shrink: 0; border-radius: var(--radius-btn); overflow: hidden; background: var(--bg); display: flex; align-items: center; justify-content: center; }
 .thumb--icon .msym { font-size: var(--icon-lg); color: var(--muted); }
 
+/* NOME + SUBTÍTULO, numa coluna (v5.118).
+   O tipo do item era um selo IRMÃO do nome, e num `flex` em que o nome tem
+   `flex: 1` isso significa disputar largura com ele: título curto, o selo
+   aparecia; título comprido, ele era espremido ou empurrado para fora. A
+   informação sumia justamente nos itens de nome longo, que são os que menos se
+   distinguem entre si numa lista.
+   Como coluna ela é sempre visível — e NÃO custa altura: a linha já tem 40px
+   por causa da miniatura, e as duas linhas de texto somam ~35px. A lista não
+   ficou um pixel mais alta.
+   O `min-width: 0` mora aqui agora, e é ele que permite o `text-overflow` dos
+   dois filhos: sem ele um flex item não encolhe abaixo do conteúdo e o nome
+   comprido empurraria os botões para fora da linha. */
+.row-text { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 1px; }
+/* O `flex: 1` FICA na regra base: `.row-name` é filho DIRETO de `.row` em sete
+   outras listas do app (pastas, versões da Bíblia, resultados), e é ele que faz
+   o nome ocupar a sobra e empurrar os botões para a direita. Tirá-lo daqui as
+   quebraria todas de uma vez.
+   Dentro da coluna ele é desfeito, pela mesma razão já registrada em
+   `.hymn-name`: num pai em coluna, crescer é esticar na VERTICAL — o nome
+   descolaria do subtítulo. */
 .row-name { flex: 1; min-width: 0; font-size: .9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row-text > .row-name { flex: none; }
+.row-sub { min-width: 0; font-size: .68rem; line-height: 1.25; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* A gaveta de Favoritos agrupa por tipo em SEÇÕES, então o cabeçalho já diz o
+   que o subtítulo diria — e ela é a lista que precisa ser compacta (miniatura
+   de 32px). Repetir a informação ali custaria os pixels que a compactação
+   ganhou, sem acrescentar nada. */
+#favList .row-sub { display: none; }
 
 .url-badge { flex-shrink: 0; font-size: .6rem; font-weight: 700; letter-spacing: .04em; padding: 1px 5px; border-radius: var(--radius-xs); background: var(--surface); color: var(--muted); }
 /* O vermelho do YouTube é MARCA DE TERCEIRO: a matiz identifica a origem da
