@@ -189,6 +189,23 @@ object YoutubeGrab {
     private var adaptativoBloqueado = false
 
     /**
+     * O mesmo, para a fonte alternativa ([InnerTube]): se aquele cliente também
+     * for recusado, não há por que repetir o pedido a cada download da sessão.
+     * Por processo, pelo mesmo motivo — reabrir o app tenta de novo.
+     */
+    @Volatile
+    private var clienteBloqueado = false
+
+    /**
+     * Por que a última [montar] falhou. Existe porque "não deu" e "foi RECUSADO"
+     * levam a decisões diferentes: só o 403 desliga a fonte para o resto da
+     * sessão — um muxer que falhou, ou um arquivo vazio, pode ser daquele vídeo
+     * e não da fonte inteira.
+     */
+    @Volatile
+    private var ultimoMotivo: String? = null
+
+    /**
      * "áudio 2 · vídeo-só 5 (1080p) · progressivo 2 (720p)"
      *
      * Cada grupo conta primeiro o que dá para BAIXAR (URL direta de arquivo) e,
@@ -431,78 +448,169 @@ object YoutubeGrab {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             parear(info, "webm", "webm")?.let { pares += Triple(it.first, it.second, true) }
         }
-        if (pares.isEmpty()) {
-            diagnostico += " · sem par completo"
-            return null
-        }
-        if (adaptativoBloqueado) {
-            diagnostico += " · adaptativo bloqueado nesta sessão"
-            return null
-        }
 
         // O progressivo que já temos de graça é o piso: montar só compensa se o
         // resultado for melhor. Sem esta conta, um vídeo cuja faixa separada
         // fosse 360p pagaria dois downloads e um muxer para entregar o mesmo.
         val alturaProgressiva = melhorProgressivo(info)?.let { alturaDe(it.getResolution()) } ?: 0
+        val nome = tituloLimpo(info.name, info.uploaderName)
 
-        for ((v, a, webm) in pares) {
-            val altura = alturaDe(v.getResolution())
-            val ext = if (webm) "webm" else "mp4"
-            if (altura <= alturaProgressiva) {
-                diagnostico += " · $ext não supera o prog"
+        if (pares.isEmpty()) diagnostico += " · sem par completo"
+        else if (adaptativoBloqueado) diagnostico += " · adaptativo bloqueado nesta sessão"
+        else {
+            for ((v, a, webm) in pares) {
+                val altura = alturaDe(v.getResolution())
+                val ext = if (webm) "webm" else "mp4"
+                if (altura <= alturaProgressiva) {
+                    diagnostico += " · $ext não supera o prog"
+                    continue
+                }
+                val urlVideo = v.getContent() ?: continue
+                val urlAudio = a.getContent() ?: continue
+                val pronto = montar(ctx, id, nome, urlVideo, urlAudio, ext, webm, altura, null, onProgresso)
+                if (pronto != null) return pronto
+            }
+        }
+
+        // ÚLTIMA FONTE: o pedido direto à API interna, por um cliente que não
+        // exige PO Token (ver InnerTube). Só chega aqui quando a biblioteca não
+        // conseguiu — e falhando também, quem chamou segue para o progressivo,
+        // que é o que o app entrega hoje. Nada do caminho que funciona depende
+        // disto.
+        val viaCliente = tentarJuntarInnerTube(ctx, id, nome, alturaProgressiva, onProgresso)
+        if (viaCliente != null) return viaCliente
+        return null
+    }
+
+    /**
+     * A mesma montagem, com as faixas vindas do [InnerTube] em vez da
+     * biblioteca. Elas trazem o próprio `User-Agent` — é o do cliente que as
+     * emitiu, e pedir uma URL anunciando outro cliente é o caminho conhecido
+     * para um 403.
+     */
+    private fun tentarJuntarInnerTube(
+        ctx: Context,
+        id: String,
+        nome: String,
+        alturaProgressiva: Int,
+        onProgresso: (Long, Long) -> Unit,
+    ): JSONObject? {
+        if (clienteBloqueado) return null
+        val r = InnerTube.faixas(id)
+        diagnostico += r.log
+        if (r.faixas.isEmpty()) return null
+
+        // Pares do MESMO contêiner, pelo mesmo motivo do caminho da biblioteca.
+        val combinacoes = mutableListOf(Triple("mp4", "m4a", false))
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            combinacoes += Triple("webm", "webm", true)
+        }
+        for ((extV, extA, webm) in combinacoes) {
+            val v = r.faixas
+                .filter { !it.audio && it.ext == extV && it.altura in 1..TETO_ALTURA }
+                .maxByOrNull { it.altura } ?: continue
+            val a = r.faixas.firstOrNull { it.audio && it.ext == extA } ?: continue
+            if (v.altura <= alturaProgressiva) {
+                diagnostico += " · ${v.cliente}/$extV não supera o prog"
                 continue
             }
-            val urlVideo = v.getContent() ?: continue
-            val urlAudio = a.getContent() ?: continue
-            val parteVideo = File(pasta(ctx), "$id-v.$ext")
-            val parteAudio = File(pasta(ctx), "$id-a.$ext")
-            val saida = arquivoDestino(ctx, id, ext)
-            try {
-                // A BARRA É UMA SÓ. Os dois downloads e a montagem viram um
-                // percentual contínuo (o vídeo pesa 90%, que é a proporção
-                // real), em vez de duas barras que voltam ao zero no meio — do
-                // lado do operador, uma barra que reinicia é indistinguível de
-                // travamento.
-                val perfil = baixarTentando(urlVideo, parteVideo) { lidos, total ->
+            val pronto = montar(
+                ctx, id, nome, v.url, a.url, extV, webm, v.altura, v.ua, onProgresso,
+            )
+            if (pronto != null) {
+                diagnostico += " (${v.cliente})"
+                return pronto
+            }
+            // RECUSADO também por aqui (403): não adianta repetir o pedido a
+            // cada download da sessão. Só o 403 desliga — um muxer que falhou
+            // pode ser característica daquele vídeo, não da fonte.
+            if (ultimoMotivo == "403") clienteBloqueado = true
+        }
+        return null
+    }
+
+    /**
+     * Baixa as duas faixas, junta e devolve o JSON — o trecho comum às duas
+     * fontes de faixas (a biblioteca e o [InnerTube]).
+     *
+     * `uaFixo` é o `User-Agent` obrigatório daquela URL, quando ela vem de um
+     * cliente específico; `null` deixa [baixarTentando] procurar o perfil que
+     * funciona.
+     */
+    private fun montar(
+        ctx: Context,
+        id: String,
+        nome: String,
+        urlVideo: String,
+        urlAudio: String,
+        ext: String,
+        webm: Boolean,
+        altura: Int,
+        uaFixo: String?,
+        onProgresso: (Long, Long) -> Unit,
+    ): JSONObject? {
+        ultimoMotivo = null
+        val parteVideo = File(pasta(ctx), "$id-v.$ext")
+        val parteAudio = File(pasta(ctx), "$id-a.$ext")
+        val saida = arquivoDestino(ctx, id, ext)
+        try {
+            // A BARRA É UMA SÓ. Os dois downloads e a montagem viram um
+            // percentual contínuo (o vídeo pesa 90%, que é a proporção real),
+            // em vez de duas barras que voltam ao zero no meio — do lado do
+            // operador, uma barra que reinicia é indistinguível de travamento.
+            val perfil = if (uaFixo != null) {
+                baixar(urlVideo, parteVideo, uaFixo) { lidos, total ->
                     if (total > 0) onProgresso(lidos * 90 / total, 100)
                 }
-                if (parteVideo.length() <= 0L) { diagnostico += " · $ext vídeo vazio"; continue }
+                "="
+            } else {
+                baixarTentando(urlVideo, parteVideo) { lidos, total ->
+                    if (total > 0) onProgresso(lidos * 90 / total, 100)
+                }
+            }
+            if (parteVideo.length() <= 0L) { diagnostico += " · $ext vídeo vazio"; return null }
+            if (uaFixo != null) {
+                baixar(urlAudio, parteAudio, uaFixo) { lidos, total ->
+                    if (total > 0) onProgresso(90 + lidos * 9 / total, 100)
+                }
+            } else {
                 baixarTentando(urlAudio, parteAudio) { lidos, total ->
                     if (total > 0) onProgresso(90 + lidos * 9 / total, 100)
                 }
-                if (parteAudio.length() <= 0L) { diagnostico += " · $ext áudio vazio"; continue }
-                onProgresso(99, 100)
-                if (!MuxMp4.juntar(parteVideo, parteAudio, saida, webm)) {
-                    diagnostico += " · $ext muxer falhou"
-                    continue
-                }
-                if (saida.length() <= 0L) { diagnostico += " · $ext saída vazia"; continue }
-                onProgresso(100, 100)
-                diagnostico += " → juntou ${altura}p ($ext/$perfil)"
-                return JSONObject()
-                    .put("url", SafRegistry.urlFor(Uri.fromFile(saida)))
-                    .put("name", tituloLimpo(info.name, info.uploaderName))
-                    .put("size", saida.length())
-                    .put("type", if (webm) "video/webm" else "video/mp4")
-                    .put("audioOnly", false)
-            } catch (e: Exception) {
-                Log.w(TAG, "não deu para juntar $ext de $id", e)
-                val porque = motivo(e)
-                diagnostico += " · $ext " + porque
-                // 403 é o portão do PO Token, e ele não muda de ideia no
-                // download seguinte. Qualquer outro motivo (rede, arquivo) pode
-                // ser passageiro e não desliga nada.
-                if (porque == "403") adaptativoBloqueado = true
-                saida.delete()
-            } finally {
-                // As partes não servem para mais nada — nem em caso de sucesso
-                // (o arquivo final já as contém) nem em caso de falha. Deixá-las
-                // no cache dobraria o espaço de cada download.
-                parteVideo.delete()
-                parteAudio.delete()
             }
+            if (parteAudio.length() <= 0L) { diagnostico += " · $ext áudio vazio"; return null }
+            onProgresso(99, 100)
+            if (!MuxMp4.juntar(parteVideo, parteAudio, saida, webm)) {
+                diagnostico += " · $ext muxer falhou"
+                return null
+            }
+            if (saida.length() <= 0L) { diagnostico += " · $ext saída vazia"; return null }
+            onProgresso(100, 100)
+            diagnostico += " → juntou ${altura}p ($ext/$perfil)"
+            return JSONObject()
+                .put("url", SafRegistry.urlFor(Uri.fromFile(saida)))
+                .put("name", nome)
+                .put("size", saida.length())
+                .put("type", if (webm) "video/webm" else "video/mp4")
+                .put("audioOnly", false)
+        } catch (e: Exception) {
+            Log.w(TAG, "não deu para juntar $ext de $id", e)
+            val porque = motivo(e)
+            ultimoMotivo = porque
+            diagnostico += " · $ext " + porque
+            // 403 é o portão do PO Token, e ele não muda de ideia no download
+            // seguinte. Qualquer outro motivo (rede, arquivo) pode ser
+            // passageiro e não desliga nada.
+            if (porque == "403" && uaFixo == null) adaptativoBloqueado = true
+            saida.delete()
+            return null
+        } finally {
+            // As partes não servem para mais nada — nem em caso de sucesso (o
+            // arquivo final já as contém) nem em caso de falha. Deixá-las no
+            // cache dobraria o espaço de cada download.
+            parteVideo.delete()
+            parteAudio.delete()
         }
-        return null
     }
 
     /**
