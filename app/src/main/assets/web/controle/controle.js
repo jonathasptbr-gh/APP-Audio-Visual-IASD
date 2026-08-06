@@ -162,7 +162,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.116';
+const WEB_VERSION = '5.117';
 
 // Escrita UMA vez, na carga: o indicador mora no rodapé de Configurações desde
 // a v5.49 e não depende mais de qual aba está aberta (no cabeçalho ele
@@ -193,17 +193,54 @@ renderVersionLabel();
 //
 // É lido a cada ABERTURA de Configurações, não uma vez na carga: o valor muda a
 // cada download, e a graça é justamente comparar antes e depois de um teste.
+const ytDiagBoxEl = document.getElementById('ytDiagBox');
 const ytDiagEl = document.getElementById('ytDiagLine');
+const ytDiagCopyEl = document.getElementById('ytDiagCopy');
 async function renderYtDiag() {
-  if (!ytDiagEl) return;
-  if (!window.__NATIVE__ || (window.__SHELL_VERSION__ | 0) < 24) { ytDiagEl.hidden = true; return; }
+  if (!ytDiagBoxEl) return;
+  if (!window.__NATIVE__ || (window.__SHELL_VERSION__ | 0) < 24) { ytDiagBoxEl.hidden = true; return; }
   let txt = '';
   try { txt = await AVNative.ytDiag(); } catch (_) { txt = ''; }
-  ytDiagEl.hidden = !txt;
+  ytDiagBoxEl.hidden = !txt;
   ytDiagEl.textContent = txt ? 'Último YouTube: ' + txt : '';
   ytDiagEl.title = 'O que o extrator recebeu na última extração — faixas de áudio'
     + ' separadas, faixas de vídeo sem áudio (é onde mora o 1080p) e progressivas'
-    + ' (vídeo + áudio no mesmo arquivo, teto de 720p).';
+    + ' (vídeo + áudio no mesmo arquivo).';
+}
+
+// COPIAR UM CAMPO DE LOG. Regra do projeto: todo campo de diagnóstico nasce com
+// este botão — ele existe para ser repassado, e a alternativa é transcrever
+// números à mão ou fotografar a tela.
+//
+// `navigator.clipboard` exige contexto seguro, e o app tem um (a base é servida
+// por `https://appassets.androidplatform.net`) — mas o WebView pode negar a
+// permissão sem aviso, então o caminho antigo (`execCommand`) fica como reserva.
+// A confirmação é o mesmo pulso do resto do app: o ícone vira ✓ por um instante.
+async function copiarTexto(texto, btn) {
+  let ok = false;
+  try {
+    await navigator.clipboard.writeText(texto);
+    ok = true;
+  } catch (_) {
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = texto;
+      // Fora da vista, mas NÃO `display:none` nem `hidden`: um campo que não
+      // está no layout não pode ser selecionado, e sem seleção o `copy` copia
+      // nada — em silêncio.
+      ta.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0';
+      document.body.appendChild(ta);
+      ta.select();
+      ok = document.execCommand('copy');
+      ta.remove();
+    } catch (__) { ok = false; }
+  }
+  if (btn) responder(btn, ok ? 'ok' : 'erro', ok ? null : 'Não foi possível copiar');
+  return ok;
+}
+
+if (ytDiagCopyEl) {
+  ytDiagCopyEl.addEventListener('click', () => copiarTexto(ytDiagEl.textContent || '', ytDiagCopyEl));
 }
 
 const selbarEl = document.getElementById('selbar');

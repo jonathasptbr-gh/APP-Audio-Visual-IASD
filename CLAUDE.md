@@ -85,6 +85,7 @@ app/src/main/
 │   ├── WebUpdater.kt            # OTA da base web (watchdog, minShell, sha256)
 │   ├── WebPathHandler.kt        # serve o bundle OTA, com fallback pro APK
 │   ├── YoutubeGrab.kt           # extrai e baixa o vídeo do YouTube NO APARELHO
+│   ├── MuxMp4.kt                # junta as faixas de vídeo e áudio (1080p) — MediaMuxer
 │   ├── SlideDeck.kt             # apresentação (PDF/Google) → uma imagem por página
 │   ├── MicChromeClient.kt       # onPermissionRequest: microfone no WebView do telão
 │   └── MessageBus.kt            # relay de comandos entre os dois WebViews
@@ -100,9 +101,9 @@ docs/
 └── FONTE-DE-DADOS-LOUVORJA.md   # referência do banco LouvorJA (hinos/Bíblia)
 ```
 
-**Catorze arquivos Kotlin, uma dependência de terceiros no shell** — o resto é
+**Quinze arquivos Kotlin, uma dependência de terceiros no shell** — o resto é
 AndroidX oficial (`core-ktx`, `activity-ktx`, `webkit`). Medido agora (`wc -l`):
-**4.533 linhas de Kotlin** contra **14.596 linhas de JavaScript** em
+**5.017 linhas de Kotlin** contra **15.870 linhas de JavaScript** em
 `assets/web/` (sem contar `vendor/`, que é código buildado de terceiro) — a
 proporção é o argumento, não o número absoluto. Manter o nativo pequeno respeita
 a filosofia do projeto muito melhor que Capacitor/Cordova, que arrastariam npm e
@@ -927,6 +928,7 @@ contextos.
 | Botão de cast da preview | oculto | `AVNative.openCast()` → seletor de **espelhamento de tela** (ver abaixo) |
 | PDF, PowerPoint, Google Apresentações | **PDF não existe** (não há quem o desenhe); o `.pptx` funciona, e é o MESMO caminho do app | **viram UMA IMAGEM POR PÁGINA**, cada formato pelo caminho que existe para ele: o **PDF** pelo `PdfRenderer` da PLATAFORMA (`SlideDeck.kt` + `AVNative.deckPages`) — fidelidade total, zero dependência; o **`.pptx`** pelo renderizador de OOXML em `assets/web/vendor/` (`pptxParaPaginas`, em `controle.js`), carregado por `import()` dinâmico e rasterizado com `<foreignObject>` + canvas. Daí para a frente é mídia comum: fade, cortina, telão e `MediaSession` que já existem, com ⏮/⏭ passando página. **Não há botão de "apresentação"**: uma apresentação é um arquivo como outro qualquer, e entra pelo mesmo "Importar arquivos" (que no app abre o seletor do SISTEMA, `pickDoc` — o `<input type="file">` devolve bytes, e o PDF precisa que o shell abra o ARQUIVO) ou pelo compartilhamento. O `.ppt` anterior a 2007 e o `.odp` ficam de fora: ninguém sabe desenhá-los, e aceitar para depois falhar é pior que não aceitar. O link do Google entra sozinho pela URL de exportação |
 | Vídeo do YouTube | player embutido (IFrame API) | **arquivo de vídeo baixado PELO APARELHO** (`YoutubeGrab.kt` + `AVNative.ytFetch`) — o embed pausa sozinho com o app minimizado, e a extração no próprio celular sai do IP do chip, que é o que o YouTube não bloqueia. Sem configurar nada. Cobalt continua como segunda opção para quem já mantém uma instância; falhando os dois, o link vira item de player |
+| Resolução do download | — | **até 1080p, montando as duas faixas** (v1.44). Acima de 720p o YouTube só entrega vídeo SEM som, com o som à parte — e por isso o app baixava a pior cópia: só sabia pegar o progressivo, que neste aparelho é UM, de 360p. `MuxMp4.kt` junta as duas com o `MediaMuxer` da PLATAFORMA: é cópia de amostras, não recodificação, então não há perda nem espera. Teto de 1080p de propósito (o telão da igreja é 1080p) e só quando o resultado for melhor que o progressivo — senão dois downloads e um muxer entregariam o mesmo de antes. Falhando qualquer etapa, o progressivo segue como piso |
 | **Só o ÁUDIO** de um vídeo do YouTube | — | **`ytFetchAudio`** (v5.112, shell ≥ 23; **exige o APK v1.41+** — ver abaixo): a faixa de áudio, sem vídeo. A escolha é o MESMO seletor de Cantada/Playback das músicas, no topo da folha de destinos, e vale para as quatro ações. Entra como `kind: 'audio'` e **sem miniatura** — é o kind que faz o telão manter o wallpaper em vez de trocar de imagem. É também o único caminho em que o teto de 720p do progressivo não existe: o áudio do YouTube já vem em faixa separada, então aqui ele vem inteiro. **E é justamente por ser faixa separada que ele pode não vir**: adaptativo é o que o YouTube protege com PO Token, que este app não monta. Daí a fila de tentativas do shell (v1.41) — m4a → qualquer outro formato de áudio → o vídeo progressivo —, com o registro entrando como `kind: 'audio'` em todos os casos: quem decide que o telão não muda de imagem é o kind, não o container |
 | Buscar no YouTube | não existe: o botão abre o YouTube numa aba | **a busca acontece DENTRO do acervo** — a tela que o rótulo chama de **Biblioteca** desde a v5.96, e que no código segue sendo o acervo — (`AVNative.ytSearch`, `YoutubeGrab.pesquisar`, em **português** — no padrão en-GB da biblioteca o YouTube devolve o título TRADUZIDO de vídeos que são originalmente em português, e passar a localização ao `NewPipe.init` NÃO resolve: o serviço filtra o idioma por uma lista de suportados que hoje só tem `en-GB`. Quem resolve é o `forceLocalization` do próprio `Extractor`): os resultados entram na mesma lista e o toque abre a mesma folha de três escolhas das músicas (tocar · playlist · Cronograma), cada uma indo só para o seu lugar. Um iframe da página de resultados é recusado pelo `X-Frame-Options` do YouTube, e a API oficial exigiria chave com cota compartilhada pela frota |
 | Link para fora do app ("Pesquisar … no YouTube") | `window.open` numa aba nova | **`AVNative.openExternal(url)`** → `ACTION_VIEW` numa tarefa própria. O WebView RECUSA navegar para outro origin (invariante 2), então sem esse método um link externo não faz absolutamente nada — nem erro no console |
@@ -1351,6 +1353,11 @@ Rodar local: `./gradlew assembleDebug` (exige Android SDK instalado).
 - Toda operação IDB multi-passo que precise de atomicidade usa `storeTx()`.
 - Ao mudar a superfície da ponte, subir `NativeBridge.SHELL_VERSION` **e**
   atualizar a seção "A ponte" acima.
+- **Todo campo de LOG nasce com um botão de copiar** (`.log-line`/`.log-copy`,
+  ver `copiarTexto` em `controle.js`). Diagnóstico existe para ser REPASSADO, e
+  sem o botão a alternativa é transcrever números à mão ou fotografar a tela —
+  que foi exatamente o que aconteceu com a primeira versão do diagnóstico do
+  YouTube. A confirmação é o mesmo pulso do resto do app.
 - Cor nova entra em `assets/web/shared/tokens.css`, nunca literal na folha do
   app — e nunca branco pleno fora do palco (ver "A paleta").
 - Ao atualizar o código, atualizar este `CLAUDE.md` se a mudança afetar
@@ -1374,7 +1381,7 @@ aparelho nenhum.
 O `versionCode`/`versionName` do APK vêm do CI (ver "Build") e não se tocam à
 mão.
 
-**Versão atual: v5.116** (base web) · `SHELL_VERSION` **24**, e o bundle segue com
+**Versão atual: v5.117** (base web) · `SHELL_VERSION` **24**, e o bundle segue com
 `minShell: 2` — ele funciona igual num shell antigo, só sem os recursos que são
 nativos por construção (a escada do voltar, os botões de volume, a notificação de
 controles), que **só chegam instalando o APK novo**, não pelo OTA.

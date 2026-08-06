@@ -778,6 +778,49 @@ leituras que levam a decisões opostas e que sem esse `+` apareceriam como o
 mesmo zero. Custa uma requisição a mais por extração; se a medição seguinte não
 mostrar ganho, a linha sai.
 
+**A medição seguinte (v1.43) mudou tudo:**
+
+```
+áudio 5 · vídeo-só 12 (1080p) · progressivo 1 (360p) → veio mp4 360p
+```
+
+O cliente iOS destravou as faixas adaptativas — e todas como URL direta, sem
+nenhum `+N manif.`. Ou seja: o 1080p e o áudio puro estavam disponíveis, e o app
+baixava a pior cópia possível (o único progressivo, de 360p) porque era a única
+que não precisava ser montada. A linha do iOS fica.
+
+Daí o **remux** (`MuxMp4.kt`, v1.44): baixa a melhor faixa de vídeo até 1080p
+(mp4/AVC) mais a melhor de áudio (m4a/AAC) e as junta com o `MediaMuxer` da
+plataforma. É cópia de amostras comprimidas, não recodificação — os bits são os
+mesmos que vieram do YouTube, não há perda e o processador quase não trabalha.
+Três guardas que valem registrar:
+
+- **Só monta se for MELHOR que o progressivo.** Um vídeo cuja faixa separada
+  fosse 360p pagaria dois downloads e um muxer para entregar o mesmo de antes.
+- **mp4 + m4a, não "o melhor" absoluto.** O 1080p costuma vir em AVC (mp4) e
+  VP9 (WebM); só o primeiro entra num contêiner MP4. Escolher pelo bitrate e
+  descobrir isso no fim seria baixar centenas de MB para falhar no muxer.
+- **Uma barra só** para os dois downloads e a montagem (o vídeo pesa 90%, que é
+  a proporção real): duas barras que voltam ao zero no meio são
+  indistinguíveis de travamento.
+
+Falhando qualquer etapa, a fila de tentativas de sempre continua valendo — o
+progressivo é o piso, e um louvor em 360p é melhor que nenhum.
+
+##### Todo campo de log tem botão de copiar (v5.117)
+
+O diagnóstico acima nasceu sem botão, e a primeira leitura chegou aqui como
+FOTO DA TELA. Virou regra do projeto (está em `CLAUDE.md`): um campo de
+diagnóstico existe para ser repassado, então ele vem com `.log-line` +
+`.log-copy` — texto selecionável (contra o `user-select: none` que vale para o
+app inteiro) e um botão que não encolhe, porque numa tela estreita quem some
+primeiro não pode ser a saída. `copiarTexto` usa `navigator.clipboard` (o app
+tem contexto seguro: a base é servida por `https://appassets.androidplatform.
+net`) e cai no `execCommand('copy')` se o WebView negar — com o `<textarea>`
+posicionado FORA da vista, nunca `display:none`, porque um campo fora do layout
+não pode ser selecionado e sem seleção o `copy` copia nada, em silêncio. A
+confirmação é o mesmo pulso do resto do app.
+
 **Não exige subir o `DB_VERSION`** (nenhum índice novo; o IDB não tem esquema
 por registro), e é isso que o mantém barato: ver o preço da VOLTA descrito em
 `DB_VERSION`, em `db.js`. Um bundle anterior que encontre um cue o trata como
