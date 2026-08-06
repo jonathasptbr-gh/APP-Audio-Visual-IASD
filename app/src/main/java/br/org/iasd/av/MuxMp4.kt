@@ -34,13 +34,16 @@ import java.nio.ByteBuffer
  * embarcado resolveria o mesmo problema custando dezenas de MB no APK e uma
  * biblioteca nativa para manter.
  *
- * ## O que o contêiner MP4 aceita
+ * ## O contêiner de saída acompanha o de entrada
  *
- * `MUXER_OUTPUT_MPEG_4` recebe H.264/H.265 no vídeo e AAC no áudio. É por isso
- * que quem escolhe as faixas ([YoutubeGrab]) pede **mp4** de um lado e **m4a**
- * do outro: um VP9 em WebM tocaria bem no WebView, mas o muxer se recusaria a
- * escrevê-lo dentro de um MP4 — e a falha viria só no fim, depois de baixar
- * tudo.
+ * `MUXER_OUTPUT_MPEG_4` recebe H.264/H.265 no vídeo e AAC no áudio;
+ * `MUXER_OUTPUT_WEBM` recebe VP8/VP9 com Vorbis ou Opus (este último a partir
+ * da API 29). É por isso que quem escolhe as faixas ([YoutubeGrab]) forma PARES
+ * do mesmo contêiner — mp4+m4a ou webm+webm — em vez de pegar "a melhor" de
+ * cada lado: um VP9 dentro de um MP4 é justamente o que o muxer recusa, e a
+ * recusa viria só no fim, depois de baixar tudo.
+ *
+ * Os dois tocam no WebView, que é o mesmo Chromium do Chrome.
  */
 object MuxMp4 {
 
@@ -64,7 +67,7 @@ object MuxMp4 {
      * B (o progressivo), e uma exceção subindo daqui derrubaria um download que
      * ainda tem como terminar bem.
      */
-    fun juntar(video: File, audio: File, saida: File): Boolean {
+    fun juntar(video: File, audio: File, saida: File, webm: Boolean = false): Boolean {
         val exVideo = MediaExtractor()
         val exAudio = MediaExtractor()
         var muxer: MediaMuxer? = null
@@ -83,7 +86,14 @@ object MuxMp4 {
             val fmtVideo = exVideo.getTrackFormat(trilhaVideo)
             val fmtAudio = exAudio.getTrackFormat(trilhaAudio)
 
-            muxer = MediaMuxer(saida.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+            // O contêiner de SAÍDA acompanha o de ENTRADA: AVC/AAC num MP4,
+            // VP9/Opus num WebM. Misturar (VP9 dentro de MP4) é o que o muxer
+            // recusa — e recusa só depois de tudo baixado, que é o pior momento.
+            muxer = MediaMuxer(
+                saida.absolutePath,
+                if (webm) MediaMuxer.OutputFormat.MUXER_OUTPUT_WEBM
+                else MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4,
+            )
             val destinoVideo = muxer.addTrack(fmtVideo)
             val destinoAudio = muxer.addTrack(fmtAudio)
             muxer.start()
