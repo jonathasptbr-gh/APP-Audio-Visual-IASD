@@ -2927,6 +2927,54 @@ As quatro células:
 - **Mensagens** — foi para a aba **Ferramentas** (v5.31), como seção do
   acordeão. Antes era um botão flutuante sobre a preview; ver abaixo.
 
+#### O botão morto, e o teste que faltava (v5.122)
+
+A v5.121 saiu com o botão de copiar o Registro **sem fazer nada**. A causa é
+instrutiva: ao remover o bloco do diagnóstico do YouTube, a deleção levou junto
+`copiarTexto` — que não era daquele bloco. Ela era o helper COMPARTILHADO de
+"copiar um campo de log" (a regra do projeto), e só morava ali porque foi ali
+que nasceu.
+
+O bug passou por tudo o que existia: `node --check` viu um arquivo perfeitamente
+parseável, porque **chamar uma função inexistente é erro de execução, não de
+sintaxe**. Quem descobriu foi o operador, no aparelho.
+
+Duas correções, e a segunda é a que importa:
+
+1. `copiarTexto` voltou, agora ao lado de quem a usa e com o comentário dizendo
+   o que ela é. Um helper compartilhado morando dentro do escopo visual de um
+   único consumidor é um convite a exatamente isto.
+2. **`tools/smoke.mjs`** — a base web sobe num Chromium de verdade, o app
+   inicializa, Configurações abre e o botão é TOCADO. O teste falha se qualquer
+   erro de console ou exceção de página aparecer no caminho.
+
+O teste foi validado do jeito certo: apagando `copiarTexto` de novo e conferindo
+que ele reprova — três falhas, com `pageerror: copiarTexto is not defined` no
+log. Um teste de regressão que nunca se viu falhar não é um teste.
+
+O que ele cobre, e por que essas coisas:
+
+| Verificação | Por quê |
+|---|---|
+| `AVDB` + `createStage` + `__avBack` existem | é o MESMO marcador do watchdog do OTA (`otaAppIsUp`); um segundo sinal envelheceria à parte do primeiro |
+| Configurações abre | um handler que estoura não muda nada na tela |
+| o Registro tem conteúdo | pega `renderDiag` quebrado |
+| não rola na horizontal | a regressão que o `pre-wrap` corrigiu |
+| o botão pulsa e o texto vai para a área de transferência | o bug desta versão |
+| nenhum erro de console | a rede de segurança genérica |
+
+**Sem `__AVBridge`, ele roda em modo navegador** — sem Presentation, sem ponte,
+sem YouTube nativo. É de propósito: o que se verifica aqui é o que vale nos dois
+contextos, e é justamente onde um erro derruba o app inteiro antes de qualquer
+recurso nativo entrar. Erros de rede EXTERNA são ignorados (o runner não tem
+saída, e o app é feito para funcionar sem rede durante o culto); um 4xx do
+próprio bundle, não.
+
+No CI ele é `continue-on-error`: um teste de navegador tem mais formas de falhar
+por infraestrutura do que por defeito real, e barrar o canal OTA por causa disso
+trocaria um risco raro por um bloqueio frequente. Ele grita no log; quem lê
+decide.
+
 #### UM registro só, numa caixa que rola (v5.121)
 
 O diagnóstico deste app cresceu por acréscimo, e acabou em dois lugares com
