@@ -295,11 +295,18 @@
   // sessão de mídia não têm por que saber de onde vêm os bytes. Um kind próprio
   // obrigaria cada um desses lugares a aprender um caso a mais.
   async function addStreamMedia(stream, meta) {
+    // SÓ ÁUDIO é um KIND, não um detalhe do manifesto: é o `kind` que faz o
+    // telão manter o wallpaper em vez de trocar de imagem, que escolhe o
+    // arquivo certo no reaproveitamento por forma (`mediaByYoutube`) e que diz
+    // ao fallback qual download pedir se a transmissão morrer. Mesma regra do
+    // `ytFetchAudio`, e pelo mesmo motivo — inclusive a MINIATURA, que aqui não
+    // entra: um registro de áudio com thumb faria o telão trocar de imagem.
+    const soAudio = !!(meta && meta.somenteAudio);
     const record = makeMediaRecord({
       stream,
-      thumb: (meta && meta.thumb) || null,
-      type: 'video/mp4',
-      kind: 'video',
+      thumb: soAudio ? null : ((meta && meta.thumb) || null),
+      type: soAudio ? 'audio/mp4' : 'video/mp4',
+      kind: soAudio ? 'audio' : 'video',
       name: (meta && meta.name) || 'Vídeo',
       youtubeId: (meta && meta.youtubeId) || null,
       height: (meta && meta.height) || null,

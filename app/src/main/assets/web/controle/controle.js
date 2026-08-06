@@ -162,7 +162,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.129';
+const WEB_VERSION = '5.130';
 
 // Escrita UMA vez, na carga: o indicador mora no rodapé de Configurações desde
 // a v5.49 e não depende mais de qual aba está aberta (no cabeçalho ele
@@ -8605,7 +8605,8 @@ const YT_LISTA = { tocar: 'avulsos', playlist: 'playlist', cronograma: 'imports'
 // ponte ser chamada.
 let motivoStream = '';
 
-async function tentarTransmitir(r, altura) {
+async function tentarTransmitir(r, altura, somenteAudio) {
+  const soAudio = !!somenteAudio;
   motivoStream = '';
   if (window.AVStream) window.AVStream.ultimoErro = '';
   if (!window.__NATIVE__) { motivoStream = 'navegador (sem ponte)'; return false; }
@@ -8630,17 +8631,26 @@ async function tentarTransmitir(r, altura) {
     return false;
   }
   if (!man) { motivoStream = 'o shell não montou o manifesto (ver a linha "transmissão" abaixo)'; return false; }
+  // SÓ ÁUDIO: a faixa de vídeo é DESCARTADA aqui, no lado web, e o shell não
+  // precisa saber de nada. Ele já monta o par no mesmo manifesto, então pedir
+  // "só o áudio" é jogar fora um descritor — não um segundo pedido, não uma
+  // segunda extração, e sobretudo nenhum byte de 1080p baixado para nada. É por
+  // isso que este recurso chega por OTA, sem APK novo.
+  if (soAudio) man = Object.assign({}, man, { video: null, height: null });
   // O `suportado` é do APARELHO, não do manifesto: um WebView sem o codec
   // precisa cair no download em vez de projetar preto. E quando ele recusa, o
   // que interessa é QUAL string foi recusada — sem ela a informação é "não
   // deu", que não leva a lugar nenhum.
   if (!AVStream.suportado(man)) {
     const testar = (t) => {
+      if (!t) return 'ausente';
       try { return MediaSource.isTypeSupported(t) ? 'ok' : 'RECUSADO'; } catch (_) { return 'erro'; }
     };
+    const parte = (rotulo, faixa) => rotulo + ' [' + ((faixa && faixa.mime) || '—') + '] '
+      + testar(faixa && faixa.mime);
     motivoStream = !window.MediaSource ? 'este WebView não tem MediaSource'
-      : 'codecs recusados — vídeo [' + (man.video && man.video.mime) + '] ' + testar(man.video && man.video.mime)
-        + ' · áudio [' + (man.audio && man.audio.mime) + '] ' + testar(man.audio && man.audio.mime);
+      : 'codecs recusados — ' + (soAudio ? '' : parte('vídeo', man.video) + ' · ')
+        + parte('áudio', man.audio);
     return false;
   }
   const rec = await AVDB.addStreamMedia(man, {
@@ -8648,10 +8658,11 @@ async function tentarTransmitir(r, altura) {
     youtubeId: r.id || null,
     height: man.height || null,
     seconds: man.seconds || null,
+    somenteAudio: soAudio,
     list: 'avulsos',
   });
   if (!rec) { motivoStream = 'o registro da mídia não foi criado'; return false; }
-  motivoStream = 'transmitindo ' + (man.height || '?') + 'p';
+  motivoStream = soAudio ? 'transmitindo só o áudio' : 'transmitindo ' + (man.height || '?') + 'p';
   setYtEstado(r.id, null);
   await fixarAvulso(rec.id);
   await load();
@@ -8687,10 +8698,16 @@ async function recuperarStream(rec, porque) {
   // extração para projetar uma SEGUNDA cena morta antes de baixar. São os dois
   // pares "play 0s / PAUSA ESPONTÂNEA 0s" da linha do tempo.
   const expirou = /HTTP 40[13]\b/.test(String(porque || ''));
+  // A FORMA do registro manda em tudo o que vem abaixo: quem pediu só o áudio
+  // não pode receber o vídeo de volta — nem no manifesto novo, nem no download
+  // do fim da linha. É o mesmo reaproveitamento por forma do `ytArquivo`, e o
+  // `kind` é o que separa as duas.
+  const soAudio = rec.kind === 'audio';
   if (expirou && !streamRetentado.has(rec.id)) {
     streamRetentado.add(rec.id);
     let man = null;
     try { man = await AVNative.ytStream(link, rec.height | 0); } catch (_) {}
+    if (man && soAudio) man = Object.assign({}, man, { video: null, height: null });
     if (man && window.AVStream && AVStream.suportado(man)) {
       await AVDB.setMediaStream(rec.id, man);
       if (currentId === rec.id) await send(rec.id);
@@ -8705,7 +8722,7 @@ async function recuperarStream(rec, porque) {
   // Fim da linha da transmissão: o vídeo vira ARQUIVO, que é o caminho de sempre.
   const novo = await ytArquivo(
     { id: rec.youtubeId, url: link, name: rec.name },
-    { lista: 'avulsos', aviso: 'preview' },
+    { lista: 'avulsos', aviso: 'preview', somenteAudio: soAudio },
   );
   if (!novo) return;
   await fixarAvulso(novo.id);
@@ -8742,7 +8759,13 @@ async function ytAcao(r, destino, btn, somenteAudio, altura) {
   // Falhando qualquer coisa — shell antigo, vídeo sem par adaptativo, WebView
   // sem o codec — o caminho segue para o download de sempre. Nada aqui é
   // caminho único.
-  if (tocar && !soAudio && await tentarTransmitir(r, altura)) return;
+  //
+  // VALE TAMBÉM PARA "SÓ ÁUDIO" (v5.130). Ele ficava de fora porque a
+  // transmissão nasceu como par vídeo+áudio, e o download de um m4a é rápido —
+  // mas "rápido" não é o pedido: o pedido é NÃO ESPERAR. Um áudio de 8 MB ainda
+  // são segundos de espera com o culto rodando, e a transmissão começa a tocar
+  // com o primeiro fragmento, na casa dos kB.
+  if (tocar && await tentarTransmitir(r, altura, soAudio)) return;
 
   const existente = r && r.id ? await AVDB.mediaByYoutube(r.id, soAudio ? 'audio' : 'video') : null;
   const jaNaLista = !!(existente && existente.blob && await AVDB.listHas(lista, existente.id));
