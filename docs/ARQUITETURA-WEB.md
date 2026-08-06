@@ -717,9 +717,13 @@ Três correções, e a terceira valia para todo download, não só para o áudio
    o tamanho, e por isso essa é a ÚLTIMA tentativa.
 2. **O `type` é o do arquivo que veio, nunca o que foi pedido** — anunciar um
    mp4 com vídeo como `audio/mp4` seria mentir para o decodificador. O shell
-   passou a mandar também `audioOnly`, e quando ele é `false` o app avisa que
-   baixou o vídeo (num shell que não manda o campo, `undefined !== false` e
-   ninguém é avisado de nada, que é o certo para quem não tem a correção).
+   manda também `audioOnly`, que a **UI não usa** (v5.114): quando o vídeo não
+   oferece faixa separada, o que o operador pediu — tocar no fundo, sem imagem
+   no telão — acontece do mesmo jeito, porque quem manda no telão é o `kind` do
+   registro e não o container do arquivo. Anunciar a diferença seria contar um
+   detalhe de implementação no meio de um culto. O campo continua no JSON
+   porque é o que aparece no `Log.w` de quem for diagnosticar por que um vídeo
+   específico não entregou o áudio.
 3. **Um download que falha agora FALA.** `ytAcao` só apagava a marca de
    "baixando" e sumia — minutos de espera terminando em silêncio, para todos os
    destinos. Agora responde `erro` no botão (ou na faixa, quando o toque veio de

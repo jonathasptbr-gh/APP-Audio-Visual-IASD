@@ -162,7 +162,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.113';
+const WEB_VERSION = '5.114';
 
 // Escrita UMA vez, na carga: o indicador mora no rodapé de Configurações desde
 // a v5.49 e não depende mais de qual aba está aberta (no cabeçalho ele
@@ -8424,14 +8424,12 @@ async function ytAcao(r, destino, btn, somenteAudio) {
   const soAudio = !!somenteAudio;
   const existente = r && r.id ? await AVDB.mediaByYoutube(r.id, soAudio ? 'audio' : 'video') : null;
   const jaNaLista = !!(existente && existente.blob && await AVDB.listHas(lista, existente.id));
-  let veioSoAudio = true;
   const rec = await ytArquivo(r, {
     lista,
     somenteAudio: soAudio,
     naPreview: tocar,
     aviso: destino === 'playlist' ? 'nenhum' : (tocar ? 'preview' : 'lib'),
     onPct: (pct) => setYtEstado(r.id, 'baixando', pct),
-    onFormato: (so) => { veioSoAudio = so; },
   });
   // FALAR QUANDO NÃO DEU. Até a v5.112 o download que falhava só apagava a
   // marca de "baixando" e sumia — nem item, nem erro, nem pista. Um download de
@@ -8463,12 +8461,6 @@ async function ytAcao(r, destino, btn, somenteAudio) {
     renderPlaylist();
   }
   if (destino === 'favoritos') await recarregarFavoritos();
-  // CAIU NO VÍDEO. O item toca sem imagem do mesmo jeito (o `kind` é que manda
-  // no telão), então não é uma falha — mas o arquivo é dezenas de vezes maior
-  // que um áudio, e isso o operador precisa saber para não estranhar o espaço.
-  if (soAudio && !veioSoAudio) {
-    avisar('Este vídeo não tem faixa de áudio separada — foi baixado o vídeo, que toca só no fundo', 'dup');
-  }
   await load();
   if (tocar) {
     // A mídia avulsa não está em `libItems` nem em `plItems`, então quem
@@ -9396,11 +9388,14 @@ async function ytBaixarNativo(link, nome, opts) {
         if (opts && opts.onPct) opts.onPct(pct);
       }, soAudio);
       if (!r || !r.url) return null;
-      // O shell diz se a faixa que veio é MESMO só áudio. Num shell que ainda
-      // não manda o campo (≤ v1.40), `undefined !== false` dá `true` e ninguém
-      // é avisado de nada — que é o comportamento certo para quem não tem a
-      // correção: lá o download de áudio ou funciona, ou falha por inteiro.
-      if (opts && opts.onFormato) opts.onFormato(r.audioOnly !== false);
+      // O shell manda `r.audioOnly` dizendo se a faixa é mesmo só áudio (ver
+      // YoutubeGrab.buscar). A UI NÃO usa esse campo: quando o vídeo não
+      // oferece faixa separada, o que o operador pediu — tocar no fundo, sem
+      // imagem no telão — acontece do mesmo jeito, porque quem manda no telão é
+      // o `kind` do registro e não o container do arquivo. Anunciar a diferença
+      // seria contar um detalhe de implementação no meio de um culto. Ele
+      // continua no JSON porque é o que aparece no `Log.w` de quem for
+      // diagnosticar por que um vídeo específico não entregou o áudio.
       try {
         const res = await fetch(r.url);
         if (!res.ok) return null;
