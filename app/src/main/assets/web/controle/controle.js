@@ -162,7 +162,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.134';
+const WEB_VERSION = '5.135';
 
 // Escrita UMA vez, na carga: o indicador mora no rodapé de Configurações desde
 // a v5.49 e não depende mais de qual aba está aberta (no cabeçalho ele
@@ -501,13 +501,22 @@ async function syncGroup(key, label, colls, opts) {
       songs += pend;
       est += estimatePendingBytes(c);
     }
-    if (songs === 0) { setGroupStatus(key, 'Já completo', 5000); return; }
+    // "Nada pendente" NÃO é "já completo" (v5.135): um álbum SEM ÍNDICE tem
+    // zero variantes faltando pela conta — ele não tem lista nenhuma —, e essa
+    // era a resposta na janela em que o `autoRefreshCollections` ainda não
+    // indexou o acervo. O botão de baixar TUDO respondia "Já completo" e não
+    // fazia nada. Quem sabe a diferença é `grupoCompleto`, que exige índice.
+    if (grupoCompleto(colls)) { setGroupStatus(key, 'Já completo', 5000); return; }
+    // Sem índice ainda não há o que contar, e "0 músicas" seria uma promessa
+    // errada dos dois jeitos possíveis (nem "nada a fazer", nem um tamanho).
+    const escala = songs
+      ? ', com ' + songs + ' música(s) ainda não baixada(s)'
+        + (est ? ', aproximadamente ' + fmtBytes(est) : '')
+      : '. As listas ainda estão sendo carregadas, então o tamanho só aparece depois';
     const ok = await appConfirm({
       title: 'Baixar toda a biblioteca?',
       // O tamanho sai da mesma medida do álbum avulso (ver `medirColecao`).
-      message: 'São ' + colls.length + ' coleções, com ' + songs
-        + ' música(s) ainda não baixada(s)'
-        + (est ? ', aproximadamente ' + fmtBytes(est) : '') + '.'
+      message: 'São ' + colls.length + ' coleções' + escala + '.'
         + '\n\nO download continua com o app minimizado, mostra o progresso na notificação '
         + 'e pode ser cancelado a qualquer momento.',
       okText: 'Baixar tudo', cancelText: 'Agora não',
@@ -780,6 +789,19 @@ function colecaoCompleta(id) {
 // nunca vai ser baixada, e prometer "12 músicas" para depois baixar 10 é a
 // forma mais barata de parecer quebrado.
 function faltamNaColecao(id) { return levantarColecao(id).falta; }
+
+// E a mesma pergunta para um GRUPO (uma categoria, "Toda a biblioteca"): ele
+// está completo quando TODAS as suas coleções estão, pela definição de cada
+// card. Não por uma soma de músicas — que responderia diferente da linha logo
+// abaixo dela, que é o defeito que a v5.134 acabou de fechar nos cards.
+//
+// Sem índice não conta: uma coleção que nunca sincronizou não está completa, e
+// é ela que mantém o botão do grupo na tela — que é exatamente o certo, porque
+// ali ainda há o que buscar.
+function grupoCompleto(colls) {
+  if (!colls || !colls.length) return false;
+  return colls.every((c) => colecaoCompleta(c.id));
+}
 
 // Bytes por segundo medidos no aparelho (ver a escada acima).
 function bytesPorSegundo(id) {
@@ -5194,32 +5216,36 @@ function renderCollectionsList(alvo, redesenhar, opts) {
     if (colls && colls.length && !(opts && opts.semBotao)) {
       const key = 'grp:' + text;
       const g = gui(key);
-      let downloaded = 0, total = 0, completas = 0;
-      for (const c of colls) {
-        downloaded += countDownloaded(c.id);
-        total += songsBaixaveis(c.id).length;
-        if (colecaoCompleta(c.id)) completas++;
-      }
-      // O GRUPO está completo quando TODAS as suas coleções estão — pela mesma
-      // definição de cada card, e não por uma soma de músicas que responderia
-      // diferente da linha logo abaixo dela.
-      const complete = total > 0 && completas === colls.length;
+      const complete = grupoCompleto(colls);
 
       const info = document.createElement('span');
       info.className = 'coll-group-count' + (g.busy ? ' busy' : (complete ? ' done' : ''));
       info.textContent = g.status || fracaoPeso(colls.map((c) => c.id)) || '—';
       li.appendChild(info);
 
-      const btn = document.createElement('button');
-      btn.className = 'coll-group-btn' + (g.busy ? ' busy' : '');
-      btn.title = g.busy
-        ? 'Cancelar o download'
-        : (opts && opts.confirmScale)
-          ? 'Baixar TODA a biblioteca (' + colls.length + ' coleções)'
-          : 'Baixar a coleção completa (' + colls.length + ' álbum(ns))';
-      btn.innerHTML = g.busy ? closeIconSvg() : downloadAllIconSvg();
-      btn.addEventListener('click', (e) => { e.stopPropagation(); syncGroup(key, text, colls, opts); });
-      li.appendChild(btn);
+      // COM O GRUPO INTEIRO BAIXADO O BOTÃO SAI DA LINHA (v5.135) — a MESMA
+      // regra da barra do card, que ele não seguia. Ele oferecia "Baixar a
+      // coleção completa" para uma categoria que já está toda no aparelho, e o
+      // toque tinha um custo real e visível: `syncGroup` percorre álbum por
+      // álbum, cada um buscando o índice na rede e conferindo variante por
+      // variante no banco, para terminar em "completo" — e deixar o mesmo botão
+      // ali, convidando a repetir tudo. Verificar UM álbum continua sendo
+      // possível onde isso é manutenção: dentro do card, onde o botão se chama
+      // "Verificar atualizações".
+      //
+      // Enquanto o download ROLA ele continua, porque ali ele é o cancelar.
+      if (!complete || g.busy) {
+        const btn = document.createElement('button');
+        btn.className = 'coll-group-btn' + (g.busy ? ' busy' : '');
+        btn.title = g.busy
+          ? 'Cancelar o download'
+          : (opts && opts.confirmScale)
+            ? 'Baixar TODA a biblioteca (' + colls.length + ' coleções)'
+            : 'Baixar a coleção completa (' + colls.length + ' álbum(ns))';
+        btn.innerHTML = g.busy ? closeIconSvg() : downloadAllIconSvg();
+        btn.addEventListener('click', (e) => { e.stopPropagation(); syncGroup(key, text, colls, opts); });
+        li.appendChild(btn);
+      }
     } else if (colls && colls.length) {
       // Grupo SEM botão de lote (ver "Hinários"): o contador continua, porque
       // ele informa; o que sai é a ação que juntaria coleções grandes demais
@@ -5622,30 +5648,28 @@ function renderAcervoTotal(redesenhar) {
   if (todas.length < 2) return;
   const key = 'grp:Toda a biblioteca';
   const g = gui(key);
-  let downloaded = 0, total = 0, completas = 0;
-  for (const c of todas) {
-    downloaded += countDownloaded(c.id);
-    total += songsBaixaveis(c.id).length;
-    if (colecaoCompleta(c.id)) completas++;
-  }
-  const complete = total > 0 && completas === todas.length;
+  const complete = grupoCompleto(todas);
 
   const info = document.createElement('span');
   info.className = 'coll-group-count' + (g.busy ? ' busy' : (complete ? ' done' : ''));
   info.textContent = g.status || fracaoPeso(todas.map((c) => c.id)) || '—';
   hymnSearchTotalEl.appendChild(info);
 
-  const btn = document.createElement('button');
-  btn.className = 'coll-group-btn' + (g.busy ? ' busy' : '');
-  btn.title = g.busy ? 'Cancelar o download'
-    : 'Baixar TODA a biblioteca (' + todas.length + ' coleções)';
-  btn.innerHTML = g.busy ? closeIconSvg() : downloadAllIconSvg();
-  btn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    syncGroup(key, 'Toda a biblioteca', todas, { confirmScale: true });
-    redesenhar();
-  });
-  hymnSearchTotalEl.appendChild(btn);
+  // Mesma regra do cabeçalho de categoria (ver `header`), e aqui ela pesa
+  // ainda mais: este é o botão de MAIOR alcance da tela.
+  if (!complete || g.busy) {
+    const btn = document.createElement('button');
+    btn.className = 'coll-group-btn' + (g.busy ? ' busy' : '');
+    btn.title = g.busy ? 'Cancelar o download'
+      : 'Baixar TODA a biblioteca (' + todas.length + ' coleções)';
+    btn.innerHTML = g.busy ? closeIconSvg() : downloadAllIconSvg();
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      syncGroup(key, 'Toda a biblioteca', todas, { confirmScale: true });
+      redesenhar();
+    });
+    hymnSearchTotalEl.appendChild(btn);
+  }
 }
 
 // ===== Abrir o card de uma coleção =====

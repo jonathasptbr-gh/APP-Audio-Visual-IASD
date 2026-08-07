@@ -4730,9 +4730,41 @@ A partir daí:
 - ela sai **dos dois lados** da fração: um contador travado em 53/54 ao lado de
   um chip "Completo offline" seria a mesma contradição, só que menor.
 
-`tools/acervo.test.mjs` prende as duas contas — completude e peso — num Chromium
-de verdade. Conta errada não estoura em lugar nenhum: ela só mostra o número
-errado, que é exatamente a classe de defeito que nenhum `node --check` pega.
+##### O botão do GRUPO não seguia a regra do card (v5.135)
+
+A barra do card esconde o botão de baixar com o álbum inteiro no aparelho desde
+a v5.45 — "um alvo do tamanho de `--hit` oferecendo uma ação sem efeito". O
+cabeçalho de categoria (`header`, em `renderCollections`) e a barra "Toda a
+biblioteca" (`renderAcervoTotal`) **nunca** receberam essa regra: os dois
+desenhavam o botão incondicionalmente, e `complete` só mudava a classe CSS do
+contador ao lado.
+
+O custo do toque, ali, é bem maior que num card: `syncGroup` percorre álbum por
+álbum, cada um buscando o índice na REDE e conferindo variante por variante no
+banco — minutos, num acervo grande — para terminar escrevendo "Completo" e
+deixar o mesmo botão no lugar, convidando a repetir tudo. Era o que restava do
+defeito depois da v5.134: as contas passaram a fechar, e o botão continuou lá.
+
+`grupoCompleto(colls)` é a resposta única — `colls.every(colecaoCompleta)`, e
+não uma soma de músicas do grupo, que responderia diferente da linha logo
+abaixo dela. Com ela:
+
+- **os dois cabeçalhos escondem o botão quando o grupo está inteiro no
+  aparelho**, e o mantêm enquanto o download rola, porque ali ele é o cancelar.
+  Verificar UM álbum continua possível onde isso é manutenção: dentro do card, no
+  botão que se chama "Verificar atualizações".
+- **"Baixar toda a biblioteca" parou de mentir num acervo recém-instalado.** O
+  atalho era `songs === 0 → "Já completo"`, e um álbum SEM ÍNDICE tem zero
+  variantes faltando **porque não tem lista nenhuma**. Na janela em que o
+  `autoRefreshCollections` ainda não indexou o acervo, o botão de maior alcance
+  da tela respondia "Já completo" e não fazia nada. `grupoCompleto` exige índice,
+  então distingue os dois casos; e o diálogo passou a dizer que as listas ainda
+  estão carregando em vez de anunciar "0 músicas".
+
+`tools/acervo.test.mjs` prende as três contas — completude de coleção, de grupo
+e peso — num Chromium de verdade. Conta errada não estoura em lugar nenhum: ela
+só mostra o número errado, que é exatamente a classe de defeito que nenhum
+`node --check` pega.
 
 #### A medição do peso (v5.93)
 

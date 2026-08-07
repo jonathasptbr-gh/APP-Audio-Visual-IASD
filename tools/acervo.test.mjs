@@ -104,6 +104,26 @@ try {
   checar(!r.vazia.completa,
     'sem índice não é completa — o botão ali serve para buscar a lista');
 
+  // ---- e a mesma pergunta para um GRUPO ------------------------------------
+  // O botão do cabeçalho de categoria ("CDs do ano") era desenhado SEMPRE — a
+  // regra da barra do card nunca chegou até ele. Tocá-lo percorria álbum por
+  // álbum, cada um buscando o índice na rede e conferindo variante por
+  // variante, para terminar em "completo" e deixar o mesmo botão ali.
+  const gr = await pg.evaluate(() => ({
+    todosCompletos: grupoCompleto([{ id: 'tudo' }, { id: 'semFonte' }]),
+    umIncompleto: grupoCompleto([{ id: 'tudo' }, { id: 'semPb' }]),
+    // Um álbum SEM ÍNDICE mantém o grupo incompleto: pela contagem de
+    // pendentes ele soma zero (não tem lista), e era assim que "Baixar toda a
+    // biblioteca" respondia "Já completo" sem fazer nada.
+    umSemIndice: grupoCompleto([{ id: 'tudo' }, { id: 'vazia' }]),
+    vazio: grupoCompleto([]),
+  }));
+  checar(gr.todosCompletos, 'grupo com todas as coleções completas: completo');
+  checar(!gr.umIncompleto, 'uma coleção incompleta basta para o grupo não estar');
+  checar(!gr.umSemIndice,
+    'e um álbum SEM ÍNDICE também — "nada pendente" não é "já completo"');
+  checar(!gr.vazio, 'grupo vazio não é completo');
+
   // ---- "quanto ela ocupa?" -------------------------------------------------
   // O caso inteiro num teste: um arquivo que NÃO é registro do catálogo (uma
   // imagem de fundo de letra) na mesma pasta de um que é.
