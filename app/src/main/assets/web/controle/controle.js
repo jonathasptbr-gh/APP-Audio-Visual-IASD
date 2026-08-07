@@ -162,7 +162,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.137';
+const WEB_VERSION = '5.138';
 
 // Escrita UMA vez, na carga: o indicador mora no rodapé de Configurações desde
 // a v5.49 e não depende mais de qual aba está aberta (no cabeçalho ele
@@ -10640,10 +10640,17 @@ async function fixarAvulso(novos) {
   for (const velho of excedente) await AVDB.listRemove('avulsos', velho);
 }
 
-// Sentinela: o link abriu a FOLHA DE ESCOLHAS em vez de virar registro. Não é
-// erro (`null`) nem item pronto — é uma PERGUNTA na tela, e quem chamou precisa
-// saber, senão a fecha no passo seguinte (ver `importShare`).
-const SHARE_FOLHA = Symbol('folha');
+// Sentinela: o link SE RESOLVEU SOZINHO e não sobrou registro para entregar.
+// Não é erro (`null`) nem item pronto, e são dois casos:
+//
+//  - no avançado, a folha de escolhas está NA TELA e quem decide agora é o
+//    operador;
+//  - no simplificado, o vídeo JÁ ESTÁ NO TELÃO, transmitido.
+//
+// Nos dois, o `focarImportado` do `importShare` só faria estrago: ele passa por
+// `sairDasCamadas`, que fecharia a folha — e no simplificado redesenharia a
+// tela por cima de uma projeção que acabou de começar.
+const SHARE_TRATADO = Symbol('tratado');
 
 // Devolve o registro criado — quem compartilhou precisa saber QUAL item
 // chegou para poder levar o operador até ele (ver focarImportado).
@@ -10675,8 +10682,24 @@ async function handleSharedUrl(url, title) {
       // qualquer jeito (ver `ytBaixarNativo`); isto aqui é só o cabeçalho.
       const rotulo = (title && !/^https?:\/\//i.test(title.trim())) ? title : 'Vídeo do YouTube';
       openYtMenu({ id: ytId, url, name: rotulo });
-      return SHARE_FOLHA;
+      return SHARE_TRATADO;
     }
+    // NO SIMPLIFICADO, TOCA DIRETO DA REDE (v5.138) — o mesmo que o "Tocar
+    // agora" do avançado já faz. Ali o link compartilhado É um "tocar agora":
+    // ele vai direto ao telão, não entra em lista visível nenhuma e ninguém
+    // pediu para GUARDAR nada. Esperar centenas de MB baixarem para começar a
+    // projetar era exatamente a espera que a transmissão direta existe para
+    // acabar, e ela estava disponível o tempo todo — só não era tentada por
+    // esta porta.
+    //
+    // `tentarTransmitir` já faz tudo quando dá certo: grava o registro em
+    // `avulsos` (o mesmo destino que o share do simplificado usa), redesenha e
+    // projeta. Falhando qualquer coisa — shell antigo, vídeo sem par
+    // adaptativo, WebView sem o codec — ela devolve `false` e a linha abaixo
+    // segue para o download de sempre, calado: o operador pediu o louvor, não
+    // o método.
+    const alvoStream = { id: ytId, url, name: title || ('YouTube: ' + ytId) };
+    if (await tentarTransmitir(alvoStream, YT_ALTURAS[0], false)) return SHARE_TRATADO;
     // O link vira ARQUIVO — é a via que toca em segundo plano e não depende da
     // rede durante o culto. Falhando (vídeo restrito, shell antigo), cai no
     // item de player de sempre: um link compartilhado nunca se perde.
@@ -10863,15 +10886,13 @@ async function importShare(pending) {
   }
   if (ok > 0) added = true;
 
-  // A FOLHA DE ESCOLHAS É a resposta ao compartilhamento quando ela abre — não
-  // há item ainda, e não pode haver: quem decide o destino é o operador. Sem
-  // esta bandeira o `focarImportado` logo abaixo a fecharia no mesmo instante
-  // (ele passa por `sairDasCamadas`, que fecha todo popup), e a pergunta
-  // piscaria e sumiria.
-  let folhaAberta = false;
+  // O LINK PODE SE RESOLVER SOZINHO (ver `SHARE_TRATADO`): a folha de escolhas
+  // está na tela, ou a transmissão já está no telão. Nos dois casos não há item
+  // a entregar, e chamar o `focarImportado` logo abaixo só faria estrago.
+  let tratado = false;
   if (pending.url) {
     const rec = await handleSharedUrl(pending.url, pending.title);
-    if (rec === SHARE_FOLHA) folhaAberta = true;
+    if (rec === SHARE_TRATADO) tratado = true;
     else {
       if (rec && !primeiro) primeiro = rec.id;
       if (rec) lote.push(rec.id);
@@ -10881,7 +10902,7 @@ async function importShare(pending) {
   // Um share traz arquivos OU um link, mas a fixação é uma só de propósito: se
   // um dia vierem os dois, duas chamadas fariam a segunda expulsar a primeira.
   if (simplificado()) await fixarAvulso(lote);
-  if (added && !folhaAberta) await focarImportado(primeiro);
+  if (added && !tratado) await focarImportado(primeiro);
   if (naoAbriu) await avisarNaoAbriu(naoAbriu);
   return added;
 }
