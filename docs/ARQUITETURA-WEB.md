@@ -512,7 +512,7 @@ O campo `kind` é derivado do `type` (ou definido pelo chamador para itens de UR
 | `drawPrefs` | sorteio: faixa/lista de opções, "não repetir", histórico e o último resultado — este **é** persistido (ver "Ferramentas: sorteio") |
 | `migSemNumeroAlbuns` | marca de passagem única: os arquivos já baixados de coleções que não numeram tiveram o prefixo `N. ` removido (ver "O número é do HINÁRIO") |
 | `hymnal2022` | legado — migrado para `coll:hymnal-2022` no `loadCollections()` (a chave antiga permanece, ignorada) |
-| `pending-share` | legado — era o share que o service worker gravava aguardando processamento. O SW saiu; hoje o share chega pela ponte nativa, mas `checkPendingShare()` ainda **lê** esta chave, para não perder um share gravado por uma versão anterior |
+| `pending-share` | legado — era o share que o service worker gravava aguardando processamento. O SW saiu e o share chega pela ponte nativa; a leitura remanescente da chave (que ninguém escrevia desde a v5.48) saiu na limpeza da auditoria de agosto/2026 — hoje ela é ignorada |
 | `order` | legado — lido apenas como fallback de `imports` |
 | `favorites` | legado (recurso de favoritos removido) — array de IDs; não é mais lido nem gravado, ignorado |
 | `linked-folders` | legado (pastas vinculadas por handle) — substituído por `opfs-folders`; ignorado |
@@ -1236,8 +1236,10 @@ marcado como "made for kids" — ali o app cai no progressivo sem quebrar nada.
 
 O diagnóstico acima nasceu sem botão, e a primeira leitura chegou aqui como
 FOTO DA TELA. Virou regra do projeto (está em `CLAUDE.md`): um campo de
-diagnóstico existe para ser repassado, então ele vem com `.log-line` +
-`.log-copy` — texto selecionável (contra o `user-select: none` que vale para o
+diagnóstico existe para ser repassado, então ele vem com o botão `.log-copy`
+(no cabeçalho `.log-head`, sobre a caixa `.diag-box` — o markup nasceu como
+`.log-line`/`.log-text`, que a consolidação do Registro no `#diagBox` deixou
+para trás) — texto selecionável (contra o `user-select: none` que vale para o
 app inteiro) e um botão que não encolhe, porque numa tela estreita quem some
 primeiro não pode ser a saída. `copiarTexto` usa `navigator.clipboard` (o app
 tem contexto seguro: a base é servida por `https://appassets.androidplatform.
@@ -1563,9 +1565,11 @@ stage.getTime()        // → currentTime em segundos
 stage.getDuration()    // → duração em segundos
 stage.getMuted()       // → bool
 stage.getVolume()      // → 0.0 – 1.0
-stage.getFit()         // → 'contain' | 'cover' | 'fill'
-stage.isForceMuted()   // → bool
 ```
+
+*(Os getters sem chamador — `getPage`, `getFit`, `isForceMuted` — saíram da
+superfície na limpeza da auditoria de agosto/2026; os setters correspondentes
+ficam.)*
 
 ### Proporção da preview (`--pv-ar`)
 
@@ -2528,8 +2532,13 @@ fica neutro (branco).
 
 Não há mais **toast flutuante**. As informações são transmitidas pela própria
 interface (estados de botão, contadores, listas). `flash()`/`dismissFlash()` em
-`controle.js` viraram **no-ops** — mantidos só para não mexer nos ~25 pontos de
-chamada; qualquer mensagem que antes ia pro toast simplesmente não aparece mais.
+`controle.js` viraram **no-ops** na remoção do toast — e a armadilha de um
+no-op com cara de canal cobrou o preço: as v5.136/v5.137 voltaram a usá-lo como
+o ÚNICO aviso de fluxos novos (o desfecho de um share, a procura de OTA, a
+sincronização de pastas), e essas mensagens simplesmente não apareciam. A
+auditoria de agosto/2026 religou esses pontos ao `avisar()` (a faixa
+`#saveHint`, ver abaixo): mensagem com conteúdo real fala por ali; o resto
+segue sem toast.
 
 #### O sinal nasce NO BOTÃO que foi tocado (v5.106)
 
@@ -5604,8 +5613,9 @@ aberto):
 > `manifest.json` do Controle declarava `share_target` (POST multipart em
 > `share-target`, arquivos no campo `media`), o service worker interceptava o
 > POST, gravava `pending-share` no IDB e redirecionava para o app. O formato
-> do `pending-share` e todo o processamento abaixo continuam idênticos — só a
-> entrega mudou.
+> do share e todo o processamento abaixo continuam idênticos — só a entrega
+> mudou. (A leitura remanescente da chave `pending-share` no IDB, que nada
+> escrevia desde a v5.48, saiu na limpeza da auditoria de agosto/2026.)
 
 - **Arquivos** → importados como `addMedia` (com thumbnail).
 - **URL do YouTube** (youtu.be, youtube.com — `watch?v=`, `/shorts/`, `/live/`,

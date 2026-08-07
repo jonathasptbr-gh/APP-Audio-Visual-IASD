@@ -105,7 +105,7 @@ docs/
 
 **Dezesseis arquivos Kotlin, uma dependência de terceiros no shell** — o resto é
 AndroidX oficial (`core-ktx`, `activity-ktx`, `webkit`). Medido agora (`wc -l`):
-**5.959 linhas de Kotlin** contra **16.648 linhas de JavaScript** em
+**7.612 linhas de Kotlin** contra **18.181 linhas de JavaScript** em
 `assets/web/` (sem contar `vendor/`, que é código buildado de terceiro) — a
 proporção é o argumento, não o número absoluto. Manter o nativo pequeno respeita
 a filosofia do projeto muito melhor que Capacitor/Cordova, que arrastariam npm e
@@ -282,13 +282,14 @@ window.AVNative = {
 
 São **trinta métodos**, e essa é a superfície inteira que o resto do lado web
 tem direito de usar: fora do `native.js`, tocar em `__AVBridge` direto é
-acoplamento indevido. O próprio `native.js` chama mais sete coisas no
-`__AVBridge`, e nenhuma delas é API para o app — a sexta e a sétima são
+acoplamento indevido. O próprio `native.js` chama mais oito coisas no
+`__AVBridge`, e nenhuma delas é API para o app — duas são
 `ytFetchAudio` e `ytFetchAte`, que não são métodos a mais da ponte web e sim os
 outros dois DESTINOS do `ytFetch`: um quando se pede só o áudio, outro quando se
 pede um teto de resolução menor que o padrão (ver "Divergências") — `shellVersion()`, `role()` e
-`appVersion()` viram as globais logo abaixo, `busPost()` é o relay do barramento
-e `otaConfirm()` é o watchdog do OTA.
+`appVersion()` viram as globais logo abaixo, `busPost()` é o relay do barramento,
+`otaConfirm()` é o watchdog do OTA e `takeShare()` é o consumo do
+compartilhamento pendente (é ele que alimenta o `onShare`).
 
 Além disso, `native.js` publica **quatro globais** lidas direto (sem Promise):
 `window.__NATIVE__`, `__AV_ROLE__` (`'controle'`/`'display'`),
@@ -353,7 +354,13 @@ com o operador ainda escolhendo a pasta.
 
 `NativeBridge.SHELL_VERSION` identifica a versão da casca — **subir sempre que
 a superfície da ponte mudar**. Hoje vale **31** — a v5.136 acrescentou
-`otaCheck`/`otaDiag` (a procura de atualização agressiva). A v5.132 acrescentou
+`otaCheck`/`otaDiag` (a procura de atualização agressiva). A v5.133 (shell 30)
+não acrescentou método nenhum, mas mudou o **comportamento do `ytFetch`**: pedir
+o mesmo download outra vez passou a RECLAMAR o desfecho guardado no shell
+(`YoutubeGrab.resgatar`, chamado no caminho do `ytFetch` — ver "E o download
+SOBREVIVE À MORTE DA PÁGINA"), e é dessa promessa que depende a guarda `>= 30`
+de `resgatarDownloads` em `controle.js` — comportamento mudado é superfície
+mudada, pelo mesmo raciocínio da v5.127 abaixo. A v5.132 acrescentou
 `otaPending`/`otaApply` (o aviso de atualização e o "aplicar agora"). A v5.131 acrescentou
 `ytCancel` (parar o download em curso). Ele é o único método da ponte que **não
 vai para a fila de IO**, e não poderia: a fila é de uma thread só e está ocupada
@@ -1010,13 +1017,13 @@ dentro do `onCreate`, o que deixaria o app sem abrir depois de atualizar o APK.
 
 Até a v5.47 a única condição era `window.AVDB` no evento `load`, e o comentário
 raciocinava sobre "um erro de sintaxe em `db.js`" — o arquivo MENOS provável de
-quebrar. A ordem dos scripts do Controle é `native.js` → `db.js` → `stage.js` →
-`louvorja.js` → `bible.js` → `controle.js`: um erro de sintaxe (ou um `throw` de
-inicialização) em qualquer um dos QUATRO últimos aborta só AQUELE script, o
-`load` dispara do mesmo jeito, `AVDB` continua lá — e o bundle quebrado era
-carimbado como bom e servido PARA SEMPRE, o oposto exato do que o mecanismo
-existe para fazer. Como o OTA publica a cada push em `main` e o `controle.js` é
-de longe o que mais muda, esse era justamente o caso provável.
+quebrar. A ordem dos scripts do Controle é `native.js` → `db.js` → `mse.js` →
+`stage.js` → `louvorja.js` → `bible.js` → `controle.js`: um erro de sintaxe (ou
+um `throw` de inicialização) em qualquer um dos CINCO últimos aborta só AQUELE
+script, o `load` dispara do mesmo jeito, `AVDB` continua lá — e o bundle
+quebrado era carimbado como bom e servido PARA SEMPRE, o oposto exato do que o
+mecanismo existe para fazer. Como o OTA publica a cada push em `main` e o
+`controle.js` é de longe o que mais muda, esse era justamente o caso provável.
 
 O sinal agora é "o app está DE PÉ" (`otaAppIsUp`, em `shared/native.js`), e cada
 peça cobre um trecho da cadeia que a anterior não cobre:
@@ -1028,8 +1035,12 @@ peça cobre um trecho da cadeia que a anterior não cobre:
    existe: quem confirma é sempre o Controle, que é quem precisa funcionar. A
    regra é imposta **nos dois lados**: o laço nem começa no Display, e
    `NativeBridge.otaConfirm` recusa a chamada quando `role != "controle"`.
-2. **`AVDB` (db.js) e `createStage` (stage.js)** — os dois módulos
-   compartilhados, cada um publicando seu global no fim do arquivo.
+2. **`AVDB` (db.js), `AVStream` (mse.js) e `createStage` (stage.js)** — os
+   três módulos compartilhados, cada um publicando seu global no fim do
+   arquivo. O `AVStream` ficou de fora até a auditoria de agosto/2026: um
+   bundle com `mse.js` quebrado era carimbado como bom (degradação suave — a
+   transmissão direta cai no download —, mas carimbo de watchdog é para
+   sempre).
 3. **`__avBack` (controle.js, perto do fim do arquivo)** — só existe se o
    `controle.js` foi parseado por inteiro e executado até quase o fim. É a mesma
    função que `MainActivity.handleBack()` consulta: um contrato que já existe,
@@ -1162,7 +1173,7 @@ contextos.
 | `#startBtn` "Ligar Sistema" | destrava autoplay de terceiros | **oculto** — `mediaPlaybackRequiresUserGesture = false`; uma TV não recebe toque |
 | Recuperação de áudio bloqueado | segue tocando mudo + retentativas | **desativada já no `onBlocked`** — sem política de gesto, qualquer `NotAllowedError` só pode ser falso positivo, e mutar antes de descobrir isso deixava o telão sem som sem armar recuperação nenhuma |
 | Pastas do dispositivo | `showDirectoryPicker()` | **SAF** — a File System Access API **não existe no Android**; este recurso era letra morta no celular e passa a funcionar |
-| Compartilhamento | **não existe mais** — vinha do `share_target` do manifest com o POST interceptado pelo SW, e os dois saíram do bundle; sobra a leitura do estado `pending-share`, que hoje ninguém escreve | **`intent-filter` nativo** (`ShareIntake.kt`), que só aceita `content://` de outro app (ver abaixo) |
+| Compartilhamento | **não existe mais** — vinha do `share_target` do manifest com o POST interceptado pelo SW, e os dois saíram do bundle; a leitura remanescente do estado `pending-share` (que ninguém escrevia desde a v5.48) saiu na limpeza da auditoria de agosto/2026 | **`intent-filter` nativo** (`ShareIntake.kt`), que só aceita `content://` de outro app (ver abaixo) |
 | Link do YouTube compartilhado | vira item de player (o embed) | **no avançado, as MESMAS quatro escolhas da busca** (v5.137): a folha de tocar · playlist · Cronograma · Favoritos, com vídeo/só-áudio e o teto de resolução. As duas portas de entrada de um vídeo do YouTube passaram a dar no mesmo lugar — antes o share decidia sozinho: sempre vídeo, sempre no Cronograma, sempre no padrão de qualidade. **No simplificado não há pergunta e há TRANSMISSÃO DIRETA** (v5.138): ali o link compartilhado É um "tocar agora" — vai direto ao telão, não entra em lista visível nenhuma e ninguém pediu para guardar —, então ele passa por `tentarTransmitir` antes do download, como o "Tocar agora" do avançado. Uma folha com destinos que aquela tela não tem seria pior que folha nenhuma; esperar centenas de MB para começar a projetar era a espera que a transmissão existe para acabar. Falhando a transmissão, cai no download e, falhando ele, no item de player: um link compartilhado nunca se perde |
 | Onde o share ATERRISSA | idem ao nativo (o caminho é o mesmo `importShare`) | **`focarImportado`** (v5.77): fecha os popups abertos e a seleção, e então **projeta na hora** no simplificado ou **vai para o Cronograma** no avançado — e no simplificado o item NÃO entra em lista visível nenhuma (v5.89: vai para a prateleira `avulsos`), porque aquela tela não tem Cronograma nem playlist. A preview em tela cheia só é encerrada se houver telão — sem ele, ela É a projeção |
 | Estado do telão (rodapé de Configurações) | atalho `window.open('../display/')`, útil só para desenvolver | **indicador ao vivo** (desabilitado como botão) — a Presentation é criada sozinha |
@@ -1447,7 +1458,7 @@ produziria exatamente o mesmo estado, por isso a fila espera.
 todo `.js` de `assets/web`, uma validação de `version.json`, os testes de
 `tools/` — o parser `sidx`, o **oráculo do contrato de `shouldInterceptRequest`**
 (`webview-range.test.mjs`, que trava a invariante 8: Node puro, determinístico,
-sem `continue-on-error`) e cinco testes **em Chromium de verdade**, todos em
+sem `continue-on-error`) e seis testes **em Chromium de verdade**, todos em
 `continue-on-error`: a **fumaça** que sobe a base web e usa a tela
 (`smoke.mjs`), as **mensagens de falha** da transmissão direta
 (`mse.test.mjs`), a **transição de entrada do palco** (`stage-fade.test.mjs`),
@@ -1621,8 +1632,9 @@ Rodar local: `./gradlew assembleDebug` (exige Android SDK instalado).
   "Registro" de Configurações). Um log em espaço fixo esconde o fim quando o
   texto cresce — e o fim é onde está o desfecho. Diagnóstico novo entra como
   mais um BLOCO ali, nunca como uma faixa nova em outro canto.
-- **Todo campo de LOG nasce com um botão de copiar** (`.log-line`/`.log-copy`,
-  ver `copiarTexto` em `controle.js`). Diagnóstico existe para ser REPASSADO, e
+- **Todo campo de LOG nasce com um botão de copiar** (o cabeçalho `.log-head`
+  com o botão `.log-copy` sobre a caixa `.diag-box` — ver `copiarTexto` em
+  `controle.js`). Diagnóstico existe para ser REPASSADO, e
   sem o botão a alternativa é transcrever números à mão ou fotografar a tela —
   que foi exatamente o que aconteceu com a primeira versão do diagnóstico do
   YouTube. A confirmação é o mesmo pulso do resto do app.
@@ -1649,7 +1661,7 @@ aparelho nenhum.
 O `versionCode`/`versionName` do APK vêm do CI (ver "Build") e não se tocam à
 mão.
 
-**Versão atual: v5.138** (base web) · `SHELL_VERSION` **31**, e o bundle segue com
+**Versão atual: v5.139** (base web) · `SHELL_VERSION` **31**, e o bundle segue com
 `minShell: 2` — ele funciona igual num shell antigo, só sem os recursos que são
 nativos por construção (a escada do voltar, os botões de volume, a notificação de
 controles), que **só chegam instalando o APK novo**, não pelo OTA.
