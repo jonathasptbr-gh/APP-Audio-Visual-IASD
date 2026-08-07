@@ -219,8 +219,25 @@ class MainActivity : ComponentActivity(), BridgeHost {
 
         // Procura uma base web nova em segundo plano. O que for baixado só
         // entra em cena no PRÓXIMO lançamento — nunca troca a base no meio de
-        // uma projeção.
-        WebUpdater.checkAsync(this)
+        // uma projeção (ou AGORA, se o operador aceitar o aviso).
+        //
+        // E a procura não é mais UMA: a ronda periódica, a retomada do app e a
+        // rede voltando também disparam (ver `WebUpdater.iniciarVigilancia`).
+        // Com o app aberto o dia inteiro — que é o normal —, uma única busca no
+        // `onCreate` significava que uma versão publicada depois da abertura
+        // não existia para o aparelho.
+        WebUpdater.checkAsync(this, "abertura")
+        WebUpdater.iniciarVigilancia(this)
+
+        // E O AVISO APARECE NA HORA. O lado web enquete de minuto em minuto,
+        // mas esperar até um minuto por algo que o shell JÁ SABE é atraso à
+        // toa: quando o bundle fica pronto, o shell empurra. Um bundle antigo
+        // (sem `__avOta`) simplesmente não tem a função e o empurrão vira
+        // no-op — a enquete continua sendo o piso.
+        WebUpdater.aoChegar = { versao ->
+            val js = "window.__avOta && window.__avOta(${JSONObject.quote(versao)});"
+            runOnUiThread { web?.evaluateJavascript(js, null) }
+        }
 
         // Notificação de controles / tela de bloqueio / botões de mídia: o
         // sistema entrega a ação aqui e ela vai para o MESMO caminho dos botões
@@ -365,6 +382,11 @@ class MainActivity : ComponentActivity(), BridgeHost {
     override fun onResume() {
         super.onResume()
         syncPresentation()
+        // VOLTAR AO APP É UM GATILHO. É quando o operador agiria sobre o aviso,
+        // e é quando a rede costuma estar de volta (ele saiu, trocou de Wi-Fi,
+        // ligou os dados). Rajadas de `onResume` — alternar entre dois apps
+        // dispara um por toque — são absorvidas pelo piso do `checkAsync`.
+        WebUpdater.checkAsync(this, "retomada")
     }
 
     /**
@@ -428,6 +450,9 @@ class MainActivity : ComponentActivity(), BridgeHost {
         // Idem para a sessão: sem WebView não há quem execute a ação, e a
         // notificação de controles viraria um painel de botões mortos.
         SessionRemote.onAction = null
+        // E o empurrão do OTA, pelo mesmo motivo dos dois acima: ele captura
+        // esta Activity, e a ronda do `WebUpdater` sobrevive à tela.
+        WebUpdater.aoChegar = null
         try { SessionService.stop(this) } catch (_: Exception) { }
         displayManager?.unregisterDisplayListener(displayListener)
         presentation?.let {

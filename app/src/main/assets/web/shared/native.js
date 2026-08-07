@@ -356,6 +356,17 @@
     // houve o que aplicar, o único desfecho em que a página continua viva.
     otaApply: () => call((id) => B.otaApply(id), CALL_TIMEOUT_MS),
 
+    // PROCURAR AGORA (shell 31+). Síncrono e sem resposta de propósito: quem
+    // entrega o desfecho é o `otaPending` seguinte ou o empurrão do shell
+    // (`window.__avOta`) — segurar uma promise pelo tempo de um download de
+    // megabytes daria um botão travado. Num shell antigo o `try` engole e a
+    // procura segue sendo a da abertura.
+    otaCheck(forcar) { try { B.otaCheck(!!forcar); } catch (_) { /* shell antigo */ } },
+
+    // O ESTADO DA PROCURA, em uma linha, para o Registro: quando foi a última,
+    // o que ela deu e quantas falhas seguidas. Vazio num shell antigo.
+    otaDiag: () => call((id) => B.otaDiag(id), CALL_TIMEOUT_MS).then((r) => r || ''),
+
     // DIAGNÓSTICO da última extração do YouTube: uma linha dizendo quantas
     // faixas de cada tipo o extrator recebeu e qual venceu. Vazio num shell
     // antigo (o `call` resolve null) e antes da primeira extração.

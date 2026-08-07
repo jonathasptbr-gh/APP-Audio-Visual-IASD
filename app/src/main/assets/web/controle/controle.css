@@ -223,6 +223,16 @@ body {
   font-size: .7rem; color: var(--muted);
   background: var(--surface-2); border-radius: var(--radius-pill); padding: 2px .55rem;
 }
+/* Tocável no app (v5.136): o mesmo rótulo que diz QUE versão é procura uma
+   nova. Só a marca de que dá para tocar — a cor de accent e o alvo maior —,
+   sem virar um botão: ele continua sendo primeiro um indicador, e um segundo
+   botão preenchido no rodapé competiria com o de copiar o Registro. */
+.app-version.tocavel {
+  color: var(--accent); cursor: pointer;
+  padding: 6px .7rem;
+  -webkit-tap-highlight-color: transparent;
+}
+.app-version.tocavel:active { background: var(--surface); }
 
 /* ---------- Barra de controles (base) ---------- */
 /* Desde a v5.54 ela começa na FAIXA DE ABAS e termina no transporte: um bloco

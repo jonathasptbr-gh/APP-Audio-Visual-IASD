@@ -97,7 +97,7 @@ class NativeBridge(
          * exijam mais do que o shell instalado oferece (ver [WebUpdater]).
          * Subir SEMPRE que a superfície da ponte mudar.
          */
-        const val SHELL_VERSION = 30
+        const val SHELL_VERSION = 31
 
         /**
          * Fila de IO da ponte, **compartilhada por todas as instâncias**.
@@ -183,6 +183,41 @@ class NativeBridge(
         if (host == null) { resolve(callId, "null"); return }
         host.applyWebUpdate { versao ->
             resolve(callId, if (versao == null) "null" else JSONObject.quote(versao))
+        }
+    }
+
+    /**
+     * PROCURAR. Com `forcar`, pula o piso entre consultas — é o operador
+     * tocando um botão, e um botão que não faz nada porque um relógio interno
+     * acha que é cedo demais é pior que a requisição extra. Sem ele, é o
+     * cutucão de rotina da enquete do lado web, e aí o piso é justamente o que
+     * impede uma consulta à rede por minuto, para sempre.
+     *
+     * NÃO espera a resposta da rede: quem entrega o desfecho é o `otaPending`
+     * seguinte (a enquete do lado web) ou o empurrão do shell quando o bundle
+     * fica pronto (`window.__avOta`). Segurar a promise pelo tempo de um
+     * download de megabytes só daria um botão travado.
+     *
+     * Só o Controle — o telão não pede atualização.
+     */
+    @JavascriptInterface
+    fun otaCheck(forcar: Boolean) {
+        if (host == null) return
+        WebUpdater.checkAsync(ctx, if (forcar) "pedido do operador" else "cutucão da tela", forcar)
+    }
+
+    /**
+     * O estado da procura, em uma linha, para o Registro.
+     *
+     * "Não apareceu aviso nenhum" tem pelo menos quatro causas indistinguíveis
+     * da tela: não há versão nova, a busca falhou, o bundle exige um shell mais
+     * novo, ou a pergunta está esperando o telão esvaziar. Sem isto a única
+     * resposta possível era um palpite.
+     */
+    @JavascriptInterface
+    fun otaDiag(callId: String) {
+        io.execute {
+            resolve(callId, JSONObject.quote(if (host == null) "" else WebUpdater.diag(ctx)))
         }
     }
 
