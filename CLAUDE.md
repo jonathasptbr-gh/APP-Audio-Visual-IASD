@@ -590,11 +590,29 @@ percentual e o tempo restante.
   `SyncService`). A bandeira mora no REGISTRO da tarefa, não no envio: um lote
   de músicas pode estar rodando ao lado de um download de vídeo, e a unidade é
   de cada tarefa.
+- **E ela NÃO CHEGAVA a viajar, desde a versão que a criou** (corrigido na
+  v5.137). `native.js` não repassa o objeto que recebe — ele o REMONTA campo a
+  campo antes de serializar —, e `bytes` simplesmente não estava na lista. Do
+  lado Kotlin, `optBoolean` lê ausente como `false`, que é um valor legítimo:
+  sem exceção, sem log, sem nada. O efeito era a notificação apresentar BYTES
+  como se fossem ITENS — "0 de 398458880" para um vídeo de 380 MB, que se lê
+  como quatrocentos milhões de músicas. É o mesmo modo de falhar do
+  `slideLabel` no `nowPlaying` (v5.97 → v5.102), e agora há um teste que o
+  prende: `tools/ponte.test.mjs`. **Campo novo no objeto = campo novo no
+  `native.js`**, sempre.
 - `Long`, e não `Int`, do `optLong` da ponte até o `Progress`: um vídeo de 1080p
   passa dos 2 GB que o `Int` comporta, e o estouro sairia como uma barra andando
   para trás. Pelo mesmo motivo `setProgress` recebe **milésimos** em vez das
   unidades cruas — ele é `Int` por assinatura, e 1/1000 é muito além do que uma
-  barra de notificação distingue.
+  barra de notificação distingue. **E o `Long` do Kotlin não bastava**: o
+  `native.js` truncava com `| 0` — um Int32 COM SINAL — antes de o número
+  chegar lá, então um vídeo acima de 2 GB virava negativo e o `Math.max(0, …)`
+  o zerava. A truncagem acontecia do lado de cá o tempo todo (v5.137).
+- **O PERCENTUAL VEM NA FRENTE** (v1.61). Ele fechava uma linha que já trazia
+  dois tamanhos e um tempo restante, dentro do subtexto — que é o pedaço que o
+  Android encurta primeiro. O número que responde "quanto falta?" numa leitura
+  era o primeiro a sumir; os tamanhos são o detalhe que o qualifica, não o
+  contrário.
 - **O nome do que está baixando vale também para um item só.** `ytArquivo` chama
   `bgItemOnly` com o título do vídeo: "Baixando vídeo" sozinho não diz QUAL, e
   com o app minimizado não há outra tela para perguntar.
@@ -1135,6 +1153,7 @@ contextos.
 | Recuperação de áudio bloqueado | segue tocando mudo + retentativas | **desativada já no `onBlocked`** — sem política de gesto, qualquer `NotAllowedError` só pode ser falso positivo, e mutar antes de descobrir isso deixava o telão sem som sem armar recuperação nenhuma |
 | Pastas do dispositivo | `showDirectoryPicker()` | **SAF** — a File System Access API **não existe no Android**; este recurso era letra morta no celular e passa a funcionar |
 | Compartilhamento | **não existe mais** — vinha do `share_target` do manifest com o POST interceptado pelo SW, e os dois saíram do bundle; sobra a leitura do estado `pending-share`, que hoje ninguém escreve | **`intent-filter` nativo** (`ShareIntake.kt`), que só aceita `content://` de outro app (ver abaixo) |
+| Link do YouTube compartilhado | vira item de player (o embed) | **as MESMAS quatro escolhas da busca** (v5.137): a folha de tocar · playlist · Cronograma · Favoritos, com vídeo/só-áudio e o teto de resolução. As duas portas de entrada de um vídeo do YouTube passaram a dar no mesmo lugar — antes o share decidia sozinho: sempre vídeo, sempre no Cronograma, sempre no padrão de qualidade. **No simplificado continua sem pergunta**, e não por esquecimento: ali não existe Cronograma nem playlist, o item vai direto ao telão, e uma folha com destinos que a tela não tem seria pior que folha nenhuma |
 | Onde o share ATERRISSA | idem ao nativo (o caminho é o mesmo `importShare`) | **`focarImportado`** (v5.77): fecha os popups abertos e a seleção, e então **projeta na hora** no simplificado ou **vai para o Cronograma** no avançado — e no simplificado o item NÃO entra em lista visível nenhuma (v5.89: vai para a prateleira `avulsos`), porque aquela tela não tem Cronograma nem playlist. A preview em tela cheia só é encerrada se houver telão — sem ele, ela É a projeção |
 | Estado do telão (rodapé de Configurações) | atalho `window.open('../display/')`, útil só para desenvolver | **indicador ao vivo** (desabilitado como botão) — a Presentation é criada sozinha |
 | Botão de cast da preview | oculto | `AVNative.openCast()` → seletor de **espelhamento de tela** (ver abaixo) |
@@ -1423,9 +1442,12 @@ sem `continue-on-error`) e cinco testes **em Chromium de verdade**, todos em
 (`smoke.mjs`), as **mensagens de falha** da transmissão direta
 (`mse.test.mjs`), a **transição de entrada do palco** (`stage-fade.test.mjs`),
 o **coletor de lixo do banco** (`db-gc.test.mjs` — o único código do app que
-apaga mídia do operador) e as **contas da biblioteca** (`acervo.test.mjs`:
+apaga mídia do operador), as **contas da biblioteca** (`acervo.test.mjs`:
 "completa?" e "quanto ocupa?", que eram respondidas por fórmulas diferentes na
-mesma tela).
+mesma tela) e **o que a ponte de fato entrega** (`ponte.test.mjs` — `native.js`
+REMONTA campo a campo os objetos que manda ao Kotlin, e um campo esquecido some
+em silêncio: `optBoolean`/`optLong` leem ausente como `false`/`0`, que são
+valores legítimos).
 Eles existem porque `node --check` prova que o arquivo é
 PARSEÁVEL, não que o app funciona — a v5.121 saiu com um botão chamando uma
 função apagada, sintaxe perfeita e CI verde. O canal OTA publica
@@ -1617,7 +1639,7 @@ aparelho nenhum.
 O `versionCode`/`versionName` do APK vêm do CI (ver "Build") e não se tocam à
 mão.
 
-**Versão atual: v5.136** (base web) · `SHELL_VERSION` **31**, e o bundle segue com
+**Versão atual: v5.137** (base web) · `SHELL_VERSION` **31**, e o bundle segue com
 `minShell: 2` — ele funciona igual num shell antigo, só sem os recursos que são
 nativos por construção (a escada do voltar, os botões de volume, a notificação de
 controles), que **só chegam instalando o APK novo**, não pelo OTA.
