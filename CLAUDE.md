@@ -259,6 +259,8 @@ window.AVNative = {
   ytCancel(url),       // PARA o download em curso deste link — exige shell 28
   otaPending(),        // → versão da base web já baixada que espera (ou '')
   otaApply(),          // APLICA-a agora: as duas páginas recarregam — shell 29
+  otaCheck(forcar),    // PROCURA agora; `forcar` pula o piso do shell — shell 31
+  otaDiag(),           // → string: quando foi a última busca e o que ela deu
   ytDiag(),            // → string: o que o extrator recebeu na última extração
                        //   (diagnóstico do rodapé de Configurações)
   keepAudioAlive(bool),// mesa de som ligada: este WebView não pode ser suspenso
@@ -278,7 +280,7 @@ window.AVNative = {
 }
 ```
 
-São **vinte e oito métodos**, e essa é a superfície inteira que o resto do lado web
+São **trinta métodos**, e essa é a superfície inteira que o resto do lado web
 tem direito de usar: fora do `native.js`, tocar em `__AVBridge` direto é
 acoplamento indevido. O próprio `native.js` chama mais sete coisas no
 `__AVBridge`, e nenhuma delas é API para o app — a sexta e a sétima são
@@ -350,7 +352,8 @@ esperam uma **pessoa** e ficam sem prazo, porque um timeout ali resolveria null
 com o operador ainda escolhendo a pasta.
 
 `NativeBridge.SHELL_VERSION` identifica a versão da casca — **subir sempre que
-a superfície da ponte mudar**. Hoje vale **29** — a v5.132 acrescentou
+a superfície da ponte mudar**. Hoje vale **31** — a v5.136 acrescentou
+`otaCheck`/`otaDiag` (a procura de atualização agressiva). A v5.132 acrescentou
 `otaPending`/`otaApply` (o aviso de atualização e o "aplicar agora"). A v5.131 acrescentou
 `ytCancel` (parar o download em curso). Ele é o único método da ponte que **não
 vai para a fila de IO**, e não poderia: a fila é de uma thread só e está ocupada
@@ -848,9 +851,65 @@ o OTA devolve o comportamento antigo, com mais controle.
 **Como funciona:** o job `web-ota` (em todo push para `main`) empacota
 `assets/web/` num `web-assets.zip` e publica, junto com um `version.json`, na
 release de tag fixa **`web-latest`** — URL estável, porque está compilada no
-shell. O app consulta esse `version.json` na abertura, baixa quando há versão
-nova e passa a servi-la. (O tamanho do zip sai no log do próprio job, no
-`echo "Bundle: …"` — número no doc envelhece a cada push.)
+shell. O app consulta esse `version.json`, baixa quando há versão nova e passa a
+servi-la. (O tamanho do zip sai no log do próprio job, no `echo "Bundle: …"` —
+número no doc envelhece a cada push.)
+
+### A procura era UMA SÓ, e era esse o defeito (v1.60)
+
+O `check()` rodava no `onCreate` e mais nada. O lado web pergunta de minuto em
+minuto se há bundle esperando (`otaPending`), mas essa pergunta só lê o que já
+está no DISCO — **o web enquetava um valor que ninguém atualizava**. Com o app
+aberto o dia inteiro (o normal aqui), uma versão publicada depois da abertura
+simplesmente não existia para o aparelho: nenhum aviso, nenhuma demora, ausência
+total. E se a única tentativa caísse sem rede — o Wi-Fi da igreja demorando a
+associar é o caso comum —, nada era retentado até o próximo lançamento.
+
+Agora são **quatro gatilhos**, e cada um cobre o que os outros não cobrem:
+
+1. **abertura** — o de sempre;
+2. **ronda periódica** de 5 min enquanto o processo viver;
+3. **retomada do app** (`onResume`) — é quando o operador agiria sobre o aviso, e
+   quando a rede costuma estar de volta;
+4. **a rede voltando** (`registerDefaultNetworkCallback`) — fecha o caso do
+   lançamento sem internet.
+
+Mais três peças, e nenhuma é enfeite:
+
+- **Falha retenta sozinha**, com espera crescente (30 s → 1 → 2 → 5 min). "Sem
+  rede agora" quase nunca significa "sem rede daqui a meio minuto", e o custo de
+  perguntar de novo é um JSON.
+- **Nada de cópia guardada.** O asset da release `web-latest` é SUBSTITUÍDO no
+  lugar — mesma URL, conteúdo novo —, que é exatamente o caso em que um cache
+  intermediário devolve o de ontem com toda a razão. Uma resposta guardada aqui
+  não atrasa a atualização: ela a torna INVISÍVEL pelo tempo que o cache durar,
+  sem sinal nenhum no aparelho. Daí os cabeçalhos `no-cache` **e** o `?t=` na
+  URL (caches que ignoram o cabeçalho existem).
+- **O shell EMPURRA** (`window.__avOta`) quando o bundle fica pronto: o aviso
+  aparece no segundo em que a atualização chega, em vez de esperar até um minuto
+  pela enquete. Num bundle antigo a função não existe e o empurrão é no-op — a
+  enquete continua sendo o piso.
+
+**A comparação passou a ser contra o que o aparelho JÁ TEM, não contra o que ele
+está SERVINDO** (`versaoJaTemos`). Enquanto a procura era uma por lançamento os
+dois eram a mesma coisa; com a ronda, não — um bundle baixado fica esperando o
+próximo lançamento, `currentVersion` continua sendo o da sessão, e a ronda
+seguinte concluiria de novo que há versão nova, **rebaixando o mesmo zip a cada
+cinco minutos** e apagando com `deleteRecursively` um diretório que o operador
+pode ter acabado de mandar aplicar ao vivo.
+
+E o operador tem como forçar: **tocar no rótulo de versão** (o do rodapé de
+Configurações) procura na hora, pulando o piso entre consultas — e desfaz a
+recusa desta sessão, porque "Depois" silencia o aviso automático, não quem
+voltou para pedir. O Registro ganhou a linha **"Procura:"** (`otaDiag`), que diz
+quando foi a última busca e o que ela deu: "não apareceu aviso nenhum" tem
+quatro causas indistinguíveis da tela — não há versão nova, a busca falhou, o
+bundle exige um shell mais novo, ou a pergunta está esperando o telão esvaziar —
+e sem essa linha a única resposta possível era um palpite.
+
+Não há `WorkManager` nem alarme, de propósito: atualizar a base web de um app
+FECHADO não serve para nada (ela entra ao abrir, e ao abrir a procura acontece
+de qualquer jeito) e custaria bateria e uma dependência.
 
 > **O nome do repositório aparece nos DOIS lados, e eles têm de bater**: o
 > workflow escreve a URL do zip a partir de `$GITHUB_REPOSITORY`, e o
@@ -1558,7 +1617,7 @@ aparelho nenhum.
 O `versionCode`/`versionName` do APK vêm do CI (ver "Build") e não se tocam à
 mão.
 
-**Versão atual: v5.135** (base web) · `SHELL_VERSION` **30**, e o bundle segue com
+**Versão atual: v5.136** (base web) · `SHELL_VERSION` **31**, e o bundle segue com
 `minShell: 2` — ele funciona igual num shell antigo, só sem os recursos que são
 nativos por construção (a escada do voltar, os botões de volume, a notificação de
 controles), que **só chegam instalando o APK novo**, não pelo OTA.

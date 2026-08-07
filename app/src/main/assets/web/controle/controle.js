@@ -162,7 +162,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.135';
+const WEB_VERSION = '5.136';
 
 // Escrita UMA vez, na carga: o indicador mora no rodapé de Configurações desde
 // a v5.49 e não depende mais de qual aba está aberta (no cabeçalho ele
@@ -182,6 +182,41 @@ function renderVersionLabel() {
 }
 
 renderVersionLabel();
+
+// TOCAR NA VERSÃO PROCURA ATUALIZAÇÃO (v5.136 · shell 31). Não é um botão novo:
+// é o mesmo rótulo que já responde "que versão estou usando?" respondendo
+// também "e tem uma mais nova?". As duas perguntas são a mesma conversa, e o
+// alvo já estava na tela.
+//
+// Ele existe porque a procura automática, por mais agressiva que seja, tem um
+// piso de tempo — e o operador que ACABOU de publicar uma correção não quer
+// esperar piso nenhum. `forcar` pula o piso; é o único chamador que o faz.
+if (appVersionEl && window.__NATIVE__ && (window.__SHELL_VERSION__ | 0) >= 31) {
+  appVersionEl.classList.add('tocavel');
+  appVersionEl.title += ' — toque para procurar atualização';
+  appVersionEl.addEventListener('click', () => {
+    AVNative.otaCheck(true);
+    flash('Procurando atualização…', true);
+    // A busca é rede: o desfecho chega pelo empurrão do shell (`__avOta`) ou
+    // pela enquete. Estas duas consultas antecipadas existem para o caso em que
+    // não HÁ nada novo — aí não há empurrão nenhum, e sem elas o toque ficaria
+    // sem resposta até a enquete seguinte.
+    setTimeout(() => atualizarProcura(false), 4000);
+    setTimeout(() => atualizarProcura(true), 12000);
+  });
+}
+// Relê o estado da procura e, se houver algo, oferece. `avisar` só na ÚLTIMA
+// das duas consultas: as duas dizendo "já está na mais recente" seriam dois
+// avisos para uma pergunta.
+async function atualizarProcura(avisar) {
+  try { otaDiagTexto = await AVNative.otaDiag(); } catch (_) { /* shell antigo */ }
+  // O TOQUE DESFAZ A RECUSA. "Depois" silencia o aviso AUTOMÁTICO desta sessão
+  // (regra 2 do bloco abaixo); ele não pode silenciar o operador que voltou
+  // para pedir a atualização de propósito.
+  otaRecusadas.clear();
+  await ofertarAtualizacao();
+  if (avisar && !otaPendenteVersao) flash('Você já está na versão mais recente.');
+}
 
 
 const selbarEl = document.getElementById('selbar');
@@ -9844,6 +9879,11 @@ function cabecalhoDiag() {
       + (horaRuimParaAtualizar() ? ' (esperando a tela livre)' : '')
       + ' — entra na próxima abertura');
   }
+  // A PROCURA em si (v5.136). "Não apareceu aviso nenhum" tem quatro causas
+  // indistinguíveis da tela — não há versão nova, a busca falhou, o bundle
+  // exige um shell mais novo, ou a pergunta está esperando o telão esvaziar —,
+  // e a linha acima só cobre a última. Sem esta, a resposta era um palpite.
+  if (otaDiagTexto) l.push('Procura: ' + otaDiagTexto);
   // A FAXINA DA ABERTURA. Ela apaga mídia — sem dono, mas mídia —, e uma
   // limpeza que não deixa rastro é indistinguível de um sumiço.
   if (restosVarridos !== null) {
@@ -9904,6 +9944,12 @@ let diagSeq = 0;
 async function renderDiag() {
   if (!diagBoxEl) return;
   const meu = ++diagSeq;
+  // O ESTADO DA PROCURA antes de montar o cabeçalho, que o lê (shell 31+). É a
+  // única linha do bloco que precisa ir à ponte, e ela é barata: uma string.
+  if (window.__NATIVE__ && (window.__SHELL_VERSION__ | 0) >= 31) {
+    try { otaDiagTexto = await AVNative.otaDiag(); } catch (_) { otaDiagTexto = ''; }
+    if (meu !== diagSeq) return;
+  }
   const blocos = [cabecalhoDiag()];
   // A ÚLTIMA EXTRAÇÃO DO YOUTUBE vinha numa faixa do rodapé, em espaço fixo:
   // uma extração com várias tentativas transbordava e a parte de baixo ficava
@@ -12953,6 +12999,9 @@ document.addEventListener('visibilitychange', () => {
 const OTA_POLL_MS = 60000;
 const otaRecusadas = new Set();
 let otaPerguntando = false;
+// O último diagnóstico da procura, lido do shell (shell 31+). Guardado aqui
+// porque o Registro é montado de forma síncrona e a ponte é assíncrona.
+let otaDiagTexto = '';
 // A versão que está esperando, para o Registro poder dizê-la mesmo quando a
 // pergunta não pode aparecer (cena no ar, download em curso, já recusada).
 let otaPendenteVersao = '';
@@ -12973,9 +13022,25 @@ function cenaNoAr() {
 // o shell terminar de baixar não teria mais quem o recebesse.
 function horaRuimParaAtualizar() { return cenaNoAr() || bgWorkCount > 0; }
 
+// O SHELL EMPURRA quando o bundle fica pronto (shell 31+): o aviso aparece no
+// segundo em que a atualização chega, em vez de esperar até um minuto pela
+// enquete. A enquete continua — ela é o piso, e cobre o caso de a página ter
+// carregado depois de o bundle já estar no disco.
+window.__avOta = function (versao) {
+  if (versao) otaPendenteVersao = String(versao);
+  ofertarAtualizacao();
+};
+
 async function ofertarAtualizacao() {
   if (!window.__NATIVE__ || (window.__SHELL_VERSION__ | 0) < 29) return;
   if (otaPerguntando) return;
+  // PEDIR AO SHELL QUE PROCURE, e não só perguntar o que ele já tem (v5.136).
+  // Antes desta linha a enquete lia um valor que ninguém atualizava: o shell
+  // procurava UMA vez, no `onCreate`. Do shell 31 em diante ele procura sozinho
+  // (ronda, retomada, rede voltando), e este cutucão é a terceira rede. Sem
+  // `forcar`: o piso do shell é que decide se vale uma requisição, senão uma
+  // enquete de um minuto viraria uma consulta à rede por minuto, para sempre.
+  try { AVNative.otaCheck(false); } catch (_) { /* shell antigo */ }
   let versao = '';
   try { versao = (await AVNative.otaPending()) || ''; } catch (_) { return; }
   otaPendenteVersao = versao;
