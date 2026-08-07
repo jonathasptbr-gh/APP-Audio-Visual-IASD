@@ -597,9 +597,14 @@
     const depois = Array.isArray(bruto) ? bruto.slice() : [];
     await asPromise(st.put(depois, name));
     const ms = tx.objectStore(STORE_MEDIA);
+    // Detentores lidos UMA vez para o lote inteiro (ver lerDetentores) —
+    // depois do put, então a própria lista nova já conta como detentora do
+    // que ficou (irrelevante aqui porque `depois` é pulado pelo continue,
+    // mas é o mesmo instante que o isReferenced por id enxergava).
+    const donos = await lerDetentores(st, name);
     for (const id of antes) {
       if (depois.includes(id)) continue;
-      if (!(await isReferenced(st, id, name))) await asPromise(ms.delete(id));
+      if (!donos.has(id)) await asPromise(ms.delete(id));
     }
     return txDone(tx);
   }
@@ -644,21 +649,34 @@
   //
   // NOTA para quem acrescentar um detentor novo: qualquer chave de `state` que
   // passe a guardar ids de mídia precisa entrar AQUI. É este o ponto único.
-  async function isReferenced(stateStore, id, exceptList) {
+  //
+  // Devolve um Set com TODOS os ids detidos, lendo cada lista UMA vez. É a
+  // forma que os laços multi-id (listSet, folderDrop, gcOrfaos) consomem:
+  // reperguntar por id, como era, relia todas as listas + `folders` + cada
+  // `folder_<id>` a CADA mídia varrida — O(mídias × detentores) dentro de uma
+  // transação só, e o gcOrfaos varre o banco inteiro. Ler os detentores uma
+  // vez no início vale o mesmo (a transação readwrite é exclusiva: nada
+  // escreve nas listas entre a leitura e a decisão) e vira passada linear.
+  async function lerDetentores(stateStore, exceptList) {
+    const donos = new Set();
     for (const l of LISTS) {
       if (l === exceptList) continue;
-      const ids = await readListIn(stateStore, l);
-      if (ids.includes(id)) return true;
+      for (const id of await readListIn(stateStore, l)) donos.add(id);
     }
     const folders = await asPromise(stateStore.get('folders'));
     if (Array.isArray(folders)) {
       for (const f of folders) {
         if (!f || f.id == null) continue;
-        const ids = await readListIn(stateStore, 'folder_' + f.id);
-        if (ids.includes(id)) return true;
+        for (const id of await readListIn(stateStore, 'folder_' + f.id)) donos.add(id);
       }
     }
-    return false;
+    return donos;
+  }
+
+  // A pergunta de UM id só (listRemove, gc): mesma varredura, mesmo ponto
+  // único de detentores — só muda a forma da resposta.
+  async function isReferenced(stateStore, id, exceptList) {
+    return (await lerDetentores(stateStore, exceptList)).has(id);
   }
   // Remoção + gc na MESMA transação (state + media): sem isso, um listAdd
   // concorrente entre a remoção e a checagem do gc poderia re-referenciar o
@@ -700,8 +718,13 @@
     await asPromise(st.put(restantes, 'folders'));
     await asPromise(st.delete(key));
     const ms = tx.objectStore(STORE_MEDIA);
+    // A leitura dos detentores vem DEPOIS do put/delete acima, preservando a
+    // ordem que o comentário do cabeçalho exige: o atalho já saiu de
+    // `folders`, então lerDetentores não o encontra no índice e ele não
+    // segura os próprios ids. Uma vez para o lote inteiro (ver lerDetentores).
+    const donos = await lerDetentores(st, null);
     for (const id of ids) {
-      if (!(await isReferenced(st, id, null))) await asPromise(ms.delete(id));
+      if (!donos.has(id)) await asPromise(ms.delete(id));
     }
     await txDone(tx);
   }
@@ -733,9 +756,14 @@
     const st = tx.objectStore(STORE_STATE);
     const ms = tx.objectStore(STORE_MEDIA);
     const ids = await asPromise(ms.getAllKeys());
+    // Os detentores são lidos UMA vez e a varredura corre contra o Set (ver
+    // lerDetentores): reperguntar por id relia todas as listas para CADA
+    // mídia do banco — quadrático justamente na função que varre tudo. Mesma
+    // transação, mesma semântica: nada escreve nas listas no meio.
+    const donos = await lerDetentores(st, null);
     let apagados = 0;
     for (const id of (ids || [])) {
-      if (await isReferenced(st, id, null)) continue;
+      if (donos.has(id)) continue;
       await asPromise(ms.delete(id));
       apagados++;
     }
@@ -744,10 +772,11 @@
   }
 
   // Apaga o blob se não estiver referenciado por lista nem por Favorito.
-  // HOJE NÃO TEM CHAMADOR: a remoção normal (listRemove) já coleta na própria
-  // transação. Fica como válvula avulsa — e usa a MESMA `isReferenced` de
-  // propósito, para que um detentor novo não precise ser lembrado em dois
-  // lugares (foi essa duplicação que deixou os Favoritos de fora do gc).
+  // TEM UM chamador: a troca de link→arquivo no Cronograma (controle.js, ver
+  // `gc(` por lá) — a remoção normal (listRemove) coleta na própria transação
+  // e não passa por aqui. Usa a MESMA `isReferenced` de propósito, para que um
+  // detentor novo não precise ser lembrado em dois lugares (foi essa
+  // duplicação que deixou os Favoritos de fora do gc).
   async function gc(id) {
     const db = await openDB();
     const tx = db.transaction([STORE_STATE, STORE_MEDIA], 'readwrite');
@@ -777,8 +806,10 @@
   let midSeq = 0;
 
   // Janela de deduplicação: os ids vistos recentemente. O comando mais
-  // frequente (display-status) roda a 2 Hz, então algumas centenas de ids
-  // cobrem com folga qualquer diferença de latência entre os dois caminhos.
+  // frequente (display-status) sai a ~4 Hz com mídia local (o emissor é o
+  // `timeupdate` do <video>) e a 2 Hz com YouTube (polling de 500 ms do
+  // ytStartTimeLoop) — mesmo no pior caso, algumas centenas de ids cobrem com
+  // folga qualquer diferença de latência entre os dois caminhos.
   const seenMids = new Set();
   const MID_LIMIT = 400;
 
@@ -799,12 +830,17 @@
   }
 
   function sendCommand(command) {
+    let msg = command;
     if (bus) {
-      // Marca a mensagem para o outro lado poder deduplicar as duas cópias.
-      command.__mid = MID_PREFIX + ':' + (++midSeq);
-      bus.post(command);
+      // Marca a mensagem para o outro lado poder deduplicar as duas cópias —
+      // numa CÓPIA, nunca no objeto do chamador: escrever `__mid` no argumento
+      // vazava um campo interno do canal para quem reutiliza o objeto (um
+      // reenvio ganharia o MESMO mid e seria descartado como duplicata). As
+      // duas vias levam a mesma cópia, senão a deduplicação não casa.
+      msg = Object.assign({}, command, { __mid: MID_PREFIX + ':' + (++midSeq) });
+      bus.post(msg);
     }
-    if (channel) channel.postMessage(command);
+    if (channel) channel.postMessage(msg);
   }
 
   // Uma ÚNICA assinatura dos dois caminhos, com a lista de handlers por cima.

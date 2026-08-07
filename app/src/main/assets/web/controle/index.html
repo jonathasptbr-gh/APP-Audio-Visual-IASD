@@ -31,6 +31,27 @@
      leitura SÍNCRONA (localStorage), antes do primeiro quadro: uma leitura do
      IDB chegaria tarde e a tela trocaria embaixo do dedo. Ver "Modos de uso". -->
 <body class="mode-simple">
+  <!-- ÍCONES DEFINIDOS UMA VEZ (<symbol> + <use>): os dois desenhos que
+       aparecem em DOIS lugares cada — a engrenagem (porta de Configurações no
+       mixer e cabeçalho do próprio popup) e o "texto corrido" (botão da letra
+       no mixer e cabeçalho da leitura auxiliar). Eram cópias byte a byte, e
+       cópia diverge no primeiro ajuste. Os atributos de APRESENTAÇÃO
+       (fill/stroke/espessura/tamanho) ficam no <svg> de cada ponto de uso e
+       são HERDADOS pelo conteúdo do símbolo — cada uso mantém o tamanho da
+       escala da folha e a própria cor, sem tocar no desenho. O contêiner é
+       `hidden` (nunca desenhado); um <use> clona dele mesmo assim. -->
+  <svg hidden aria-hidden="true">
+    <symbol id="icoGear" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="3.2"/>
+      <path d="M19.4 14.2a1.6 1.6 0 0 0 .32 1.77l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.6 1.6 0 0 0-1.77-.32 1.6 1.6 0 0 0-.97 1.47V20a2 2 0 1 1-4 0v-.11a1.6 1.6 0 0 0-1.05-1.46 1.6 1.6 0 0 0-1.77.32l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.6 1.6 0 0 0 .32-1.77 1.6 1.6 0 0 0-1.47-.97H4a2 2 0 1 1 0-4h.11a1.6 1.6 0 0 0 1.46-1.05 1.6 1.6 0 0 0-.32-1.77l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.6 1.6 0 0 0 1.77.32H9.9a1.6 1.6 0 0 0 .97-1.47V4a2 2 0 1 1 4 0v.11a1.6 1.6 0 0 0 .97 1.47 1.6 1.6 0 0 0 1.77-.32l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.6 1.6 0 0 0-.32 1.77v.08a1.6 1.6 0 0 0 1.47.97H20a2 2 0 1 1 0 4h-.11a1.6 1.6 0 0 0-1.47.97z"/>
+    </symbol>
+    <symbol id="icoTexto" viewBox="0 0 24 24">
+      <rect x="3.5" y="3" width="17" height="18" rx="2.2"/>
+      <line x1="7.2" y1="8" x2="16.8" y2="8"/>
+      <line x1="7.2" y1="12" x2="16.8" y2="12"/>
+      <line x1="7.2" y1="16" x2="12.8" y2="16"/>
+    </symbol>
+  </svg>
   <!-- MODO SIMPLIFICADO: conectar a tela, buscar a música, tocar. Os controles
        são os mesmos botões do modo completo acionados por `.click()` (ver
        controle.js) — nenhuma regra de transporte é reescrita aqui. -->
@@ -192,7 +213,10 @@
            Ferramentas não havia caminho nenhum. Um "acesso rápido" que exige
            rolar até o fim de outra lista não é acesso rápido. -->
       <button id="favHeadBtn" class="head-fav-btn" title="Favoritos">
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true">
+        <!-- 20px = `--icon-sm`: o botão entrou na escala de ícones da folha
+             (era 18px solto, um fora-de-escala ao lado da seta de 20px do
+             `.mode-switch`); o atributo é só o valor de partida. -->
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true">
           <path d="M12 3.4l2.7 5.47 6.03.88-4.36 4.25 1.03 6.01L12 17.17l-5.4 2.84 1.03-6.01L3.27 9.75l6.03-.88z"/>
         </svg>
         <span>Favoritos</span>
@@ -317,7 +341,9 @@
         <div class="np-name" id="npName"><span class="np-name-inner" id="npNameInner">Nada em exibição</span></div>
         <div class="np-seek">
           <span id="curTime" class="np-time">0:00</span>
-          <input type="range" id="seek" min="0" max="0" value="0" step="0.1" disabled>
+          <!-- aria-label como o gêmeo #volSlider: um range sem nome acessível
+               é anunciado só como "controle deslizante", sem dizer de quê. -->
+          <input type="range" id="seek" min="0" max="0" value="0" step="0.1" aria-label="Posição da mídia" disabled>
           <span id="durTime" class="np-time">0:00</span>
         </div>
       </div>
@@ -467,12 +493,11 @@
            cortina do telão (#viewToggle), letra completa (#lyricsViewBtn) e
            mudo; bottom guarda o volume recolhível (vira fader ao abrir,
            ocupando top+mid).
-           A "mesa de som" tinha um botão aqui e virou uma linha de
-           Configurações (#standaloneSeg): é uma decisão de ROTEAMENTO DE ÁUDIO
-           que se toma uma vez ao montar o culto — "o celular está ligado na
-           caixa de som?" —, não um controle que se opera no meio dele, que é
-           justamente o critério que já mandou para o popup as imagens dos
-           slides e o preenchimento da mídia. O botão que ela deixou vago virou
+           A "mesa de som" tinha um botão aqui; hoje ela é o ícone de
+           alto-falante no canto inferior esquerdo da preview (`#pvSoundBtn`,
+           v5.82 — passou por uma linha de Configurações no caminho): é a única
+           dessas decisões que se liga e desliga DURANTE o culto, e o lugar de
+           julgar o som é olhando a preview. O botão que ela deixou vago virou
            a porta de Configurações, e ela subiu para o TOPO da coluna: é o
            único botão daqui que não opera o culto, então fica fora do
            agrupamento de operação (cortina/letra/mudo/volume) em vez de no meio
@@ -488,10 +513,7 @@
                  tratamento do `#backBtn` do cabeçalho, que também é navegação e
                  também é chapado. -->
             <button id="settingsBtn" class="settings-btn" title="Configurações">
-              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <circle cx="12" cy="12" r="3.2"/>
-                <path d="M19.4 14.2a1.6 1.6 0 0 0 .32 1.77l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.6 1.6 0 0 0-1.77-.32 1.6 1.6 0 0 0-.97 1.47V20a2 2 0 1 1-4 0v-.11a1.6 1.6 0 0 0-1.05-1.46 1.6 1.6 0 0 0-1.77.32l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.6 1.6 0 0 0 .32-1.77 1.6 1.6 0 0 0-1.47-.97H4a2 2 0 1 1 0-4h.11a1.6 1.6 0 0 0 1.46-1.05 1.6 1.6 0 0 0-.32-1.77l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.6 1.6 0 0 0 1.77.32H9.9a1.6 1.6 0 0 0 .97-1.47V4a2 2 0 1 1 4 0v.11a1.6 1.6 0 0 0 .97 1.47 1.6 1.6 0 0 0 1.77-.32l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.6 1.6 0 0 0-.32 1.77v.08a1.6 1.6 0 0 0 1.47.97H20a2 2 0 1 1 0 4h-.11a1.6 1.6 0 0 0-1.47.97z"/>
-              </svg>
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#icoGear"/></svg>
             </button>
           </div>
         </div>
@@ -507,12 +529,7 @@
               <!-- Ícone de "texto corrido" (SVG inline, fora do subset da
                    fonte): folha com linhas de texto de comprimentos desiguais —
                    letra de música ou capítulo, o mesmo conceito nos dois. -->
-              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <rect x="3.5" y="3" width="17" height="18" rx="2.2"/>
-                <line x1="7.2" y1="8" x2="16.8" y2="8"/>
-                <line x1="7.2" y1="12" x2="16.8" y2="12"/>
-                <line x1="7.2" y1="16" x2="12.8" y2="16"/>
-              </svg>
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#icoTexto"/></svg>
             </button>
             <!-- Glifo e title do ESTADO INICIAL (`view = 'visual'`), iguais ao
                  que `renderControls()` escreve: imagem INTEIRA, porque nada
@@ -585,10 +602,7 @@
     <div class="popup-sheet">
       <div class="popup-header">
         <span class="popup-header-icon">
-          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <circle cx="12" cy="12" r="3.2"/>
-            <path d="M19.4 14.2a1.6 1.6 0 0 0 .32 1.77l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.6 1.6 0 0 0-1.77-.32 1.6 1.6 0 0 0-.97 1.47V20a2 2 0 1 1-4 0v-.11a1.6 1.6 0 0 0-1.05-1.46 1.6 1.6 0 0 0-1.77.32l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.6 1.6 0 0 0 .32-1.77 1.6 1.6 0 0 0-1.47-.97H4a2 2 0 1 1 0-4h.11a1.6 1.6 0 0 0 1.46-1.05 1.6 1.6 0 0 0-.32-1.77l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.6 1.6 0 0 0 1.77.32H9.9a1.6 1.6 0 0 0 .97-1.47V4a2 2 0 1 1 4 0v.11a1.6 1.6 0 0 0 .97 1.47 1.6 1.6 0 0 0 1.77-.32l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.6 1.6 0 0 0-.32 1.77v.08a1.6 1.6 0 0 0 1.47.97H20a2 2 0 1 1 0 4h-.11a1.6 1.6 0 0 0-1.47.97z"/>
-          </svg>
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#icoGear"/></svg>
         </span>
         <span class="popup-title">Configurações</span>
         <button id="fadePopupClose" class="popup-close" title="Fechar"><span class="msym" aria-hidden="true">&#xe14c;</span></button>
@@ -685,7 +699,7 @@
              METADADO de diagnóstico e o lugar onde se procura diagnóstico é
              junto do estado do telão e do alvo de espelhamento, não numa faixa
              de navegação. Preenchido por `renderVersionLabel`. -->
-        <span id="appVersion" class="app-version">Controle v5.138</span>
+        <span id="appVersion" class="app-version">Controle v5.139</span>
       </div>
     </div>
   </div>
@@ -699,12 +713,7 @@
     <div class="popup-sheet">
       <div class="popup-header">
         <span class="popup-header-icon">
-          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <rect x="3.5" y="3" width="17" height="18" rx="2.2"/>
-            <line x1="7.2" y1="8" x2="16.8" y2="8"/>
-            <line x1="7.2" y1="12" x2="16.8" y2="12"/>
-            <line x1="7.2" y1="16" x2="12.8" y2="16"/>
-          </svg>
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#icoTexto"/></svg>
         </span>
         <span class="popup-title" id="lyricsPopupTitle">Letra</span>
         <button id="lyricsPopupClose" class="popup-close" title="Fechar"><span class="msym" aria-hidden="true">&#xe14c;</span></button>
@@ -840,7 +849,10 @@
   <div id="saveHint" class="save-hint" hidden aria-live="polite"></div>
 
   <div id="appDialog" class="dialog-backdrop">
-    <div class="dialog-card" role="dialog" aria-modal="true">
+    <!-- aria-labelledby/-describedby: sem eles um `role="dialog"` abre mudo no
+         leitor de tela — os dois IDs já existiam, faltava apontá-los. -->
+    <div class="dialog-card" role="dialog" aria-modal="true"
+         aria-labelledby="appDialogTitle" aria-describedby="appDialogMsg">
       <div class="dialog-title" id="appDialogTitle"></div>
       <div class="dialog-msg" id="appDialogMsg"></div>
       <input id="appDialogInput" class="lib-search dialog-input" type="text" hidden>

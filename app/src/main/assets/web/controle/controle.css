@@ -79,6 +79,14 @@ input, textarea { user-select: text !important; -webkit-user-select: text !impor
      posição do número dentro do cap é calculada a partir dela nos dois. */
   --fader-cap: 26px;
 
+  /* Altura das duas barras de ação da aba Ferramentas — o push-to-talk
+     (`.mic-btn`) e o Projetar (`.misc-project`). É token porque as duas
+     dividem a MESMA linha (`.misc-foot`, lado a lado) e PRECISAM medir o
+     mesmo: eram dois 56px literais mantidos iguais por coincidência, e o
+     primeiro a ser ajustado sozinho desalinharia a linha. Medida de layout,
+     então mora aqui e não em tokens.css (lá só entra cor). */
+  --misc-bar-h: 56px;
+
   /* feedback de toque padrão (:active) */
   --press: scale(.96);
 
@@ -162,11 +170,12 @@ input, textarea { user-select: text !important; -webkit-user-select: text !impor
   .ctl-btn, .t-btn, .pv-fab, .settings-btn,
   .tab, .tab-add, .import-btn, .add-dir-btn, .back-btn, .sel-btn,
   .row-btn, .row-handle, .popup-close, .new-folder-btn, .folder-pick-btn,
-  .coll-bar, .coll-bar-dl, .coll-group-btn,
+  .coll-bar, .coll-bar-dl, .coll-group-btn, .coll-more-btn,
   .bible-cell, .bible-ref-part, .bible-vsec, .bible-ver-row,
   .hymn-row, .hymn-play-thumb, .song-menu-btn, .msg-add-btn, .msg-item,
   .misc-tab, .misc-seg, .misc-chip, .chrono-btn, .misc-project, .draw-go,
   .fit-opt, .dialog-btn, .lib-item .row,
+  .head-fav-btn, .cue-save-btn, .pl-pack, .yt-search-btn, .log-copy,
   .simple-key, .simple-action, .simple-key--big, .simple-key--vol, .mode-switch
 ):active { transform: var(--press); }
 
@@ -187,7 +196,7 @@ input, textarea { user-select: text !important; -webkit-user-select: text !impor
 :is(
   .row-btn, .row-handle, .back-btn, .add-dir-btn, .sel-btn, .popup-close,
   .coll-bar-dl, .coll-group-btn, .new-folder-btn,
-  .import-btn, .folder-pick-btn, .song-menu-icon, .mode-switch
+  .import-btn, .folder-pick-btn, .song-menu-icon, .mode-switch, .head-fav-btn
 ) svg { display: block; width: var(--icon-sm); height: var(--icon-sm); }
 :is(.tab, .tab-add, .t-btn, .ctl-btn, .misc-tab, .settings-btn) svg {
   display: block; width: var(--icon-md); height: var(--icon-md);
@@ -402,7 +411,7 @@ body {
   display: block; width: 24px; height: 24px;
   filter:
     drop-shadow(0 0 1px rgba(0, 0, 0, .95))
-    drop-shadow(0 0 2px rgba(0, 0, 0, .9))
+    drop-shadow(0 0 2px var(--shadow-ink))
     drop-shadow(0 1px 5px rgba(0, 0, 0, .65));
 }
 /* Em tela cheia a preview É a projeção (quando não há TV conectada): nada de
@@ -470,7 +479,7 @@ body {
   border-radius: var(--radius-btn);
   border: 1px solid var(--accent-soft);
   background: var(--bg);
-  box-shadow: 0 4px 14px rgba(0, 0, 0, .55);
+  box-shadow: 0 4px 14px var(--shadow-card);
 }
 /* ---------- O ANEL DE DOWNLOAD (`.dl-ring`) ----------
    O aro gira; a SETA fica parada dentro dele. Um spinner puro diria só
@@ -500,9 +509,13 @@ body {
 }
 @keyframes dl-ring-spin { to { transform: rotate(360deg); } }
 /* Quem pediu menos movimento no sistema pediu para o app inteiro: o aro para, e
-   o que resta é a seta de download — que é o essencial da mensagem. */
+   o que resta é a seta de download — que é o essencial da mensagem. Os dois
+   pulsos (microfone no ar, áudio bloqueado no telão) param pela mesma razão:
+   neles a COR já carrega o estado sozinha — vermelho preenchido, âmbar de
+   aviso —, e é ela que fica. */
 @media (prefers-reduced-motion: reduce) {
   .dl-ring::before { animation: none; border-color: var(--accent); }
+  .mic-btn.live, .mute-btn.blocked, .simple-key--big.blocked { animation: none; }
 }
 .pv-busy-text { display: flex; flex-direction: column; min-width: 0; }
 /* A AÇÃO em caixa alta miúda e o NOME embaixo, em vez de uma frase só. Numa
@@ -766,7 +779,7 @@ body {
    mantém a classe .vol-closing durante a saída do fader. Ver openVolume/
    closeVolume em controle.js. */
 .mixer.vol-open:not(.vol-closing) .fader-wrap { animation: vol-slide-in .2s ease both; }
-.mixer.vol-closing .fader-wrap { animation: vol-slide-out .18s ease both; }
+.mixer.vol-closing .fader-wrap { animation: vol-slide-out .2s ease both; }
 .mixer.vol-revealing .mixer-top,
 .mixer.vol-revealing .mixer-mid { animation: vol-slide-in .2s ease both; }
 @keyframes vol-slide-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
@@ -830,7 +843,7 @@ body {
      literal era a maior fonte isolada de luz emitida do app; `--text` é o
      off-white já calibrado da paleta e mantém 11,4:1 com o número. */
   background: var(--text);
-  box-shadow: 0 1px 4px rgba(0, 0, 0, .5);
+  box-shadow: 0 1px 4px var(--shadow-cap);
   cursor: pointer;
 }
 /* Configurações: ÍCONE SOLTO, sem caixa. Não é `.ctl-btn` de propósito — a
@@ -855,8 +868,8 @@ body {
 /* Estados dos controles agrupados por ESTADO, não por componente — a mesma
    receita estava escrita quatro vezes. `.view-blocked` = visual bloqueado,
    `.muted` = mudo, `.danger` = ação destrutiva. (Havia um quarto, `.active` da
-   mesa de som; ele saiu com o botão, que virou o segmento `#standaloneSeg` de
-   Configurações.)
+   mesa de som; ele saiu com o botão — que hoje é o ícone de alto-falante no
+   canto da preview, `#pvSoundBtn`, v5.82.)
    (O botão do fundo da letra saiu do mixer: virou o segmento "Imagens dos
    slides" no popup de Exibição, e o lugar dele é a leitura da letra completa —
    um botão que ABRE algo, sem estado próprio a pintar.) */
@@ -928,7 +941,13 @@ main {
    entrou, vermelho contornado para a falha. */
 .save-hint--ok { border-color: var(--ok); color: var(--ok); }
 .save-hint--dup { border-color: var(--warn); color: var(--warn-text); }
-.save-hint--erro { border-color: var(--danger); color: var(--danger-text); }
+/* A borda da falha segue a regra da folha (ver `.view-btn.view-blocked`,
+   acima): contorno vermelho é `--danger-strong`, nunca o `--danger` cheio —
+   escuro por construção, ele praticamente some sobre o `--panel` do aviso. O
+   TEXTO fica no salmão `--danger-text`: é o caso documentado em tokens.css de
+   um vermelho pousando direto num painel elevado, sem o fundo suave da
+   família — ali o saturado reprova (3,78:1) e o salmão passa (5,18:1). */
+.save-hint--erro { border-color: var(--danger-strong); color: var(--danger-text); }
 
 /* ---------- Título da lista ativa ---------- */
 .list-header { flex-shrink: 0; display: flex; align-items: center; gap: .3rem; }
@@ -960,14 +979,20 @@ main {
   text-transform: uppercase; letter-spacing: .06em;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-/* Os dois botões de ícone do cabeçalho têm a MESMA caixa de toque (`--hit`, o
-   mesmo dos botões de linha e de fechar popup). O voltar tinha só ~20×20 px —
+/* ---------- O botão SÓ-DE-ÍCONE de `--hit` (esqueleto único) ----------
+   A mesma caixa estava escrita por extenso em SEIS regras (cabeçalho, seleção
+   múltipla, botões de linha, guardar cena, fechar popup, copiar o Registro) —
+   seis chances de a próxima divergir num detalhe que ninguém decidiu. O
+   esqueleto fica aqui, ANTES de todas; em cada uma sobra só o que difere
+   (fundo, cor e, no `.cue-save-btn`, a borda). O voltar tinha só ~20×20 px —
    o menor alvo do app inteiro, e é a única saída da aba Pastas e da navegação
    da Bíblia; errar o toque ali caía no #addDirBtn ao lado, que abre o SAF. */
-.add-dir-btn, .back-btn {
+.add-dir-btn, .back-btn, .sel-btn, .row-btn, .row-handle,
+.cue-save-btn, .popup-close, .log-copy {
   flex-shrink: 0; width: var(--hit); height: var(--hit); padding: 0;
   border: none; border-radius: var(--radius-btn);
   display: flex; align-items: center; justify-content: center; cursor: pointer;
+  appearance: none; -webkit-appearance: none;
 }
 .add-dir-btn { background: var(--accent-soft); color: var(--accent); }
 /* ---------- Troca de modo (o par de botões do canto superior direito) --------
@@ -987,7 +1012,14 @@ main {
    direita (a seta é a inversa, apontando para o avançado), e ali quem o empurra
    é a marca em `flex: 1`; a regra abaixo garante o canto mesmo se a marca um dia
    deixar de crescer. */
-.mode-switch {
+/* UMA declaração para as DUAS teclas do cabeçalho — a troca de modo e o botão
+   de Favoritos: elas são teclas de navegação da mesma faixa, e desenhá-las
+   diferente faria uma parecer mais importante que a outra (era exatamente o
+   que acontecia: duas cópias propriedade a propriedade que JÁ tinham divergido
+   no feedback de toque e no tamanho do ícone). O que as distingue é a COR do
+   ícone — accent na seta do modo, ouro na estrela — e isso mora nas duas
+   regras de svg logo abaixo de cada uma. */
+.mode-switch, .head-fav-btn {
   flex-shrink: 0;
   display: inline-flex; align-items: center; gap: .3rem;
   /* SEM MOLDURA (v5.76). O contorno em `--accent` desenhava, nos dois
@@ -1026,19 +1058,11 @@ main {
    já tem um voltar e uma troca de modo, era mais um símbolo a decifrar — e este
    é a única porta para uma tela inteira. O espaço saiu do rótulo do modo, que
    encolheu de "Modo simplificado" para "Modo Fácil".
-   Mesma caixa da troca de modo (`--surface-2`, mesma altura e raio): as duas
-   são teclas de navegação da mesma faixa, e desenhá-las diferente faria uma
-   parecer mais importante que a outra. O que as distingue é a cor do ícone —
-   ouro aqui, accent lá —, no mesmo lugar em que a `.mode-switch` põe a seta. */
-.head-fav-btn {
-  flex-shrink: 0;
-  display: inline-flex; align-items: center; gap: .3rem;
-  border: none; border-radius: var(--radius-btn);
-  background: var(--surface-2); color: var(--text);
-  font-size: .8rem; font-weight: 600; font-family: inherit;
-  padding: .42rem .6rem; cursor: pointer;
-  appearance: none; -webkit-appearance: none;
-}
+   Mesma caixa da troca de modo — LITERALMENTE: a declaração é uma só, na
+   regra agrupada `.mode-switch, .head-fav-btn` acima. O que as distingue é a
+   cor do ícone — ouro aqui, accent lá —, no mesmo lugar em que a
+   `.mode-switch` põe a seta; o tamanho dele vem da escala da folha
+   (`--icon-sm`, como o da seta), não mais dos 18px soltos do HTML. */
 .head-fav-btn svg { flex-shrink: 0; color: var(--gold); }
 
 /* ---------- Abas (ícones) ---------- */
@@ -1230,17 +1254,25 @@ main {
 #favList .thumb { width: 32px; height: 32px; }
 #favList .thumb--icon .msym { font-size: var(--icon-md); }
 #favList .fav-section { padding: .45rem .2rem .05rem; }
-/* Tracejado no PRÓPRIO accent: o valor literal que estava aqui era o azul
-   #2f81f7 aposentado há versões — dois azuis diferentes lado a lado, com o
-   mesmo papel (ação secundária contornada), congelados um no token e outro
-   numa cópia que nenhuma troca de paleta alcançaria. */
+/* ---------- A moldura TRACEJADA em accent: "espaço a preencher" ----------
+   A MESMA receita nos quatro lugares em que uma lista oferece uma ação sobre
+   si mesma — "Importar arquivos", a barra de seleção no rodapé, "+ Nova
+   mensagem" e "Guardar como pacote". Borda e raio numa regra só, para os
+   quatro não divergirem no primeiro ajuste (era uma cópia por botão); em cada
+   regra fica só o que difere (fundo, cor, medidas). Tracejado no PRÓPRIO
+   accent: o valor literal que já esteve aqui era o azul #2f81f7 aposentado há
+   versões — o mesmo papel do token, congelado numa cópia que nenhuma troca de
+   paleta alcançaria. */
+.import-btn, .list-foot > .selbar, .msg-add-btn, .pl-pack {
+  border: 1px dashed var(--accent);
+  border-radius: var(--radius-btn);
+}
 /* `min-height: var(--hit-foot)` e não só o padding: é ele que fixa a altura da
    fatia do rodapé, para a barra de seleção poder ocupar exatamente a mesma
    caixa quando toma o lugar dele. */
 .import-btn {
   flex: 1; min-width: 0; min-height: var(--hit-foot); padding: .5rem;
-  background: transparent; border: 1px dashed var(--accent);
-  border-radius: var(--radius-btn); color: var(--accent); font-size: .9rem;
+  background: transparent; color: var(--accent); font-size: .9rem;
   display: flex; align-items: center; justify-content: center; gap: .45rem;
   cursor: pointer;
 }
@@ -1293,14 +1325,15 @@ main {
    seleção, e a lista inteira dava um pulo debaixo do dedo que estava segurando
    um item. */
 .list-foot > .selbar {
+  /* A moldura tracejada vem da regra agrupada, junto de "Importar arquivos" —
+     e vence o `border: none` da `.selbar` base por especificidade, não pela
+     ordem. */
   min-height: var(--hit-foot);
   padding: 0 .5rem;
-  border: 1px dashed var(--accent);
-  border-radius: var(--radius-btn);
 }
 .sel-count { font-weight: 700; color: var(--accent); }
 .sel-spacer { flex: 1; }
-.sel-btn { width: var(--hit); height: var(--hit); border: none; border-radius: var(--radius-btn); background: var(--surface-2); color: var(--text); display: flex; align-items: center; justify-content: center; cursor: pointer; }
+.sel-btn { background: var(--surface-2); color: var(--text); }
 .sel-btn:disabled { opacity: .35; }
 .sel-btn.danger { color: var(--danger-strong); }
 .sel-btn .msym { font-size: var(--icon-sm); }
@@ -1396,14 +1429,12 @@ main {
    ganhou, sem acrescentar nada. */
 #favList .row-sub { display: none; }
 
-.url-badge { flex-shrink: 0; font-size: .6rem; font-weight: 700; letter-spacing: .04em; padding: 1px 5px; border-radius: var(--radius-xs); background: var(--surface); color: var(--muted); }
-/* O vermelho do YouTube é MARCA DE TERCEIRO: a matiz identifica a origem da
-   mídia, então ela é informação e não pode virar accent. Fica em token próprio
-   (`--yt`, clareado até passar AA como texto pequeno sobre o próprio fundo
-   suave) em vez de dois literais soltos, que era o que havia aqui. */
-.yt-badge { background: var(--yt-soft); color: var(--yt); }
+/* (Os selos de tipo `.url-badge`/`.yt-badge`/`.cue-badge` saíram de uso na
+   v5.118, quando o tipo do item virou o subtítulo `.row-sub` — nenhum JS os
+   desenhava mais, e com eles os tokens `--yt`/`--yt-soft` perderam o único
+   consumidor e saíram de tokens.css.) */
 
-.row-btn, .row-handle { width: var(--hit); height: var(--hit); flex-shrink: 0; border: none; border-radius: var(--radius-btn); background: var(--surface); color: var(--text); display: flex; align-items: center; justify-content: center; cursor: pointer; }
+.row-btn, .row-handle { background: var(--surface); color: var(--text); }
 .row-btn .msym, .row-handle .msym { font-size: var(--icon-sm); }
 .row-handle { background: transparent; color: var(--muted); touch-action: none; cursor: grab; }
 
@@ -1418,11 +1449,8 @@ main {
    projetar é o toque no versículo do meio — guardar é a ação secundária e tem
    de parecer uma. */
 .cue-save-btn {
-  width: var(--hit); height: var(--hit); flex-shrink: 0; padding: 0;
-  border: 1px solid var(--line); border-radius: var(--radius-btn);
+  border: 1px solid var(--line);
   background: var(--surface-2); color: var(--muted);
-  display: flex; align-items: center; justify-content: center; cursor: pointer;
-  appearance: none; -webkit-appearance: none;
 }
 .cue-save-btn .msym { font-size: var(--icon-sm); color: var(--gold); }
 
@@ -1440,10 +1468,9 @@ main {
 .fav-btn { background: transparent; color: var(--line); }
 .fav-btn.on { color: var(--gold); }
 
-/* Selo da CENA DE ROTEIRO — a mesma caixa do selo de URL/YT, em ouro suave:
-   ele diz "isto não é mídia, é uma cena" numa lista onde todo o resto tem
-   bytes. */
-.cue-badge { background: var(--gold-soft); color: var(--gold-text); }
+/* A miniatura da CENA DE ROTEIRO em ouro: ela diz "isto não é mídia, é uma
+   cena" numa lista onde todo o resto tem bytes. (O selo `.cue-badge` saiu com
+   os irmãos de URL/YT — ver a lápide acima.) */
 .thumb--cue { color: var(--gold); }
 .thumb--cue svg { width: 22px; height: 22px; }
 .thumb--cue .msym { color: var(--gold); }
@@ -1601,7 +1628,7 @@ main {
   background: var(--panel-2);   /* o mesmo do cartão: ela é a tampa dele */
   margin: -.55rem -.7rem 0; padding: .55rem .7rem;
   border-radius: var(--radius-card) var(--radius-card) 0 0;
-  box-shadow: 0 6px 12px -8px rgba(0, 0, 0, .9);
+  box-shadow: 0 6px 12px -8px var(--shadow-ink);
 }
 /* A ENGRENAGEM VOLTOU PARA A BARRA (v5.72), no lugar exato do botão de baixar —
    mesma caixa, mesma coluna, e os dois nunca fazem falta ao mesmo tempo (ver
@@ -1643,7 +1670,9 @@ main {
    linha de lista, porque quando ele importa (nenhum resultado) ele é a única
    coisa que sobrou na tela. */
 .yt-search-btn {
-  width: 100%; min-height: 44px;
+  /* `--hit-foot`: o mesmo alvo de linha de rodapé do "Importar arquivos" — o
+     44px literal repetia o token sem dizer que era ele. */
+  width: 100%; min-height: var(--hit-foot);
   display: flex; align-items: center; gap: .5rem;
   border: none; border-radius: var(--radius-btn);
   background: var(--surface); color: var(--muted);
@@ -1742,9 +1771,12 @@ main {
    abaixo da barra (`--inline`), e não num bottom-sheet: um popup sobre o acervo
    — que já é um popup de tela cheia — era uma camada a mais para ver o peso de
    um álbum que já estava aberto na tela. */
-.coll-opts { display: flex; flex-direction: column; gap: .6rem; padding: .2rem .9rem .9rem; }
-/* Sem o padding do sheet (o card já tem o seu) e separado da lista de músicas
-   pelo mesmo respiro que separa as músicas entre si. */
+.coll-opts { display: flex; flex-direction: column; gap: .6rem; }
+/* Sem padding lateral (o card já tem o seu) e separado da lista de músicas
+   pelo mesmo respiro que separa as músicas entre si. (O padding largo que a
+   regra base carregava era o da era do bottom-sheet, pré-v5.72 — e era código
+   morto: todo `.coll-opts` nasce `--inline` desde então, e o valor daqui era
+   sempre sobrescrito.) */
 .coll-opts--inline { padding: .5rem 0 .2rem; }
 /* AS DUAS AÇÕES DO ÁLBUM DIVIDEM UMA LINHA (v5.95). Empilhadas, eram duas
    faixas largas para duas ações curtas — e era esse tamanho que obrigava a
@@ -2009,7 +2041,7 @@ main {
    altura em vez de 132 e ainda oferece área de toque MAIOR (largura inteira),
    que é o que importa para achá-la sem olhar. */
 .mic-btn {
-  width: 100%; height: 56px; flex-shrink: 0;
+  width: 100%; height: var(--misc-bar-h); flex-shrink: 0;
   border-radius: var(--radius-btn);
   border: 2px solid var(--line); background: var(--panel); color: var(--text);
   display: flex; flex-direction: row; align-items: center; justify-content: center; gap: .6rem;
@@ -2167,7 +2199,7 @@ main {
 /* Projetar: a ação com efeito no TELÃO, por isso destacada. No ar vira
    vermelha — a cor mostra o ESTADO, o rótulo a AÇÃO. */
 .misc-project {
-  height: 56px; padding: .4rem;
+  height: var(--misc-bar-h); padding: .4rem;
   border: 1px solid var(--accent); border-radius: var(--radius-btn);
   background: var(--accent-soft); color: var(--text);
   font-size: .95rem; font-weight: 800; cursor: pointer;
@@ -2241,8 +2273,8 @@ main {
    não numa aba própria: um aviso de texto é uma interrupção rápida, não uma
    seção da biblioteca que se navega. */
 .msg-add-btn {
-  align-self: stretch; border: 1px dashed var(--accent); background: var(--surface); color: var(--accent);
-  border-radius: var(--radius-btn); padding: .7rem; font-size: .9rem; font-weight: 700;
+  align-self: stretch; background: var(--surface); color: var(--accent);
+  padding: .7rem; font-size: .9rem; font-weight: 700;
   cursor: pointer; appearance: none; -webkit-appearance: none;
 }
 .msg-item {
@@ -2368,8 +2400,8 @@ main {
 /* ---------- Popup de playlist (bottom sheet) ---------- */
 .popup-backdrop {
   position: fixed; inset: 0; z-index: 200;
-  /* (ver #collPopup abaixo: um popup ABERTO DE DENTRO de outro precisa de um
-     degrau próprio de empilhamento) */
+  /* (ver #songMenuPopup abaixo: um popup ABERTO DE DENTRO de outro precisa de
+     um degrau próprio de empilhamento) */
   background: var(--scrim);
   display: flex; align-items: flex-end;
   opacity: 0; pointer-events: none;
@@ -2388,12 +2420,14 @@ main {
   padding-bottom: env(safe-area-inset-bottom);
 }
 .popup-backdrop.open .popup-sheet { transform: translateY(0); }
-/* As opções da coleção (engrenagem) são abertas DE DENTRO do acervo, que é
-   outro popup. Com o mesmo z-index das demais, quem vencia era a ordem do
-   documento — e o acervo, declarado depois, cobria as opções por inteiro: o
-   toque na engrenagem parecia não fazer nada. Um degrau acima resolve, e o
-   voltar acompanha (ver POPUPS, ordenada de baixo para cima). */
-#collPopup, #songMenuPopup { z-index: 210; }
+/* A folha rápida de uma música (▶/+ da linha) abre DE DENTRO do acervo, que é
+   outro popup. Com o mesmo z-index de todos, quem decidiria seria a ordem do
+   documento — e é justamente o tipo de acaso que já cobriu um popup por
+   inteiro aqui (o toque parecia não fazer nada). Um degrau acima diz a
+   intenção, e o voltar acompanha (ver POPUPS, ordenada de baixo para cima).
+   (O `#collPopup` que dividia esta regra saiu na v5.72: as opções da coleção
+   viraram um painel dentro do próprio card.) */
+#songMenuPopup { z-index: 210; }
 /* E o seletor de atalhos abre de dentro da folha da música — mais um degrau,
    pelo mesmo motivo. Ele é declarado ANTES dela no documento, então sem isto a
    ordem do documento o deixaria por baixo e o toque em "Adicionar aos
@@ -2423,16 +2457,12 @@ main {
   font-size: .72rem; font-weight: 700;
   border-radius: var(--radius-pill); padding: 0 .45rem; min-width: 20px; text-align: center;
 }
-/* `flex-shrink: 0` NÃO é decoração: o cabeçalho é uma linha flex, e o ✕ é o
-   último item dela. Sem isto, um vizinho que se recusa a encolher (era o caso
-   do `.popup-total`) empurra o ✕ para fora do sheet e a única saída da tela
+/* O `flex-shrink: 0` (que hoje vem do esqueleto de botão de ícone, no alto da
+   folha) NÃO é decoração: o cabeçalho é uma linha flex, e o ✕ é o último item
+   dela. Sem ele, um vizinho que se recusa a encolher (era o caso do
+   `.popup-total`) empurra o ✕ para fora do sheet e a única saída da tela
    inteira some — foi o que um status de lote com o nome do álbum fazia. */
-.popup-close {
-  flex-shrink: 0;
-  width: var(--hit); height: var(--hit); border: none; border-radius: var(--radius-btn);
-  background: var(--surface-2); color: var(--muted);
-  display: flex; align-items: center; justify-content: center; cursor: pointer;
-}
+.popup-close { background: var(--surface-2); color: var(--muted); }
 .popup-close .msym { font-size: var(--icon-sm); }
 /* "Baixar todo o acervo" no cabeçalho: contador + botão, os MESMOS elementos
    (`.coll-group-count` / `.coll-group-btn`) que a barra tinha na lista — só
@@ -2464,8 +2494,7 @@ main {
   flex-shrink: 0; margin: 0 .7rem .8rem;
   display: flex; align-items: center; justify-content: center; gap: .45rem;
   padding: .7rem .5rem;
-  background: transparent; border: 1px dashed var(--accent);
-  border-radius: var(--radius-btn); color: var(--accent);
+  background: transparent; color: var(--accent);
   font-size: .86rem; font-weight: 600; font-family: inherit; cursor: pointer;
   appearance: none; -webkit-appearance: none;
 }
@@ -2730,18 +2759,15 @@ main {
   background: var(--panel); border-radius: var(--radius-card); padding: .65rem .8rem;
   font-size: .9rem; cursor: pointer;
 }
-.fade-row--fit { flex-direction: column; align-items: stretch; gap: .5rem; cursor: default; }
-/* Igual à `--fit`, mas para uma linha com CAMPOS de texto: o rótulo em cima e
-   os campos empilhados embaixo, cada um com a largura toda — um `<input>` de
-   URL espremido ao lado de um rótulo não deixa ler o que foi digitado. */
-.fade-row--col { flex-direction: column; align-items: stretch; gap: .5rem; cursor: default; }
+/* As duas variantes em COLUNA da linha de opção — `--fit` (rótulo + segmentado)
+   e `--col` (rótulo + campos/caixas de largura inteira, como o Registro: um
+   conteúdo espremido ao lado do rótulo não se lê) — são a MESMA pilha, numa
+   declaração só: eram duas cópias idênticas esperando divergir. */
+.fade-row--fit, .fade-row--col { flex-direction: column; align-items: stretch; gap: .5rem; cursor: default; }
 .fade-row--col .lib-search { width: 100%; }
-/* Uma linha de diagnóstico: o que a última tentativa de download disse. Só
-   ocupa espaço quando tem o que dizer. */
-.fade-hint { font-size: .72rem; color: var(--muted); }
-.fade-hint:empty { display: none; }
-.fade-hint.erro { color: var(--warn-text); }
-.fade-hint.ok { color: var(--ok); }
+/* (A linha de diagnóstico `.fade-hint` saiu: o que ela dizia — o desfecho da
+   última tentativa de download — consolidou-se no Registro (`#diagBox`) na
+   v5.121, e nenhum JS a desenhava mais.) */
 .fit-seg { display: flex; gap: .35rem; }
 .fit-opt {
   flex: 1; border: none; border-radius: var(--radius-btn); padding: .5rem .4rem;
@@ -2803,7 +2829,9 @@ main {
   background: var(--scrim);
   display: flex; align-items: center; justify-content: center;
   padding: 1.2rem;
-  opacity: 0; pointer-events: none; transition: opacity .2s ease;
+  /* .25s: a MESMA duração do scrim dos bottom-sheets (`.popup-backdrop`) — é o
+     mesmo papel, e dois scrims com tempos diferentes leriam como dois apps. */
+  opacity: 0; pointer-events: none; transition: opacity .25s ease;
 }
 .dialog-backdrop.open { opacity: 1; pointer-events: auto; }
 .dialog-card {
@@ -3113,31 +3141,14 @@ body.mode-simple .bottombar { display: none; }
    é justamente a decisão que este modo poupa. */
 body.mode-simple .hymn-add-btn { display: none; }
 
-/* ---------- Campo de LOG, com o botão de copiar (v5.117) ---------- */
+/* ---------- O botão de COPIAR o Registro (v5.117) ---------- */
 /* Um diagnóstico existe para ser REPASSADO: sem o botão, a alternativa é
-   transcrever à mão uma linha cheia de números ou tirar foto da tela. O texto
-   quebra em várias linhas e o botão não encolhe — quem some primeiro numa tela
-   estreita não pode ser a saída. */
-.log-line {
-  display: flex; align-items: flex-start; gap: .35rem;
-  max-width: 100%; padding: 0 .2rem;
-}
-.log-text {
-  flex: 1; min-width: 0;
-  font-size: .7rem; line-height: 1.35; color: var(--muted);
-  text-align: center; word-break: break-word;
-  /* Selecionável, ao contrário do resto da UI (o `user-select: none` do topo da
-     folha vale para o app inteiro): quem quiser copiar um pedaço só continua
-     podendo, e o botão é o atalho para o caso comum. */
-  user-select: text; -webkit-user-select: text;
-}
-.log-copy {
-  flex-shrink: 0; width: var(--hit); height: var(--hit); padding: 0;
-  border: none; border-radius: var(--radius-btn);
-  background: var(--surface-2); color: var(--muted);
-  display: flex; align-items: center; justify-content: center; cursor: pointer;
-  appearance: none; -webkit-appearance: none;
-}
+   transcrever à mão uma linha cheia de números ou tirar foto da tela. A caixa
+   vem do esqueleto de botão de ícone (`--hit`, no alto da folha); ele mora no
+   `.log-head`, FORA da caixa que rola (ver `.diag-box`).
+   (As irmãs `.log-line`/`.log-text` descreviam as linhas de log avulsas que o
+   `#diagBox` unificou na v5.121 — nenhum JS as desenhava mais.) */
+.log-copy { background: var(--surface-2); color: var(--muted); }
 .log-copy.copiado { background: var(--ok-soft); color: var(--ok); }
 
 /* ---------- Pulso de confirmação NO BOTÃO (v5.106) ---------- */

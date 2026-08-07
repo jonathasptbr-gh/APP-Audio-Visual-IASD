@@ -364,7 +364,6 @@ html, body {
    wallpaper pronto por baixo, e esmaece revelando o wallpaper graciosamente. */
 .yt-shield {
   background: var(--stage-bg);
-  object-fit: unset;
   opacity: 0;
   pointer-events: none;
   z-index: 4;
@@ -391,7 +390,6 @@ html, body {
   padding: 0;
   cursor: pointer;
 }
-.start-overlay[hidden] { display: none; }
 .start-pill {
   display: inline-flex;
   align-items: center;
@@ -427,5 +425,8 @@ html, body {
 }
 @keyframes startOverlayFade {
   0% { background: var(--stage-bg); }
-  100% { background: rgba(0, 0, 0, 0); }
+  /* `transparent`, e não o preto com alfa 0 escrito por extenso: a
+     interpolação de cor é premultiplicada, então o resultado é idêntico — é a
+     mesma convenção já registrada no `mic-pulse` de controle.css. */
+  100% { background: transparent; }
 }

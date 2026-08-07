@@ -551,7 +551,18 @@ async function startMic() {
   // captura) enquanto a permissão era resolvida: nos dois casos este stream já
   // nasceu obsoleto e não pode virar áudio no telão — quem manda é a última
   // intenção, e o token diz se esta ainda é ela.
-  if (seq !== micSeq || !micWanted) { stream.getTracks().forEach((t) => t.stop()); return; }
+  if (seq !== micSeq || !micWanted) {
+    stream.getTracks().forEach((t) => t.stop());
+    // O Controle precisa saber que ISTO não virou microfone: o stopMic de
+    // quem soltou o botão saiu cedo (micStream ainda era null — não havia o
+    // que derrubar) e não emitiu nada, então sem esta linha o indicador do
+    // botão ficava no último estado. Só quando o operador SOLTOU: se ele
+    // apertou de novo (`micWanted` ainda true), a captura mais nova é quem
+    // vai anunciar o próprio desfecho — um `false` daqui poderia chegar
+    // DEPOIS do `true` dela e apagar um microfone que está no ar.
+    if (!micWanted) micStatus(false);
+    return;
+  }
   micStream = stream;
   try {
     micCtx = micCtx || new (window.AudioContext || window.webkitAudioContext)();
@@ -946,7 +957,18 @@ async function loadYoutube(rec, v, m, vol, startAt, autoplay) {
   stage.instantCover(desiredView === 'wallpaper');
 
   try { await loadYtApi(); }
-  catch (_) { return; }   // API não carregou (rede) — aborta o load do vídeo
+  catch (e) {
+    // API não carregou (rede): aborta o load do vídeo — mas NUNCA em silêncio
+    // sobre o preto. O instantCover acima acabou de descobrir o palco (view
+    // 'visual') esperando um vídeo que não vem; devolver a cortina deixa o
+    // telão no wallpaper, que é o ponto de repouso, em vez de um preto que se
+    // lê como projetor apagado. E a caixa-preta registra o porquê — é a linha
+    // que o `diag-dump` leva ao Registro quando o operador abrir Configurações.
+    if (seq !== ytSeq) return; // um load mais novo já assumiu a cena
+    diag('YT API FALHOU', { erro: String((e && e.message) || e || '?').slice(0, 80) });
+    stage.instantCover(true);
+    return;
+  }
   if (seq !== ytSeq) return; // um load mais novo chegou enquanto a API carregava
 
   yt = {
@@ -1332,14 +1354,11 @@ AVDB.onCommand(async (cmd) => {
       if (textActive && textView === 'visual') stage.instantCover(false);
       return;
     }
-    if (cmd.type === 'load') {
-      const rec = await AVDB.getMedia(cmd.mediaId);
-      // Visual encerra; áudio mantém. Sem restaurar: o load logo abaixo já
-      // monta a cena nova (restaurar aqui faria a antiga piscar antes).
-      if (!rec || rec.kind !== 'audio') hideText(false);
-    } else if (cmd.type === 'clear') {
-      hideText(false);
-    }
+    if (cmd.type === 'clear') hideText(false);
+    // O 'load' com texto em cena é decidido no bloco principal, logo abaixo,
+    // com UMA leitura do registro — este bloco fazia um `getMedia` próprio e o
+    // principal repetia a MESMA leitura duas linhas depois, um IDB pago em
+    // dobro a cada troca de mídia durante a pregação.
     // demais comandos (play/pause/seek/volume/mute) caem no fluxo normal abaixo.
   }
 
@@ -1350,6 +1369,10 @@ AVDB.onCommand(async (cmd) => {
     // ficava mascarado por sorte de ordem de pintura no DOM.
     hideLyrics(true);
     const rec = await AVDB.getMedia(cmd.mediaId);
+    // Texto manual em cena: 'load' VISUAL o encerra, 'load' de áudio o mantém
+    // (o som de fundo troca por baixo do cartão). Sem restaurar a cena: o
+    // próprio load abaixo monta a nova (restaurar aqui faria a antiga piscar).
+    if (textActive && (!rec || rec.kind !== 'audio')) hideText(false);
     if (rec && rec.kind === 'youtube') {
       loadYoutube(rec, cmd.view, cmd.muted, cmd.volume, cmd.time, cmd.playing);
       return;
@@ -1405,11 +1428,19 @@ AVDB.onCommand(async (cmd) => {
 async function restore() {
   // Adianta o fetch do script da IFrame Player API do YouTube (~1x por sessão)
   // já na abertura do Display, em vez de esperar o primeiro vídeo do YouTube
-  // ser carregado. O Cronograma é, na prática, sempre usado na sessão em
-  // curso — então esse custo de rede vai ser pago de qualquer forma; só não
-  // faz sentido esperar o meio do culto pra pagá-lo. Fire-and-forget: não
-  // atrasa nada, loadYoutube() já teria que esperar essa mesma promise.
-  loadYtApi().catch(() => {});   // prefetch: uma falha de rede aqui é retentada no 1º loadYoutube()
+  // ser carregado. SÓ NO NAVEGADOR: lá o embed é o caminho normal de um vídeo
+  // do YouTube e o custo de rede vai ser pago de qualquer forma — só não faz
+  // sentido esperar o meio do culto pra pagá-lo. No app nativo o embed é
+  // fallback raro (o caminho é a transmissão direta ou o download), e o
+  // prefetch injetava script de terceiro no origin privilegiado — o mesmo
+  // documento que enxerga `__AVBridge`, IDB e OPFS, sem CSP (risco declarado
+  // em loadYtApi) — em TODA sessão, mesmo nas muitas em que nenhum embed
+  // toca. O `loadYtApi()` sob demanda do loadYoutube() continua cobrindo o
+  // caso nativo, pagando o fetch só quando o fallback é real.
+  // Fire-and-forget: não atrasa nada, loadYoutube() espera a mesma promise.
+  if (!window.__NATIVE__) {
+    loadYtApi().catch(() => {});   // prefetch: falha de rede é retentada no 1º loadYoutube()
+  }
   // Config de transições (fade) definida no Controle — preferência visual,
   // não é "tocar" nada.
   // Transições são INERENTES ao sistema (sempre ligadas, duração fixa — ver
