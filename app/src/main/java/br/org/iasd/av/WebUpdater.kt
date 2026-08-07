@@ -228,6 +228,71 @@ object WebUpdater {
     }
 
     /**
+     * A versão do bundle que já está BAIXADO e esperando o próximo lançamento —
+     * `null` quando não há nada além do que esta sessão já serve.
+     *
+     * Existe para o app poder AVISAR (ver `NativeBridge.otaPending`). Até aqui a
+     * atualização era invisível por completo: ela chegava calada e entrava na
+     * abertura seguinte, então quem quisesse a correção do dia tinha de saber,
+     * por fora, que precisava fechar e reabrir o app.
+     */
+    fun pendingVersion(ctx: Context): String? {
+        val p = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val active = p.getString(KEY_ACTIVE, null) ?: return null
+        // Já é o desta sessão: não há o que oferecer.
+        if (active == sessionRoot?.name) return null
+        val dir = File(baseDir(ctx), active)
+        val v = versionOf(File(dir, "web/version.json").takeIf { it.isFile }) ?: return null
+        return if (compareVersions(v, currentVersion(ctx)) > 0) v else null
+    }
+
+    /**
+     * APLICA AGORA o bundle que esperava o próximo lançamento, devolvendo a
+     * versão aplicada (ou `null` se não havia nada a aplicar).
+     *
+     * ## Isto flexiona a garantia 1, e por isso só acontece a PEDIDO
+     *
+     * "Nunca troca a base no meio de uma sessão" existe porque uma troca
+     * ACIDENTAL no meio de um culto recarrega o telão e derruba a projeção. O
+     * que ela protege é o operador, não o mecanismo: quando é ele quem pede,
+     * sabendo o que vai acontecer e com a tela livre (quem oferece é o lado
+     * web, e só sem cena no ar), a troca deixa de ser um acidente e passa a ser
+     * uma escolha. O caminho automático continua intocado — sem este pedido,
+     * o bundle novo segue entrando só no lançamento seguinte.
+     *
+     * O que NÃO muda aqui, de propósito:
+     *
+     * - **O watchdog arma igual.** Se o bundle recém-servido não confirmar o
+     *   boot, o lançamento seguinte o descarta e volta ao embutido — a mesma
+     *   rede de proteção do caminho normal, e ela é justamente o que torna
+     *   seguro aplicar ao vivo.
+     * - **Nada é apagado.** O diretório antigo continua no disco: os dois
+     *   WebViews ainda podem ter requisições em voo contra ele durante a
+     *   recarga. Quem recolhe é o `beginSession()` do próximo lançamento, o
+     *   único ponto em que nenhum WebView existe.
+     *
+     * Recarregar os dois WebViews é com quem os tem (ver `MainActivity`): este
+     * objeto não conhece View nenhuma.
+     */
+    fun applyNow(ctx: Context): String? {
+        val versao = pendingVersion(ctx) ?: return null
+        val p = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val active = p.getString(KEY_ACTIVE, null) ?: return null
+        val dir = File(baseDir(ctx), active)
+        // A MESMA reprovação do caminho de download: um bundle sem o index do
+        // Controle não vale ser servido. Aqui ela é ainda mais barata que lá, e
+        // o custo de não fazê-la seria um app que não abre.
+        if (!File(dir, "web/controle/index.html").isFile) {
+            Log.w(TAG, "bundle $active sem index do Controle — não aplicado ao vivo")
+            return null
+        }
+        p.edit().putString(KEY_PENDING, active).remove(KEY_PENDING_LEGACY).apply()
+        sessionRoot = dir
+        Log.i(TAG, "base web $versao aplicada AO VIVO, a pedido do operador")
+        return versao
+    }
+
+    /**
      * Procura e baixa uma base web nova, em segundo plano. Silencioso por
      * natureza: sem rede, o app simplesmente segue com o que já tem.
      */

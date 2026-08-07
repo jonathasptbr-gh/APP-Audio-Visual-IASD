@@ -3106,6 +3106,37 @@ durante o MSE arrisca o decode nunca acontecer — e um telão preto para sempre
 falha muito pior que um piscar. O pôster não pode apagar a projeção: no limite,
 ele não faz nada.
 
+##### O aviso de atualização (v5.132)
+
+O OTA era **invisível por completo**: o bundle novo chegava calado e entrava na
+abertura seguinte. Quem quisesse a correção do dia — e a correção mais urgente é
+justamente a que ninguém quer esperar — tinha de saber, por fora, que precisava
+fechar e reabrir o app.
+
+Agora o Controle pergunta ao shell (`AVNative.otaPending`) e, havendo uma versão
+esperando, oferece aplicá-la na hora. Aceitar chama `otaApply`, que troca a base
+servida e recarrega as duas páginas.
+
+As regras do aviso são todas sobre **quando não perguntar**:
+
+- **Com cena no ar, não.** Aplicar recarrega os dois WebViews e o telão pisca. A
+  garantia 1 do OTA existe contra a troca ACIDENTAL; oferecer no meio de uma
+  projeção seria transformá-la num acidente com convite. A leitura de "há cena"
+  é a MESMA de `pushNowPlaying` — mídia, mensagem, versículo, letra, cronômetro
+  e sorteio —, para as duas não divergirem.
+- **Com download em curso, também não.** Os `fetch` são desta página: recarregar
+  mata o download no meio, e o arquivo que o shell terminar de baixar não teria
+  mais quem o recebesse.
+- **Recusar vale para a sessão inteira.** Um aviso que volta de minuto em minuto
+  vira ruído, e ruído em culto é pior que a versão antiga.
+- **A pergunta diz que dá para não fazer nada:** a atualização entra sozinha na
+  próxima abertura de qualquer jeito. Sem isso, "Depois" pareceria "ficar para
+  trás".
+
+Nas horas em que a pergunta não pode aparecer, o **Registro** diz o que está
+esperando (`Atualização: v5.132 baixada (esperando a tela livre)`) — é ele que
+responde "por que ainda estou na versão antiga?".
+
 ##### Cancelar o download, e os restos que ninguém coletava (v5.131)
 
 Três coisas que chegaram do aparelho na mesma rodada, e duas delas eram o mesmo

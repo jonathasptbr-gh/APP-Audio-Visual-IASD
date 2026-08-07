@@ -795,6 +795,40 @@ class MainActivity : ComponentActivity(), BridgeHost {
         emptyList()
     }
 
+    /**
+     * Aplica a base web nova AO VIVO e recarrega as duas páginas.
+     *
+     * A ORDEM importa. O `resolve` da ponte é entregue por `evaluateJavascript`
+     * na página do Controle — a mesma que está prestes a ser recarregada —,
+     * então a recarga vai para o fim da fila da UI: assim a Promise do lado web
+     * chega a resolver antes de o documento morrer. Não é essencial (quem pediu
+     * a atualização vai ver a tela recarregar de qualquer jeito), mas um
+     * `otaApply()` que nunca resolve deixaria um `await` pendurado para sempre
+     * num caminho de erro futuro.
+     *
+     * O TELÃO PRIMEIRO, pelo mesmo motivo pelo qual a reconexão do dongle
+     * funciona: ele carrega, dispara `display-ready`, e o Controle — já
+     * recarregado ou recarregando — reenvia a cena por `resendSceneToDisplay`.
+     */
+    override fun applyWebUpdate(onResult: (String?) -> Unit) {
+        runOnUiThread {
+            val versao = WebUpdater.applyNow(this)
+            onResult(versao)
+            if (versao == null) return@runOnUiThread
+            webContainer.post {
+                try { presentation?.recarregar() } catch (e: Exception) {
+                    Log.w(TAG, "telão não recarregou na atualização", e)
+                }
+                web?.let {
+                    // Ver `StagePresentation.recarregar`: sem limpar o cache, a
+                    // página nova pode ser montada com pedaços da antiga.
+                    it.clearCache(true)
+                    it.loadUrl(WebViewFactory.URL_CONTROLE)
+                }
+            }
+        }
+    }
+
     override fun requestMicPermission(onResult: (Boolean) -> Unit) {
         runOnUiThread {
             if (MicChromeClient.hasRecordAudio(this)) { onResult(true); return@runOnUiThread }

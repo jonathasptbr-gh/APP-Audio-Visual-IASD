@@ -64,6 +64,13 @@ interface BridgeHost {
 
     /** Consome (uma única vez) um compartilhamento recebido por intent. */
     fun takePendingShare(): JSONObject?
+
+    /**
+     * Aplica AGORA a base web que esperava o próximo lançamento e recarrega os
+     * dois WebViews. Devolve a versão aplicada, ou `null` se não havia nada.
+     * Só a Activity pode fazê-lo: é ela que tem as duas páginas.
+     */
+    fun applyWebUpdate(onResult: (String?) -> Unit)
 }
 
 /**
@@ -90,7 +97,7 @@ class NativeBridge(
          * exijam mais do que o shell instalado oferece (ver [WebUpdater]).
          * Subir SEMPRE que a superfície da ponte mudar.
          */
-        const val SHELL_VERSION = 28
+        const val SHELL_VERSION = 29
 
         /**
          * Fila de IO da ponte, **compartilhada por todas as instâncias**.
@@ -148,6 +155,35 @@ class NativeBridge(
     fun otaConfirm() {
         if (role != "controle") return
         WebUpdater.confirmBoot(ctx)
+    }
+
+    /**
+     * A versão da base web que já está BAIXADA e esperando o próximo lançamento
+     * — string vazia quando não há nada novo.
+     *
+     * Na fila de IO porque lê o `version.json` do bundle staged: é um arquivo
+     * minúsculo, mas disco na thread do WebView é disco na thread do WebView.
+     */
+    @JavascriptInterface
+    fun otaPending(callId: String) {
+        io.execute {
+            resolve(callId, JSONObject.quote(WebUpdater.pendingVersion(ctx) ?: ""))
+        }
+    }
+
+    /**
+     * APLICA a atualização agora e recarrega as duas páginas — a pedido
+     * explícito do operador (ver `WebUpdater.applyNow` para o que isto flexiona
+     * e por quê).
+     *
+     * Só o Controle: o telão não decide isto, e não tem como — ele não tem host.
+     */
+    @JavascriptInterface
+    fun otaApply(callId: String) {
+        if (host == null) { resolve(callId, "null"); return }
+        host.applyWebUpdate { versao ->
+            resolve(callId, if (versao == null) "null" else JSONObject.quote(versao))
+        }
     }
 
     // ---------- barramento de comandos ----------

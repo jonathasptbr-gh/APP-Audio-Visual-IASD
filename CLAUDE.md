@@ -257,6 +257,8 @@ window.AVNative = {
                        //   `altura` é o TETO de resolução — exige shell 25 abaixo de 1080
   ytDiscard(url),      //   e apaga o arquivo depois que os bytes foram copiados
   ytCancel(url),       // PARA o download em curso deste link — exige shell 28
+  otaPending(),        // → versão da base web já baixada que espera (ou '')
+  otaApply(),          // APLICA-a agora: as duas páginas recarregam — shell 29
   ytDiag(),            // → string: o que o extrator recebeu na última extração
                        //   (diagnóstico do rodapé de Configurações)
   keepAudioAlive(bool),// mesa de som ligada: este WebView não pode ser suspenso
@@ -276,7 +278,7 @@ window.AVNative = {
 }
 ```
 
-São **vinte e seis métodos**, e essa é a superfície inteira que o resto do lado web
+São **vinte e oito métodos**, e essa é a superfície inteira que o resto do lado web
 tem direito de usar: fora do `native.js`, tocar em `__AVBridge` direto é
 acoplamento indevido. O próprio `native.js` chama mais sete coisas no
 `__AVBridge`, e nenhuma delas é API para o app — a sexta e a sétima são
@@ -348,7 +350,8 @@ esperam uma **pessoa** e ficam sem prazo, porque um timeout ali resolveria null
 com o operador ainda escolhendo a pasta.
 
 `NativeBridge.SHELL_VERSION` identifica a versão da casca — **subir sempre que
-a superfície da ponte mudar**. Hoje vale **28** — a v5.131 acrescentou
+a superfície da ponte mudar**. Hoje vale **29** — a v5.132 acrescentou
+`otaPending`/`otaApply` (o aviso de atualização e o "aplicar agora"). A v5.131 acrescentou
 `ytCancel` (parar o download em curso). Ele é o único método da ponte que **não
 vai para a fila de IO**, e não poderia: a fila é de uma thread só e está ocupada
 justamente pelo download que se quer parar. Ele escreve um campo `@Volatile` e
@@ -811,6 +814,20 @@ SAF, Presentation e o serviço de segundo plano seguem idênticos.
    WebView existe ainda. Sem essa ressalva, ativar uma versão nova durante o
    culto fazia todo recurso ainda não carregado (e qualquer recarga do telão)
    cair no fallback do APK: versão mais antiga, no meio da projeção.
+
+   **A ÚNICA exceção é o operador pedindo** (v5.132 / shell 29). O que esta
+   garantia protege é ele, não o mecanismo: a troca proibida é a ACIDENTAL. O
+   app agora AVISA quando há uma base baixada esperando e oferece aplicá-la na
+   hora (`otaPending`/`otaApply` → `WebUpdater.applyNow`, que troca o
+   `sessionRoot` e recarrega as duas páginas). Três guardas mantêm o espírito
+   intacto: a pergunta **não aparece com cena no ar nem com download em curso**;
+   recusar vale para a sessão inteira (aviso repetido é ruído, e ruído em culto
+   é pior que a versão antiga); e o watchdog arma igual, então um bundle que não
+   confirme o boot é descartado no lançamento seguinte, exatamente como no
+   caminho automático. **Nada é apagado ao aplicar**: o diretório antigo pode ter
+   requisições em voo durante a recarga, e quem o recolhe continua sendo o
+   `beginSession()` seguinte. Sem o pedido, o comportamento automático é o
+   mesmo de sempre — o bundle entra só no próximo lançamento.
 2. **Válvula `minShell`.** Se o bundle exigir uma ponte mais nova que
    `NativeBridge.SHELL_VERSION`, é recusado: o app continua no que já tinha,
    funcionando, até um APK novo chegar. **É por isso que `SHELL_VERSION`
@@ -1462,7 +1479,7 @@ aparelho nenhum.
 O `versionCode`/`versionName` do APK vêm do CI (ver "Build") e não se tocam à
 mão.
 
-**Versão atual: v5.131** (base web) · `SHELL_VERSION` **28**, e o bundle segue com
+**Versão atual: v5.132** (base web) · `SHELL_VERSION` **29**, e o bundle segue com
 `minShell: 2` — ele funciona igual num shell antigo, só sem os recursos que são
 nativos por construção (a escada do voltar, os botões de volume, a notificação de
 controles), que **só chegam instalando o APK novo**, não pelo OTA.
