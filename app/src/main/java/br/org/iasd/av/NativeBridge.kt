@@ -97,7 +97,7 @@ class NativeBridge(
          * exijam mais do que o shell instalado oferece (ver [WebUpdater]).
          * Subir SEMPRE que a superfície da ponte mudar.
          */
-        const val SHELL_VERSION = 29
+        const val SHELL_VERSION = 30
 
         /**
          * Fila de IO da ponte, **compartilhada por todas as instâncias**.
@@ -440,12 +440,19 @@ class NativeBridge(
     ) {
         if (host == null) { resolve(callId, "null"); return }   // telão não baixa nada
         io.execute {
-            val r = try {
-                // O teto é SANEADO aqui, não lá dentro: este parâmetro vem de
-                // JavaScript, e um 0 (ou um negativo) esvaziaria a fila de
-                // candidatos e derrubaria o download inteiro num caminho que
-                // pareceria "vídeo indisponível".
-                val alvo = teto.coerceIn(144, YoutubeGrab.TETO_ALTURA)
+            // O teto é SANEADO aqui, não lá dentro: este parâmetro vem de
+            // JavaScript, e um 0 (ou um negativo) esvaziaria a fila de
+            // candidatos e derrubaria o download inteiro num caminho que
+            // pareceria "vídeo indisponível".
+            val alvo = teto.coerceIn(144, YoutubeGrab.TETO_ALTURA)
+            // O DOWNLOAD ÓRFÃO, RECLAMADO: se o renderer morreu no meio, o
+            // arquivo terminou aqui e ninguém o recebeu. A página nova pede o
+            // mesmo download outra vez e leva o resultado guardado, sem rede e
+            // sem esperar (ver `YoutubeGrab.resgatar`).
+            val resgatado = try {
+                YoutubeGrab.resgatar(url, somenteAudio, alvo)
+            } catch (_: Exception) { null }
+            val r = resgatado ?: try {
                 YoutubeGrab.buscar(ctx, url, somenteAudio, alvo) { lidos, total ->
                     ytProgresso(callId, lidos, total)
                 }

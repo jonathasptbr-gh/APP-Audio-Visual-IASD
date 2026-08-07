@@ -431,6 +431,22 @@ object YoutubeGrab {
         teto: Int = TETO_ALTURA,
         onProgresso: (Long, Long) -> Unit,
     ): JSONObject? {
+        val r = buscarInterno(ctx, link, somenteAudio, teto, onProgresso)
+        // O DESFECHO FICA GUARDADO até alguém reclamá-lo (ver [resgatar]). Aqui,
+        // e não em cada `return` lá dentro: o corpo tem dois caminhos de sucesso
+        // (o par juntado e a fila de candidatos), e um deles ficaria de fora no
+        // primeiro ajuste que alguém fizesse.
+        if (r != null) guardarResgate(link, somenteAudio, teto, r)
+        return r
+    }
+
+    private fun buscarInterno(
+        ctx: Context,
+        link: String,
+        somenteAudio: Boolean,
+        teto: Int,
+        onProgresso: (Long, Long) -> Unit,
+    ): JSONObject? {
         baixandoLink = link
         return try {
             garantirInit()
@@ -565,6 +581,65 @@ object YoutubeGrab {
 
     /** Pede que o download deste link pare. Barato: só escreve um campo. */
     fun cancelar(link: String) { cancelarLink = link }
+
+    // ------------------------------------------------------------------------
+    // O DOWNLOAD ÓRFÃO (v1.59)
+    //
+    // O download roda aqui, no processo; quem o espera é um `fetch` da PÁGINA.
+    // Quando o renderer morre (OOM — dois WebViews, um vídeo grande e o player
+    // do YouTube dividem o mesmo processo), a página é recriada e o `fetch`
+    // morre com ela: o arquivo termina de baixar e não sobra ninguém para
+    // recebê-lo. Do lado do operador, dez minutos de download viram nada — e
+    // nada explica o que houve.
+    //
+    // A saída é o shell GUARDAR o desfecho até alguém reclamá-lo. Um slot só,
+    // e não um registro por link: a fila de IO da ponte é de uma thread só,
+    // então existe no máximo um download por vez (é a mesma premissa do
+    // cancelamento e do `diagnostico`).
+    //
+    // Quem reclama é a página nova, pedindo o MESMO download de novo: o
+    // resultado guardado é devolvido na hora, sem rede. E quem o descarta é o
+    // `descartar()` — o mesmo ponto em que os bytes já foram copiados para a
+    // biblioteca e o arquivo intermediário deixa de existir.
+    // ------------------------------------------------------------------------
+    private class Resgate(
+        val link: String,
+        val soAudio: Boolean,
+        val teto: Int,
+        val json: JSONObject,
+        val arquivo: String,
+    )
+
+    @Volatile private var resgate: Resgate? = null
+
+    /**
+     * O desfecho guardado deste MESMO pedido, se houver.
+     *
+     * A conferência inclui a forma (`soAudio`) e o teto de resolução: devolver
+     * o m4a de ontem para quem hoje pediu o vídeo seria pior que não guardar
+     * nada — o operador receberia silenciosamente o formato errado.
+     */
+    fun resgatar(link: String, soAudio: Boolean, teto: Int): JSONObject? {
+        val r = resgate ?: return null
+        if (r.link != link || r.soAudio != soAudio || r.teto != teto) return null
+        // O arquivo pode ter sumido (faxina do sistema, cache limpo): um
+        // resultado apontando para um arquivo que não existe é pior que
+        // resultado nenhum, porque o lado web tentaria copiá-lo e falharia sem
+        // saber por quê.
+        if (!File(r.arquivo).isFile) { resgate = null; return null }
+        Log.i(TAG, "resgatando download concluído de $link")
+        return r.json
+    }
+
+    private fun guardarResgate(link: String, soAudio: Boolean, teto: Int, json: JSONObject) {
+        val caminho = caminhoDe(json.optString("url")) ?: return
+        resgate = Resgate(link, soAudio, teto, json, caminho)
+    }
+
+    /** O arquivo por trás de uma URL `/saf/<token>` — a mesma leitura do [descartar]. */
+    private fun caminhoDe(url: String): String? = try {
+        Uri.parse(url).lastPathSegment?.let { SafRegistry.get(it)?.path }
+    } catch (_: Exception) { null }
 
     /** O download em curso foi cancelado? Consultado dentro do laço de cópia. */
     private fun cancelado(): Boolean {
@@ -1192,6 +1267,11 @@ object YoutubeGrab {
      * cache e outra no IndexedDB — e o cache não é limpo por ninguém.
      */
     fun descartar(ctx: Context, url: String) {
+        // O DESFECHO GUARDADO MORRE AQUI, e este é o ponto certo: quem chama
+        // acabou de copiar os bytes para a biblioteca, ou seja, o download foi
+        // reclamado. Guardá-lo além disso apontaria para um arquivo que este
+        // mesmo método está apagando.
+        if (resgate?.link != null && caminhoDe(url) == resgate?.arquivo) resgate = null
         try {
             val token = Uri.parse(url).lastPathSegment ?: return
             val alvo = SafRegistry.get(token) ?: return
@@ -1360,6 +1440,23 @@ object YoutubeGrab {
      *   nela é só perder tempo — quem decide o que fazer é a fila de candidatos
      *   de quem chamou, que tem outras URLs para tentar.
      */
+    /**
+     * De qual URL é cada arquivo parcial no disco — a trava que impede a
+     * retomada de emendar faixas DIFERENTES.
+     *
+     * O destino é nomeado por vídeo + contêiner (`arquivoDestino`), não por
+     * faixa: dois itags do mesmo contêiner (137 e 136, ambos mp4) escrevem no
+     * MESMO caminho. Sem esta conferência, um parcial do 137 deixado por um app
+     * morto seria "retomado" por um download do 136 — e o arquivo resultante
+     * teria dois vídeos emendados, sem erro nenhum, aparecendo só na hora de
+     * projetar.
+     *
+     * Em memória de propósito: ela morre com o processo, e é isso que se quer.
+     * Retomar entre execuções exigiria gravar qual faixa era, e o ganho (o
+     * parcial de um app que foi morto) não paga o risco de errar a conta.
+     */
+    private val parciais = java.util.concurrent.ConcurrentHashMap<String, String>()
+
     private fun baixar(
         url: String,
         destino: File,
@@ -1368,12 +1465,19 @@ object YoutubeGrab {
     ) {
         var tentativa = 0
         while (true) {
-            // O QUE JÁ ESTÁ NO DISCO é o ponto de retomada. Lido a cada volta,
-            // e não uma vez só: a tentativa anterior pode ter avançado bastante
-            // antes de cair, e é justamente esse avanço que não se quer perder.
-            val jaTem = if (destino.isFile) destino.length() else 0L
+            // O QUE JÁ ESTÁ NO DISCO é o ponto de retomada — e só quando ele for
+            // COMPROVADAMENTE desta mesma URL (ver [parciais]). Lido a cada
+            // volta, e não uma vez só: a tentativa anterior pode ter avançado
+            // bastante antes de cair, e é esse avanço que não se quer perder.
+            val meu = parciais[destino.path] == url
+            val jaTem = if (meu && destino.isFile) destino.length() else 0L
+            parciais[destino.path] = url
             try {
                 baixarUmaVez(url, destino, ua, jaTem, onProgresso)
+                // COMPLETO: a marca sai. Deixá-la faria a chamada seguinte pedir
+                // `Range` a partir do fim do arquivo, e o CDN responderia 416 —
+                // um download que falha porque já tinha dado certo.
+                parciais.remove(destino.path)
                 return
             } catch (e: IOException) {
                 if (cancelado()) throw e
