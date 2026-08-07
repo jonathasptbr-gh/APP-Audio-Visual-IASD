@@ -497,11 +497,44 @@ Agora `YoutubeGrab.baixar` é um laço de retomada:
   daria um arquivo com o começo repetido no meio — corrupção que só apareceria
   na hora de tocar.
 
-O que isto **não** cobre, e é honesto dizer: se o renderer do WebView morrer
-(OOM), o download nativo continua, mas o `fetch` que esperava por ele morreu com
-a página — o arquivo termina sem ninguém para recebê-lo. O foreground service e
-o wake lock (abaixo) cobrem o congelamento do processo, que é a causa comum;
-o OOM do renderer é outra história, e o app se recompõe recriando o WebView.
+### E o download SOBREVIVE À MORTE DA PÁGINA (v1.59)
+
+O download roda no shell; quem o espera é um `fetch` da PÁGINA. Quando o
+renderer morre — dois WebViews, um vídeo grande e o player do YouTube dividem o
+mesmo processo, e o OOM é evento conhecido —, o arquivo terminava de baixar e
+não sobrava ninguém para recebê-lo. Dez minutos viravam nada, sem explicação.
+
+A recuperação é uma dobradiça de duas metades, e nenhuma funciona sozinha:
+
+- **O shell guarda o desfecho** (`YoutubeGrab.resgatar`) num slot único — a fila
+  de IO é de uma thread só, então há no máximo um download por vez, a mesma
+  premissa do cancelamento. Ele é conferido por link **e pela forma** (só áudio,
+  teto): devolver o m4a para quem pediu o vídeo seria pior que não guardar nada.
+  Quem o descarta é o `descartar()`, o mesmo ponto em que os bytes já foram
+  copiados para a biblioteca.
+- **A página registra a INTENÇÃO** antes do primeiro byte, no `state` do banco
+  (o único lugar que sobrevive à morte dela), e a apaga no `finally`. Uma
+  intenção que sobrevive a um lançamento é, por definição, um download que
+  ninguém recebeu.
+
+Reclamar é **pedir o mesmo download outra vez**: o shell devolve o resultado
+guardado na hora, sem rede. Se o processo inteiro tiver morrido (e com ele o
+slot), o pedido vira um download normal — que agora retoma do parcial em disco,
+se ele for da mesma faixa. O destino original é honrado: quem pediu "para o
+Cronograma" recebe no Cronograma.
+
+Intenção com mais de 6 h é descartada: as URLs do YouTube expiram, e reviver na
+manhã de domingo o download de anteontem é gastar rede por algo que ninguém
+está esperando.
+
+**A retomada só vale para a MESMA faixa**, e isso é uma trava, não um detalhe: o
+arquivo de destino é nomeado por vídeo + contêiner, então dois itags do mesmo
+contêiner (137 e 136, ambos mp4) escrevem no mesmo caminho. Sem a conferência
+(`parciais`, um mapa em memória de caminho → URL), um parcial do 137 deixado por
+um app morto seria "retomado" por um download do 136 — e o arquivo teria dois
+vídeos emendados, sem erro nenhum, aparecendo só na hora de projetar. O mapa
+morre com o processo de propósito: retomar entre execuções exigiria gravar qual
+faixa era, e o ganho não paga o risco de errar essa conta.
 
 ### O ciclo de vida do serviço tem duas armadilhas, e as duas matam o app
 
@@ -1521,7 +1554,7 @@ aparelho nenhum.
 O `versionCode`/`versionName` do APK vêm do CI (ver "Build") e não se tocam à
 mão.
 
-**Versão atual: v5.132** (base web) · `SHELL_VERSION` **29**, e o bundle segue com
+**Versão atual: v5.133** (base web) · `SHELL_VERSION` **30**, e o bundle segue com
 `minShell: 2` — ele funciona igual num shell antigo, só sem os recursos que são
 nativos por construção (a escada do voltar, os botões de volume, a notificação de
 controles), que **só chegam instalando o APK novo**, não pelo OTA.

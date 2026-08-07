@@ -162,7 +162,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.132';
+const WEB_VERSION = '5.133';
 
 // Escrita UMA vez, na carga: o indicador mora no rodapé de Configurações desde
 // a v5.49 e não depende mais de qual aba está aberta (no cabeçalho ele
@@ -9947,6 +9947,18 @@ async function ytBaixarNativo(link, nome, opts) {
   // é a única tela que existe. Uma tarefa de um item só nunca chega a trocar de
   // nome, então o compasso não tem o que fazer aqui — vai direto.
   bgItemOnly(notif, rotulo);
+  // A INTENÇÃO, GRAVADA ANTES DE COMEÇAR. É o que permite reclamar o download
+  // se esta página morrer no meio dele (ver `resgatarDownloads`) — e por isso
+  // ela precisa estar no banco ANTES do primeiro byte, não depois.
+  await lembrarIntencao({
+    link,
+    nome: rotulo,
+    youtubeId: (opts && opts.youtubeId) || null,
+    lista: (opts && opts.lista) || null,
+    soAudio,
+    altura,
+    quando: Date.now(),
+  });
   try {
     return await withBgWork(async () => {
       const r = await AVNative.ytFetch(link, (lidos, total) => {
@@ -10025,6 +10037,89 @@ async function ytBaixarNativo(link, nome, opts) {
   } finally {
     bgTaskEnd(notif);
     bg.soltar();
+    // A INTENÇÃO SAI DO REGISTRO AQUI, e só aqui: chegando neste ponto o
+    // download acabou de um jeito ou de outro, e a página está viva para
+    // contar. É justamente por ela NÃO chegar aqui — o renderer morreu no meio
+    // — que a intenção sobrevive e é reclamada na abertura seguinte (ver
+    // `resgatarDownloads`).
+    await esquecerIntencao(link, soAudio);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// O DOWNLOAD QUE O RENDERER LEVOU JUNTO (v5.133 · shell 30)
+//
+// O download roda no shell; quem o espera é um `fetch` DESTA página. Quando o
+// renderer morre — dois WebViews, um vídeo grande e o player do YouTube dividem
+// o mesmo processo, e o OOM é evento conhecido —, a página é recriada e o
+// `fetch` morre com ela: o arquivo termina de baixar e não sobra ninguém para
+// recebê-lo. Do lado do operador, dez minutos viram nada, sem explicação.
+//
+// A recuperação é uma dobradiça de duas metades:
+//
+// - **O shell guarda o desfecho** até alguém reclamá-lo (`YoutubeGrab.resgatar`).
+// - **A página registra a INTENÇÃO** antes de pedir o download e a apaga no
+//   fim. Uma intenção que sobrevive a um lançamento é, por definição, um
+//   download que ninguém recebeu.
+//
+// Reclamar é pedir o MESMO download outra vez: o shell devolve o resultado
+// guardado na hora (sem rede), ou — se o processo inteiro tiver morrido — baixa
+// de novo, agora com a fila de IO livre. O registro fica no `state` do banco,
+// que é o único lugar que sobrevive à morte da página.
+// ---------------------------------------------------------------------------
+const YT_INTENCOES = 'ytIntencoes';
+// Uma intenção velha não vale a pena: as URLs do YouTube expiram em horas, e
+// reviver o download de um louvor de anteontem na abertura de um domingo é
+// gastar rede por algo que ninguém está esperando.
+const INTENCAO_VALIDA_MS = 6 * 60 * 60 * 1000;
+
+function mesmaIntencao(a, link, soAudio) {
+  return a && a.link === link && !!a.soAudio === !!soAudio;
+}
+
+async function lembrarIntencao(intencao) {
+  try {
+    const atuais = (await AVDB.getState(YT_INTENCOES)) || [];
+    const outras = atuais.filter((i) => !mesmaIntencao(i, intencao.link, intencao.soAudio));
+    await AVDB.setState(YT_INTENCOES, outras.concat([intencao]));
+  } catch (e) { console.warn('[yt] não deu para registrar a intenção:', e); }
+}
+
+async function esquecerIntencao(link, soAudio) {
+  try {
+    const atuais = (await AVDB.getState(YT_INTENCOES)) || [];
+    const restam = atuais.filter((i) => !mesmaIntencao(i, link, soAudio));
+    if (restam.length !== atuais.length) await AVDB.setState(YT_INTENCOES, restam);
+  } catch (e) { console.warn('[yt] não deu para limpar a intenção:', e); }
+}
+
+// Chamado uma vez por abertura. Silencioso quando não há nada — que é o caso
+// normal.
+async function resgatarDownloads() {
+  if (!window.__NATIVE__ || (window.__SHELL_VERSION__ | 0) < 30) return;
+  let pendentes = [];
+  try { pendentes = (await AVDB.getState(YT_INTENCOES)) || []; } catch (_) { return; }
+  if (!pendentes.length) return;
+  const agora = Date.now();
+  // Limpa o registro ANTES de tentar: um resgate que falhe não pode ficar
+  // tentando de novo a cada abertura, e quem der certo já reescreve a lista
+  // pelo caminho normal (`lembrarIntencao` no começo do download).
+  try { await AVDB.setState(YT_INTENCOES, []); } catch (_) { /* segue */ }
+  for (const p of pendentes) {
+    if (!p || !p.link || (agora - (p.quando || 0)) > INTENCAO_VALIDA_MS) continue;
+    console.info('[yt] reclamando download interrompido:', p.nome || p.link);
+    try {
+      const rec = await ytArquivo(
+        { id: p.youtubeId || null, url: p.link, name: p.nome },
+        { lista: p.lista, somenteAudio: p.soAudio, altura: p.altura, aviso: 'nenhum' },
+      );
+      if (!rec) continue;
+      // O DESTINO ORIGINAL é honrado: quem pediu "para o Cronograma" recebe no
+      // Cronograma, mesmo que o app tenha morrido no meio. `listAdd` é
+      // idempotente, e o registro pode já ter nascido na lista certa.
+      if (p.lista) await AVDB.listAdd(p.lista, rec.id);
+      await load();
+    } catch (e) { console.warn('[yt] resgate falhou:', e && e.message); }
   }
 }
 
@@ -12671,6 +12766,10 @@ document.addEventListener('visibilitychange', () => {
   // o único momento seguro por construção: `load()` já leu tudo o que a tela
   // mostra, e o que a varredura apaga é, por definição, o que ninguém aponta.
   varrerRestos();
+  // O DOWNLOAD QUE FICOU SEM DONO, reclamado. Depois do `load()` porque ele
+  // acrescenta itens às listas, e antes de qualquer coisa demorada: se o shell
+  // ainda tiver o arquivo guardado, o item aparece em segundos.
+  resgatarDownloads();
   // O AVISO DE ATUALIZAÇÃO. A primeira consulta é adiada porque o download do
   // shell começa junto com a abertura (`checkAsync` no `onCreate`) e leva
   // alguns segundos — perguntar agora seria perguntar antes de haver resposta.
