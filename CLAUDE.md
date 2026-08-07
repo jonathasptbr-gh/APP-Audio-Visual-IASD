@@ -622,10 +622,20 @@ percentual e o tempo restante.
   voltava ao zero entre as duas faixas. Só que o outro lado trata os dois
   números como bytes: a notificação anunciava **"0 B de 100 B"** para um vídeo
   de 380 MB — que se lê como CEM ITENS. Agora as duas fases reportam bytes de
-  verdade (o vídeo somando o áudio já baixado), e o preço é a barra recuar UMA
-  vez, quando o total cresce da faixa de áudio para a soma das duas. É o preço
-  certo: os dois números passam a ser sempre verdadeiros, que é a única coisa
-  que essa notificação existe para dizer.
+  verdade, e os dois números são sempre verdadeiros, que é a única coisa que
+  essa notificação existe para dizer.
+- **E a fase do áudio já conta a soma das DUAS faixas** (v1.62). A v1.58 deixou
+  o total crescer no meio do caminho — o áudio reportava o tamanho dele, e o
+  vídeo passava a somar os dois —, e o preço disso foi aceito como "a barra
+  recua uma vez". Não era isso que o operador via: o áudio são poucos MB e baixa
+  em segundos, então **todo download começava marcando 100%** por alguns
+  instantes (o fim da primeira fase) para só então recomeçar do zero. A primeira
+  coisa que aparecia na tela dizia o oposto do que estava acontecendo. Agora a
+  fase do áudio já soma o `contentLength` da faixa de vídeo que vem a seguir —
+  o extrator o entrega antes do primeiro byte —, e a barra sobe de 0 a 100 uma
+  vez só. Quando o YouTube não informa esse campo (ele vem `-1`), nada muda: o
+  comportamento é o de antes. Vale para a barra da notificação e para o
+  percentual na linha do item, que leem o MESMO par de números.
 
 - **A notificação diz O QUE está baixando, não só quantos.** `bgItemStart`/
   `bgItemEnd` (e `bgItemOnly`, para fluxos sequenciais) registram os itens em
