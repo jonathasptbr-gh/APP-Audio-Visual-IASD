@@ -95,6 +95,16 @@ try {
   });
   checar(i.bytes === false, 'sem a bandeira, a unidade continua sendo ITEM', i.bytes);
 
+  // `idleMs` com valor de verdade: é ele que separa "travado" de "esta faixa é
+  // grande" — sumindo, a notificação volta a prometer uma ETA que não existe.
+  const t = await pg.evaluate(() => {
+    AVNative.bgProgress({ label: 'x', done: 1, total: 54, items: [], idleMs: 95_000 });
+    return JSON.parse(window.__recebido.bgProgress);
+  });
+  checar(t.idleMs === 95_000,
+    'bgProgress leva o `idleMs` — sem ele o "sem resposta há X" nunca aparece',
+    t.idleMs);
+
   // ---- nowPlaying: o outro objeto remontado campo a campo -----------------
   const n = await pg.evaluate(() => {
     AVNative.nowPlaying({
@@ -111,6 +121,35 @@ try {
     'e as três bandeiras de estado');
   checar(n.positionMs === 12_000 && n.durationMs === 240_000,
     'e a posição na linha do tempo', n.positionMs + '/' + n.durationMs);
+  checar(n.title === 'Hino 471' && n.subtitle === 'Hinário',
+    'e o título e o subtítulo — é o que a notificação e a tela de bloqueio exibem',
+    n.title + ' / ' + n.subtitle);
+  checar(n.wallpaper === false, 'e a bandeira `wallpaper`', n.wallpaper);
+
+  // O outro estado das bandeiras: `false`/ausente é o que o `optBoolean` lê
+  // quando o campo NÃO viaja, então só o par true/false prova que ele viaja.
+  const w = await pg.evaluate(() => {
+    AVNative.nowPlaying({
+      active: true, title: 'Cortina', subtitle: '', playing: false,
+      slideMode: false, slideLabel: '', wallpaper: true,
+      positionMs: 0, durationMs: 0,
+    });
+    return JSON.parse(window.__recebido.nowPlaying);
+  });
+  checar(w.wallpaper === true, 'wallpaper=true também chega (o par completo)', w.wallpaper);
+
+  // Acima de 2³¹ ms: o `| 0` que a v5.137 matou no bgProgress com `inteiro()`
+  // sobrevivia aqui — posição/duração viravam negativas e o `Math.max` zerava.
+  const l = await pg.evaluate(() => {
+    AVNative.nowPlaying({
+      active: true, title: 'Maratona', subtitle: '', playing: true,
+      positionMs: 2_500_000_000, durationMs: 3_100_000_000,
+    });
+    return JSON.parse(window.__recebido.nowPlaying);
+  });
+  checar(l.positionMs === 2_500_000_000 && l.durationMs === 3_100_000_000,
+    'acima de 2³¹ ms a linha do tempo NÃO vira negativa (o defeito irmão do bgProgress)',
+    l.positionMs + '/' + l.durationMs);
 } catch (e) {
   checar(false, 'o percurso terminou sem exceção (' + (e && e.message) + ')');
 }

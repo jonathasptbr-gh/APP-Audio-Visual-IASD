@@ -76,10 +76,12 @@
   --accent-fill: #7c5a17;
   --accent-soft: rgba(219, 168, 73, .16);
   --on-accent: #f6ecd6;
-  /* Halo do botão de conectar no modo simplificado bloqueado. Segue a MATIZ do
-     accent, não o --accent-fill: um halo na cor do preenchimento (escuro por
-     definição) sobre o fundo escuro do app seria invisível — a sombra existe
-     para separar o botão do teclado embaçado atrás dele. */
+  /* Halo da pílula "Ligar Sistema" do Display (`.start-pill`) — o ÚNICO
+     consumidor: o halo do botão de conectar do modo simplificado, que este
+     comentário descrevia, saiu na v5.75 (ver `.simple.locked #simpleCastBtn`
+     em controle.css). Segue a MATIZ do accent, não o --accent-fill: um halo na
+     cor do preenchimento (escuro por definição) sobre o preto do palco seria
+     invisível — a sombra existe para descolar a pílula dourada do fundo. */
   --accent-glow: rgba(219, 168, 73, .32);
 
   /* marca secundária (dourado "IASD") — mesmo valor do accent, ver acima */
@@ -91,20 +93,21 @@
      `--live`/`--danger` são ESCUROS de propósito — existem para ser fundo, com
      --on-live por cima. Usá-los como cor de texto/ícone/borda é o defeito que
      produzia o pior contraste do app (o ícone de cancelar download media
-     2,32:1). Texto, ícone e borda usam sempre --live-text / --danger-text.
+     2,32:1). Texto, ícone e borda usam o saturado claro (`--live-strong` /
+     `--danger-strong`, abaixo) — ou, sem fundo da própria família, o salmão
+     `--danger-text`.
 
      PREENCHIDO = "está no ar agora" (microfone aberto, ponto de projetando).
      CONTORNADO = ação destrutiva (excluir, cancelar) — nunca preenchida, para
      não competir com o que está de fato no telão. */
   --live: #b34134;                       /* só preenchimento/borda de preenchido */
   --on-live: #f3e9e8;                    /* 4,74:1 sobre --live */
-  --live-text: #f0aaa2;                  /* 9,78:1 sobre o fundo · 5,74:1 sobre --live-soft */
   --live-soft: rgba(179, 65, 52, .22);
-  /* O VERMELHO QUE SE LÊ COMO VERMELHO (v5.76). `--live-text`/`--danger-text`
-     são claros o bastante para qualquer corrida de texto, e é isso mesmo que
-     os tira do vermelho: #f0aaa2 é um salmão, e num ÍCONE de 24px sobre um
-     preview escuro ele chega como "um tom quente", não como alarme. Esta é a
-     mesma matiz (~4°) com a saturação de volta.
+  /* O VERMELHO QUE SE LÊ COMO VERMELHO (v5.76). O salmão `--danger-text` é
+     claro o bastante para qualquer corrida de texto, e é isso mesmo que o tira
+     do vermelho: #f0aaa2, num ÍCONE de 24px sobre um preview escuro, chega
+     como "um tom quente", não como alarme. Este é a mesma matiz (~4°) com a
+     saturação de volta.
      MEDIDO (Chromium, composto sobre a pilha real de superfícies): 5,59:1
      sobre `--bg`, 4,68:1 sobre `--live-soft`/`--danger-soft`, 3,78:1 sobre
      `--panel` e **2,96:1 sobre `--panel-2`** — este último REPROVA até o piso
@@ -114,11 +117,14 @@
      `--danger-soft`). Foi o que a mensagem no ar e o versículo no ar passaram
      a fazer na v5.76 — os dois estavam em `--panel-2` e caíam no 2,96 —, e é o
      que `.misc-project.live` e os botões destrutivos já faziam.
-     Depois disso `--live-text`/`--danger-text` ficaram SEM NENHUM CONSUMIDOR,
-     e (como `--danger`, acima) eles ficam: são a saída para o dia em que um
-     vermelho precisar pousar direto num painel elevado, sem fundo próprio —
-     ali o saturado reprova e o salmão passa com folga (5,18:1). O que não pode
-     é usá-los "porque são o vermelho de texto": o padrão é o saturado. */
+     INVENTÁRIO (por grep, não de memória): o saturado é o padrão, e o salmão
+     `--danger-text` tem TRÊS consumidores, todos casos em que o saturado não
+     serve — a falha na miniatura do YouTube (`.yt-result .yt-err`) e o pulso
+     de erro (`.btn-pulso--erro`), sobre `--danger-soft`, e o texto do aviso de
+     falha (`.save-hint--erro`), pousado direto no `--panel`: o painel elevado
+     sem fundo próprio, em que o saturado reprova (3,78:1) e o salmão passa com
+     folga (5,18:1). O gêmeo `--live-text` estava de fato órfão e saiu; se um
+     "no ar" um dia precisar do salmão, `--danger-text` guarda o valor. */
   --live-strong: #f4564a;
   --danger-strong: #f4564a;
   /* `--danger` é o par ESCURO do destrutivo — mesmo valor de `--live`, token
@@ -148,13 +154,9 @@
   --ok: #a2be95;                         /* 6,22:1 sobre painel · 9,21:1 sobre o fundo */
   --ok-soft: rgba(132, 169, 115, .18);
 
-  /* ---------- Cores de MARCA DE TERCEIRO ----------
-     O vermelho do YouTube identifica a origem da mídia, então a MATIZ é
-     informação e não pode virar accent. O tom foi clareado até passar AA como
-     texto pequeno sobre o próprio fundo suave, inclusive quando a linha está
-     selecionada e o fundo sobe para --panel-2 (5,02:1 no pior caso). */
-  --yt: #ffa199;
-  --yt-soft: rgba(255, 0, 0, .18);
+  /* (Os tokens de marca de terceiro `--yt`/`--yt-soft` saíram: o selo
+     `.yt-badge`, único consumidor, morreu na v5.118 quando a origem do item
+     virou o subtítulo `.row-sub` — texto comum, sem cor de marca.) */
 
   /* ---------- O PALCO (projeção) ----------
      Não é UI: é o que a TV mostra. O preto aqui é preto de verdade (as barras
@@ -180,6 +182,20 @@
      variante sólida cobre o caso sem `backdrop-filter`. */
   --veil: rgba(19, 18, 17, .55);
   --veil-solid: rgba(19, 18, 17, .92);
+
+  /* ---------- SOMBRAS: preto com alfa, três pesos nomeados ----------
+     Sombra é COR, e cor mora aqui — eram sete alfas literais espalhados por
+     controle.css. Os três abaixo nomeiam os que a folha usa como ELEVAÇÃO:
+     o cap do fader, o cartão flutuante sobre a preview e o peso mais denso
+     (a tampa grudada da coleção aberta, que é também a camada média do
+     contorno de ícone da preview — mesmo valor exato). As DUAS camadas
+     restantes desse contorno (.95 e .65) seguem literais em `.pv-fab svg`:
+     são um desenho calibrado em três camadas, não uma escala de elevação —
+     e a sombra do item arrastado (.6) coincide com `--scrim` e ficou
+     literal de propósito, para não acorrentar o arrasto à cortina de modal. */
+  --shadow-cap: rgba(0, 0, 0, .5);
+  --shadow-card: rgba(0, 0, 0, .55);
+  --shadow-ink: rgba(0, 0, 0, .9);
 
   /* wallpaper (cortina do telão) — a identidade visual do Display */
   --wallpaper: radial-gradient(circle at 50% 35%, #14331f 0%, #0a1a10 55%, #050b07 100%);

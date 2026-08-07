@@ -27,9 +27,15 @@ object ShareIntake {
         if (intent == null) return null
         val action = intent.action ?: return null
 
+        // O fallback para o `clipData` só vale para as DUAS ações de share: um
+        // intent já consumido (a ação vira ACTION_MAIN, mas o clipData fica no
+        // objeto) não pode ressuscitar o conteúdo por esta porta. E as URIs de
+        // lá passam pelas MESMAS validações (`aceitavel`) das do extra.
         val uris: List<Uri> = when (action) {
-            Intent.ACTION_SEND -> listOfNotNull(extraStream(intent))
-            Intent.ACTION_SEND_MULTIPLE -> extraStreams(intent)
+            Intent.ACTION_SEND ->
+                listOfNotNull(extraStream(intent)).ifEmpty { clipUris(intent) }
+            Intent.ACTION_SEND_MULTIPLE ->
+                extraStreams(intent).ifEmpty { clipUris(intent) }
             else -> emptyList()
         }.filter { aceitavel(ctx, it) }
 
@@ -79,10 +85,23 @@ object ShareIntake {
         return autoridade != ctx.packageName && !autoridade.startsWith(ctx.packageName + ".")
     }
 
+    /**
+     * URIs do `clipData` — o transporte MODERNO do share, que alguns apps usam
+     * sozinho, sem preencher o `EXTRA_STREAM` legado. Sem este fallback, um
+     * share desses chegava como vazio e o app parecia ignorar o arquivo.
+     */
+    private fun clipUris(intent: Intent): List<Uri> {
+        val clip = intent.clipData ?: return emptyList()
+        return (0 until clip.itemCount).mapNotNull { clip.getItemAt(it).uri }
+    }
+
     private fun describe(ctx: Context, uri: Uri): JSONObject? = try {
         var name: String? = null
         var size = 0L
-        ctx.contentResolver.query(uri, null, null, null, null)?.use { c ->
+        // Projeção com SÓ as colunas usadas: `null` pede ao provedor todas as
+        // que ele tiver, à toa — e provedor de terceiro é código de terceiro.
+        val projecao = arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE)
+        ctx.contentResolver.query(uri, projecao, null, null, null)?.use { c ->
             if (c.moveToFirst()) {
                 val iName = c.getColumnIndex(OpenableColumns.DISPLAY_NAME)
                 val iSize = c.getColumnIndex(OpenableColumns.SIZE)
@@ -101,6 +120,10 @@ object ShareIntake {
 
     private fun firstUrl(text: String): String? =
         Regex("""https?://\S+""").find(text)?.value
+            // Pontuação de FECHAMENTO colada ao link é da frase, não da URL
+            // ("veja https://youtu.be/x)." — o `\S+` a captura junto), e um
+            // `)` a mais é o bastante para o YouTube não reconhecer o vídeo.
+            ?.trimEnd(')', '.', ',', ';', ']')
 
     @Suppress("DEPRECATION")
     private fun extraStream(intent: Intent): Uri? =

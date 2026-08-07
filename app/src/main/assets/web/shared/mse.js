@@ -208,11 +208,22 @@
     let objUrl = null;
     const ms = new MediaSource();
     const faixas = [];
+    // Os fetches EM VOO agora (um AbortController por requisição — as duas
+    // faixas podem buscar ao mesmo tempo, então não é um controller só).
+    // Existe para `morrer`/`destruir`: sem o abort, os bytes de um telão que
+    // já saiu de cena continuavam trafegando até o fim do segmento — rede
+    // gasta por um vídeo que ninguém mais vai ver.
+    const emVoo = new Set();
 
     function morrer(porque) {
       if (morto) return;
       morto = true;
       clearInterval(tick);
+      // Derruba as requisições em voo. Quem estava no `await` recebe um
+      // AbortError, cai no catch de quem chamou e esbarra no `morto` já
+      // ligado — nenhuma segunda mensagem de erro sai daqui.
+      for (const ctl of emVoo) { try { ctl.abort(); } catch (_) {} }
+      emVoo.clear();
       // NADA DE `endOfStream()` AQUI. Ele existe para dizer "a mídia acabou", e
       // num MediaSource que nunca recebeu um byte isso é mentira com
       // consequência: o `<video>` dispara `ended`, o stage cobre com o
@@ -236,38 +247,47 @@
     // e cada uma falha por um motivo diferente, com um conserto diferente.
     async function pegar(url, ini, fim, passo) {
       const alvo = pedido(url, ini, fim);
-      let r;
+      // Abortável: o controller entra no conjunto `emVoo` enquanto a
+      // requisição vive, e `morrer` derruba todos de uma vez. O finally o
+      // tira do conjunto em QUALQUER desfecho — sucesso, erro HTTP, abort.
+      const ctl = typeof AbortController === 'function' ? new AbortController() : null;
+      if (ctl) { alvo[1].signal = ctl.signal; emVoo.add(ctl); }
       try {
-        r = await fetch(alvo[0], alvo[1]);
-      } catch (e) {
-        // A FAIXA VAI JUNTO, e isto não é enfeite: este era o único dos três
-        // ramos de `pegar()` que não imprimia os números, e foi justamente ele
-        // que falhou em aparelho. A investigação inteira teve de deduzir por
-        // aritmética o que uma linha de log teria dito.
-        throw new Error(passo + ': a requisição não completou (' + ((e && e.message) || '?')
-          + ') pedindo bytes ' + ini + '-' + fim);
+        let r;
+        try {
+          r = await fetch(alvo[0], alvo[1]);
+        } catch (e) {
+          // A FAIXA VAI JUNTO, e isto não é enfeite: este era o único dos três
+          // ramos de `pegar()` que não imprimia os números, e foi justamente ele
+          // que falhou em aparelho. A investigação inteira teve de deduzir por
+          // aritmética o que uma linha de log teria dito.
+          throw new Error(passo + ': a requisição não completou (' + ((e && e.message) || '?')
+            + ') pedindo bytes ' + ini + '-' + fim);
+        }
+        // 200 é aceito além do 206: um proxy pode responder a faixa inteira, e
+        // recusar isso quebraria por preciosismo.
+        if (!r.ok && r.status !== 206) {
+          // O `statusText` carrega o MOTIVO quando quem respondeu foi o nosso
+          // proxy (ver `StreamProxy.erro`): "token desconhecido", "googlevideo:
+          // Forbidden", o texto de uma falha de rede. Sem ele sobra um número, e
+          // um 404 do proxy e um 404 do asset loader se leem igual — apontando
+          // para lugares opostos.
+          throw new Error(passo + ': HTTP ' + r.status
+            + (r.statusText ? ' (' + r.statusText + ')' : '')
+            + ' pedindo bytes ' + ini + '-' + fim);
+        }
+        const buf = await r.arrayBuffer();
+        // ZERO BYTES com status bom é o caso mais traiçoeiro: o `appendBuffer`
+        // aceita sem reclamar e o vídeo simplesmente nunca começa. Melhor falhar
+        // aqui, com o número na mão.
+        if (!buf.byteLength) {
+          throw new Error(passo + ': resposta vazia (HTTP ' + r.status + ', pedidos '
+            + (fim - ini + 1) + ' bytes)');
+        }
+        return buf;
+      } finally {
+        if (ctl) emVoo.delete(ctl);
       }
-      // 200 é aceito além do 206: um proxy pode responder a faixa inteira, e
-      // recusar isso quebraria por preciosismo.
-      if (!r.ok && r.status !== 206) {
-        // O `statusText` carrega o MOTIVO quando quem respondeu foi o nosso
-        // proxy (ver `StreamProxy.erro`): "token desconhecido", "googlevideo:
-        // Forbidden", o texto de uma falha de rede. Sem ele sobra um número, e
-        // um 404 do proxy e um 404 do asset loader se leem igual — apontando
-        // para lugares opostos.
-        throw new Error(passo + ': HTTP ' + r.status
-          + (r.statusText ? ' (' + r.statusText + ')' : '')
-          + ' pedindo bytes ' + ini + '-' + fim);
-      }
-      const buf = await r.arrayBuffer();
-      // ZERO BYTES com status bom é o caso mais traiçoeiro: o `appendBuffer`
-      // aceita sem reclamar e o vídeo simplesmente nunca começa. Melhor falhar
-      // aqui, com o número na mão.
-      if (!buf.byteLength) {
-        throw new Error(passo + ': resposta vazia (HTTP ' + r.status + ', pedidos '
-          + (fim - ini + 1) + ' bytes)');
-      }
-      return buf;
     }
 
     // Quanto já está bufferizado À FRENTE de `t`, na faixa dada.
@@ -311,24 +331,64 @@
       }
       if (adiante(f.sb, video.currentTime) > ALVO_S) return;
       f.ocupada = true;
+      // Um seek reposicionou o índice enquanto o fetch corria (ver abaixo):
+      // este compasso não appendou nada, e o próximo precisa vir logo.
+      let reposicionada = false;
       try {
-        const seg = f.segs[f.i];
-        const buf = await pegar(f.url, seg.ini, seg.fim, 'mídia ' + f.papel + ' #' + f.i);
+        // O índice é CAPTURADO antes do await: `aoBuscar` (evento `seeking`)
+        // escreve `f.i` no meio dele, e o `f.i++` cego de antes incrementava o
+        // índice NOVO do seek — o segmento do ponto buscado nunca era pedido,
+        // ficava um buraco no buffer e o vídeo travava ali enquanto a bomba
+        // seguia baixando os seguintes.
+        const idx = f.i;
+        let buf;
+        if (f.pendenteBuf && f.pendenteIdx === idx) {
+          // Segmento já baixado que a cota devolveu (ver o Quota abaixo):
+          // tenta o append dele antes de gastar rede de novo.
+          buf = f.pendenteBuf;
+        } else {
+          // Se havia um pendente de OUTRO índice, um seek moveu o alvo desde
+          // que ele foi guardado: o buf é de outro ponto e reaproveitá-lo
+          // incrementaria o índice errado — descarta e busca o certo.
+          f.pendenteBuf = null;
+          const seg = f.segs[idx];
+          buf = await pegar(f.url, seg.ini, seg.fim, 'mídia ' + f.papel + ' #' + idx);
+        }
         if (morto || ms.readyState !== 'open') return;
+        if (f.i !== idx) {
+          // O seek moveu o alvo durante o await: descartar é o certo — o
+          // append cairia no lugar certo (fragmentos carregam o próprio
+          // tempo), mas o incremento pularia o segmento do ponto buscado.
+          // O próximo compasso pede o segmento certo.
+          reposicionada = true;
+          return;
+        }
         try {
           f.sb.appendBuffer(buf);
+          f.pendenteBuf = null;
           f.i++;
         } catch (e) {
-          // QuotaExceededError é ESPERADO num vídeo longo, e não é falha: poda o
-          // passado e tenta de novo no próximo compasso. Qualquer outro erro é
-          // real e sobe.
-          if (e && e.name === 'QuotaExceededError' && podar(f)) return;
+          // QuotaExceededError é ESPERADO num vídeo longo, e não é falha: poda
+          // o passado e tenta de novo no próximo compasso. O segmento já
+          // baixado fica GUARDADO para essa retentativa — jogá-lo fora, como
+          // era, pagava a rede duas vezes pelo mesmo pedaço, justamente no
+          // vídeo grande em que a cota aperta. Qualquer outro erro é real e
+          // sobe.
+          if (e && e.name === 'QuotaExceededError' && podar(f)) {
+            f.pendenteBuf = buf;
+            f.pendenteIdx = idx;
+            return;
+          }
           throw e;
         }
       } catch (e) {
         morrer((e && e.message) || ('mídia ' + f.papel + ': append falhou'));
       } finally {
         f.ocupada = false;
+        // O `bombear` do seek bateu na porta com `ocupada` ligada e foi
+        // embora; sem este reengate, quem re-alimentaria a faixa seria só o
+        // compasso de TICK_MS — um respiro visível a cada seek à toa.
+        if (reposicionada && !morto) bombear();
       }
     }
 
@@ -347,7 +407,13 @@
         faixasDe(man).forEach(([papel, t]) => {
           const sb = ms.addSourceBuffer(t.mime);
           sb.mode = 'segments';
-          const f = { papel, sb, url: t.url, meta: t, segs: null, i: 0, ocupada: false };
+          // `pendenteBuf`/`pendenteIdx`: segmento baixado que um
+          // QuotaExceededError devolveu — retentado no próximo compasso em
+          // vez de rebaixado da rede (ver `alimentar`).
+          const f = {
+            papel, sb, url: t.url, meta: t, segs: null, i: 0, ocupada: false,
+            pendenteBuf: null, pendenteIdx: 0,
+          };
           sb.addEventListener('updateend', bombear);
           // MESMA REDAÇÃO do erro de `appendBuffer`, e é o mesmo defeito visto
           // de outro ângulo: os bytes chegaram e o navegador não os quis. Ele

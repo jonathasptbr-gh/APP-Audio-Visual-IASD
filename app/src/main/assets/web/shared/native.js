@@ -40,8 +40,8 @@
   // Até a v5.48 a única condição era `window.AVDB` no evento `load`, e o
   // comentário aqui raciocinava sobre "um erro de sintaxe em db.js" — o
   // arquivo MENOS provável de quebrar. A ordem dos scripts é native.js →
-  // db.js → stage.js → louvorja.js → bible.js → controle.js: um erro de
-  // sintaxe (ou um throw de inicialização) em qualquer um dos QUATRO últimos
+  // db.js → mse.js → stage.js → louvorja.js → bible.js → controle.js: um erro
+  // de sintaxe (ou um throw de inicialização) em qualquer um dos CINCO últimos
   // aborta só AQUELE script, o `load` dispara do mesmo jeito, `AVDB` continua
   // lá — e o bundle quebrado era carimbado como bom e servido PARA SEMPRE,
   // exatamente o oposto do que este mecanismo existe para fazer. Como o OTA
@@ -57,8 +57,12 @@
   //      é o caso NORMAL de culto (TV conectada), ou seja, ele confirmaria
   //      quase sempre no lugar do outro. Sem TV o Display nem existe: quem
   //      confirma é sempre o Controle, que é quem precisa funcionar.
-  //   2. `AVDB` (db.js) e `createStage` (stage.js) — os dois módulos
-  //      compartilhados, cada um publicando seu global no fim do arquivo.
+  //   2. `AVDB` (db.js), `AVStream` (mse.js) e `createStage` (stage.js) — os
+  //      três módulos compartilhados, cada um publicando seu global no fim do
+  //      arquivo, incondicionalmente e no parse (o `AVStream` existe mesmo num
+  //      navegador sem MediaSource — só o `suportado()` dele responde false).
+  //      O mse.js era o ÚNICO script do Controle fora do watchdog: um bundle
+  //      com ele quebrado era carimbado como bom.
   //   3. `__avBack` (controle.js, perto do FIM do arquivo) — só existe se o
   //      controle.js foi PARSEADO por inteiro e EXECUTADO até quase o fim.
   //      (Sem número de linha de propósito: o arquivo cresce a cada versão e
@@ -91,7 +95,7 @@
 
   function otaAppIsUp() {
     if (global.__AV_ROLE__ !== 'controle') return false;
-    if (!global.AVDB || !global.createStage) return false;
+    if (!global.AVDB || !global.AVStream || !global.createStage) return false;
     if (typeof global.__avBack !== 'function') return false;
     return !!document.querySelector('#playlist > li');
   }
@@ -127,7 +131,11 @@
   // onde se esperava o retorno de `displays()`. Com a época aleatória por
   // carregamento, a resposta velha simplesmente não acha entrada no mapa e é
   // descartada, que é o que se quer.
-  const EPOCH = Math.random().toString(36).slice(2, 8);
+  // `padEnd`: a mantissa de `Math.random()` pode render menos de 6 dígitos em
+  // base 36 (0.5 → "i", por exemplo) e o slice devolve o que houver — uma
+  // época curta encolhe o espaço de ids e aumenta a chance de uma resposta
+  // atrasada da página anterior casar com uma promise desta.
+  const EPOCH = Math.random().toString(36).slice(2, 8).padEnd(6, '0');
   const pending = new Map();
   let seq = 0;
 
@@ -245,15 +253,26 @@
   // ---- compartilhamento recebido por intent ----
   let shareCb = null;
   let sharePumping = false;
+  // Um `__avShareArrived` chegou COM o pump em voo: sem esta bandeira o
+  // segundo share era simplesmente ignorado (o early-return de baixo) e
+  // ficava no Kotlin esperando um próximo gatilho que podia nunca vir — o
+  // operador compartilhava dois arquivos em sequência e só o primeiro
+  // aparecia. A bandeira faz o finally rebombear uma vez.
+  let shareDeNovo = false;
 
   async function pumpShare() {
-    if (!shareCb || sharePumping) return;
+    if (!shareCb) return;
+    if (sharePumping) { shareDeNovo = true; return; }
     sharePumping = true;
     try {
       const share = await call((id) => B.takeShare(id), CALL_TIMEOUT_MS);
       if (share) shareCb(share);
     } finally {
       sharePumping = false;
+      if (shareDeNovo) {
+        shareDeNovo = false;
+        pumpShare();
+      }
     }
   }
 
@@ -327,9 +346,16 @@
     // transmissível, ou quando o vídeo é restrito — e aí quem chamou cai no
     // download, que continua inteiro.
     //
-    // Sem prazo, como o `ytFetch`: aqui há uma extração de verdade no meio.
+    // COM prazo, como o gêmeo `ytSearch` — e ao contrário do `ytFetch`: aqui
+    // há uma EXTRAÇÃO no meio (segundos), não um download de minutos. Sem o
+    // prazo, um resolve perdido (exceção no Kotlin depois de entrar no método,
+    // renderer trocado no meio) deixava o `tentarTransmitir` num await para
+    // SEMPRE — o "Tocar agora" nem transmitia nem caía no download, o pior
+    // desfecho possível. O null do timeout é o mesmo null da falha normal:
+    // quem chamou cai no download, como sempre.
     ytStream: (url, altura) => call(
       (id) => B.ytStream(id, String(url), altura | 0),
+      CALL_TIMEOUT_MS,
     ),
 
     // Busca no YouTube DENTRO do app: devolve
@@ -529,8 +555,13 @@
           // antigo o campo é ignorado e o rótulo volta ao de sempre.
           slideLabel: String((s && s.slideLabel) || ''),
           wallpaper: !!(s && s.wallpaper),
-          positionMs: Math.max(0, (s && s.positionMs) | 0),
-          durationMs: Math.max(0, (s && s.durationMs) | 0),
+          // `inteiro()` e NÃO `| 0`, como no bgProgress acima — o defeito
+          // irmão: o bitwise trunca em Int32 COM SINAL, e uma duração acima de
+          // ~596 h de milissegundos (ou qualquer conta futura em bytes) vira
+          // negativa e o clamp a zera. Mesma regra para os dois campos de
+          // tempo, para a linha do tempo da sessão nunca andar para trás.
+          positionMs: inteiro(s && s.positionMs),
+          durationMs: inteiro(s && s.durationMs),
         }));
       } catch (_) { /* ignorado */ }
     },

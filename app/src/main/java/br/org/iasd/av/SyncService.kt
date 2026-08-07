@@ -57,6 +57,7 @@ class SyncService : Service() {
         // enquanto ESTE serviço existir, e é a existência do serviço (não a
         // entrega de um comando) que define isso.
         running = true
+        instance = this
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -101,6 +102,7 @@ class SyncService : Service() {
         // cartão que ninguém mais vai cancelar.
         running = false
         foregrounded = false
+        instance = null
         releaseWakeLock()
         // O sistema remove a notificação do serviço em primeiro plano ao
         // destruí-lo, mas o cancelamento explícito cobre o caso em que ela foi
@@ -138,15 +140,53 @@ class SyncService : Service() {
         Log.w(TAG, "cota de foreground service esgotada — encerrando a proteção")
         releaseWakeLock()
         stopSelf()
+        // O outro lado (o hook da MainActivity) compara um token de geração
+        // antes de zerar `backgroundWork`: um `keepAlive(true)` novo que entre
+        // entre este aviso e o runnable dele não pode ser apagado por um estado
+        // que já era de outro download.
         onGone?.invoke()
     }
 
     private fun acquireWakeLock() {
         if (wakeLock?.isHeld == true) return
         val pm = getSystemService(POWER_SERVICE) as PowerManager
+        // `setReferenceCounted(false)` não é enfeite: é o que permite ao
+        // [renewWakeLock] repetir o `acquire` sem acumular uma contagem que um
+        // único `release` não devolveria.
         wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "AvIasd:sync").apply {
             setReferenceCounted(false)
             acquire(WAKELOCK_TIMEOUT_MS)
+        }
+        lastRenewMs = android.os.SystemClock.elapsedRealtime()
+    }
+
+    /** Última renovação do wake lock (elapsedRealtime). Só [updateProgress]
+     *  (sempre a mesma thread do WebView) escreve depois do acquire. */
+    @Volatile
+    private var lastRenewMs = 0L
+
+    /**
+     * RENOVA o wake lock enquanto há progresso REAL chegando.
+     *
+     * O timeout de 2 h é a defesa contra download TRAVADO — e continua sendo.
+     * Mas um download legítimo maior que isso (hinário + Bíblia + pastas na
+     * rede da igreja) perdia a proteção em silêncio: o lock expirava, a CPU
+     * cochilava com a tela apagada e a rede estagnava — exatamente o
+     * "sem resposta há X" que a notificação existe para denunciar, só que
+     * fabricado por nós. Quem chama é [updateProgress], que É o sinal de
+     * progresso; o piso de [WAKELOCK_RENEW_MIN_MS] evita reacionar o
+     * PowerManager a cada tick de notificação. Com `setReferenceCounted(false)`
+     * o `acquire` repetido apenas reinicia o cronômetro — nada vaza.
+     */
+    private fun renewWakeLock() {
+        val wl = wakeLock ?: return
+        val agora = android.os.SystemClock.elapsedRealtime()
+        if (agora - lastRenewMs < WAKELOCK_RENEW_MIN_MS) return
+        lastRenewMs = agora
+        try {
+            wl.acquire(WAKELOCK_TIMEOUT_MS)
+        } catch (e: Exception) {
+            Log.w(TAG, "não foi possível renovar o wake lock", e)
         }
     }
 
@@ -180,6 +220,8 @@ class SyncService : Service() {
         private const val CHANNEL_ID = "sync"
         private const val NOTIF_ID = 1
         private const val WAKELOCK_TIMEOUT_MS = 2 * 60 * 60 * 1000L // 2 h
+        /** Piso entre renovações do wake lock (ver [renewWakeLock]). */
+        private const val WAKELOCK_RENEW_MIN_MS = 10 * 60 * 1000L // 10 min
 
         /**
          * O que está baixando agora, reportado pelo lado web. `items` traz UM
@@ -270,10 +312,16 @@ class SyncService : Service() {
         @Volatile
         private var foregrounded = false
 
+        /** A instância viva (entre `onCreate` e `onDestroy`) — é por ela que
+         *  [updateProgress] renova o wake lock quando há progresso real. */
+        @Volatile
+        private var instance: SyncService? = null
+
         /**
          * Avisa que o serviço morreu por conta própria (cota de FGS do
          * Android 15 — ver `onTimeout`). Definido pela [MainActivity], que é
-         * quem guarda o espelho desse estado em Kotlin.
+         * quem guarda o espelho desse estado em Kotlin — e que compara um
+         * token de geração antes de zerá-lo (ver o hook lá).
          */
         @Volatile
         var onGone: (() -> Unit)? = null
@@ -317,6 +365,10 @@ class SyncService : Service() {
                     return
                 }
                 nm.notify(NOTIF_ID, buildNotification(ctx, progress))
+                // Progresso real chegando = download vivo: renova o wake lock,
+                // para um download LEGÍTIMO de mais de 2 h não perder a
+                // proteção em silêncio (ver [renewWakeLock]).
+                instance?.renewWakeLock()
             } catch (e: Exception) {
                 Log.w(TAG, "não foi possível atualizar a notificação", e)
             }

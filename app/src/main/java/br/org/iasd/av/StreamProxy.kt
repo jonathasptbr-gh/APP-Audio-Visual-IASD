@@ -207,6 +207,12 @@ object StreamProxy {
         return bruto.toLongOrNull()?.coerceAtLeast(0) ?: 0
     }
 
+    /** O primeiro byte de um `Content-Range: bytes A-B/T`; -1 quando ausente
+     *  ou ilegível — nunca 0, que é um começo LEGÍTIMO e não pode nascer da
+     *  falta do cabeçalho. */
+    private fun inicioDoContentRange(cr: String?): Long =
+        Regex("""bytes\s+(\d+)-""").find(cr ?: "")?.groupValues?.get(1)?.toLongOrNull() ?: -1
+
     /** `?r=<ini>-<fim>` → o par, ou `null` se estiver malformado ou for grande demais. */
     private fun faixaDaQuery(r: String): Pair<Long, Long>? {
         val m = FAIXA.matchEntire(r.trim()) ?: return null
@@ -274,7 +280,7 @@ object StreamProxy {
         conectar(alvo, range).let { conn ->
             // `use` não serve num `HttpURLConnection` (ele não é Closeable), daí
             // o try/finally explícito: a conexão morre com este método, sempre.
-            try { responder(conn, daQuery, fantasma) } finally { conn.disconnect() }
+            try { responder(conn, range, daQuery, fantasma) } finally { conn.disconnect() }
         }
 
     private fun conectar(alvo: String, range: String?): HttpURLConnection {
@@ -298,6 +304,7 @@ object StreamProxy {
 
     private fun responder(
         conn: HttpURLConnection,
+        range: String?,
         daQuery: Boolean,
         fantasma: Long,
     ): WebResourceResponse {
@@ -313,6 +320,30 @@ object StreamProxy {
         val mime = conn.contentType?.substringBefore(';')?.trim().orEmpty()
             .ifEmpty { "application/octet-stream" }
         val faixaRespondida = conn.getHeaderField("Content-Range")
+
+        // O UPSTREAM PRECISA TER HONRADO A FAIXA. [conectar] sempre manda
+        // `Range`, e um servidor (ou um proxy transparente da rede — o mesmo
+        // cenário que `YoutubeGrab.baixarUmaVez` já trata) pode responder 200
+        // com o recurso INTEIRO. Servir esse corpo rotulado como a fatia é a
+        // mesma corrupção silenciosa que a v1.55 matou: no caminho da query o
+        // `mse.js` appendaria bytes errados, e no de compatibilidade o
+        // [FatiaComoTodo] suporia que o corpo começa em `fantasma`. O único 200
+        // legítimo é o do pedido ABERTO a partir do zero (`bytes=0-`), em que o
+        // recurso inteiro É exatamente o que foi pedido. Um 200 com
+        // `Content-Range` coerente (começando onde o pedido começa) passa; na
+        // prática ele não existe, mas a pergunta certa é pelo começo do corpo,
+        // não pelo número do status. E a conferência vem ANTES da leitura:
+        // deixar o recurso inteiro entrar no [readBytes] estouraria o
+        // [TETO_PEDACO] e sairia como "pedaço acima de 24 MB" — mensagem
+        // verdadeira sobre o defeito errado.
+        val pedido = range ?: "bytes=0-"
+        val inicioPedido = inicioDe(pedido)
+        val limitada = pedido.substringAfter('-', "").isNotBlank()
+        if (codigo != 206 && (inicioPedido > 0 || limitada) &&
+            inicioDoContentRange(faixaRespondida) != inicioPedido
+        ) {
+            return erro(502, "faixa ignorada pelo upstream (HTTP $codigo)", fantasma)
+        }
         // OS BYTES SÃO LIDOS AQUI, INTEIROS, e não entregues como um fluxo vivo.
         //
         // ATENÇÃO À HISTÓRIA, porque ela já enganou uma rodada inteira: a v1.54

@@ -98,13 +98,9 @@
     { abbr: 'Ap', name: 'Apocalipse', chapters: 22, t: 'nt', g: 'apocalipse' },
   ];
 
-  // Rótulos legíveis dos grupos (para legenda/tooltip, se necessário).
-  const GROUPS = {
-    lei: 'Pentateuco', historicos: 'Históricos', poeticos: 'Poéticos',
-    pmaiores: 'Profetas Maiores', pmenores: 'Profetas Menores',
-    evangelhos: 'Evangelhos', atos: 'Atos', paulinas: 'Cartas Paulinas',
-    gerais: 'Cartas Gerais', apocalipse: 'Apocalipse',
-  };
+  // (O mapa GROUPS de rótulos legíveis saiu: o "se necessário" do comentário
+  // nunca aconteceu — zero usos na base inteira, confirmado por grep. Os `g`
+  // de BOOKS seguem aí para quem um dia precisar agrupar.)
 
   // Lista de versões/traduções disponíveis (pt_bible_version). Retorna
   // [{ id, name }] normalizado (o schema é 🔶 inferido — lê id_bible_version /
@@ -177,17 +173,22 @@
     let t = String(s);
     t = t.replace(/<\s*br\s*\/?\s*>/gi, ' ');
     t = t.replace(/<[^>]+>/g, '');
+    // `&amp;` por ÚLTIMO: decodificado antes das outras, um texto com entidade
+    // escapada em dobro ("&amp;lt;") virava "&lt;" e a substituição seguinte o
+    // desescapava DE NOVO ("<") — dupla decodificação que inventa no versículo
+    // um sinal que o texto original não tem. Por último, o "&" que ele produz
+    // já não encontra nenhuma substituição pela frente.
     t = t
       .replace(/&nbsp;/gi, ' ')
-      .replace(/&amp;/gi, '&')
       .replace(/&lt;/gi, '<')
       .replace(/&gt;/gi, '>')
       .replace(/&quot;/gi, '"')
       .replace(/&apos;/gi, "'")
       .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)))
-      .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(parseInt(d, 10)));
+      .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(parseInt(d, 10)))
+      .replace(/&amp;/gi, '&');
     return t.replace(/\s+/g, ' ').trim();
   }
 
-  global.Bible = { BOOKS, GROUPS, fetchVersions, fetchBooks, fetchChapter, parseChapter, stripHtml, chapterFile, LOCALE };
+  global.Bible = { BOOKS, fetchVersions, fetchBooks, fetchChapter, parseChapter, stripHtml, chapterFile, LOCALE };
 })(this);

@@ -162,7 +162,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.138';
+const WEB_VERSION = '5.139';
 
 // Escrita UMA vez, na carga: o indicador mora no rodapé de Configurações desde
 // a v5.49 e não depende mais de qual aba está aberta (no cabeçalho ele
@@ -196,7 +196,9 @@ if (appVersionEl && window.__NATIVE__ && (window.__SHELL_VERSION__ | 0) >= 31) {
   appVersionEl.title += ' — toque para procurar atualização';
   appVersionEl.addEventListener('click', () => {
     AVNative.otaCheck(true);
-    flash('Procurando atualização…', true);
+    // `avisar`, não `flash`: o flash é no-op desde que o toast saiu, e esta
+    // resposta é o ÚNICO sinal de que o toque fez alguma coisa.
+    avisar('Procurando atualização…');
     // A busca é rede: o desfecho chega pelo empurrão do shell (`__avOta`) ou
     // pela enquete. Estas duas consultas antecipadas existem para o caso em que
     // não HÁ nada novo — aí não há empurrão nenhum, e sem elas o toque ficaria
@@ -205,17 +207,18 @@ if (appVersionEl && window.__NATIVE__ && (window.__SHELL_VERSION__ | 0) >= 31) {
     setTimeout(() => atualizarProcura(true), 12000);
   });
 }
-// Relê o estado da procura e, se houver algo, oferece. `avisar` só na ÚLTIMA
+// Relê o estado da procura e, se houver algo, oferece. `anunciar` só na ÚLTIMA
 // das duas consultas: as duas dizendo "já está na mais recente" seriam dois
-// avisos para uma pergunta.
-async function atualizarProcura(avisar) {
+// avisos para uma pergunta. (O parâmetro NÃO pode se chamar `avisar`: ele
+// sombrearia a função global de aviso, que é justamente quem fala aqui.)
+async function atualizarProcura(anunciar) {
   try { otaDiagTexto = await AVNative.otaDiag(); } catch (_) { /* shell antigo */ }
   // O TOQUE DESFAZ A RECUSA. "Depois" silencia o aviso AUTOMÁTICO desta sessão
   // (regra 2 do bloco abaixo); ele não pode silenciar o operador que voltou
   // para pedir a atualização de propósito.
   otaRecusadas.clear();
   await ofertarAtualizacao();
-  if (avisar && !otaPendenteVersao) flash('Você já está na versão mais recente.');
+  if (anunciar && !otaPendenteVersao) avisar('Você já está na versão mais recente.');
 }
 
 
@@ -263,12 +266,13 @@ const bibleVerCloseEl = document.getElementById('bibleVerClose');
 // Escopo da busca/lista: null = busca global no acervo (botão de lupa);
 // coll.id = lista de músicas de UMA coleção (toque no card do álbum).
 
+// Só entradas COM chamador (limpeza da auditoria 2026-08: saíram prev, stop,
+// next, edit, close, plAdd, schedule e back, todas sem um único uso — o único
+// acesso dinâmico é `ICON[coll.iconKey]`, e `iconKey` só assume 'music' ou
+// 'queue').
 const ICON = {
-  prev: '', // skip_previous
   play: '', // play_arrow
   pause: '', // pause
-  stop: '', // stop
-  next: '', // skip_next
   // Nomes pelo GLIFO, não pelo estado: os botões passaram a mostrar a AÇÃO
   // (ver renderControls), então "viewOn" apareceria justamente com a view
   // desligada — o nome mentiria.
@@ -284,20 +288,13 @@ const ICON = {
   repeatOne: '', // repeat_one
   shuffle: '', // shuffle
   drag: '', // drag_indicator
-  edit: '', // edit
-  close: '', // close
-  // ADICIONAR À PLAYLIST × ADICIONAR AO CRONOGRAMA: dois destinos, dois
-  // símbolos (v5.110). Os dois eram `playlist_add` — o MESMO glifo para dois
-  // lugares diferentes —, e o vizinho dele, `queue_music` da playlist, é a
-  // mesma pilha de linhas com outra marquinha no canto: no primeiro instante os
-  // três são um borrão só. O Cronograma passou para a família do TEMPO
-  // (`more_time`, um relógio com "+"), que não tem linha nenhuma e por isso se
-  // separa da pilha à distância — e diz o que a lista é: a ORDEM do culto, não
-  // uma fila de reprodução.
-  plAdd: '',    // playlist_add — SÓ playlist
+  // ADICIONAR AO CRONOGRAMA fica na família do TEMPO (`more_time`, um
+  // relógio com "+", v5.110): o `playlist_add` que o botão usava era um
+  // borrão ao lado do `queue_music` da playlist — a mesma pilha de linhas
+  // com outra marquinha no canto. O relógio não tem linha nenhuma e diz o que
+  // a lista é: a ORDEM do culto, não uma fila de reprodução.
   cronoAdd: '', // more_time    — ao Cronograma
   add: '',      // add          — "a uma lista" (a folha escolhe qual)
-  schedule: '', // event_note   — a aba Cronograma
   plRemove: '', // playlist_remove
   queue: '', // queue_music
   folder: '',    // folder
@@ -305,7 +302,6 @@ const ICON = {
   // deixou de ser "onde os arquivos ficam" e passou a ser "o que eu marquei".
   star: '',      // star
   folderNew: '', // create_new_folder
-  back: '',      // arrow_back
 };
 
 const REPEATS = ['off', 'all', 'one', 'shuffle'];
@@ -329,7 +325,13 @@ let repeat = 'all';
 let activeTab = 'imports';
 let selectionMode = false;
 const selected = new Set();
-let thumbUrls = [];
+// Miniaturas blob→object URL, POR HOST de lista: a revogação era uma lista
+// única cruzando os dois hosts (`libraryEl` × a gaveta de Favoritos) —
+// redesenhar um revogava as URLs ainda EM USO no outro, e as miniaturas de lá
+// viravam ícone quebrado. Cada host revoga só o que ele próprio criou, no
+// redesenho dele (ver renderLibrary).
+const thumbUrlsPorHost = new Map(); // host -> [urls do último render dele]
+let thumbUrlsAtual = [];            // o balde do render em curso
 let currentFolder = null; // null | {id, name, _opfs?} — pasta aberta (persiste entre trocas de aba)
 let folders = [];          // [{id, name}, ...] — atalhos (organização opcional)
 let folderCounts = {};     // {folderId: count}
@@ -440,7 +442,6 @@ let bibleScreen = 'books';       // 'books' | 'chapters' (capítulo + versículo
 let bibleVersions = [];          // [{ id, name }] baixadas (state 'bibleVersions')
 let bibleBooksOnline = null;     // [{ id, name }] do banco (state 'bibleBooks') — casa o id_bible_book real
 let bibleVersionId = null;       // versão selecionada (state 'bibleVersion')
-let bibleMetaLoaded = false;     // já tentou carregar versões/livros nesta sessão?
 let bibleSel = { bookIdx: -1, chapter: 0 }; // seleção em andamento
 let bibleChapterData = null;     // { verses:[{n,text}] } do capítulo aberto na tela de versículos
 let bibleChapterLoading = false; // baixando o capítulo agora?
@@ -724,9 +725,10 @@ function conferirPesoSeFaltar(id) {
   if (countDownloaded(id) === 0 && ui(id).bytes === 0) return;
   pesoConferido.add(id);
   // UM DE CADA VEZ. Na primeira abertura depois da atualização, todos os álbuns
-  // com download entram aqui no mesmo render — e cada recontagem é um `getAll`
-  // do catálogo, com thumbnail e letra de centenas de registros. Em série isso
-  // vira trabalho de fundo; em paralelo, um engasgo na lista.
+  // com download entram aqui no mesmo render — e cada recontagem varre a pasta
+  // OPFS da coleção arquivo a arquivo (`opfsFolderSize`, v5.134 — barata, mas
+  // não grátis em centenas de faixas). Em série isso vira trabalho de fundo;
+  // em paralelo, um engasgo na lista.
   filaPeso = filaPeso.then(() => updateCollBytes(id)).catch(() => {});
 }
 let filaPeso = Promise.resolve();
@@ -786,7 +788,25 @@ function segundosDaMusica(s) { return parseTimeToSeconds(s && s.duration) || 0; 
 // que não há o que baixar. Agora o app marca (`semAudio`/`semPlayback`, ver
 // `ensureSongVariant`) e para de contá-la como pendente: "não existe" e "não
 // baixei ainda" deixaram de ser a mesma coisa.
+// ===== Memoização por PASSADA de render =====
+// `levantarColecao` varre todas as músicas de uma coleção, e `bytesPorSegundo`
+// sem taxa própria varre TODAS as coleções chamando `levantarColecao` em cada
+// uma — por card, várias vezes por card, a cada redesenho de 400 ms durante
+// uma sincronização (`COLL_REFRESH_MS`). Com dezenas de álbuns e milhares de
+// faixas isso era O(coleções × músicas) por card para recomputar números que
+// não mudaram dentro do MESMO redesenho.
+//
+// O cache vale só DURANTE uma passada de `renderCollectionsList` (a flag), e é
+// zerado no início de cada uma: a passada é síncrona, então nenhum dado muda
+// no meio dela — a invalidação é a própria limpeza por passada. Fora de uma
+// passada (diálogos de confirmação, laços de sincronização) a conta segue
+// fresca, sem cache, porque ali dado velho custaria uma resposta errada.
+let cacheColecoesAtivo = false;
+const cacheLevantar = new Map();  // id -> resultado de levantarColecao
+let cacheBpsGlobal = 0;           // taxa global (o laço por todas as coleções)
+
 function levantarColecao(id) {
+  if (cacheColecoesAtivo && cacheLevantar.has(id)) return cacheLevantar.get(id);
   const r = {
     segFeitos: 0, segFalta: 0, feitasSemTempo: 0, faltaSemTempo: 0,
     feitas: 0, falta: 0, semFonte: 0,
@@ -808,6 +828,7 @@ function levantarColecao(id) {
       else { r.falta++; if (d) r.segFalta += d; else r.faltaSemTempo++; }
     }
   }
+  if (cacheColecoesAtivo) cacheLevantar.set(id, r);
   return r;
 }
 
@@ -843,6 +864,9 @@ function bytesPorSegundo(id) {
   const u = ui(id);
   const meu = levantarColecao(id);
   if (u.bytes && meu.segFeitos) return u.bytes / meu.segFeitos;
+  // A taxa GLOBAL não depende do `id`: dentro de uma passada de render ela é
+  // a mesma para todo card sem taxa própria — calcular uma vez basta.
+  if (cacheColecoesAtivo && cacheBpsGlobal) return cacheBpsGlobal;
   let bytes = 0, seg = 0;
   for (const c of allCollections()) {
     const cu = collUI[c.id];
@@ -851,7 +875,9 @@ function bytesPorSegundo(id) {
     if (!l.segFeitos) continue;
     bytes += cu.bytes; seg += l.segFeitos;
   }
-  return (bytes && seg) ? bytes / seg : BPS_PADRAO;
+  const taxa = (bytes && seg) ? bytes / seg : BPS_PADRAO;
+  if (cacheColecoesAtivo) cacheBpsGlobal = taxa;
+  return taxa;
 }
 
 // A medida completa de um álbum: `{ noAparelho, falta, total, exato }`.
@@ -907,16 +933,21 @@ function fracaoPeso(ids) {
   return fmtFracBytes(no, total);
 }
 
-// "3,7/~18 MB" — a forma curta, para as barras. A unidade só aparece uma vez
-// quando é a mesma nos dois números (ver `fmtParBytes`, a forma por extenso do
-// chip de opções, que tem largura para o "de").
-function fmtFracBytes(a, b) {
+// O miolo comum das duas formas de "tanto de tanto" (`fmtFracBytes` e
+// `fmtParBytes`): a unidade só aparece uma vez quando é a mesma nos dois
+// números; se divergirem (800 KB de ~1,2 GB), as duas ficam — omitir a
+// primeira seria simplesmente falso. O separador é o ÚNICO ponto em que as
+// formas diferem, então ele é o parâmetro.
+function fmtBytesPar(a, b, sep) {
   const fa = fmtBytes(a);
   const fb = fmtBytes(b);
   const [va, ua] = fa.split(' ');
   const ub = fb.split(' ')[1];
-  return (ua === ub ? va : fa) + '/~' + fb;
+  return (ua === ub ? va : fa) + sep + fb;
 }
+// "3,7/~18 MB" — a forma curta, para as barras (ver `fmtParBytes`, a forma por
+// extenso do chip de opções, que tem largura para o "de").
+function fmtFracBytes(a, b) { return fmtBytesPar(a, b, '/~'); }
 
 // Downloads de música em andamento ("<coll.id>:<id_music>" -> Promise) — evita
 // disparar dois downloads da mesma música em paralelo (tocar duas vezes rápido).
@@ -932,7 +963,9 @@ const songDownloadInFlight = new Map();
 // (evita presumir Wi-Fi e gastar dados móveis à toa) do que assumir Wi-Fi por
 // falta de informação.
 function networkConnection() {
-  return navigator.connection || navigator.mozConnection || navigator.webkitConnection || null;
+  // Só `navigator.connection`: os prefixos moz/webkit eram herança de PWA —
+  // este bundle roda em Chromium (WebView/Chrome), onde o nome é o padrão.
+  return navigator.connection || null;
 }
 function networkType() {
   const conn = networkConnection();
@@ -1414,7 +1447,11 @@ function cmd(obj) {
 function previewTick() {
   // Texto manual em cena sem áudio de fundo: nada de mídia/tempo a sincronizar.
   // (Com áudio de fundo, o texto é overlay e a preview segue o áudio normalmente.)
-  if ((bibleSession || msgSession || lyricSession) && !preview.getCurrent()) return;
+  // O conjunto é o MESMO de `clearManualText` — as cinco sessões, incluindo
+  // cronômetro e sorteio; listar só três deixava o tick rodando sobre uma
+  // preview sem mídia durante uma contagem regressiva.
+  if ((bibleSession || msgSession || lyricSession || chronoSession || drawSession)
+    && !preview.getCurrent()) return;
   // Itens YouTube tocam só no Display (player real): a UI de transporte é
   // dirigida pelo display-status remoto, não pela preview local.
   if (currentItem && currentItem.kind === 'youtube') return;
@@ -1898,11 +1935,13 @@ async function load() {
     } else {
       libItemsV = currentFolder ? await loadFolderMediaItems(currentFolder.id) : [];
     }
-  } else if (activeTab === 'imports' || activeTab === 'playlist') {
-    // Só as abas que são de fato listas de IDs de mídia. 'bible' e 'messages'
+  } else if (activeTab === 'imports') {
+    // Só a aba que é de fato lista de IDs de mídia. 'bible' e 'messages'
     // NÃO são listas de mídia — e 'messages' guarda
     // objetos {id,text} no mesmo state key, então passar isso por listItems
     // (getMedia por id) lançaria DataError e quebraria o load() inteiro.
+    // ('playlist' saiu da comparação: nenhum caminho produz esse activeTab —
+    // a playlist é popup desde que virou `#plPopup`.)
     libItemsV = await AVDB.listItems(activeTab);
   } else {
     libItemsV = [];
@@ -2067,8 +2106,11 @@ function renderNowPlaying() {
     npNameInnerEl.textContent = lyricSession.title
       + ' · ' + (lyricSession.idx + 1) + '/' + lyricSession.stanzas.length;
     applyTitleMarquee();
-    playPauseEl.querySelector('.msym').textContent = ICON.play;
-    seekEl.disabled = true;
+    // A MESMA regra do cronômetro logo acima: o ▶/⏸ segue o áudio de fundo
+    // (que continua por baixo do texto) e o seek fica com quem já o governa
+    // (previewTick/display-status). Forçar ▶ fixo e seek desabilitado fazia o
+    // transporte piscar até o próximo tick quando havia áudio tocando.
+    playPauseEl.querySelector('.msym').textContent = playing ? ICON.pause : ICON.play;
     renderSimple();
     pushNowPlaying();
     return;
@@ -2089,8 +2131,9 @@ function renderNowPlaying() {
     const v = bibleSession.verses[bibleSession.idx];
     npNameInnerEl.textContent = bibleSession.bookName + ' ' + bibleSession.chapter + ':' + v.n;
     applyTitleMarquee();
-    playPauseEl.querySelector('.msym').textContent = ICON.play;
-    seekEl.disabled = true;
+    // Mesma regra do cronômetro: ▶/⏸ acompanha o áudio de fundo e o seek não
+    // é tocado aqui (ver o comentário no ramo da letra avulsa).
+    playPauseEl.querySelector('.msym').textContent = playing ? ICON.pause : ICON.play;
     renderSimple();
     pushNowPlaying();
     return;
@@ -2377,7 +2420,7 @@ function thumbEl(item) {
     t.appendChild(im);
   } else if (item.thumb) {
     const url = URL.createObjectURL(item.thumb);
-    thumbUrls.push(url);
+    thumbUrlsAtual.push(url);
     const im = document.createElement('img'); im.src = url; im.alt = '';
     t.appendChild(im);
   } else {
@@ -2439,7 +2482,6 @@ function renderPlaylist() {
 // funciona mesmo sem isso (Bible.BOOKS é offline); versões/ids reais só são de
 // fato necessários no download do capítulo.
 async function ensureBibleMeta(force) {
-  bibleMetaLoaded = true;
   // versões
   if (!bibleVersions.length) bibleVersions = (await AVDB.getState('bibleVersions')) || [];
   if (!bibleVersions.length || force) {
@@ -2464,9 +2506,16 @@ async function ensureBibleMeta(force) {
     } catch (_) {}
   }
   // Completude offline de TODAS as versões (pra resumir na lista de seleção).
-  for (const v of bibleVersions) {
-    if (await AVDB.getState('bibleComplete:' + v.id)) bibleCompleteVersions.add(v.id);
-  }
+  // O próprio Set é o cache: versão que já está nele não volta ao IDB (uma
+  // versão completa não "des-completa", e os downloads que completam uma já a
+  // adicionam na hora — ver ensureBibleVersionDownloaded). As leituras que
+  // restam saem em paralelo: são independentes, e em série este laço pagava
+  // uma ida ao IDB por versão a cada entrada na aba.
+  await Promise.all(bibleVersions
+    .filter((v) => !bibleCompleteVersions.has(v.id))
+    .map(async (v) => {
+      if (await AVDB.getState('bibleComplete:' + v.id)) bibleCompleteVersions.add(v.id);
+    }));
   if (activeTab === 'bible') renderLibrary();
 }
 
@@ -3631,7 +3680,6 @@ async function projectSongLyricsOnly(coll, s) {
       await ensureSongDownloaded(coll, s, { toast: !bg.visivel });
       stanzas = await lyricStanzaTexts(coll, s);
     }
-    dismissFlash();
     if (!stanzas.length) { avisar('Letra indisponível para esta música', 'erro'); return; }
     clearBibleSession(); clearMsgSession(); clearChronoSession(); clearDrawSession();
     lyricSession = { title: songLabel(coll, s), stanzas, idx: 0, projecting: true };
@@ -4475,8 +4523,11 @@ function renderDraw() {
 
   const modes = document.createElement('div');
   modes.className = 'misc-modes';
-  [{ id: 'number', name: 'Número' }, { id: 'texto', name: 'Texto' }].forEach((m) => {
-    const id = m.id === 'texto' ? 'text' : 'number';
+  // `id` interno × `name` exibido, como em CHRONO_MODES — o id era 'texto'
+  // com um ternário remapeando para 'text' logo abaixo, dois nomes para o
+  // mesmo valor dentro do mesmo laço.
+  [{ id: 'number', name: 'Número' }, { id: 'text', name: 'Texto' }].forEach((m) => {
+    const id = m.id;
     const b = document.createElement('button');
     b.type = 'button';
     b.className = 'misc-seg' + (draw.kind === id ? ' active' : '');
@@ -4790,9 +4841,12 @@ function refreshDiversos() {
 function msgProjecting() { return !!(msgSession && msgSession.projecting); }
 
 function renderLibrary() {
-  thumbUrls.forEach((u) => URL.revokeObjectURL(u));
-  thumbUrls = [];
   const host = listHost();
+  // Revoga SÓ as URLs que este host criou no render anterior — as do outro
+  // host continuam em cena e continuam válidas (ver `thumbUrlsPorHost`).
+  (thumbUrlsPorHost.get(host) || []).forEach((u) => URL.revokeObjectURL(u));
+  thumbUrlsAtual = [];
+  thumbUrlsPorHost.set(host, thumbUrlsAtual);
   host.innerHTML = '';
   // Ferramentas NÃO rola: quem administra a altura ali é o acordeão (a seção
   // aberta ocupa o que sobra e rola por dentro, se precisar). Com a rolagem da
@@ -5110,12 +5164,8 @@ function closeIconSvg() {
 function checkIconSvg() {
   return '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>';
 }
-// SVG inline de "lista". Sem uso desde que "Ver músicas" saiu das opções do
-// álbum (a lista é o toque no card); mantido por ser um ícone genérico do
-// conjunto, útil na próxima lista que aparecer.
-function listIconSvg() {
-  return '<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>';
-}
+// (`listIconSvg` saiu: sem chamador desde que "Ver músicas" deixou as opções
+// do álbum — a lista é o toque no card.)
 // SVG inline de "seta para cima" — o MESMO botão da engrenagem enquanto as
 // opções estão à mostra (v5.73). A engrenagem acesa dizia "as opções estão
 // abertas" só pela cor; a seta diz o que o toque FAZ, que é recolher o painel
@@ -5222,11 +5272,60 @@ function categoryCards(cat) {
   return out;
 }
 
+// O MIOLO do cabeçalho de grupo — contador (busy/done/fração) + botão de
+// lote/cancelar — usado pelo `header()` da lista E pelo "Baixar todo o acervo"
+// fixo do popup (`renderAcervoTotal`). Era escrito duas vezes, compartilhando
+// até o mesmo estado (`gui(key)`); com o miolo num lugar só, a régua do verde
+// e o comportamento do botão não têm como divergir entre os dois.
+// `aposClique` é a diferença legítima do popup: ele precisa se redesenhar.
+function montarResumoGrupo(host, key, text, colls, gOpts, aposClique) {
+  const g = gui(key);
+  const complete = grupoCompleto(colls);
+
+  const info = document.createElement('span');
+  info.className = 'coll-group-count' + (g.busy ? ' busy' : (complete ? ' done' : ''));
+  info.textContent = g.status || fracaoPeso(colls.map((c) => c.id)) || '—';
+  host.appendChild(info);
+
+  // COM O GRUPO INTEIRO BAIXADO O BOTÃO SAI DA LINHA (v5.135) — a MESMA regra
+  // da barra do card. Enquanto o download ROLA ele continua, porque ali ele é
+  // o cancelar.
+  if (!complete || g.busy) {
+    const btn = document.createElement('button');
+    btn.className = 'coll-group-btn' + (g.busy ? ' busy' : '');
+    btn.title = g.busy
+      ? 'Cancelar o download'
+      : (gOpts && gOpts.confirmScale)
+        ? 'Baixar TODA a biblioteca (' + colls.length + ' coleções)'
+        : 'Baixar a coleção completa (' + colls.length + ' álbum(ns))';
+    btn.innerHTML = g.busy ? closeIconSvg() : downloadAllIconSvg();
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      syncGroup(key, text, colls, gOpts);
+      if (aposClique) aposClique();
+    });
+    host.appendChild(btn);
+  }
+}
+
 // O MESMO navegador de acervo, em dois lugares: a aba Álbuns e o estado padrão
 // da busca (ver renderSearchResults). É uma função só de propósito — duas
 // cópias divergiriam no primeiro ajuste de categoria, e o operador veria dois
 // acervos diferentes conforme por onde entrou.
 function renderCollectionsList(alvo, redesenhar, opts) {
+  // A passada é síncrona: liga a memoização de `levantarColecao`/taxa global
+  // (ver "Memoização por PASSADA de render"), zerada aqui a cada redesenho.
+  // O `finally` desliga mesmo se um card lançar — cache ligado fora de uma
+  // passada é dado velho em diálogo de confirmação.
+  cacheLevantar.clear(); cacheBpsGlobal = 0;
+  cacheColecoesAtivo = true;
+  try {
+    renderCollectionsListMiolo(alvo, redesenhar, opts);
+  } finally {
+    cacheColecoesAtivo = false;
+  }
+}
+function renderCollectionsListMiolo(alvo, redesenhar, opts) {
   alvo = alvo || libraryEl;
   redesenhar = redesenhar || renderLibrary;
   redesenharAcervo = redesenhar;
@@ -5239,7 +5338,10 @@ function renderCollectionsList(alvo, redesenhar, opts) {
   // de um filtro ativo, quando a pílula selecionada já dizia o nome do grupo;
   // as pílulas saíram na v5.70, e hoje só "Todo o acervo" o usa, porque ali o
   // nome estaria dentro do próprio botão.)
-  const header = (text, colls, showName, opts) => {
+  // O parâmetro se chama `gOpts`, e não `opts`, para não sombrear o `opts` de
+  // `renderCollectionsList` — o `semTotal` lá de fora é lido DENTRO desta
+  // função de render, e o shadowing esconderia o engano em silêncio.
+  const header = (text, colls, showName, gOpts) => {
     const li = document.createElement('li');
     li.className = 'coll-group';
     if (showName !== false) {
@@ -5248,47 +5350,20 @@ function renderCollectionsList(alvo, redesenhar, opts) {
       name.textContent = text;
       li.appendChild(name);
     }
-    if (colls && colls.length && !(opts && opts.semBotao)) {
-      const key = 'grp:' + text;
-      const g = gui(key);
-      const complete = grupoCompleto(colls);
-
-      const info = document.createElement('span');
-      info.className = 'coll-group-count' + (g.busy ? ' busy' : (complete ? ' done' : ''));
-      info.textContent = g.status || fracaoPeso(colls.map((c) => c.id)) || '—';
-      li.appendChild(info);
-
-      // COM O GRUPO INTEIRO BAIXADO O BOTÃO SAI DA LINHA (v5.135) — a MESMA
-      // regra da barra do card, que ele não seguia. Ele oferecia "Baixar a
-      // coleção completa" para uma categoria que já está toda no aparelho, e o
-      // toque tinha um custo real e visível: `syncGroup` percorre álbum por
-      // álbum, cada um buscando o índice na rede e conferindo variante por
-      // variante no banco, para terminar em "completo" — e deixar o mesmo botão
-      // ali, convidando a repetir tudo. Verificar UM álbum continua sendo
-      // possível onde isso é manutenção: dentro do card, onde o botão se chama
-      // "Verificar atualizações".
-      //
-      // Enquanto o download ROLA ele continua, porque ali ele é o cancelar.
-      if (!complete || g.busy) {
-        const btn = document.createElement('button');
-        btn.className = 'coll-group-btn' + (g.busy ? ' busy' : '');
-        btn.title = g.busy
-          ? 'Cancelar o download'
-          : (opts && opts.confirmScale)
-            ? 'Baixar TODA a biblioteca (' + colls.length + ' coleções)'
-            : 'Baixar a coleção completa (' + colls.length + ' álbum(ns))';
-        btn.innerHTML = g.busy ? closeIconSvg() : downloadAllIconSvg();
-        btn.addEventListener('click', (e) => { e.stopPropagation(); syncGroup(key, text, colls, opts); });
-        li.appendChild(btn);
-      }
+    if (colls && colls.length && !(gOpts && gOpts.semBotao)) {
+      // Contador + botão de lote: o miolo compartilhado (`montarResumoGrupo`,
+      // acima) — a regra de o botão sumir com o grupo completo, o cancelar
+      // durante o download e a régua do verde moram lá.
+      montarResumoGrupo(li, 'grp:' + text, text, colls, gOpts);
     } else if (colls && colls.length) {
       // Grupo SEM botão de lote (ver "Hinários"): o contador continua, porque
       // ele informa; o que sai é a ação que juntaria coleções grandes demais
-      // num download só.
-      let downloaded = 0, total = 0;
-      for (const c of colls) { downloaded += countDownloaded(c.id); total += songsBaixaveis(c.id).length; }
+      // num download só. A régua do "verde" é a MESMA do ramo com botão
+      // (`grupoCompleto`, que conta VARIANTES): a conta anterior, por músicas
+      // com `fileIdFull`, ignorava Playbacks e pintava de completo um hinário
+      // com instrumentais faltando — a divergência que a v5.134 aboliu.
       const info = document.createElement('span');
-      info.className = 'coll-group-count' + (total > 0 && downloaded >= total ? ' done' : '');
+      info.className = 'coll-group-count' + (grupoCompleto(colls) ? ' done' : '');
       info.textContent = fracaoPeso(colls.map((c) => c.id)) || '—';
       li.appendChild(info);
     }
@@ -5673,38 +5748,19 @@ function collapseAccordion(el, depois) {
 let redesenharAcervo = () => {};
 
 // "Baixar todo o acervo", no cabeçalho do popup: o mesmo `syncGroup` e a mesma
-// chave de grupo (`grp:Todo o acervo`) da barra que existia na lista — só que
-// FIXO no alto. Ali é a ação de maior alcance da tela; dentro da lista, ela
+// chave de grupo (`grp:Toda a biblioteca`) da barra que existia na lista — só
+// que FIXO no alto. Ali é a ação de maior alcance da tela; dentro da lista, ela
 // saía de vista assim que o operador descia um pouco, que é justamente quando
 // ele está decidindo se baixa tudo ou escolhe um álbum.
 function renderAcervoTotal(redesenhar) {
   hymnSearchTotalEl.innerHTML = '';
   const todas = allCollections().filter((c) => !isHymnalAlbum(c));
   if (todas.length < 2) return;
-  const key = 'grp:Toda a biblioteca';
-  const g = gui(key);
-  const complete = grupoCompleto(todas);
-
-  const info = document.createElement('span');
-  info.className = 'coll-group-count' + (g.busy ? ' busy' : (complete ? ' done' : ''));
-  info.textContent = g.status || fracaoPeso(todas.map((c) => c.id)) || '—';
-  hymnSearchTotalEl.appendChild(info);
-
-  // Mesma regra do cabeçalho de categoria (ver `header`), e aqui ela pesa
-  // ainda mais: este é o botão de MAIOR alcance da tela.
-  if (!complete || g.busy) {
-    const btn = document.createElement('button');
-    btn.className = 'coll-group-btn' + (g.busy ? ' busy' : '');
-    btn.title = g.busy ? 'Cancelar o download'
-      : 'Baixar TODA a biblioteca (' + todas.length + ' coleções)';
-    btn.innerHTML = g.busy ? closeIconSvg() : downloadAllIconSvg();
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      syncGroup(key, 'Toda a biblioteca', todas, { confirmScale: true });
-      redesenhar();
-    });
-    hymnSearchTotalEl.appendChild(btn);
-  }
+  // O bloco contador+botão é o MESMO do cabeçalho de categoria
+  // (`montarResumoGrupo`) — aqui ele pesa ainda mais: é o botão de maior
+  // alcance da tela. A única diferença é o `redesenhar` após o clique.
+  montarResumoGrupo(hymnSearchTotalEl, 'grp:Toda a biblioteca', 'Toda a biblioteca',
+    todas, { confirmScale: true }, redesenhar);
 }
 
 // ===== Abrir o card de uma coleção =====
@@ -5713,8 +5769,10 @@ function renderAcervoTotal(redesenhar) {
 // sincronizar — está nas opções, que hoje aparecem sozinhas com o card aberto).
 function openCollectionOptions(coll) {
   const u = ui(coll.id);
-  // Único ponto em que o peso é recontado a partir do catálogo: uma coleção,
-  // uma vez, ao abrir. Durante o uso ele é mantido incrementalmente.
+  // Reconta o peso PELO DISCO (`opfsFolderSize`, v5.134 — não mais pelo
+  // catálogo): uma coleção, ao abrir. Durante o uso ele é mantido
+  // incrementalmente; os outros pontos de reconferência estão listados no
+  // comentário de `updateCollBytes`.
   updateCollBytes(coll.id);
   allCollections().forEach((c) => { ui(c.id).expanded = false; });
   u.expanded = true;
@@ -6109,17 +6167,9 @@ function fmtBytes(n) {
   return n + ' B';
 }
 
-// "3,7 de ~18 MB": a unidade só aparece uma vez quando ela é a mesma nos dois
-// números — repeti-la rouba metade da largura do chip sem acrescentar nada. Se
-// as unidades divergirem (800 KB de ~1,2 GB), as duas ficam: dizer "800 de
-// ~1,2 GB" seria simplesmente falso.
-function fmtParBytes(a, b) {
-  const fa = fmtBytes(a);
-  const fb = fmtBytes(b);
-  const [va, ua] = fa.split(' ');
-  const ub = fb.split(' ')[1];
-  return (ua === ub ? va : fa) + ' de ~' + fb;
-}
+// "3,7 de ~18 MB" — a forma por extenso do chip de opções. O miolo (unidade
+// repetida só quando necessário) é o mesmo da forma curta: `fmtBytesPar`.
+function fmtParBytes(a, b) { return fmtBytesPar(a, b, ' de ~'); }
 
 function renderSelbar() {
   hostSelbar();
@@ -6742,6 +6792,11 @@ async function toggleMute() {
 
 // Parar = limpar o display (volta ao wallpaper); mantém currentId para replay com play.
 async function stopClear() {
+  // Parar também é um comando do operador: arma a mesma janela de
+  // `pausaPedida` que o ▶ arma, senão o `pause` que o 'clear' provoca no
+  // <video> da preview entrava no diário como "PAUSA ESPONTÂNEA" — um falso
+  // alarme no instrumento que existe para achar as pausas de verdade.
+  pausaEm = Date.now();
   cmd({ type: 'clear' });
   clearManualText();
   setPlaying(false);
@@ -6875,11 +6930,18 @@ function sairDaSelecaoDepois() {
 async function addSelectedToPlaylist() {
   if (!selected.size) return;
   const total = selected.size;
+  // A forma ATÔMICA do `listSet` (a fn roda dentro da MESMA transação que
+  // grava — a forma que o db.js manda preferir): o laço anterior pagava duas
+  // transações por item (`listHas` + `listAdd`), e a contagem de novos sai da
+  // própria fn, sobre a MESMA lista que foi gravada.
   let novos = 0;
-  for (const id of selected) {
-    if (!(await AVDB.listHas('playlist', id))) novos++;
-    await AVDB.listAdd('playlist', id);
-  }
+  await AVDB.listSet('playlist', (atual) => {
+    for (const id of selected) {
+      if (atual.includes(id)) continue;
+      atual.push(id); novos++;
+    }
+    return atual;
+  });
   responder(selPlaylistEl, tipoLote(novos, total), textoLote(novos, total, LISTA_ROTULO.playlist));
   sairDaSelecaoDepois();
 }
@@ -7007,17 +7069,29 @@ function exitSelection() {
   renderLibrary(); renderSelbar();
 }
 async function deleteSelected() {
+  // O ✓ "já está aqui" da busca do YouTube vive num Map em memória
+  // (`ytEstado`) e nunca é recalculado enquanto a entrada existir — excluir a
+  // mídia sem invalidá-lo deixava a busca prometendo, pela sessão inteira, um
+  // download que não existe mais. A marca cai ANTES da remoção porque depois
+  // do gc o registro pode já não existir para dizer QUAL era o vídeo; se ele
+  // sobreviver em outra lista, `marcarYtProntos` remarca a partir do IDB.
+  for (const id of selected) {
+    const it = libItems.find((m) => m.id === id) || await AVDB.getMedia(id);
+    if (it && it.youtubeId) setYtEstado(it.youtubeId, null);
+  }
   if (activeTab === 'folders' && currentFolder && currentFolder._opfs) {
-    // Pasta OPFS: apaga o arquivo físico, o registro do catálogo e as
-    // referências que sobraram em listas.
+    // Pasta OPFS: apaga o arquivo físico e delega o registro + referências a
+    // `purgeCatalogRecords` — a MESMA limpeza da exclusão de pasta/Hinário
+    // (duas cópias da lista de detentores divergiriam no primeiro que alguém
+    // esquecesse). Só o `opfsDeleteFile` é daqui: numa seleção avulsa não há
+    // diretório inteiro a remover em bloco.
+    const recs = [];
     for (const id of selected) {
       const rec = await AVDB.fileGet(id);
       if (rec && rec.opfsPath) await AVDB.opfsDeleteFile(rec.opfsPath);
-      await AVDB.fileDelete(id);
-      // TODAS as listas, inclusive a invisível e a dos favoritos: um id que
-      // sobra em qualquer uma delas segura o registro vivo para o gc.
-      for (const l of ['imports', 'playlist', 'avulsos', 'favs']) await AVDB.listRemove(l, id);
+      recs.push(rec || { id });
     }
+    await purgeCatalogRecords(recs);
     await refreshOpfsFolderCount(currentFolder.id);
   } else if (activeTab === 'folders' && currentFolder) {
     // Pelo `listRemove`, que roda o gc na mesma transação — tirar do atalho o
@@ -7080,7 +7154,10 @@ async function renameSelected() {
 
 // ===== pastas =====
 async function loadFolderMediaItems(folderId) {
-  const ids = (await AVDB.getState('folder_' + folderId)) || [];
+  // Pela API de listas (`listIds`), como todo o resto do arquivo — o
+  // `getState` cru que havia aqui era o único acesso fora dela, e ainda
+  // devolvia o array compartilhado sem cópia.
+  const ids = await AVDB.listIds('folder_' + folderId);
   const items = await Promise.all(ids.map((id) => AVDB.getMedia(id)));
   return items.filter(Boolean);
 }
@@ -7185,20 +7262,25 @@ async function deleteFolder(folderId) {
   load();
 }
 
-// `listAdd` por id, e não um `setState` do array inteiro: cada entrada é um
-// read-modify-write ATÔMICO na transação de "state" (a mesma garantia das
-// listas fixas). Com o array cru, um download que terminasse entre a leitura e
+// `listSet(name, fn)`, e não um `setState` do array inteiro: a fn roda na
+// MESMA transação de "state" que grava o resultado (a garantia das listas
+// fixas). Com o array cru, um download que terminasse entre a leitura e
 // a escrita perdia a própria entrada — o registro ficava criado e fora de
 // qualquer lista, que é o vazamento que `addMediaToList` existe para impedir.
 async function addToFolder(folderId, ids, btn) {
   const alvo = folders.find((f) => f.id === folderId);
   const nomePasta = '"' + ((alvo && alvo.name) || 'pasta') + '"';
   const onde = { em: 'em ' + nomePasta, para: 'a ' + nomePasta };
+  // Mesma forma atômica de `addSelectedToPlaylist`: uma transação para o lote
+  // inteiro, com os "novos" contados dentro da própria fn.
   let novos = 0;
-  for (const id of ids) {
-    if (!(await AVDB.listHas('folder_' + folderId, id))) novos++;
-    await AVDB.listAdd('folder_' + folderId, id);
-  }
+  await AVDB.listSet('folder_' + folderId, (atual) => {
+    for (const id of ids) {
+      if (atual.includes(id)) continue;
+      atual.push(id); novos++;
+    }
+    return atual;
+  });
   responder(btn, tipoLote(novos, ids.length), textoLote(novos, ids.length, onde));
   // A folha do seletor fecha depois do pulso, pelo mesmo motivo da barra.
   setTimeout(() => { closeFolderPicker(); exitSelection(); load(); }, PULSO_MS);
@@ -7296,7 +7378,9 @@ async function openFolderSource(existing) {
     };
   }
 
-  if (!('showDirectoryPicker' in window)) { flash('Navegador não suporta seleção de pastas'); return null; }
+  // `avisar`, não `flash` (no-op): sem o aviso, um navegador sem a API
+  // simplesmente não responderia ao toque — falha muda.
+  if (!('showDirectoryPicker' in window)) { avisar('Navegador não suporta seleção de pastas', 'erro'); return null; }
 
   // Re-sync: tenta reutilizar o handle salvo (browsers que persistem a
   // permissão nem mostram prompt); senão cai no picker.
@@ -7330,8 +7414,8 @@ async function openFolderSource(existing) {
 // Sincroniza (ou re-sincroniza) uma pasta do dispositivo para o OPFS.
 // `existing` = registro de opfsFolders para re-sync; undefined para nova pasta.
 async function syncDeviceFolder(existing) {
-  if (!AVDB.opfsSupported()) { flash('Navegador não suporta armazenamento OPFS'); return; }
-  if (syncBusy) { flash('Sincronização em andamento…'); return; }
+  if (!AVDB.opfsSupported()) { avisar('Navegador não suporta armazenamento OPFS', 'erro'); return; }
+  if (syncBusy) { avisar('Sincronização em andamento…', 'dup'); return; }
 
   const source = await openFolderSource(existing);
   if (!source) return;
@@ -7369,7 +7453,10 @@ async function syncDeviceFolder(existing) {
     folderNotifId = bgTaskStart('Pasta · ' + folder.name, entries.length);
     for (const [entry, type] of entries) {
       done++;
-      flash('Sincronizando ' + done + '/' + entries.length + '…', true);
+      // Cada chamada reinicia o timer do aviso, então a faixa fica em cena
+      // durante a cópia inteira, contando — é o progresso na própria tela
+      // (a notificação só aparece com o app minimizado).
+      avisar('Sincronizando ' + done + '/' + entries.length + '…');
       bgTaskStep(folderNotifId, done);
       const name = entry.name;
       bgItemOnly(folderNotifId, name);
@@ -7403,9 +7490,12 @@ async function syncDeviceFolder(existing) {
     folder.count = (await AVDB.filesByFolder(folder.id)).length;
     folder.syncedAt = Date.now();
     await AVDB.setState('opfs-folders', opfsFolders);
-    flash(added > 0 ? added + ' arquivo(s) sincronizado(s)' : 'Pasta já em dia');
+    // O desfecho é o que a faixa existe para dizer: "já em dia" é a resposta
+    // que evita re-sincronizar à toa, e ela precisa se distinguir de "entrou".
+    if (added > 0) avisar(added + ' arquivo(s) sincronizado(s)');
+    else avisar('Pasta já em dia', 'dup');
   } catch (_) {
-    flash('Erro na sincronização');
+    avisar('Erro na sincronização', 'erro');
   } finally {
     syncBusy = false;
     bgTaskEnd(folderNotifId);
@@ -7616,7 +7706,7 @@ async function runLimited(items, limit, fn) {
 const ALBUM_INDEX_TTL = 12 * 60 * 60 * 1000; // 12 h
 
 // Atualização automática e silenciosa — ao abrir o app e ao retomar do 2º
-// plano (ver wiring perto do check do service worker), sem aviso de erro:
+// plano (ver o handler de visibilitychange no fim do arquivo), sem aviso de erro:
 //  1. índices leves dos HINÁRIOS (fixos) + catálogo de ÁLBUNS (nomes dos cards);
 //  2. índice leve (só metadados — album_{id}.musics, SEM áudio) de CADA álbum,
 //     pra a busca do acervo cobrir TODAS as músicas de TODOS os álbuns mesmo
@@ -7712,10 +7802,17 @@ async function syncCollection(coll, opts) {
     const songs = collSongs(coll.id);
 
     const pending = [];
-    for (const s of songs) {
+    // Em pedaços de 8, e não em série: cada música custa até 2 `fileGet`
+    // (Cantado + Playback), e num hinário de ~600 faixas a varredura serial
+    // eram ~1200 leituras de IDB uma a uma antes do primeiro byte de download.
+    // O cancelamento continua valendo por iteração — conferido a cada pedaço,
+    // e um pedaço em voo custa no máximo 8 leituras, não o álbum.
+    const PASSO_VARREDURA = 8;
+    for (let i = 0; i < songs.length; i += PASSO_VARREDURA) {
       if (cancelled()) { setCollStatus(coll.id, 'Cancelado', 4000); return { ok: true, baixados: 0, falhou: 0 }; }
-      const { needsFull, needsPlayback } = await songVariantsNeeded(coll, s);
-      if (needsFull || needsPlayback) pending.push(s);
+      const fatia = songs.slice(i, i + PASSO_VARREDURA);
+      const flags = await Promise.all(fatia.map((s) => songVariantsNeeded(coll, s)));
+      flags.forEach((f, k) => { if (f.needsFull || f.needsPlayback) pending.push(fatia[k]); });
     }
     if (pending.length === 0) { setCollStatus(coll.id, 'Já completo offline', 4000); return { ok: true, baixados: 0, falhou: 0 }; }
     if (cancelled()) { setCollStatus(coll.id, 'Cancelado', 4000); return { ok: true, baixados: 0, falhou: 0 }; }
@@ -8616,11 +8713,14 @@ function appendYoutubeSearch(texto) {
 // lista não espera pelo IDB, e o estado mora no Map (`ytEstado`), então
 // sobrevive ao próximo render.
 async function marcarYtProntos(itens) {
-  for (const r of itens) {
-    if (!r || !r.id || ytEstado.has(r.id)) continue;
+  // As consultas são independentes (índice `youtubeId`, sem blob) — em
+  // paralelo, a página inteira de resultados é respondida no tempo de UMA ida
+  // ao IDB, não de vinte em série.
+  await Promise.all(itens.map(async (r) => {
+    if (!r || !r.id || ytEstado.has(r.id)) return;
     const rec = await AVDB.mediaByYoutube(r.id);
     if (rec && rec.blob) setYtEstado(r.id, 'pronto');
-  }
+  }));
 }
 
 // CANCELAR O DOWNLOAD EM CURSO (v5.131 · shell 28).
@@ -8670,7 +8770,12 @@ const ytEstado = new Map();
 // miniatura nenhuma para pintar, e um download de minutos terminaria em
 // silêncio absoluto — que é exatamente o que a v5.112 tirou deste caminho.
 function ytLinhaVisivel(id) {
-  return !!id && !!document.querySelector('.yt-result[data-yt="' + CSS.escape(String(id)) + '"]');
+  // Comparação por `dataset`, sem seletor de atributo — o mesmo padrão de
+  // `setYtEstado`/`setSongRowBusy`: montar um seletor a partir de dado é o
+  // tipo de coisa que quebra calada no dia em que um id trouxer outro
+  // caractere.
+  if (!id) return false;
+  return [...document.querySelectorAll('.yt-result')].some((li) => li.dataset.yt === id);
 }
 
 function setYtEstado(id, estado, pct) {
@@ -9025,9 +9130,10 @@ async function ytAcao(r, destino, btn, somenteAudio, altura) {
     pulsar(btn, 'erro');
     // SEM LINHA NA TELA, o vermelho não tem onde aparecer — é o caso do link
     // COMPARTILHADO (v5.137), que abre a folha sem busca nenhuma atrás. Aqui a
-    // faixa flutuante é o único canal que resta, e "um download de minutos que
-    // termina em nada" é o silêncio que este app não pode ter.
-    if (!ytLinhaVisivel(r.id)) flash('Não deu para baixar "' + (r.name || 'o vídeo') + '".');
+    // faixa de aviso é o único canal que resta ("flash" é no-op desde que o
+    // toast saiu), e "um download de minutos que termina em nada" é o silêncio
+    // que este app não pode ter.
+    if (!ytLinhaVisivel(r.id)) avisar('Não deu para baixar "' + (r.name || 'o vídeo') + '".', 'erro');
     return;
   }
   setYtEstado(r.id, 'pronto');
@@ -9061,7 +9167,8 @@ async function ytAcao(r, destino, btn, somenteAudio, altura) {
     // para a playlist ou os Favoritos, que não são a lista à vista. Uma frase
     // curta dizendo PARA ONDE ele foi é o que fecha o compartilhamento.
     if (!ytLinhaVisivel(r.id)) {
-      flash((jaNaLista ? 'Já estava ' : 'Adicionado ') + (YT_DESTINO_NOME[destino] || 'na lista') + '.');
+      avisar((jaNaLista ? 'Já estava ' : 'Adicionado ') + (YT_DESTINO_NOME[destino] || 'na lista') + '.',
+        jaNaLista ? 'dup' : 'ok');
     }
   } else {
     await fixarAvulso(rec.id);
@@ -9131,17 +9238,22 @@ function ytResultRow(r) {
     // toque nesta linha era inerte até ontem: quem tocar por reflexo não pode
     // perder um download de dez minutos por isso.
     if (li.classList.contains('baixando')) { cancelarDownloadYt(r); return; }
-    if (appMode === 'simple') { ytAcao(r, 'tocar'); return; }
+    // O teto vai EXPLÍCITO (`YT_ALTURAS[0]`, o padrão), como no share do
+    // simplificado — deixá-lo implícito (undefined) fazia o mesmo "tocar"
+    // viajar ora com altura, ora sem, e a diferença só aparecia em quem lê o
+    // parâmetro lá na frente.
+    if (appMode === 'simple') { ytAcao(r, 'tocar', null, false, YT_ALTURAS[0]); return; }
     openYtMenu(r);
   });
   return li;
 }
 
+// A mesma formatação de `fmtTime` — só a resposta ao zero difere: aqui a
+// duração ausente vira string vazia (o subtítulo do resultado simplesmente
+// não mostra nada), não "0:00".
 function fmtDur(seg) {
   const n = Math.max(0, Math.floor(Number(seg) || 0));
-  if (!n) return '';
-  const m = Math.floor(n / 60);
-  return m + ':' + String(n % 60).padStart(2, '0');
+  return n ? fmtTime(n) : '';
 }
 
 // O observador da sentinela de auto-busca. Um só, recriado a cada render — a
@@ -9463,17 +9575,13 @@ function renderSongMenu(modo) {
   // dobrar a lista de destinos: com playback, seis linhas diriam três coisas.
   // Sem playback ele nem aparece — não há o que escolher.
   if (temPlayback) {
-    const seg = document.createElement('li'); seg.className = 'song-menu-seg-row';
-    const wrap = document.createElement('div'); wrap.className = 'fit-seg song-menu-seg';
-    [['full', 'Cantada'], ['playback', 'Playback']].forEach(([v, rot]) => {
-      const b = document.createElement('button');
-      b.className = 'fit-opt' + (songMenuFor.variant === v ? ' active' : '');
-      b.textContent = rot;
-      b.addEventListener('click', () => { songMenuFor.variant = v; renderSongMenu('add'); });
-      wrap.appendChild(b);
-    });
-    seg.appendChild(wrap);
-    songMenuListEl.appendChild(seg);
+    // O MESMO `ytSegRow` das folhas do YouTube — é a função que existe para
+    // este desenho ("escrevê-lo duas vezes era garantir que a segunda
+    // divergisse"), e esta era a segunda cópia.
+    songMenuListEl.appendChild(ytSegRow(
+      [['full', 'Cantada'], ['playback', 'Playback']],
+      songMenuFor.variant,
+      (v) => { songMenuFor.variant = v; renderSongMenu('add'); }));
   }
 
   songMenuListEl.appendChild(songMenuItem(msym(ICON.queue), 'Adicionar à playlist',
@@ -9557,8 +9665,13 @@ function lyricsOnlyIconSvg() {
 // rebaixar o áudio). Regra única usada pela sincronização em massa e pelo
 // download sob demanda.
 async function songVariantsNeeded(coll, s) {
-  const fullRec = s.fileIdFull ? await AVDB.fileGet(s.fileIdFull) : null;
-  const playbackRec = s.fileIdPlayback ? await AVDB.fileGet(s.fileIdPlayback) : null;
+  // As duas leituras em paralelo: são independentes, e em série cada música
+  // pagava duas idas ao IDB uma atrás da outra — multiplicado pela varredura
+  // de um hinário inteiro (ver o laço de `syncCollection`).
+  const [fullRec, playbackRec] = await Promise.all([
+    s.fileIdFull ? AVDB.fileGet(s.fileIdFull) : null,
+    s.fileIdPlayback ? AVDB.fileGet(s.fileIdPlayback) : null,
+  ]);
   // `semAudio`/`semPlayback`: a origem NÃO TEM essa variante (v5.134). Sem essa
   // ressalva a música ficava pendente para sempre — cada sincronização buscava
   // o `music_{id}` dela de novo, só para redescobrir que não há URL, e o álbum
@@ -9581,7 +9694,9 @@ async function songVariantsNeeded(coll, s) {
 // `opts.toast === false` cala o aviso na tela principal — é o que o caminho de
 // TOCAR usa desde a v5.64, porque ali quem anuncia o download é o indicador na
 // miniatura da preview (ver `previewBusy`). Os caminhos de ADICIONAR seguem com
-// o toast: eles não mexem na preview, e sem ele o toque ficaria mudo.
+// o aviso (`avisar` — o flash é no-op desde que o toast saiu): eles não mexem
+// na preview, e sem ele o toque ficaria mudo. A faixa é transitória e some
+// sozinha, então ninguém precisa "fechá-la" no fim do download.
 async function ensureSongDownloaded(coll, s, opts) {
   const { needsFull, needsPlayback } = await songVariantsNeeded(coll, s);
   if (!needsFull && !needsPlayback) return;
@@ -9597,7 +9712,7 @@ async function ensureSongDownloaded(coll, s, opts) {
     const key = coll.id + ':' + s.id_music;
     if (songDownloadInFlight.has(key)) { await songDownloadInFlight.get(key); return; }
     const p = withBgWork(async () => {
-      if (!opts || opts.toast !== false) flash('Baixando "' + s.name + '"…', true);
+      if (!opts || opts.toast !== false) avisar('Baixando "' + s.name + '"…');
       await downloadCollectionSong(coll, s);
       await AVDB.setState('coll:' + coll.id, collState[coll.id]);
       refreshCollectionsIfVisible();
@@ -9783,14 +9898,13 @@ async function playSongVariant(coll, s, variant) {
   closeHymnSearch();
   const bg = previewBusy('Baixando', songLabel(coll, s));
   try {
-    // Dois avisos para o mesmo download é ruído: com o indicador na preview, o
-    // toast sai de cena.
+    // Dois avisos para o mesmo download é ruído: com o indicador na preview, a
+    // faixa de aviso sai de cena.
     const id = await resolveSongMediaId(coll, s, variant, { toast: !bg.visivel });
     if (!id) { avisar('Não foi possível tocar (sem internet para baixar)', 'erro'); return; }
     const rec = await AVDB.getMedia(id);
     if (!rec) { avisar('Erro ao carregar mídia', 'erro'); return; }
     await replacePlaylistWith(rec);
-    dismissFlash();   // fecha o toast "Baixando…" sticky que ensureSongDownloaded pode ter deixado
     await send(id);
   } finally {
     bg.soltar();
@@ -9800,7 +9914,7 @@ async function playSongVariant(coll, s, variant) {
 // Os três caminhos de ADICIONAR passam `toast: false` pelo mesmo motivo que o
 // de tocar: quem anuncia o download é o indicador — aqui, a miniatura da linha
 // da música (`setSongRowBusy`), que fica à vista porque o acervo continua
-// aberto de propósito. O toast que sobra é o do RESULTADO ("Adicionado à
+// aberto de propósito. O aviso que sobra é o do RESULTADO ("Adicionado à
 // playlist"), que é outra informação.
 async function addSongVariant(coll, s, variant, btn) {
   const id = await resolveSongMediaId(coll, s, variant, { toast: false });
@@ -9824,7 +9938,6 @@ async function addSongVariant(coll, s, variant, btn) {
 async function addSongToFavorites(coll, s, variant, btn) {
   const id = await resolveSongMediaId(coll, s, variant, { toast: false });
   if (!id) { avisar('Não foi possível adicionar (sem internet para baixar)', 'erro'); return; }
-  dismissFlash();
   await adicionarNaLista('favs', id, songLabel(coll, s), btn);
   renderLibrary();
 }
@@ -10557,6 +10670,11 @@ async function deckImportar(origem, nome, opts) {
         return null;
       }
       primeira = r.pages[0];
+      // TRUNCADA PELO SHELL (`truncado`, campo que o shell novo passa a
+      // enviar): um deck cortado sem aviso leria como "o arquivo era assim", e
+      // o operador só descobriria na frente da congregação, na página que não
+      // existe. Campo ausente (shell antigo) = sem aviso, como sempre.
+      if (r.truncado) avisar('Apresentação truncada em ' + r.pages.length + ' páginas', 'erro');
       // Uma página de cada vez: as imagens já estão no cache do aparelho, e
       // buscar as dezenas de uma vez só encheria a memória sem ganhar tempo.
       const pages = [];
@@ -10880,9 +10998,13 @@ async function importShare(pending) {
       name: name.replace(/\.[^.]+$/, ''), type, kind, thumb, height, seconds,
       list: destinoDoShare(),
     });
-    if (rec && !primeiro) primeiro = rec.id;
-    if (rec) lote.push(rec.id);
-    ok++;
+    // Só conta o que DE FATO entrou: um `addMedia` que falha com `ok++` fora
+    // da guarda fazia o share terminar como sucesso sem item nenhum.
+    if (rec) {
+      if (!primeiro) primeiro = rec.id;
+      lote.push(rec.id);
+      ok++;
+    }
   }
   if (ok > 0) added = true;
 
@@ -10962,31 +11084,40 @@ async function focarImportado(id) {
   if (appMode === 'simple' && id) await send(id);
 }
 
-async function checkPendingShare() {
-  // App nativo: o share chega por intent (AVNative.onShare), não pelo
-  // `pending-share` que o service worker gravava — o intent-filter entrega o
-  // conteúdo direto, sem depender de um POST interceptado.
-  if (window.__NATIVE__) {
-    AVNative.onShare((share) => { importShare(share); });
-    return;
-  }
-  const pending = await AVDB.getState('pending-share');
-  if (!pending) return;
-  await AVDB.setState('pending-share', null);
-  await importShare(pending);
+// (A leitura do estado `pending-share` saiu: quem o escrevia era o service
+// worker dos dois PWAs, removido do bundle na v5.48 — era uma chave que
+// ninguém escreve desde então.)
+function registrarShareNativo() {
+  // App nativo: o share chega por intent (AVNative.onShare) — o intent-filter
+  // entrega o conteúdo direto, sem depender de um POST interceptado.
+  if (!window.__NATIVE__) return;
+  AVNative.onShare((share) => {
+    importShare(share).catch((e) => {
+      // O intent já foi CONSUMIDO no Kotlin: não existe segunda entrega. Sem
+      // este catch a rejeição virava unhandled rejection no console e o
+      // compartilhamento evaporava sem nenhum rastro visível.
+      diagC('share falhou: ' + ((e && e.message) || e));
+      avisar('Não deu para importar o compartilhamento', 'erro');
+    });
+  });
 }
 
 // ===== feedback rápido =====
 // O sistema de alerta FLUTUANTE (toast) foi removido: as informações agora são
 // transmitidas pela própria interface de design (estados dos botões, contadores,
 // listas e — para a sincronização — o texto no card da coleção, ver
-// setCollStatus/renderCollectionCard). flash()/dismissFlash() viraram no-ops para
-// não precisar mexer em cada um dos ~25 pontos de chamada espalhados pelo
-// arquivo; qualquer mensagem que antes ia pro toast simplesmente não aparece
-// mais. Feedback relevante que precisa continuar visível foi migrado para a
-// própria UI no ponto de origem (ex: a sincronização do Hinário, abaixo).
+// setCollStatus/renderCollectionCard). flash() virou no-op para não precisar
+// mexer nos pontos de chamada LEGADOS que restam espalhados pelo arquivo;
+// qualquer mensagem que antes ia pro toast simplesmente não aparece mais.
+// (Os pontos em que o aviso era o ÚNICO canal migraram para `avisar()` na
+// auditoria de agosto/2026 — OTA pelo rótulo de versão, desfecho do share,
+// sincronização de pastas e o "Baixando…" do acervo.)
+//
+// FEEDBACK NOVO NÃO USA flash(): quando o aviso é o único canal (nenhum botão,
+// linha ou card na tela para responder), o canal é `avisar()` — a faixa de
+// aviso logo abaixo, que se dispensa sozinha. Chamar flash() em código novo é
+// escrever uma mensagem que ninguém verá.
 function flash() { /* no-op: alerta flutuante removido (ver comentário acima) */ }
-function dismissFlash() { /* no-op: alerta flutuante removido */ }
 
 // ===== Aviso de salvamento (v5.104) =====
 // A exceção à regra acima, e ela tem um limite claro: **só para o que o
@@ -11522,9 +11653,21 @@ const appDialogCancelEl = document.getElementById('appDialogCancel');
 let appDialogResolve = null;
 
 function closeAppDialog(result) {
+  document.removeEventListener('keydown', onAppDialogKey);
   appDialogEl.classList.remove('open');
   const r = appDialogResolve; appDialogResolve = null;
   if (r) r(result);
+}
+// Esc cancela TAMBÉM o confirm. O comentário de `appConfirm` sempre prometeu
+// isso, mas o único handler de Escape morava no keydown do INPUT — que só
+// existe (e só tem foco) no prompt. O handler vive no documento e só está
+// registrado enquanto o diálogo está aberto; resolve exatamente como o botão
+// Cancelar do tipo em cena (false no confirm, null no prompt). O Esc vindo do
+// input não resolve duas vezes: o `closeAppDialog` de lá remove este listener
+// antes de o evento borbulhar até o documento.
+function onAppDialogKey(e) {
+  if (e.key !== 'Escape') return;
+  closeAppDialog(appDialogInputEl.hidden ? false : null);
 }
 function openAppDialog(opts) {
   const { title, message, okText, cancelText, input, value, placeholder } = opts || {};
@@ -11550,6 +11693,7 @@ function openAppDialog(opts) {
       appDialogInputEl.hidden = true;
     }
     appDialogEl.classList.add('open');
+    document.addEventListener('keydown', onAppDialogKey);
     if (input) setTimeout(() => { appDialogInputEl.focus(); appDialogInputEl.select(); }, 60);
   });
 }
@@ -11575,7 +11719,8 @@ async function guardarPacote() {
   // para um pacote que contém outro pacote — e dois que se contenham
   // mutuamente fariam `abrirPacote` chamar `send` em laço, travando o app. Um
   // pacote é uma FILA de reprodução; cena de roteiro se põe no Cronograma.
-  const ids = plItems.filter((m) => !isCue(m)).map((m) => m.id);
+  const midias = plItems.filter((m) => !isCue(m));
+  const ids = midias.map((m) => m.id);
   // Este é o único caso em que o pulso NÃO basta: ele diz "não deu", e aqui o
   // que o operador precisa saber é POR QUE (a fila tem menos de dois itens).
   // Motivo não cabe num botão — então os dois sinais saem juntos.
@@ -11584,7 +11729,10 @@ async function guardarPacote() {
     avisar('Monte a fila com dois ou mais itens antes de guardar', 'erro');
     return;
   }
-  const sugestao = plItems[0].name + ' +' + (ids.length - 1);
+  // O nome sai do primeiro item QUE ENTRA no pacote (`midias[0]`), não de
+  // `plItems[0]`: com uma cena de roteiro no topo da fila, a sugestão citava
+  // um item que o filtro acabara de deixar de fora.
+  const sugestao = midias[0].name + ' +' + (ids.length - 1);
   const nome = await appPrompt({
     title: 'Guardar pacote', message: 'Nome do pacote:', value: sugestao, okText: 'Guardar',
   });
@@ -11863,12 +12011,12 @@ function applyVolume(v) {
 // porque `syncFader` é chamada para cada fader e só o que está sendo arrastado
 // deve escapar da reescrita do valor.
 let volSeekingEl = null;
-[volSliderEl].forEach((el) => {
-  el.addEventListener('pointerdown', () => { volSeekingEl = el; bumpVolPeek(); });
-  el.addEventListener('pointerup', () => { volSeekingEl = null; });
-  el.addEventListener('input', () => { applyVolume(parseFloat(el.value) / 100); bumpVolPeek(); });
-  el.addEventListener('change', () => { volSeekingEl = null; persistCurrent(); });
-});
+// (Era um `[volSliderEl].forEach` — array de um elemento só, resto de quando
+// havia mais de um fader.)
+volSliderEl.addEventListener('pointerdown', () => { volSeekingEl = volSliderEl; bumpVolPeek(); });
+volSliderEl.addEventListener('pointerup', () => { volSeekingEl = null; });
+volSliderEl.addEventListener('input', () => { applyVolume(parseFloat(volSliderEl.value) / 100); bumpVolPeek(); });
+volSliderEl.addEventListener('change', () => { volSeekingEl = null; persistCurrent(); });
 
 
 // ===== Modos de uso: simplificado × sonoplasta completo =====
@@ -12553,7 +12701,10 @@ const TAB_SWIPE_RATIO = 1.5;  // quanto o eixo X precisa dominar o Y
 selCancelEl.addEventListener('click', exitSelection);
 selPlaylistEl.addEventListener('click', addSelectedToPlaylist);
 selFavEl.addEventListener('click', favoritarSelecionados);
-selFolderEl.addEventListener('click', openFolderPicker);
+// Arrow de propósito: `openFolderPicker(ids)` interpreta o 1º argumento, e
+// passar a referência crua entregaria o MouseEvent como `ids` — funcionava por
+// acidente (o evento não tem `.length`).
+selFolderEl.addEventListener('click', () => openFolderPicker());
 // A gaveta de qualquer aba: é o que faz dos Favoritos um acesso rápido de
 // verdade, e não uma sub-tela no fim do Cronograma.
 favHeadBtnEl.addEventListener('click', openFavorites);
@@ -12988,6 +13139,13 @@ AVDB.onCommand((msg) => {
       resyncPreviewToDisplay(playing, msg.currentTime);
     }
   } else if (msg.type === 'media-ended') {
+    // A GUARDA DE mediaId que o comentário da preview (`onEnded`) sempre
+    // prometeu: o Display manda o id do que TERMINOU (stage e YouTube — ver
+    // display.js), e um `media-ended` atrasado do item anterior, chegando
+    // depois de um load novo, dispararia `autoAdvance` por cima do item que o
+    // operador acabou de escolher — pulando uma faixa. Sem id dos dois lados
+    // não há o que comparar e vale o comportamento de sempre.
+    if (msg.mediaId && currentId && msg.mediaId !== currentId) return;
     displayStatusAt = Date.now();
     if (isYoutube) ytEnded = true;
     setPlaying(false);
@@ -13008,11 +13166,11 @@ AVDB.onCommand((msg) => {
 // No app nativo ele já era desligado de propósito (os assets vêm do APK e a
 // atualização é o OTA do `WebUpdater`), então nada se perde nos dois contextos.
 
-// Um ÚNICO handler ao retomar do 2º plano (antes eram dois listeners
-// separados): busca a versão nova do service worker E atualiza os índices
-// leves das coleções (índices dos hinários + catálogo de álbuns — só
-// metadados, sem áudio — barato pra rodar a cada retomada, mantém a busca e os
-// cards em dia).
+// Um ÚNICO handler ao retomar do 2º plano: atualiza os índices leves das
+// coleções (índices dos hinários + catálogo de álbuns — só metadados, sem
+// áudio — barato pra rodar a cada retomada, mantém a busca e os cards em
+// dia). (A metade que "buscava a versão nova do service worker" saiu junto
+// com o SW, v5.48 — ver o bloco acima.)
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState !== 'visible') {
     // App em segundo plano: o botão de falar não está mais sob o dedo, então
@@ -13038,8 +13196,8 @@ document.addEventListener('visibilitychange', () => {
   setAppMode(appMode);
   // Wallpaper escolhido pelo operador (a preview espelha o telão).
   await applyPvWallpaper();
-  // processa share pendente (Web Share Target via SW)
-  await checkPendingShare();
+  // registra a chegada de compartilhamentos (intent nativo; no navegador é no-op)
+  registrarShareNativo();
   // Índices das coleções em segundo plano (fire-and-forget): não atrasa a
   // abertura do app, só deixa a busca/os cards prontos assim que a resposta chegar.
   autoRefreshCollections();
@@ -13130,7 +13288,12 @@ async function ofertarAtualizacao() {
   // (ronda, retomada, rede voltando), e este cutucão é a terceira rede. Sem
   // `forcar`: o piso do shell é que decide se vale uma requisição, senão uma
   // enquete de um minuto viraria uma consulta à rede por minuto, para sempre.
-  try { AVNative.otaCheck(false); } catch (_) { /* shell antigo */ }
+  // Guarda própria (>= 31, e não o >= 29 do bloco): `otaCheck` só existe no
+  // shell 31 — nos shells 29-30 a chamada lançava e era engolida a cada
+  // minuto; o resto do fluxo (otaPending/otaApply, shell 29) continua valendo.
+  if ((window.__SHELL_VERSION__ | 0) >= 31) {
+    try { AVNative.otaCheck(false); } catch (_) { /* rede/ponte */ }
+  }
   let versao = '';
   try { versao = (await AVNative.otaPending()) || ''; } catch (_) { return; }
   otaPendenteVersao = versao;

@@ -2,8 +2,11 @@
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-  <meta name="theme-color" content="#000000">
+  <!-- Viewport mínimo: `maximum-scale`/`user-scalable`/`viewport-fit` (e o
+       `theme-color` que morava aqui) eram herança do Display-PWA instalável —
+       numa `Presentation` de TV não há gesto de zoom, barra de endereço nem
+       notch para eles servirem. -->
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Display AV</title>
   <!-- Sem manifest/ícones de PWA: o Display não é mais um app instalável a
        parte, e sim a `Presentation` que o shell cria na TV (ver CLAUDE.md).

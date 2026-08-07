@@ -129,7 +129,13 @@ object SlideDeck {
                     ctx.contentResolver.openFileDescriptor(uri, "r")
                 }
                 u.scheme == "https" -> {
-                    val baixado = baixar(ctx, origem) ?: return erro("download falhou")
+                    // [baixar] LANÇA com o motivo (código HTTP, teto, rede) em
+                    // vez de devolver `null` mudo: "HTTP 403 do Google" e uma
+                    // queda de rede são diagnósticos OPOSTOS — um manda
+                    // compartilhar o link, o outro manda olhar o Wi-Fi — e o
+                    // `null` os igualava em "download falhou". O `catch` de
+                    // baixo já leva a mensagem ao `{ erro }`.
+                    val baixado = baixar(ctx, origem)
                     temporario = baixado
                     ParcelFileDescriptor.open(baixado, ParcelFileDescriptor.MODE_READ_ONLY)
                 }
@@ -149,9 +155,17 @@ object SlideDeck {
                         urls.put(SafRegistry.urlFor(Uri.fromFile(arquivo)))
                         onProgresso(i + 1, total)
                     }
-                    JSONObject()
+                    val resultado = JSONObject()
                         .put("name", nomeSugerido?.ifBlank { null } ?: "Apresentação")
                         .put("pages", urls)
+                    // O CORTE DO [MAX_PAGINAS] É DITO, nunca silencioso: sem o
+                    // campo, um PDF de 400 páginas virava 300 e a diferença só
+                    // aparecia projetando. O lado web checa a PRESENÇA do campo
+                    // (ausente = sem corte), então um shell antigo que não o
+                    // manda continua degradando para o comportamento de sempre
+                    // — é o que dispensa bump de versão.
+                    if (pdf.pageCount > MAX_PAGINAS) resultado.put("truncado", true)
+                    resultado
                 }
             }
         } catch (e: Exception) {
@@ -199,7 +213,24 @@ object SlideDeck {
         return true
     }
 
-    private fun baixar(ctx: Context, link: String): File? {
+    /**
+     * Teto do PDF baixado. Como o `TETO_PEDACO` do [StreamProxy], é TRAVA e não
+     * economia: sem ele, um link que responde algo gigante (ou infinito) enche
+     * o cache do processo que também hospeda os dois WebViews e a Presentation
+     * — e falha sem dizer por quê. Um roteiro de culto exportado em PDF não
+     * chega perto disto.
+     */
+    private const val TETO_PDF = 300L * 1024 * 1024
+
+    /**
+     * Baixa o PDF e devolve o arquivo — ou LANÇA, com o motivo na mensagem.
+     *
+     * Lançar em vez de devolver `null` é o contrato de [paginas]: o motivo tem
+     * de chegar ao `{ erro }` do operador, e um `null` transforma "HTTP 403 do
+     * Google" (link sem permissão) e "a rede caiu" na mesma frase — foi o par
+     * indistinguível que o KDoc de [paginas] existe para condenar.
+     */
+    private fun baixar(ctx: Context, link: String): File {
         val conn = (URL(link).openConnection() as HttpURLConnection).apply {
             connectTimeout = CONECTA_MS
             readTimeout = LE_MS
@@ -207,18 +238,39 @@ object SlideDeck {
             setRequestProperty("User-Agent", UA)
         }
         try {
-            if (conn.responseCode !in 200..299) {
-                Log.w(TAG, "exportação recusada (HTTP ${conn.responseCode}): $link")
-                return null
+            val codigo = conn.responseCode
+            if (codigo !in 200..299) {
+                Log.w(TAG, "exportação recusada (HTTP $codigo): $link")
+                throw java.io.IOException("HTTP $codigo do Google")
             }
-            val destino = File(pasta(ctx, "baixado"), "slides.pdf")
-            conn.inputStream.use { entrada ->
-                FileOutputStream(destino).use { saida -> entrada.copyTo(saida) }
+            // Nome único DENTRO da raiz (não uma subpasta fixa "baixado"): duas
+            // importações próximas não podem disputar o mesmo caminho, e o
+            // `finally` de [paginas] apaga exatamente este arquivo.
+            val destino = File.createTempFile("baixado-", ".pdf", raiz(ctx))
+            try {
+                conn.inputStream.use { entrada ->
+                    FileOutputStream(destino).use { saida ->
+                        val buf = ByteArray(64 * 1024)
+                        var soma = 0L
+                        while (true) {
+                            val n = entrada.read(buf)
+                            if (n < 0) break
+                            soma += n
+                            if (soma > TETO_PDF) {
+                                throw java.io.IOException(
+                                    "PDF acima de ${TETO_PDF / (1024 * 1024)} MB",
+                                )
+                            }
+                            saida.write(buf, 0, n)
+                        }
+                    }
+                }
+                if (destino.length() <= 0L) throw java.io.IOException("PDF vazio do Google")
+                return destino
+            } catch (e: Exception) {
+                destino.delete()
+                throw e
             }
-            return if (destino.length() > 0L) destino else null.also { destino.delete() }
-        } catch (e: Exception) {
-            Log.w(TAG, "falha ao baixar $link", e)
-            return null
         } finally {
             conn.disconnect()
         }
@@ -243,9 +295,26 @@ object SlideDeck {
 
     private fun raiz(ctx: Context) = File(ctx.cacheDir, "slides").apply { mkdirs() }
 
-    /** Uma subpasta por apresentação: o descarte apaga a pasta inteira. */
+    /**
+     * Sufixo que torna cada invocação uma subpasta NOVA. Parte do relógio para
+     * duas execuções do app não reaproveitarem o mesmo nome com PNGs velhos
+     * dentro; o incremento garante a unicidade dentro do processo.
+     */
+    private val seq = java.util.concurrent.atomic.AtomicLong(System.currentTimeMillis())
+
+    /**
+     * Uma subpasta NOVA por invocação — o sufixo é monotônico, nunca reusado.
+     *
+     * NOVA, e não "a da apresentação" com `deleteRecursively()` na entrada:
+     * reimportar a MESMA apresentação apagava os PNGs sob os pés dos `fetch`
+     * em voo da importação anterior — páginas que somem no meio da cópia, sem
+     * erro que aponte para cá. Quem limpa continua sendo o [descartar]
+     * (`deckDiscard`), que apaga a subpasta inteira depois que o lado web
+     * copiou os bytes; o que ele não pegar mora no cache, que o Android recolhe
+     * sozinho sob pressão.
+     */
     private fun pasta(ctx: Context, chave: String) =
-        File(raiz(ctx), chave).apply { deleteRecursively(); mkdirs() }
+        File(raiz(ctx), chave + "-" + seq.incrementAndGet()).apply { mkdirs() }
 
     private fun chaveDe(origem: String): String =
         origem.takeLast(24).replace(Regex("[^A-Za-z0-9_-]"), "_")

@@ -73,13 +73,6 @@ object WebViewFactory {
             .build()
 
     /**
-     * @param onRendererGone chamado quando o processo do renderer morre. O
-     *   WebView já foi desligado do barramento e destruído; cabe ao dono
-     *   construir um novo no lugar. Sem callback, a página simplesmente some
-     *   — mas o app continua vivo, que é o ponto.
-     */
-    @SuppressLint("SetJavaScriptEnabled")
-    /**
      * WebView que NUNCA se declara oculto ao Chromium.
      *
      * O Chromium marca a página como `hidden` quando a janela da View some — e
@@ -127,7 +120,12 @@ object WebViewFactory {
 
     /**
      * @param keepVisible ver [KeepVisibleWebView] — só o telão usa.
+     * @param onRendererGone chamado quando o processo do renderer morre. O
+     *   WebView já foi desligado do barramento e destruído; cabe ao dono
+     *   construir um novo no lugar. Sem callback, a página simplesmente some
+     *   — mas o app continua vivo, que é o ponto.
      */
+    @SuppressLint("SetJavaScriptEnabled")
     fun create(
         ctx: Context,
         loader: WebViewAssetLoader,
@@ -155,7 +153,6 @@ object WebViewFactory {
         web.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
-            databaseEnabled = true
 
             // Autoplay com som liberado: no APK não existe a política de
             // gesto do navegador, então o Display toca sozinho ao receber
@@ -251,13 +248,22 @@ object WebViewFactory {
         return web
     }
 
-    /** Resposta 404 curta, usada quando um recurso do dispositivo sumiu. */
+    /**
+     * Resposta 404 curta, usada quando um recurso do dispositivo sumiu.
+     *
+     * O corpo tem UM byte, não zero — é o corolário da invariante 8: o próprio
+     * WebView aplica o `Range` da requisição sobre o que o app devolver, e um
+     * corpo VAZIO é reprovado pelo `ComputeBounds` sempre que a faixa pedida
+     * começa fora do zero — o erro inteiro evapora e no lugar do 404 chega só
+     * um erro de rede sem status. Com um byte, há o que recortar e o status
+     * sobrevive à requisição com faixa.
+     */
     fun notFound(): WebResourceResponse = WebResourceResponse(
         "text/plain",
         "utf-8",
         404,
         "Not Found",
         emptyMap(),
-        ByteArrayInputStream(ByteArray(0)),
+        ByteArrayInputStream(ByteArray(1)),
     )
 }

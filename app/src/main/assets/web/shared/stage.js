@@ -148,6 +148,13 @@
     let deckIdx = 0;      // página em cena da apresentação (kind 'deck')
     let ended = false;
     let loadSeq = 0;
+    // Quantos load() estão EM VOO agora. Existe para o handler de `ended`: o
+    // fim natural do vídeo não é uma ação do operador e não pode cancelar um
+    // load que ele pediu (ver o comentário do próprio handler, lá embaixo).
+    // Contador, e não booleano, porque um load pode começar enquanto outro
+    // ainda espera o fade/getMedia — o segundo bump do loadSeq descarta o
+    // primeiro, mas a promise dele só se resolve depois.
+    let loadsEmVoo = 0;
     let viewSeq = 0; // troca de view (cortina) — independente do loadSeq
     // Transições de entrada/saída (config vem do Controle via comando 'fade').
     let fadeIn = false;
@@ -259,11 +266,10 @@
     // Elemento de mídia atualmente visível (alvo do fade de CONTEÚDO, ao
     // trocar de item) — só existe quando a cortina não está cobrindo; se
     // estiver cobrindo, ninguém vê nada, então não há o que esmaecer.
+    // O mapeamento kind→elemento é o de `elDe` (fonte única, mais abaixo):
+    // duplicá-lo aqui, como era, divergiria no primeiro kind novo.
     function visibleEl() {
-      if (!current || coveredNow) return null;
-      if (current.kind === 'image' || current.kind === 'deck') return img;
-      if (current.kind === 'video' || current.kind === 'audio') return video;
-      return null;
+      return coveredNow ? null : elDe(current);
     }
 
     function clearFadeStyle(el) {
@@ -327,8 +333,8 @@
     }
 
     // O elemento que ESTE registro ocupa em cena. Um só lugar decidindo isso:
-    // a mesma pergunta era feita à mão em `visibleEl`, no caminho da cortina e
-    // agora na entrada do conteúdo.
+    // `visibleEl`, o caminho da cortina e a entrada do conteúdo perguntam
+    // todos aqui (a cópia à mão que `visibleEl` carregava já foi absorvida).
     function elDe(rec) {
       if (!rec) return null;
       if (rec.kind === 'image' || rec.kind === 'deck') return img;
@@ -564,7 +570,20 @@
     // entra em cena. Vem no mesmo comando que a mídia pelo motivo de sempre —
     // um comando separado logo depois agiria sobre o item ANTERIOR, porque este
     // `load` é assíncrono (ver a nota do `startAt` no CLAUDE.md).
+    // O invólucro que conta os loads EM VOO. O contador desce em TODAS as
+    // saídas (daí o try/finally, que cobre os returns antecipados e um
+    // getMedia que rejeite): um load "esquecido" no contador silenciaria o
+    // fim natural — e com ele o avanço de playlist — até a página recarregar.
     async function load(id, v, m, vol, startAt, autoplay, page) {
+      loadsEmVoo++;
+      try {
+        return await loadInner(id, v, m, vol, startAt, autoplay, page);
+      } finally {
+        loadsEmVoo--;
+      }
+    }
+
+    async function loadInner(id, v, m, vol, startAt, autoplay, page) {
       if (v !== undefined) view = v;
       if (m !== undefined) muted = m;
       if (typeof vol === 'number') volume = vol;
@@ -840,6 +859,23 @@
     // onEnded, logo abaixo) chega quase junto e assume via loadSeq antes
     // desse prazo — a cortina não pisca entre os itens da playlist.
     video.addEventListener('ended', async () => {
+      // UM LOAD EM VOO GANHA DO FIM NATURAL. O `++loadSeq` abaixo é uma AÇÃO
+      // EXCLUSIVA — e o contrato do loadSeq (ver setViewFaded) é que só ações
+      // do OPERADOR (load/clear) cancelam um load em curso. O `ended` não é
+      // uma ação do operador: é o vídeo velho acabando sozinho, e ele acabava
+      // de vencer justamente o caso real — o operador toca o próximo hino nos
+      // últimos ~600 ms do vídeo atual, o vídeo termina durante o fade de
+      // saída do load novo, o bump daqui descartava esse load em silêncio no
+      // checkpoint seguinte e, sem repeat, o item pedido nunca entrava.
+      // Retornar cedo deixa o load em voo fazer a transição — ele já vai
+      // trocar a fonte, resetar `ended` e decidir a cortina.
+      //
+      // O avanço automático de playlist NÃO passa por aqui: no instante do
+      // `ended` dele não há load nenhum em voo (`loadsEmVoo == 0`) — o load do
+      // avanço só nasce DEPOIS, quando o `media-ended` chega ao Controle — e
+      // a coreografia de sempre (ended dispara → Controle manda load → load
+      // assume via loadSeq) segue intacta.
+      if (loadsEmVoo > 0) return;
       const seq = ++loadSeq;
       await runFadeOut(false);
       if (seq !== loadSeq) return;
@@ -861,7 +897,15 @@
     // mostrar. Cada `load` o repõe antes de a fonte nova entrar.
     video.addEventListener('loadeddata', () => video.removeAttribute('poster'));
 
-    if (opts.onEnded) video.addEventListener('ended', opts.onEnded);
+    // A MESMA guarda do handler interno (acima): com um load em voo, o fim
+    // natural é do item que está SAINDO — anunciá-lo (`media-ended`) faria o
+    // avanço automático do Controle disparar por cima do load que o operador
+    // acabou de pedir, o mesmo defeito visto do outro lado do barramento. No
+    // avanço normal `loadsEmVoo == 0` e o aviso sai como sempre.
+    if (opts.onEnded) video.addEventListener('ended', (e) => {
+      if (loadsEmVoo > 0) return;
+      opts.onEnded(e);
+    });
     if (opts.onTime) {
       ['timeupdate', 'loadedmetadata', 'play', 'pause', 'ended', 'volumechange'].forEach((ev) =>
         video.addEventListener(ev, opts.onTime));
@@ -875,7 +919,6 @@
       setForceMuted,
       coverIn, coverOut, instantCover, fadeOutToBlack,
       getCurrent: () => current,
-      getPage: () => deckIdx,
       getView: () => view,
       isPlaying: isPlayingNow,
       // Chegou ao fim natural e está aguardando replay. As camadas paralelas
@@ -894,8 +937,9 @@
       getDuration: () => video.duration,
       getMuted: () => (forceMuted ? muted : video.muted),
       getVolume: () => volume,
-      getFit: () => fit,
-      isForceMuted: () => forceMuted,
+      // `getPage`/`getFit`/`isForceMuted` saíram da superfície: nunca tiveram
+      // chamador fora daqui (grep na base inteira + tools/), e superfície
+      // pública sem uso é contrato que envelhece sem ninguém vigiar.
     };
   }
 
@@ -1027,7 +1071,9 @@
   createStage.CHRONO_TICK_MS = CHRONO_TICK_MS;
   createStage.chronoElapsed = chronoElapsed;
   createStage.chronoReading = chronoReading;
-  createStage.formatSpan = formatSpan;
+  // `formatSpan` deixou de ser exposto: todo uso é interno (chronoReading) —
+  // grep na base inteira e em tools/. `chronoElapsed` fica: o Controle o chama
+  // ao pausar o cronômetro (acumular o baseMs).
   createStage.DRAW_FRAME_MS = DRAW_FRAME_MS;
   createStage.drawReading = drawReading;
 })(this);

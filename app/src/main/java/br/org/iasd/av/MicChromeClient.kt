@@ -3,6 +3,7 @@ package br.org.iasd.av
 import android.content.Context
 import android.content.pm.PackageManager
 import android.util.Log
+import android.webkit.ConsoleMessage
 import android.webkit.PermissionRequest
 import android.webkit.WebChromeClient
 
@@ -53,6 +54,20 @@ class MicChromeClient(private val ctx: Context) : WebChromeClient() {
             return
         }
         request.grant(wanted.toTypedArray())
+    }
+
+    /**
+     * Console do TELÃO no logcat — o mesmo formato e a MESMA tag do
+     * `ControleChromeClient`, para um único filtro pegar os dois WebViews.
+     *
+     * O telão era o WebView com MENOS diagnóstico do app, e é o pior para isso:
+     * roda na frente da congregação, carrega script de terceiro por design e é
+     * o único que o watchdog de boot do OTA não valida. Um erro de JS ali
+     * sumia sem rastro nenhum — só visível ligando remote debugging.
+     */
+    override fun onConsoleMessage(msg: ConsoleMessage): Boolean {
+        Log.d(TAG, "[web] ${msg.message()} (${msg.sourceId()}:${msg.lineNumber()})")
+        return true
     }
 
     companion object {
