@@ -122,6 +122,13 @@ jobs:
           # botão de baixar ao lado de um chip dizendo "Completo offline". Conta
           # errada não estoura em lugar nenhum: ela só mostra o número errado.
           PW_CHROMIUM="" node tools/acervo.test.mjs
+          # E O QUE A PONTE DE FATO ENTREGA. `native.js` REMONTA campo a campo
+          # os objetos que manda ao Kotlin, e um campo esquecido some em
+          # silêncio: do outro lado, `optBoolean`/`optLong` leem ausente como
+          # `false`/`0`, que são valores legítimos. Já custou duas vezes —
+          # `slideLabel` (v5.97→v5.102) e `bytes`, que nunca chegou a viajar
+          # desde a versão que o criou.
+          PW_CHROMIUM="" node tools/ponte.test.mjs
 
       - name: Empacotar a base web
         run: |

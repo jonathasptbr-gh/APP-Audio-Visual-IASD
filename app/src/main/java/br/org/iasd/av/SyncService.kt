@@ -429,7 +429,14 @@ class SyncService : Service() {
             } else {
                 "${p.done} de ${p.total}"
             }
-            val contagem = quanto + (if (cauda.isNotEmpty()) " · $cauda" else "")
+            // O PERCENTUAL NA FRENTE (v1.61). Ele vinha no fim de uma linha que
+            // já trazia dois tamanhos e um tempo restante, dentro do subtexto —
+            // que é o pedaço que o Android encurta primeiro, e é curto de
+            // qualquer jeito. Ou seja: o número que responde "quanto falta?" em
+            // uma leitura era o primeiro a sumir. Ele é a resposta mais barata
+            // que esta notificação dá; os tamanhos são o detalhe que a
+            // qualifica, não o contrário.
+            val contagem = "$pct% · $quanto" + (if (cauda.isNotEmpty()) " · $cauda" else "")
 
             // A LINHA PRINCIPAL é o nome do que está baixando agora, não o
             // número: "23 de 54" é abstrato, "002. Ó Adorai o Senhor" é o que o
@@ -443,7 +450,9 @@ class SyncService : Service() {
             val atual = p.items.firstOrNull()
             b.setContentTitle(if (p.label.isNotEmpty()) p.label else "Baixando mídias")
                 .setContentText(atual ?: contagem)
-                .setSubText(if (atual != null) "$contagem · $pct%" else "$pct%")
+                // Sem repetir: quando não há nome de item, a linha principal já
+                // É a contagem — e ela começa pelo percentual.
+                .setSubText(if (atual != null) contagem else "$pct%")
                 // EM MILÉSIMOS, e não nas unidades cruas: `setProgress` recebe
                 // `Int`, e um total em bytes passa de 2 GB num vídeo de 1080p —
                 // o estouro faria a barra andar para trás. A resolução de 1/1000

@@ -147,6 +147,16 @@
     entry.resolve(value);
   };
 
+  // Inteiro não-negativo SEM truncar em 32 bits. `x | 0` — o idioma curto que
+  // se usa para isso — passa por um Int32 COM SINAL: qualquer número acima de
+  // 2.147.483.647 vira negativo, e o `Math.max(0, …)` que costuma vir junto o
+  // esconde zerando tudo. Aqui viajam TAMANHOS DE ARQUIVO, e um vídeo de 1080p
+  // do YouTube passa dos 2 GB sem esforço.
+  function inteiro(v) {
+    const n = Math.round(Number(v));
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  }
+
   // `timeoutMs` é OPCIONAL de propósito: `pickFolder` e `requestMic` esperam
   // uma PESSOA (navegar no seletor do SAF, responder ao diálogo de permissão)
   // e não têm prazo razoável — um timeout ali resolveria null com o operador
@@ -466,9 +476,21 @@
       try {
         B.bgProgress(JSON.stringify({
           label: String((p && p.label) || ''),
-          done: Math.max(0, (p && p.done) | 0),
-          total: Math.max(0, (p && p.total) | 0),
-          etaMs: Math.max(0, (p && p.etaMs) | 0),
+          // `inteiro()` e NÃO `| 0` (v5.137). O bitwise trunca para 32 bits com
+          // sinal: um vídeo de 1080p passa dos 2 GB, o valor VIRA NEGATIVO, o
+          // `Math.max(0, …)` o zera e a barra fica parada no começo do download
+          // mais longo que o app faz. O lado Kotlin já lia `Long` justamente
+          // por isso — a truncagem acontecia antes de ele ver o número.
+          done: inteiro(p && p.done),
+          total: inteiro(p && p.total),
+          etaMs: inteiro(p && p.etaMs),
+          // A UNIDADE. Sem este campo o Kotlin lê `optBoolean` como false e
+          // apresenta bytes como se fossem ITENS: "0 de 398458880", que se lê
+          // como quase quatrocentos milhões de músicas. É o mesmo modo de
+          // falhar do `nowPlaying` (ver CLAUDE.md): esta função remonta o
+          // objeto campo a campo, e um campo esquecido some em silêncio.
+          // CAMPO NOVO AQUI = CAMPO NOVO NO OBJETO ACIMA, sempre.
+          bytes: !!(p && p.bytes),
           // O item em destaque agora (nome de música/capítulo/arquivo). Vem
           // como lista por compatibilidade com shells anteriores, mas hoje o
           // lado web manda UM de cada vez, consumindo uma FILA — ver
@@ -479,7 +501,7 @@
           items: (p && Array.isArray(p.items) ? p.items : []).map(String).slice(0, 6),
           // Há quanto tempo nada acontece. Um shell anterior ignora o campo e
           // a notificação simplesmente não distingue travado de lento.
-          idleMs: Math.max(0, (p && p.idleMs) | 0),
+          idleMs: inteiro(p && p.idleMs),
         }));
       } catch (_) { /* ignorado */ }
     },

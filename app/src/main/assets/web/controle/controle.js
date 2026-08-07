@@ -162,7 +162,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.136';
+const WEB_VERSION = '5.137';
 
 // Escrita UMA vez, na carga: o indicador mora no rodapé de Configurações desde
 // a v5.49 e não depende mais de qual aba está aberta (no cabeçalho ele
@@ -8661,6 +8661,18 @@ async function cancelarDownloadYt(r) {
 // redesenho, e uma classe escrita no elemento sumiria no próximo render — com o
 // download ainda correndo. É a mesma razão do `songRowBusy` das músicas.
 const ytEstado = new Map();
+// Existe alguma LINHA na tela mostrando este vídeo? É por ela que todo o
+// retorno do YouTube acontece — o anel de download, o ✓ e o vermelho da falha
+// moram na miniatura do resultado.
+//
+// A pergunta passou a importar na v5.137, quando um link COMPARTILHADO ganhou a
+// mesma folha de escolhas da busca: ali não há busca aberta atrás, então não há
+// miniatura nenhuma para pintar, e um download de minutos terminaria em
+// silêncio absoluto — que é exatamente o que a v5.112 tirou deste caminho.
+function ytLinhaVisivel(id) {
+  return !!id && !!document.querySelector('.yt-result[data-yt="' + CSS.escape(String(id)) + '"]');
+}
+
 function setYtEstado(id, estado, pct) {
   if (estado) ytEstado.set(id, { estado, pct: typeof pct === 'number' ? pct : -1 });
   else ytEstado.delete(id);
@@ -8798,6 +8810,11 @@ function openYtMenu(r) {
 // entregue ao `addMedia`, que continua gravando registro e lista na mesma
 // transação.
 const YT_LISTA = { tocar: 'avulsos', playlist: 'playlist', cronograma: 'imports', favoritos: 'favs' };
+// O nome do destino como se fala dele — para a única situação em que o app
+// precisa DIZER onde o item foi parar (ver `ytLinhaVisivel`).
+const YT_DESTINO_NOME = {
+  playlist: 'na playlist', cronograma: 'no Cronograma', favoritos: 'nos Favoritos',
+};
 
 // Projeta um vídeo do YouTube SEM baixá-lo antes: o shell monta o manifesto das
 // duas faixas adaptativas e o `MediaSource` do lado web as transforma num
@@ -9006,6 +9023,11 @@ async function ytAcao(r, destino, btn, somenteAudio, altura) {
     setYtEstado(r.id, 'erro');
     setTimeout(() => { if ((ytEstado.get(r.id) || {}).estado === 'erro') setYtEstado(r.id, null); }, YT_ERRO_MS);
     pulsar(btn, 'erro');
+    // SEM LINHA NA TELA, o vermelho não tem onde aparecer — é o caso do link
+    // COMPARTILHADO (v5.137), que abre a folha sem busca nenhuma atrás. Aqui a
+    // faixa flutuante é o único canal que resta, e "um download de minutos que
+    // termina em nada" é o silêncio que este app não pode ter.
+    if (!ytLinhaVisivel(r.id)) flash('Não deu para baixar "' + (r.name || 'o vídeo') + '".');
     return;
   }
   setYtEstado(r.id, 'pronto');
@@ -9034,6 +9056,13 @@ async function ytAcao(r, destino, btn, somenteAudio, altura) {
     // o pulso é o feedback no lugar certo. Sem botão visível, silêncio — a
     // miniatura já falou.
     pulsar(btn, jaNaLista ? 'dup' : 'ok');
+    // E o mesmo raciocínio no desfecho BOM. Sem linha na tela e sem botão
+    // visível, os dois canais de sempre estão mudos — e o item pode ter ido
+    // para a playlist ou os Favoritos, que não são a lista à vista. Uma frase
+    // curta dizendo PARA ONDE ele foi é o que fecha o compartilhamento.
+    if (!ytLinhaVisivel(r.id)) {
+      flash((jaNaLista ? 'Já estava ' : 'Adicionado ') + (YT_DESTINO_NOME[destino] || 'na lista') + '.');
+    }
   } else {
     await fixarAvulso(rec.id);
   }
@@ -10611,12 +10640,43 @@ async function fixarAvulso(novos) {
   for (const velho of excedente) await AVDB.listRemove('avulsos', velho);
 }
 
+// Sentinela: o link abriu a FOLHA DE ESCOLHAS em vez de virar registro. Não é
+// erro (`null`) nem item pronto — é uma PERGUNTA na tela, e quem chamou precisa
+// saber, senão a fecha no passo seguinte (ver `importShare`).
+const SHARE_FOLHA = Symbol('folha');
+
 // Devolve o registro criado — quem compartilhou precisa saber QUAL item
 // chegou para poder levar o operador até ele (ver focarImportado).
 async function handleSharedUrl(url, title) {
   if (!url) return null;
   const ytId = extractYouTubeId(url);
   if (ytId) {
+    // NO AVANÇADO, AS MESMAS QUATRO ESCOLHAS DA BUSCA (v5.137).
+    //
+    // Um link compartilhado e um resultado da busca são o MESMO item — um vídeo
+    // do YouTube que o operador quer no app —, e as duas portas davam em
+    // lugares diferentes: a busca PERGUNTA (tocar · playlist · Cronograma ·
+    // Favoritos, mais vídeo/só-áudio e o teto de resolução) e o share DECIDIA
+    // sozinho, sempre vídeo, sempre no Cronograma, sempre no padrão de
+    // qualidade. Quem compartilha um louvor de 40 min para tocar no fundo
+    // recebia 1080p inteiro, sem ter como dizer que só queria o áudio.
+    //
+    // NO SIMPLIFICADO continua sem pergunta, e não por esquecimento: ali não
+    // existe Cronograma nem playlist, o item vai direto ao telão, e uma folha
+    // com destinos que a tela não tem seria pior que folha nenhuma. É a mesma
+    // regra do toque numa música do acervo naquele modo (`simplePlaySong`).
+    if (!simplificado()) {
+      // O `sairDasCamadas()` do `importShare` já rodou: a folha abre sobre o
+      // Cronograma, com todo popup anterior fechado.
+      // O `title` do share é o `EXTRA_SUBJECT` do Android, e nem todo app o
+      // preenche com o TÍTULO: alguns repetem a própria URL ali. Uma folha com
+      // um endereço cru no cabeçalho não diz nada a mais que "vídeo do
+      // YouTube" — e diz pior. O nome definitivo do item vem da extração, de
+      // qualquer jeito (ver `ytBaixarNativo`); isto aqui é só o cabeçalho.
+      const rotulo = (title && !/^https?:\/\//i.test(title.trim())) ? title : 'Vídeo do YouTube';
+      openYtMenu({ id: ytId, url, name: rotulo });
+      return SHARE_FOLHA;
+    }
     // O link vira ARQUIVO — é a via que toca em segundo plano e não depende da
     // rede durante o culto. Falhando (vídeo restrito, shell antigo), cai no
     // item de player de sempre: um link compartilhado nunca se perde.
@@ -10803,16 +10863,25 @@ async function importShare(pending) {
   }
   if (ok > 0) added = true;
 
+  // A FOLHA DE ESCOLHAS É a resposta ao compartilhamento quando ela abre — não
+  // há item ainda, e não pode haver: quem decide o destino é o operador. Sem
+  // esta bandeira o `focarImportado` logo abaixo a fecharia no mesmo instante
+  // (ele passa por `sairDasCamadas`, que fecha todo popup), e a pergunta
+  // piscaria e sumiria.
+  let folhaAberta = false;
   if (pending.url) {
     const rec = await handleSharedUrl(pending.url, pending.title);
-    if (rec && !primeiro) primeiro = rec.id;
-    if (rec) lote.push(rec.id);
+    if (rec === SHARE_FOLHA) folhaAberta = true;
+    else {
+      if (rec && !primeiro) primeiro = rec.id;
+      if (rec) lote.push(rec.id);
+    }
     added = true;
   }
   // Um share traz arquivos OU um link, mas a fixação é uma só de propósito: se
   // um dia vierem os dois, duas chamadas fariam a segunda expulsar a primeira.
   if (simplificado()) await fixarAvulso(lote);
-  if (added) await focarImportado(primeiro);
+  if (added && !folhaAberta) await focarImportado(primeiro);
   if (naoAbriu) await avisarNaoAbriu(naoAbriu);
   return added;
 }
