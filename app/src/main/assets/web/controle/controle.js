@@ -162,7 +162,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.133';
+const WEB_VERSION = '5.134';
 
 // Escrita UMA vez, na carga: o indicador mora no rodapé de Configurações desde
 // a v5.49 e não depende mais de qual aba está aberta (no cabeçalho ele
@@ -497,7 +497,7 @@ async function syncGroup(key, label, colls, opts) {
   if (opts && opts.confirmScale) {
     let songs = 0, est = 0;
     for (const c of colls) {
-      const pend = collSongs(c.id).filter((x) => !x.fileIdFull).length;
+      const pend = faltamNaColecao(c.id);
       songs += pend;
       est += estimatePendingBytes(c);
     }
@@ -543,7 +543,7 @@ async function syncGroup(key, label, colls, opts) {
     // barra a cada álbum daria doze barras curtas em vez de uma que informa
     // quanto falta de verdade.
     let totalPend = 0;
-    for (const coll of colls) totalPend += collSongs(coll.id).filter((x) => !x.fileIdFull).length;
+    for (const coll of colls) totalPend += faltamNaColecao(coll.id);
     let batchDone = 0;
     let semRede = 0;   // álbuns que nem chegaram a baixar (índice/rede falhou)
     const notifId = bgTaskStart(label, Math.max(1, totalPend));
@@ -606,24 +606,32 @@ function setCollStatus(id, text, autoClearMs) {
   }
   refreshCollectionsIfVisible();
 }
-// Peso (bytes) dos arquivos já baixados de uma coleção — somatório dos `size`
-// do catálogo OPFS da pasta da coleção.
+// Peso (bytes) do que uma coleção OCUPA NO APARELHO — medido na pasta OPFS
+// dela, arquivo por arquivo.
 //
-// NÃO chamar durante um render de lista: `filesByFolder` é um `getAll` da index
-// que desserializa TODOS os registros da pasta (com thumbnail e letra) só para
-// somar um campo — e a aba Álbuns tem dezenas a centenas de cards. Somado ao
-// re-render por música baixada, virava N getAll do catálogo por download.
-// O valor é mantido incrementalmente em `downloadCollectionFile` e recalculado
-// só onde é barato e necessário: ao ABRIR o popup de opções e depois de apagar
-// arquivos (exclusão de coleção/registros), onde a conta muda em bloco.
+// Ainda assim não é para chamar de dentro de um render de lista: é IO, e a aba
+// Álbuns tem dezenas a centenas de cards. O valor é mantido incrementalmente em
+// `downloadCollectionFile` e reconferido onde é barato e necessário: ao ABRIR o
+// popup de opções, ao TERMINAR uma sincronização e depois de apagar arquivos
+// (exclusão de coleção/registros), onde a conta muda em bloco.
 async function updateCollBytes(id) {
   try {
-    const recs = await AVDB.filesByFolder(id);
-    const total = recs.reduce((sum, r) => sum + (r.size || 0), 0);
+    // PELO DISCO, não pelo catálogo (v5.134). O catálogo só conhece os ÁUDIOS:
+    // as imagens de fundo da letra são gravadas na mesma pasta OPFS e não viram
+    // registro (elas são referenciadas de dentro dos slides, não são mídia da
+    // biblioteca). Somando o catálogo, portanto, a conta ignorava centenas de MB
+    // num hinário inteiro — e o comentário da medição afirmava justamente o
+    // contrário, que a taxa "amortiza sozinha o que não é áudio". Não
+    // amortizava: esses bytes nunca entraram em conta nenhuma.
+    //
+    // E é MAIS BARATO: perguntar o tamanho de cada arquivo não desserializa
+    // nada, enquanto o `getAll` do catálogo trazia thumbnail e letra inteira de
+    // cada faixa só para somar um campo.
+    const total = await AVDB.opfsFolderSize('folders/' + id);
     const u = ui(id);
     pesoConferido.add(id);
     if (total !== u.bytes) { u.bytes = total; salvarPesos(); refreshCollectionsIfVisible(); }
-  } catch (_) { /* sem catálogo ainda — peso fica 0 */ }
+  } catch (_) { /* sem pasta ainda — peso fica 0 */ }
 }
 
 // O peso medido PERSISTE (v5.93). `collUI` é estado de sessão, e até aqui o
@@ -662,7 +670,15 @@ function salvarPesos() {
 // impede o `refreshCollectionsIfVisible` de dentro dela de virar laço.
 function conferirPesoSeFaltar(id) {
   if (pesoConferido.has(id)) return;
-  if (ui(id).bytes > 0 || countDownloaded(id) === 0) return;
+  // UMA VEZ POR SESSÃO, TENHA ELE PESO OU NÃO (v5.134). Antes a reconferência
+  // só acontecia com o peso ZERADO, e o efeito era que um número errado nunca
+  // se corrigia: o acumulador só sobe (`bytes +=` a cada arquivo), então
+  // qualquer divergência — arquivos apagados por fora, um download contado duas
+  // vezes, as imagens que nunca entraram na conta — ficava gravada para sempre
+  // em `state`, e reaparecia a cada abertura. Com a medida vindo do disco (ver
+  // `updateCollBytes`) a reconferência ficou barata o suficiente para ser a
+  // regra, não a exceção.
+  if (countDownloaded(id) === 0 && ui(id).bytes === 0) return;
   pesoConferido.add(id);
   // UM DE CADA VEZ. Na primeira abertura depois da atualização, todos os álbuns
   // com download entram aqui no mesmo render — e cada recontagem é um `getAll`
@@ -674,9 +690,12 @@ let filaPeso = Promise.resolve();
 // ===== MEDIÇÃO DO PESO DE UM ÁLBUM =====
 // São DUAS perguntas, e só uma delas tem resposta exata:
 //
-//   1. quanto já está NO APARELHO — soma dos `size` do catálogo OPFS da pasta
-//      da coleção. É EXATO, e inclui tudo o que o download traz: os áudios
-//      Cantado e Playback, a capa e as imagens de fundo da letra.
+//   1. quanto já está NO APARELHO — soma do tamanho real dos arquivos na pasta
+//      OPFS da coleção. É EXATO, e inclui tudo o que o download traz: os áudios
+//      Cantado e Playback, a capa e as imagens de fundo da letra. Medir a PASTA,
+//      e não o catálogo, é o que faz essa frase ser verdadeira (v5.134): as
+//      imagens de fundo não viram registro de mídia, então a soma do catálogo
+//      deixava de fora justamente a parte que ninguém consegue estimar.
 //   2. quanto pesa o ÁLBUM INTEIRO — o que falta ainda não veio, então é
 //      ESTIMATIVA. O "~" na tela é parte da informação, não enfeite.
 //
@@ -688,9 +707,12 @@ let filaPeso = Promise.resolve();
 // o app já tem (`duration`, "HH:MM:SS" — ver docs/FONTE-DE-DADOS-LOUVORJA.md).
 //
 // A TAXA é MEDIDA no próprio aparelho: bytes no disco ÷ segundos baixados.
-// Isso amortiza sozinho o que não é áudio (capas e imagens de letra pesam, e
-// as faixas que faltam também trarão as suas) e acompanha o bitrate real do
-// acervo, em vez de fixar um número que envelhece.
+// Isso amortiza sozinho o que não é áudio (capas e imagens de letra pesam, e as
+// faixas que faltam também trarão as suas) e acompanha o bitrate real do
+// acervo, em vez de fixar um número que envelhece. Só passou a ser verdade na
+// v5.134: enquanto o numerador vinha do catálogo, os bytes das imagens não
+// estavam nele, e a taxa medida era a do áudio puro — o que a fazia
+// SUBESTIMAR sistematicamente tudo o que ela projetava.
 //
 // A ordem das fontes vai da mais específica para a mais genérica: a taxa DESTE
 // álbum, depois a média de tudo o que já foi baixado no aparelho, e só então a
@@ -703,27 +725,62 @@ const SEG_PADRAO = 210;            // 3min30 — só para faixa sem duração no
 function segundosDaMusica(s) { return parseTimeToSeconds(s && s.duration) || 0; }
 
 // O levantamento bruto de uma coleção: quantas VARIANTES (Cantado + Playback)
-// já estão no aparelho e quantas faltam, com os segundos de cada lado. As sem
-// duração no índice são contadas à parte — elas existem (índices antigos, ou
-// um `duration` vazio na origem) e somá-las como zero segundo faria o álbum
-// parecer menor do que é.
+// já estão no aparelho, quantas faltam, quantas NÃO EXISTEM na origem, e os
+// segundos de cada lado. As sem duração no índice são contadas à parte — elas
+// existem (índices antigos, ou um `duration` vazio na origem) e somá-las como
+// zero segundo faria o álbum parecer menor do que é.
+//
+// ESTA É A FONTE ÚNICA DE "COMPLETA" (v5.134), e ela não existia: a mesma
+// pergunta era respondida em QUATRO lugares por `countDownloaded(id) >=
+// collSongs(id).length` — uma conta de MÚSICAS, enquanto o download busca
+// VARIANTES e a medida de peso já contava variantes. As duas respostas
+// divergiam sozinhas, e a tela mostrava as duas ao mesmo tempo.
+//
+// E havia um caso que nenhuma das duas resolvia: uma música cuja origem NÃO TEM
+// áudio (`url_music` vazio no `music_{id}`). Ela nunca ganha `fileIdFull`,
+// então a coleção nunca ficava completa, o botão de baixar não sumia NUNCA, e
+// cada sincronização voltava a buscar o metadado dela para descobrir de novo
+// que não há o que baixar. Agora o app marca (`semAudio`/`semPlayback`, ver
+// `ensureSongVariant`) e para de contá-la como pendente: "não existe" e "não
+// baixei ainda" deixaram de ser a mesma coisa.
 function levantarColecao(id) {
-  const r = { segFeitos: 0, segFalta: 0, feitasSemTempo: 0, faltaSemTempo: 0, feitas: 0, falta: 0 };
+  const r = {
+    segFeitos: 0, segFalta: 0, feitasSemTempo: 0, faltaSemTempo: 0,
+    feitas: 0, falta: 0, semFonte: 0,
+  };
   for (const s of collSongs(id)) {
     const d = segundosDaMusica(s);
     // O Playback só conta quando existe: `has_instrumental_music` é o que
     // decide se o download vai buscar a segunda variante. A duração dele não
     // está na lista leve (só em `music_{id}`), e usar a do Cantado é a
     // aproximação certa — é a mesma música.
-    const variantes = [!!s.fileIdFull, s.has_instrumental_music ? !!s.fileIdPlayback : null];
-    for (const tem of variantes) {
-      if (tem === null) continue;
-      if (tem) { r.feitas++; if (d) r.segFeitos += d; else r.feitasSemTempo++; }
+    const variantes = [
+      { tem: !!s.fileIdFull, sem: !!s.semAudio },
+      s.has_instrumental_music ? { tem: !!s.fileIdPlayback, sem: !!s.semPlayback } : null,
+    ];
+    for (const v of variantes) {
+      if (!v) continue;
+      if (v.tem) { r.feitas++; if (d) r.segFeitos += d; else r.feitasSemTempo++; }
+      else if (v.sem) r.semFonte++;
       else { r.falta++; if (d) r.segFalta += d; else r.faltaSemTempo++; }
     }
   }
   return r;
 }
+
+// "Esta coleção está completa?" — a pergunta da tela inteira, num lugar só.
+// Sem índice não há resposta: um álbum que nunca sincronizou não está completo
+// nem incompleto, e o botão ali serve para buscar a lista.
+function colecaoCompleta(id) {
+  if (!collSongs(id).length) return false;
+  return levantarColecao(id).falta === 0;
+}
+
+// Quantas VARIANTES ainda faltam — a conta que os diálogos de confirmação e a
+// barra da notificação usam. Uma música sem áudio na origem não entra: ela
+// nunca vai ser baixada, e prometer "12 músicas" para depois baixar 10 é a
+// forma mais barata de parecer quebrado.
+function faltamNaColecao(id) { return levantarColecao(id).falta; }
 
 // Bytes por segundo medidos no aparelho (ver a escada acima).
 function bytesPorSegundo(id) {
@@ -775,12 +832,16 @@ function fracaoPeso(ids) {
   for (const id of ids) {
     const faixas = collSongs(id).length;
     if (faixas) temIndice = true;
-    if (!faixas || countDownloaded(id) < faixas) completo = false;
+    // A MESMA `colecaoCompleta` do botão e dos chips. Antes aqui era a conta de
+    // músicas e no `medirColecao` (logo abaixo, no mesmo laço!) a de variantes:
+    // a barra escrevia "48 MB" — número exato — ao lado de um card que ainda
+    // mostrava o botão de baixar.
+    if (!colecaoCompleta(id)) completo = false;
     const m = medirColecao(id);
     no += m.noAparelho; total += m.total;
   }
   if (!temIndice || !total) return null;      // sem índice não há o que medir
-  // "Completo" é a MESMA definição do resto da tela (`countDownloaded`), senão
+  // "Completo" é a MESMA definição do resto da tela (`colecaoCompleta`), senão
   // a barra escreveria "~" ao lado de um chip dizendo "Completo offline" —
   // divergem quando um Playback falhou, e duas respostas para a mesma pergunta
   // na mesma tela é pior do que a imprecisão que isso esconde. Com o peso ainda
@@ -4947,6 +5008,15 @@ async function importarPeloSistema() {
   await importShare({ files: escolhidos });
 }
 
+// "N de M músicas" — e o M NÃO é o tamanho da lista (v5.134). Uma música cuja
+// origem não tem áudio (`semAudio`, ver `ensureSongVariant`) nunca vira arquivo
+// no aparelho: mantê-la no denominador travava o contador em 53/54 para sempre,
+// ao lado de um chip dizendo "Completo offline" — as duas frases certas pela
+// sua própria régua, contando coisas diferentes na mesma linha. Ela sai dos
+// DOIS lados da fração, que é o mesmo que `colecaoCompleta` já faz.
+function songsBaixaveis(id) {
+  return collSongs(id).filter((s) => !s.semAudio);
+}
 function countDownloaded(id) {
   return collSongs(id).filter((s) => s.fileIdFull).length;
 }
@@ -5125,9 +5195,16 @@ function renderCollectionsList(alvo, redesenhar, opts) {
     if (colls && colls.length && !(opts && opts.semBotao)) {
       const key = 'grp:' + text;
       const g = gui(key);
-      let downloaded = 0, total = 0;
-      for (const c of colls) { downloaded += countDownloaded(c.id); total += collSongs(c.id).length; }
-      const complete = total > 0 && downloaded >= total;
+      let downloaded = 0, total = 0, completas = 0;
+      for (const c of colls) {
+        downloaded += countDownloaded(c.id);
+        total += songsBaixaveis(c.id).length;
+        if (colecaoCompleta(c.id)) completas++;
+      }
+      // O GRUPO está completo quando TODAS as suas coleções estão — pela mesma
+      // definição de cada card, e não por uma soma de músicas que responderia
+      // diferente da linha logo abaixo dela.
+      const complete = total > 0 && completas === colls.length;
 
       const info = document.createElement('span');
       info.className = 'coll-group-count' + (g.busy ? ' busy' : (complete ? ' done' : ''));
@@ -5149,7 +5226,7 @@ function renderCollectionsList(alvo, redesenhar, opts) {
       // ele informa; o que sai é a ação que juntaria coleções grandes demais
       // num download só.
       let downloaded = 0, total = 0;
-      for (const c of colls) { downloaded += countDownloaded(c.id); total += collSongs(c.id).length; }
+      for (const c of colls) { downloaded += countDownloaded(c.id); total += songsBaixaveis(c.id).length; }
       const info = document.createElement('span');
       info.className = 'coll-group-count' + (total > 0 && downloaded >= total ? ' done' : '');
       info.textContent = fracaoPeso(colls.map((c) => c.id)) || '—';
@@ -5219,9 +5296,13 @@ function renderCollectionsList(alvo, redesenhar, opts) {
 // `ctx` = a entrada do álbum DENTRO da categoria sendo renderizada (o pivô:
 // subtitle/order). Nulo para hinários e órfãos.
 function renderCollectionCard(coll, ctx) {
-  const total = collSongs(coll.id).length;
+  const total = songsBaixaveis(coll.id).length;
   const downloaded = countDownloaded(coll.id);
-  const complete = total > 0 && downloaded >= total;
+  // UMA definição só, e ela conta VARIANTES (ver `levantarColecao`): a antiga
+  // comparava músicas com `fileIdFull`, ignorando os Playbacks que o download
+  // busca — e nunca ficava completa numa coleção com música sem áudio na
+  // origem, deixando o botão de baixar para sempre na tela.
+  const complete = colecaoCompleta(coll.id);
   const u = ui(coll.id);
 
   const li = document.createElement('li');
@@ -5541,9 +5622,13 @@ function renderAcervoTotal(redesenhar) {
   if (todas.length < 2) return;
   const key = 'grp:Toda a biblioteca';
   const g = gui(key);
-  let downloaded = 0, total = 0;
-  for (const c of todas) { downloaded += countDownloaded(c.id); total += collSongs(c.id).length; }
-  const complete = total > 0 && downloaded >= total;
+  let downloaded = 0, total = 0, completas = 0;
+  for (const c of todas) {
+    downloaded += countDownloaded(c.id);
+    total += songsBaixaveis(c.id).length;
+    if (colecaoCompleta(c.id)) completas++;
+  }
+  const complete = total > 0 && completas === todas.length;
 
   const info = document.createElement('span');
   info.className = 'coll-group-count' + (g.busy ? ' busy' : (complete ? ' done' : ''));
@@ -5584,9 +5669,13 @@ function openCollectionOptions(coll) {
 // (`refreshCollectionsIfVisible`) — não há mais um popup com vida própria para
 // sincronizar à parte.
 function buildCollectionOptions(coll, collOptsEl) {
-  const total = collSongs(coll.id).length;
+  const total = songsBaixaveis(coll.id).length;
   const downloaded = countDownloaded(coll.id);
-  const complete = total > 0 && downloaded >= total;
+  // UMA definição só, e ela conta VARIANTES (ver `levantarColecao`): a antiga
+  // comparava músicas com `fileIdFull`, ignorando os Playbacks que o download
+  // busca — e nunca ficava completa numa coleção com música sem áudio na
+  // origem, deixando o botão de baixar para sempre na tela.
+  const complete = colecaoCompleta(coll.id);
   const u = ui(coll.id);
 
   // A LINHA DE STATUS SAIU DAQUI (v5.73). Parada, ela repetia numa linha
@@ -7655,6 +7744,14 @@ async function syncCollection(coll, opts) {
     return { ok: false, baixados: 0, falhou: 0 };
   } finally {
     u.syncBusy = false; u.cancel = false;
+    // RECONFERIR O PESO AO FIM DO LOTE (v5.134). Durante o download o número
+    // sobe por acumulação (`u.bytes +=` a cada arquivo), que é o certo para dar
+    // movimento na tela mas erra em toda borda: uma faixa que falhou no meio,
+    // um download repetido que sobrescreveu o arquivo anterior, um cancelamento
+    // no meio do lote. O fim do lote é o momento em que perguntar ao disco é
+    // barato — não há mais IO concorrente — e é o único ponto em que o número
+    // exibido pode ser trocado pelo real sem custo visível.
+    updateCollBytes(coll.id);
     refreshCollectionsIfVisible();
   }
 }
@@ -7699,6 +7796,18 @@ async function downloadCollectionSong(coll, s) {
 // SEM rebaixar o áudio — backfill dos itens baixados antes da letra existir);
 // já completo (não faz nada).
 async function ensureSongVariant(coll, s, fileKey, urlPath, variantLabel, meta, timeField, thumb, resolveImage) {
+  // "NÃO EXISTE" NÃO É "NÃO BAIXEI" (v5.134). Uma música cuja origem não traz o
+  // arquivo (`url_music`/`url_instrumental_music` vazios no `music_{id}`) nunca
+  // ia ganhar id de arquivo — e, como toda a tela contava a ausência do id como
+  // "falta baixar", a coleção NUNCA ficava completa: o botão de baixar não sumia
+  // mais, e cada sincronização voltava a buscar o metadado dela só para
+  // redescobrir que não há o que baixar. A marca fica no índice da coleção, e o
+  // `fetchCollectionIndex` a preserva de graça (ele reaproveita o objeto).
+  const semFonte = fileKey === 'fileIdFull' ? 'semAudio' : 'semPlayback';
+  if (!urlPath) { s[semFonte] = true; return; }
+  // E o contrário também: a origem pode ter ganhado o arquivo depois. Sem
+  // apagar a marca, o app continuaria dizendo "não existe" para sempre.
+  if (s[semFonte]) delete s[semFonte];
   const existingId = s[fileKey];
   const existingRec = existingId ? await AVDB.fileGet(existingId) : null;
   if (existingRec && existingRec.lyrics !== undefined) return; // já completo
@@ -7713,7 +7822,8 @@ async function ensureSongVariant(coll, s, fileKey, urlPath, variantLabel, meta, 
     invalidateLyricIndex();   // letra nova no aparelho: a busca precisa vê-la
     return;
   }
-  if (!urlPath) return;
+  // (A guarda de `urlPath` vazio está lá em cima, junto com a marca de "não
+  // existe na origem" — aqui ela seria tarde: a letra já teria sido montada.)
   const id = await downloadCollectionFile(coll, s, urlPath, variantLabel, thumb, lyrics);
   if (id) { s[fileKey] = id; invalidateLyricIndex(); }
 }
@@ -7765,6 +7875,15 @@ async function downloadCollectionImage(folderId, url, songId, index) {
   const ext = (url.split('.').pop() || 'jpg').toLowerCase().split('?')[0];
   const path = 'folders/' + folderId + '/' + songId + '-img-' + index + '.' + ext;
   try { await AVDB.opfsWriteFile(path, blob); } catch (_) { return null; }
+  // ELAS TAMBÉM PESAM (v5.134). As imagens de fundo da letra vão para a MESMA
+  // pasta dos áudios e ocupam disco como eles — mas não viram registro no
+  // catálogo (são referenciadas de dentro dos slides, não são mídia da
+  // biblioteca), e por isso ficavam de fora de toda conta: da soma incremental
+  // daqui e da recontagem, que somava o catálogo. Num hinário inteiro isso é
+  // centenas de MB que a tela não mostrava — e que o operador via sumir do
+  // aparelho sem explicação.
+  ui(folderId).bytes += blob.size || 0;
+  salvarPesos();
 
   let thumbBlob = null;
   let objUrl = null;
@@ -9352,9 +9471,16 @@ function lyricsOnlyIconSvg() {
 async function songVariantsNeeded(coll, s) {
   const fullRec = s.fileIdFull ? await AVDB.fileGet(s.fileIdFull) : null;
   const playbackRec = s.fileIdPlayback ? await AVDB.fileGet(s.fileIdPlayback) : null;
+  // `semAudio`/`semPlayback`: a origem NÃO TEM essa variante (v5.134). Sem essa
+  // ressalva a música ficava pendente para sempre — cada sincronização buscava
+  // o `music_{id}` dela de novo, só para redescobrir que não há URL, e o álbum
+  // nunca chegava a "Já completo offline". A marca é apagada assim que uma URL
+  // aparece (ver `ensureSongVariant`), então uma faixa que a origem publicar
+  // depois volta sozinha para a fila.
   return {
-    needsFull: !fullRec || fullRec.lyrics === undefined,
-    needsPlayback: !!(s.has_instrumental_music && (!playbackRec || playbackRec.lyrics === undefined)),
+    needsFull: !s.semAudio && (!fullRec || fullRec.lyrics === undefined),
+    needsPlayback: !!(s.has_instrumental_music && !s.semPlayback
+      && (!playbackRec || playbackRec.lyrics === undefined)),
   };
 }
 

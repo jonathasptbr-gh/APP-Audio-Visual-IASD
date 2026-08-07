@@ -116,6 +116,12 @@ jobs:
           # mídia do operador. Um erro ali não dá tela branca: some com o vídeo
           # do domingo, em silêncio e sem desfazer.
           PW_CHROMIUM="" node tools/db-gc.test.mjs
+          # E as CONTAS DA BIBLIOTECA — "esta coleção está completa?" e "quanto
+          # ela ocupa?". As duas eram respondidas por fórmulas diferentes em
+          # lugares diferentes da mesma tela, e o resultado era um card com o
+          # botão de baixar ao lado de um chip dizendo "Completo offline". Conta
+          # errada não estoura em lugar nenhum: ela só mostra o número errado.
+          PW_CHROMIUM="" node tools/acervo.test.mjs
 
       - name: Empacotar a base web
         run: |

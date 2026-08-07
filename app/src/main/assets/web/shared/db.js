@@ -498,6 +498,36 @@
       await dir.removeEntry(name);
     } catch (_) {}
   }
+  /**
+   * Quanto uma pasta OCUPA de verdade, em bytes — somando o que está NO DISCO.
+   *
+   * É a medida autoritativa, e existe porque a soma pelo catálogo (`files`) não
+   * é: o download de uma coleção grava DOIS tipos de arquivo na mesma pasta —
+   * os áudios, que viram registro no catálogo, e as imagens de fundo da letra,
+   * que não viram (elas são referenciadas de dentro dos slides, não são mídia
+   * da biblioteca). Somar o catálogo, portanto, ignorava as imagens: numa
+   * coleção com centenas de hinos, centenas de MB invisíveis.
+   *
+   * E é BARATA, ao contrário da soma pelo catálogo: aqui só se pergunta o
+   * tamanho de cada arquivo, sem desserializar registro nenhum — o `getAll` do
+   * catálogo trazia thumbnail e letra inteira de cada faixa só para somar um
+   * campo. Isso é o que permite reconferir o peso com frequência em vez de
+   * confiar num acumulador que só cresce.
+   */
+  async function opfsFolderSize(path) {
+    if (!opfsSupported()) return 0;
+    let dir;
+    try { dir = await opfsDir(splitPath(path), false); } catch (_) { return 0; }
+    let total = 0;
+    try {
+      for await (const [, handle] of dir.entries()) {
+        if (handle.kind !== 'file') continue;
+        try { total += (await handle.getFile()).size || 0; } catch (_) { /* sumiu no meio */ }
+      }
+    } catch (_) { return total; }
+    return total;
+  }
+
   async function opfsDeleteDir(path) {
     const parts = splitPath(path);
     const name = parts.pop();
@@ -826,7 +856,7 @@
     getMedia, mediaByYoutube, renameMedia,
     listIds, listSet, listItems, listHas, listAdd, listRemove, gc, gcOrfaos, folderDrop,
     fileAdd, fileGet, fileDelete, filesByFolder, filesAll,
-    opfsSupported, opfsGetFile, opfsWriteFile, opfsDeleteFile, opfsDeleteDir,
+    opfsSupported, opfsGetFile, opfsWriteFile, opfsDeleteFile, opfsDeleteDir, opfsFolderSize,
     kindFromType, sendCommand, onCommand,
   };
 })(this);
