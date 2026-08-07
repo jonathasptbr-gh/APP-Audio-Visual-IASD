@@ -343,6 +343,19 @@
     // desenha o botão pergunta o `__SHELL_VERSION__` antes.
     ytCancel(url) { try { B.ytCancel(String(url)); } catch (_) { /* shell antigo */ } },
 
+    // A ATUALIZAÇÃO DA BASE WEB que já está baixada e espera o próximo
+    // lançamento (shell 29+). String vazia quando não há nada novo — e num
+    // shell antigo o `call` resolve null, que o chamador lê como "nada".
+    otaPending: () => call((id) => B.otaPending(id), CALL_TIMEOUT_MS),
+
+    // APLICA essa atualização AGORA: as duas páginas recarregam. Devolve a
+    // versão aplicada, ou null se não havia o que aplicar.
+    //
+    // Quem chama some junto — o documento é substituído —, então este `await`
+    // normalmente não tem para onde voltar. Ele existe para o caso em que NÃO
+    // houve o que aplicar, o único desfecho em que a página continua viva.
+    otaApply: () => call((id) => B.otaApply(id), CALL_TIMEOUT_MS),
+
     // DIAGNÓSTICO da última extração do YouTube: uma linha dizendo quantas
     // faixas de cada tipo o extrator recebeu e qual venceu. Vazio num shell
     // antigo (o `call` resolve null) e antes da primeira extração.

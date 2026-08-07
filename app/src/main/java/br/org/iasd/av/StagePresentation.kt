@@ -117,6 +117,26 @@ class StagePresentation(
     }
 
     /**
+     * Recarrega a página do telão — usado quando o operador aplica uma
+     * atualização da base web AO VIVO (ver `WebUpdater.applyNow`).
+     *
+     * `clearCache(true)` antes: a recarga precisa buscar os arquivos do bundle
+     * NOVO, e uma cópia em cache do JS antigo faria o telão voltar com metade
+     * de cada versão — o pior desfecho possível, porque tudo *parece* ter
+     * funcionado. Os assets são locais, então o custo é desprezível.
+     *
+     * A cena volta sozinha: a página do Display dispara `display-ready` ao
+     * carregar, e o Controle reenvia o que estava no ar (`resendSceneToDisplay`)
+     * — o mesmo caminho da reconexão do dongle, que já existe e já é testado em
+     * culto.
+     */
+    fun recarregar() {
+        val w = web ?: return
+        w.clearCache(true)
+        w.loadUrl(WebViewFactory.URL_DISPLAY)
+    }
+
+    /**
      * **NÃO derruba mais o WebView aqui** (v1.28).
      *
      * `Presentation` é um `Dialog`, e `Dialog.onStop()` chega em situações que

@@ -162,7 +162,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.131';
+const WEB_VERSION = '5.132';
 
 // Escrita UMA vez, na carga: o indicador mora no rodapé de Configurações desde
 // a v5.49 e não depende mais de qual aba está aberta (no cabeçalho ele
@@ -9686,6 +9686,14 @@ function cabecalhoDiag() {
   // primeira pergunta é se o WebView deste aparelho aceita os codecs — e a
   // resposta não se descobre de fora.
   l.push('Transmissão: ' + diagMse());
+  // A ATUALIZAÇÃO QUE ESPERA. Ela é oferecida por um aviso, mas o aviso não
+  // aparece com cena no ar nem com download em curso — e aí o Registro é o
+  // único lugar que responde "por que ainda estou na versão antiga?".
+  if (otaPendenteVersao) {
+    l.push('Atualização: v' + otaPendenteVersao + ' baixada'
+      + (horaRuimParaAtualizar() ? ' (esperando a tela livre)' : '')
+      + ' — entra na próxima abertura');
+  }
   // A FAXINA DA ABERTURA. Ela apaga mídia — sem dono, mas mídia —, e uma
   // limpeza que não deixa rastro é indistinguível de um sumiço.
   if (restosVarridos !== null) {
@@ -12663,7 +12671,89 @@ document.addEventListener('visibilitychange', () => {
   // o único momento seguro por construção: `load()` já leu tudo o que a tela
   // mostra, e o que a varredura apaga é, por definição, o que ninguém aponta.
   varrerRestos();
+  // O AVISO DE ATUALIZAÇÃO. A primeira consulta é adiada porque o download do
+  // shell começa junto com a abertura (`checkAsync` no `onCreate`) e leva
+  // alguns segundos — perguntar agora seria perguntar antes de haver resposta.
+  // Depois é de minuto em minuto, e cada consulta custa a leitura de um JSON
+  // minúsculo: quem decide se há o que mostrar é `ofertarAtualizacao`.
+  setTimeout(ofertarAtualizacao, 20000);
+  setInterval(ofertarAtualizacao, OTA_POLL_MS);
 })();
+
+// ---------------------------------------------------------------------------
+// O AVISO DE ATUALIZAÇÃO (v5.132 · shell 29)
+//
+// Até aqui o OTA era invisível por completo: o bundle novo chegava calado e
+// entrava na abertura seguinte. Quem quisesse a correção do dia tinha de saber,
+// por fora, que precisava fechar e reabrir o app — e a correção mais urgente é
+// justamente a que ninguém quer esperar.
+//
+// Três regras, e as três protegem o culto:
+//
+// 1. **Não oferece com cena no ar.** Aplicar recarrega os DOIS WebViews, e o
+//    telão pisca. A garantia 1 do OTA ("nunca troca a base no meio de uma
+//    sessão") existe contra a troca ACIDENTAL; oferecer no meio de uma
+//    projeção seria transformá-la num acidente com convite. Sem cena, a mesma
+//    troca é só uma escolha — e a pergunta espera o telão esvaziar.
+// 2. **Recusar é definitivo nesta sessão.** Um aviso que volta a cada minuto
+//    vira ruído, e ruído no meio de um culto é pior que a versão antiga.
+// 3. **A pergunta diz que dá para não fazer nada.** A atualização entra sozinha
+//    na próxima abertura de qualquer jeito; oferecer "agora" sem dizer isso
+//    faria parecer que recusar significa ficar para trás.
+// ---------------------------------------------------------------------------
+const OTA_POLL_MS = 60000;
+const otaRecusadas = new Set();
+let otaPerguntando = false;
+// A versão que está esperando, para o Registro poder dizê-la mesmo quando a
+// pergunta não pode aparecer (cena no ar, download em curso, já recusada).
+let otaPendenteVersao = '';
+
+// Há algo projetado agora? MESMA leitura de `pushNowPlaying` — se ela mudar de
+// ideia sobre o que é "cena", esta pergunta muda junto.
+function cenaNoAr() {
+  return !!currentId
+    || !!(msgSession && msgSession.projecting)
+    || !!(bibleSession && bibleSession.projecting)
+    || lyricProjecting()
+    || chronoProjecting()
+    || drawProjecting();
+}
+
+// Momento ruim para recarregar as duas páginas: além da cena no ar, um download
+// em curso morre com o documento — os `fetch` são desta página, e o arquivo que
+// o shell terminar de baixar não teria mais quem o recebesse.
+function horaRuimParaAtualizar() { return cenaNoAr() || bgWorkCount > 0; }
+
+async function ofertarAtualizacao() {
+  if (!window.__NATIVE__ || (window.__SHELL_VERSION__ | 0) < 29) return;
+  if (otaPerguntando) return;
+  let versao = '';
+  try { versao = (await AVNative.otaPending()) || ''; } catch (_) { return; }
+  otaPendenteVersao = versao;
+  if (!versao || otaRecusadas.has(versao)) return;
+  // Depois da ida à ponte, e não antes: assim o Registro fica sabendo da versão
+  // pendente mesmo nas horas em que a pergunta não pode aparecer.
+  if (horaRuimParaAtualizar()) return;
+  otaPerguntando = true;
+  let ok = false;
+  try {
+    ok = await appConfirm({
+      title: 'Atualização disponível',
+      message: 'A versão ' + versao + ' do app já foi baixada.\n\n'
+        + 'Ela entra sozinha na próxima vez que o app abrir. Atualizar agora?\n\n'
+        + 'A tela vai recarregar — leva um instante.',
+      okText: 'Atualizar agora',
+      cancelText: 'Depois',
+    });
+  } finally {
+    otaPerguntando = false;
+  }
+  if (!ok) { otaRecusadas.add(versao); return; }
+  // Daqui não se volta: o documento é substituído pela recarga. Só quando NÃO
+  // houver o que aplicar a promise devolve null e a página segue viva.
+  const aplicada = await AVNative.otaApply();
+  if (!aplicada) otaRecusadas.add(versao);
+}
 
 // Quantos restos a última faxina removeu — o Registro mostra, porque uma
 // limpeza silenciosa que apaga mídia é exatamente o tipo de coisa que precisa
