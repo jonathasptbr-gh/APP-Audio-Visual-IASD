@@ -471,6 +471,38 @@ dele já existia para outra coisa). O wake lock tem timeout de 2 h, para um
 download travado nunca consumir bateria indefinidamente. No navegador tudo isso
 é no-op.
 
+### O download RETOMA de onde parou (v1.58)
+
+Enquanto o app estiver vivo — na frente ou em segundo plano —, um download só
+deve terminar de duas formas: concluído, ou cancelado pelo operador. Faltava a
+parte da rede.
+
+Até aqui, uma oscilação de 20 segundos no meio de um louvor de 380 MB derrubava
+o download inteiro: a tentativa seguinte recomeçava do **byte zero** (com outro
+perfil de UA), e esgotados os três perfis ele falhava. Numa rede de igreja isso
+é indistinguível de "o app não baixa".
+
+Agora `YoutubeGrab.baixar` é um laço de retomada:
+
+- **`Range: bytes=<o que já está no disco>-`**, e o arquivo é aberto em modo
+  APÊNDICE. Uma queda custa os segundos da reconexão, não o download.
+- **Oito tentativas com espera crescente** (1 s → 30 s, ~2 min de tolerância).
+  A espera acorda a cada 250 ms para ver se o operador cancelou — um cancelar
+  que só fosse notado 30 s depois não seria um cancelar.
+- **4xx não é retentado** (`RecusaDoCdn`): a URL expirou ou a faixa foi negada,
+  e insistir nela é perder tempo — quem tem outras cartas é a fila de
+  candidatos de quem chamou.
+- **O servidor que ignora a faixa** (responde 200 em vez de 206 a um pedido com
+  `Range`) faz o arquivo recomeçar do zero em vez de acrescentar: continuar
+  daria um arquivo com o começo repetido no meio — corrupção que só apareceria
+  na hora de tocar.
+
+O que isto **não** cobre, e é honesto dizer: se o renderer do WebView morrer
+(OOM), o download nativo continua, mas o `fetch` que esperava por ele morreu com
+a página — o arquivo termina sem ninguém para recebê-lo. O foreground service e
+o wake lock (abaixo) cobrem o congelamento do processo, que é a causa comum;
+o OOM do renderer é outra história, e o app se recompõe recriando o WebView.
+
 ### O ciclo de vida do serviço tem duas armadilhas, e as duas matam o app
 
 - **`startForeground` SEMPRE, antes de qualquer decisão de parar.** Um serviço
@@ -530,6 +562,16 @@ percentual e o tempo restante.
 - **O nome do que está baixando vale também para um item só.** `ytArquivo` chama
   `bgItemOnly` com o título do vídeo: "Baixando vídeo" sozinho não diz QUAL, e
   com o app minimizado não há outra tela para perguntar.
+- **`(lidos, total)` é BYTES, e o caminho de 1080p mentia** (corrigido na
+  v1.58). Ele reportava uma escala de 0 a 100 (`lidos * 10 / total, 100` no
+  áudio, `10 + lidos * 88 / total` no vídeo) para ter uma barra só que não
+  voltava ao zero entre as duas faixas. Só que o outro lado trata os dois
+  números como bytes: a notificação anunciava **"0 B de 100 B"** para um vídeo
+  de 380 MB — que se lê como CEM ITENS. Agora as duas fases reportam bytes de
+  verdade (o vídeo somando o áudio já baixado), e o preço é a barra recuar UMA
+  vez, quando o total cresce da faixa de áudio para a soma das duas. É o preço
+  certo: os dois números passam a ser sempre verdadeiros, que é a única coisa
+  que essa notificação existe para dizer.
 
 - **A notificação diz O QUE está baixando, não só quantos.** `bgItemStart`/
   `bgItemEnd` (e `bgItemOnly`, para fluxos sequenciais) registram os itens em

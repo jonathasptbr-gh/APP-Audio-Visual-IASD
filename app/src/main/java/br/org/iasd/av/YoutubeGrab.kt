@@ -814,13 +814,20 @@ object YoutubeGrab {
         val destino = File(pasta(ctx), "$id-a.$ext")
         for (a in candidatos) {
             try {
-                // A BARRA É UMA SÓ. O áudio ocupa os primeiros 10% e o vídeo o
-                // resto, que é a proporção real — em vez de duas barras que
-                // voltam ao zero no meio, o que do lado do operador é
-                // indistinguível de travamento.
-                baixarTentando(a.url, destino) { lidos, total ->
-                    if (total > 0) onProgresso(lidos * 10 / total, 100)
-                }
+                // BYTES DE VERDADE, e não uma escala de 0 a 100 (v1.58).
+                //
+                // Este caminho reportava porcentagem (`lidos * 10 / total`,
+                // `100`) enquanto o lado web trata os dois números como BYTES —
+                // e a notificação, que é a única janela do download com o app
+                // minimizado, anunciava "0 de 100" para um vídeo de 380 MB. Do
+                // lado do operador isso se lê como CEM ITENS.
+                //
+                // O áudio é a primeira fase e reporta o tamanho dele; quando o
+                // vídeo entra, o total cresce para a soma real (ver `montar`).
+                // A barra recua uma vez, nesse instante — em troca, os dois
+                // números são sempre verdadeiros, que é o que a notificação
+                // existe para dizer.
+                baixarTentando(a.url, destino, onProgresso)
                 if (destino.length() > 0L) return destino
                 diagnostico += " · a:${a.etiqueta} vazio"
             } catch (e: Exception) {
@@ -851,14 +858,22 @@ object YoutubeGrab {
         val parteVideo = File(pasta(ctx), "$id-v.${v.ext}")
         val saida = arquivoDestino(ctx, id, v.ext, false)
         try {
+            // O ÁUDIO JÁ BAIXADO é a base da conta: daqui para a frente os dois
+            // números são a soma real das duas faixas (ver `baixarAudio`).
+            val base = parteAudio.length()
             val perfil = baixarTentando(v.url, parteVideo) { lidos, total ->
-                if (total > 0) onProgresso(10 + lidos * 88 / total, 100)
+                onProgresso(base + lidos, if (total > 0) base + total else 0L)
             }
             if (parteVideo.length() <= 0L) {
                 diagnostico += " · v:${v.etiqueta} vazio"
                 return Desfecho.NaoMontou
             }
-            onProgresso(99, 100)
+            // BAIXOU TUDO: os dois números se encontram. A junção (MuxMp4) que
+            // vem a seguir é cópia de amostras, rápida e sem rede — não há
+            // progresso honesto a reportar nela, e inventar um seria voltar ao
+            // que esta versão está consertando.
+            val baixado = base + parteVideo.length()
+            onProgresso(baixado, baixado)
             if (!MuxMp4.juntar(parteVideo, parteAudio, saida, v.webm)) {
                 diagnostico += " · v:${v.etiqueta} muxer falhou"
                 return Desfecho.NaoMontou
@@ -867,7 +882,9 @@ object YoutubeGrab {
                 diagnostico += " · v:${v.etiqueta} saída vazia"
                 return Desfecho.NaoMontou
             }
-            onProgresso(100, 100)
+            // Fim: o arquivo montado é o que o operador vai ter no aparelho, e
+            // ele é o número honesto para fechar a barra.
+            onProgresso(saida.length(), saida.length())
             diagnostico += " → juntou ${v.altura}p (${v.ext}, ${v.etiqueta}/$perfil)"
             return Desfecho.Pronto(
                 JSONObject()
@@ -1307,10 +1324,91 @@ object YoutubeGrab {
         throw erro ?: IOException("download vazio")
     }
 
+    /**
+     * QUANTAS VEZES insistir quando a rede oscila, e o intervalo entre elas.
+     *
+     * O download de um louvor de 1080p leva minutos numa rede de igreja, e uma
+     * queda de 20 segundos no meio dele derrubava a coisa inteira: a tentativa
+     * seguinte recomeçava do byte ZERO, e depois de três perfis de UA o
+     * download simplesmente falhava. Do lado do operador isso é indistinguível
+     * de "o app não baixa".
+     *
+     * Oito tentativas com espera crescente cobrem ~2 min de oscilação — e, com
+     * a retomada abaixo, elas continuam de onde pararam em vez de recomeçar.
+     * Passado isso, falhar é honesto: quem decide se tenta de novo é o
+     * operador, que tem a linha do resultado para tocar outra vez.
+     */
+    private const val MAX_RETENTATIVAS = 8
+    private val ESPERAS_MS = longArrayOf(1_000, 2_000, 4_000, 8_000, 15_000, 30_000, 30_000, 30_000)
+
+    /**
+     * Baixa [url] em [destino], **retomando de onde parou** e insistindo quando
+     * a rede oscila.
+     *
+     * ## Por que retomar, e não só repetir
+     *
+     * Repetir do zero num arquivo de 380 MB não é uma segunda chance: é uma
+     * aposta de que a rede vai aguentar a corrida inteira desta vez. Retomar
+     * transforma uma queda de rede em alguns segundos perdidos — e as URLs do
+     * googlevideo aceitam faixa de bytes por construção (é assim que um player
+     * de verdade as consome).
+     *
+     * ## O que NÃO é retentado
+     *
+     * - **Cancelamento** (ver [cancelar]): o operador pediu para parar.
+     * - **Recusa do CDN** (4xx): a URL expirou ou a faixa foi negada, e insistir
+     *   nela é só perder tempo — quem decide o que fazer é a fila de candidatos
+     *   de quem chamou, que tem outras URLs para tentar.
+     */
     private fun baixar(
         url: String,
         destino: File,
         ua: String = UA,
+        onProgresso: (Long, Long) -> Unit,
+    ) {
+        var tentativa = 0
+        while (true) {
+            // O QUE JÁ ESTÁ NO DISCO é o ponto de retomada. Lido a cada volta,
+            // e não uma vez só: a tentativa anterior pode ter avançado bastante
+            // antes de cair, e é justamente esse avanço que não se quer perder.
+            val jaTem = if (destino.isFile) destino.length() else 0L
+            try {
+                baixarUmaVez(url, destino, ua, jaTem, onProgresso)
+                return
+            } catch (e: IOException) {
+                if (cancelado()) throw e
+                if (e is RecusaDoCdn) throw e
+                if (++tentativa > MAX_RETENTATIVAS) throw e
+                val espera = ESPERAS_MS[(tentativa - 1).coerceAtMost(ESPERAS_MS.size - 1)]
+                Log.i(TAG, "queda no download (${e.message}) — tentativa $tentativa em ${espera}ms, retomando de $jaTem")
+                if (!dormir(espera)) throw e   // cancelado durante a espera
+            }
+        }
+    }
+
+    /** Uma exceção que NÃO se retenta: o CDN recusou (URL expirada, 403…). */
+    private class RecusaDoCdn(msg: String) : IOException(msg)
+
+    /**
+     * Espera [ms], acordando a cada 250 ms para ver se o operador cancelou.
+     * Devolve `false` quando o cancelamento chegou — aí não há o que esperar.
+     */
+    private fun dormir(ms: Long): Boolean {
+        var restante = ms
+        while (restante > 0) {
+            if (cancelado()) return false
+            val fatia = minOf(250L, restante)
+            try { Thread.sleep(fatia) } catch (_: InterruptedException) { return false }
+            restante -= fatia
+        }
+        return !cancelado()
+    }
+
+    private fun baixarUmaVez(
+        url: String,
+        destino: File,
+        ua: String,
+        jaTem: Long,
         onProgresso: (Long, Long) -> Unit,
     ) {
         val conn = (URL(url).openConnection() as HttpURLConnection).apply {
@@ -1318,12 +1416,15 @@ object YoutubeGrab {
             readTimeout = LE_MS
             instanceFollowRedirects = true
             setRequestProperty("User-Agent", ua)
-            // `Range` DESDE O PRIMEIRO BYTE (v1.46). As URLs adaptativas do
-            // googlevideo costumam recusar uma requisição sem faixa — é assim
-            // que um player de verdade as consome (aos pedaços), e é a
-            // diferença entre 403 e 206 em vários casos. Para o progressivo,
-            // que já funcionava, pedir a faixa inteira não muda nada.
-            setRequestProperty("Range", "bytes=0-")
+            // `Range` SEMPRE (v1.46). As URLs adaptativas do googlevideo
+            // costumam recusar uma requisição sem faixa — é assim que um player
+            // de verdade as consome (aos pedaços), e é a diferença entre 403 e
+            // 206 em vários casos. Para o progressivo, que já funcionava, pedir
+            // a faixa inteira não muda nada.
+            //
+            // E é ele que RETOMA: começando no que já está no disco, uma queda
+            // de rede custa os segundos da reconexão, não o download inteiro.
+            setRequestProperty("Range", "bytes=$jaTem-")
         }
         try {
             // O CÓDIGO LIDO DA CONEXÃO, e não adivinhado depois na mensagem da
@@ -1336,13 +1437,25 @@ object YoutubeGrab {
             val codigo = conn.responseCode
             // 206 é a resposta ESPERADA agora que pedimos `Range`.
             if (codigo != HttpURLConnection.HTTP_OK && codigo != HttpURLConnection.HTTP_PARTIAL) {
+                // 4xx é RECUSA, não oscilação: a URL expirou ou a faixa foi
+                // negada. Insistir nela é perder tempo — quem tem outras cartas
+                // é a fila de candidatos de quem chamou.
+                if (codigo in 400..499) throw RecusaDoCdn("HTTP $codigo")
                 throw IOException("HTTP $codigo")
             }
-            val total = conn.contentLengthLong.coerceAtLeast(0L)
+            // O SERVIDOR IGNOROU A FAIXA. Pedimos a partir de `jaTem` e ele
+            // mandou o arquivo inteiro (200 em vez de 206): continuar
+            // acrescentando produziria um arquivo com o começo repetido no meio
+            // — corrupção silenciosa, que só apareceria na hora de tocar. Aqui o
+            // certo é começar de novo, do zero.
+            val retomando = jaTem > 0 && codigo == HttpURLConnection.HTTP_PARTIAL
+            val base = if (retomando) jaTem else 0L
+            // `contentLengthLong` num 206 é o que FALTA, não o tamanho total.
+            val total = conn.contentLengthLong.coerceAtLeast(0L).let { if (it > 0) base + it else 0L }
             var lidos = 0L
             var ultimo = 0L
             conn.inputStream.use { entrada ->
-                destino.outputStream().use { saida ->
+                java.io.FileOutputStream(destino, retomando).use { saida ->
                     val buf = ByteArray(64 * 1024)
                     while (true) {
                         // O PEDIDO DE CANCELAMENTO é consultado aqui, a cada
@@ -1360,12 +1473,17 @@ object YoutubeGrab {
                         // que de download.
                         if (lidos - ultimo >= 1024 * 1024) {
                             ultimo = lidos
-                            onProgresso(lidos, total)
+                            // ABSOLUTO, contando o que já estava no disco: uma
+                            // retomada que reportasse só o pedaço desta conexão
+                            // faria a barra voltar ao começo a cada queda de
+                            // rede — que é exatamente a sensação que a retomada
+                            // existe para eliminar.
+                            onProgresso(base + lidos, total)
                         }
                     }
                 }
             }
-            onProgresso(lidos, total)
+            onProgresso(base + lidos, total)
         } finally {
             conn.disconnect()
         }
