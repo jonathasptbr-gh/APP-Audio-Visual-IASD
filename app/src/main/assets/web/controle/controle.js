@@ -664,10 +664,9 @@ function salvarPesos() {
     AVDB.setState(PESO_KEY, mapa);
   }, 1500);
 }
-// Conferência sob demanda: um álbum com músicas no aparelho e peso zerado é ou
-// um aparelho que baixou antes da v5.93, ou um mapa que ficou para trás. A
-// recontagem roda UMA vez por sessão e por álbum — o `pesoConferido` é o que
-// impede o `refreshCollectionsIfVisible` de dentro dela de virar laço.
+// Conferência sob demanda do peso guardado. A recontagem roda UMA vez por
+// sessão e por álbum — o `pesoConferido` é o que impede o
+// `refreshCollectionsIfVisible` de dentro dela de virar laço.
 function conferirPesoSeFaltar(id) {
   if (pesoConferido.has(id)) return;
   // UMA VEZ POR SESSÃO, TENHA ELE PESO OU NÃO (v5.134). Antes a reconferência
@@ -5353,7 +5352,8 @@ function renderCollectionCard(coll, ctx) {
     summary.textContent = coll.kind === 'album' ? 'não sincron.' : '—';
   }
   bar.appendChild(summary);
-  // Peso desconhecido com música no aparelho (baixou antes da v5.93): reconta.
+  // Reconferência do peso: uma vez por sessão e por álbum (ver a função — desde
+  // a v5.134 ela vale para qualquer peso, não só o zerado).
   conferirPesoSeFaltar(coll.id);
 
   // A BARRA INTEIRA é o alvo do acordeão: o toque nela abre a coleção ali
