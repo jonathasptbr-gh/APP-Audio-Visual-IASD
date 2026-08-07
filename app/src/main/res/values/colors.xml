@@ -7,7 +7,11 @@
          Não é decoração: este é o preto das barras de status e de navegação, e
          o WebView desenha o corpo do app encostado nelas — nas safe-areas do
          topo e da base ficava uma faixa de OUTRO preto colada ao app (#0A0A0A
-         contra o token, que já tinha mudado duas vezes). É também o
+         contra o token, que já tinha mudado duas vezes). Com targetSdk 35 o
+         mecanismo mudou nos aparelhos novos: o Android 15+ força edge-to-edge
+         e IGNORA as cores de barra do tema — ali quem pinta atrás das barras é
+         o próprio body da base web, com o MESMO token, e a igualdade dos dois
+         valores continua obrigatória por isso (ver themes.xml). É também o
          windowBackground, isto é, o que aparece ANTES de o WebView carregar:
          divergir aqui é reintroduzir justamente o "flash" que o themes.xml diz
          evitar. Se o token mudar de novo, este valor muda junto — nada no

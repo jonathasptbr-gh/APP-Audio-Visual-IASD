@@ -140,9 +140,11 @@ android {
     }
 
     androidResources {
-        // Os assets web já são texto pequeno; comprimir .js/.css/.html no APK
-        // é bom, mas fontes/imagens já vêm comprimidas.
-        noCompress += listOf("woff2", "png", "jpg", "webp")
+        // Comprimir .js/.css/.html no APK é bom; a fonte woff2 já vem
+        // comprimida e recomprimi-la só gastaria CPU na instalação. Só ela:
+        // png/jpg já estão na lista padrão do AAPT, e não há imagem nenhuma em
+        // assets de qualquer forma — as entradas extras eram no-op.
+        noCompress += listOf("woff2")
     }
 
     packaging {

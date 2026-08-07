@@ -26,7 +26,9 @@ object MessageBus {
     private val clients = CopyOnWriteArrayList<WebView>()
 
     fun attach(web: WebView) {
-        if (!clients.contains(web)) clients.add(web)
+        // `addIfAbsent` é atômico; o par `contains`+`add` tinha uma janela de
+        // duplicata entre a pergunta e a resposta.
+        clients.addIfAbsent(web)
     }
 
     fun detach(web: WebView) {

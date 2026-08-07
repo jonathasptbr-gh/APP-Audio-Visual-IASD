@@ -166,6 +166,10 @@ class NativeBridge(
      */
     @JavascriptInterface
     fun otaPending(callId: String) {
+        // Só o Controle, a mesma guarda dos três irmãos otaApply/otaCheck/
+        // otaDiag: o telão não pergunta por atualização, e não há por que este
+        // ser o único método do bloco a responder a qualquer papel.
+        if (host == null) { resolve(callId, JSONObject.quote("")); return }
         io.execute {
             resolve(callId, JSONObject.quote(WebUpdater.pendingVersion(ctx) ?: ""))
         }
@@ -298,6 +302,12 @@ class NativeBridge(
      */
     @JavascriptInterface
     fun bgProgress(json: String) {
+        // Só o Controle, como os onze irmãos que já recusam com `host == null`:
+        // o WebView do telão carrega script de terceiro por design (a IFrame
+        // Player API), e a notificação de download não pode ser FALSIFICÁVEL a
+        // partir dele — é o Controle quem baixa, então é só dele que o
+        // progresso pode vir.
+        if (host == null) return
         val o = try { JSONObject(json) } catch (e: Exception) { return }
         val arr = o.optJSONArray("items")
         val itens = buildList {
@@ -336,6 +346,13 @@ class NativeBridge(
      */
     @JavascriptInterface
     fun nowPlaying(json: String) {
+        // Só o Controle, como os onze irmãos com guarda de `host`. O WebView do
+        // telão carrega script de terceiro por design, e este método DERRUBA o
+        // [SessionService] com um `active:false` — justamente o serviço
+        // `mediaPlayback` que impede o processo (e a Presentation) de ser morto
+        // sob pressão de memória. Como o lado web deduplica por chave e não
+        // reenvia estado igual, o serviço derrubado ficaria derrubado.
+        if (host == null) return
         val o = try { JSONObject(json) } catch (e: Exception) { return }
         if (!o.optBoolean("active")) {
             SessionService.stop(ctx)
@@ -510,13 +527,22 @@ class NativeBridge(
      * não monta manifesto: ele recebe o já montado pelo registro da mídia, do
      * mesmo IndexedDB compartilhado, e só CONSOME os `/stream/` — que é o que
      * ele precisa para projetar.
+     *
+     * `altura <= 0` significa "o padrão" ([YoutubeGrab.TETO_ALTURA]) — a mesma
+     * convenção do [ytFetch], em que não pedir teto nenhum é pedir o máximo.
      */
     @JavascriptInterface
     fun ytStream(callId: String, url: String, altura: Int) {
         if (host == null) { resolve(callId, "null"); return }
         io.execute {
+            // `altura <= 0` é "o padrão", como no [ytFetch]: um `coerceIn`
+            // sozinho fazia de um 0 vindo do JavaScript um TETO de 144p — o
+            // oposto do pedido, e um caminho que pareceria "vídeo péssimo" em
+            // vez de erro.
+            val alvo = if (altura <= 0) YoutubeGrab.TETO_ALTURA
+            else altura.coerceIn(144, YoutubeGrab.TETO_ALTURA)
             val r = try {
-                YoutubeGrab.manifesto(url, altura.coerceIn(144, YoutubeGrab.TETO_ALTURA))
+                YoutubeGrab.manifesto(url, alvo)
             } catch (_: Exception) { null }
             resolve(callId, r?.toString() ?: "null")
         }

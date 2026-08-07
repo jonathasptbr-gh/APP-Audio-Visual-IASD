@@ -38,6 +38,11 @@
          elas existem, e o botão de cast não teria como SABER para onde cada
          candidato resolve — que é justamente o critério usado para preferir o
          espelhamento de tela ao Google Cast (ver MainActivity.openCastPicker).
+         As quatro primeiras entradas são de fato RESOLVIDAS por essa cadeia;
+         CAST_SETTINGS e DISPLAY_SETTINGS hoje não são — o fallback as abre por
+         startActivity direto, que é ISENTO do filtro de visibilidade — e ficam
+         declaradas por segurança: se algum caminho futuro voltar a consultá-las
+         por resolveActivity, a resposta não será um null enganoso.
          Isto não concede acesso a nada: só permite consultar quem atende. -->
     <queries>
         <package android:name="com.samsung.android.smartmirroring" />

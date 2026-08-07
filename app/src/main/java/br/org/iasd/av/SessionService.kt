@@ -189,7 +189,19 @@ class SessionService : Service() {
         // serviço que não existe mais. O lado web deduplica por chave e não
         // reenviaria o estado, então a notificação órfã ficaria de pé com os
         // botões mortos até o app ser fechado.
-        if (!running) return
+        //
+        // MAS A CENA PODE TER SOBREVIVIDO À MORTE DO SERVIÇO: um `active:false`
+        // seguido de um `active:true` rápido faz o `update()` novo ver
+        // `running == true`, enfileirar esta publicação — e o `onDestroy` do
+        // stop anterior rodar ANTES dela. Descartar aqui deixava `scene`
+        // preenchida sem serviço nenhum, e nada mais o religava (o lado web
+        // deduplica e não reenvia). Redisparar o start fecha a janela; o
+        // caminho NORMAL de parada não ressuscita nada, porque [stop] limpa
+        // `scene` antes de derrubar o serviço.
+        if (!running) {
+            if (scene != null) iniciar(applicationContext)
+            return
+        }
         val s = scene ?: Scene()
         session?.let { ms ->
             ms.setMetadata(
@@ -346,6 +358,17 @@ class SessionService : Service() {
                 inst.publish()
                 return
             }
+            iniciar(ctx)
+        }
+
+        /**
+         * Dispara o serviço. Extraído do [update] porque agora há TRÊS
+         * chamadores: a cena nova, a janela do [publish] (serviço morto com
+         * cena viva) e o [updateFromDisplay] no mesmo estado. O nome NÃO é
+         * `startService` de propósito: dentro da instância esse nome colide com
+         * o `Context.startService(Intent)` herdado.
+         */
+        private fun iniciar(ctx: Context) {
             try {
                 val i = Intent(ctx, SessionService::class.java)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -396,7 +419,17 @@ class SessionService : Service() {
             val saltou = extrapolado == null || Math.abs(positionMs - extrapolado) > POS_TOL_MS
             if (playing == s.playing && dur == s.durationMs && !saltou) return
             scene = s.copy(playing = playing, positionMs = positionMs, durationMs = dur)
-            instance?.publish()
+            val inst = instance
+            if (inst != null) {
+                inst.publish()
+            } else {
+                // Cena viva sem serviço: é a mesma janela que o [publish] fecha
+                // — e o telão emitindo status é a prova de que há o que mostrar.
+                // Religar aqui é o que dá a esta fonte (a única que sobrevive ao
+                // estrangulamento do Controle) o poder de recuperar a
+                // notificação, e é para isto que o `ctx` existe na assinatura.
+                iniciar(ctx)
+            }
         }
 
         /**
@@ -417,6 +450,13 @@ class SessionService : Service() {
          */
         fun stop(ctx: Context) {
             scene = null
+            // Os marcos da extrapolação morrem com a cena: sem isto, o primeiro
+            // `display-status` da cena SEGUINTE era comparado com a posição da
+            // anterior — um "salto" fabricado (ou, pior, um salto real absorvido
+            // por coincidência de tempos).
+            lastPubPosMs = 0L
+            lastPubAt = 0L
+            lastPubPlaying = false
             if (!foregrounded) return
             try {
                 ctx.stopService(Intent(ctx, SessionService::class.java))
@@ -463,7 +503,12 @@ class SessionService : Service() {
             val rotuloNext = if (s.slideMode) "Próxima ($unidade)" else "Próxima"
 
             val b = Notification.Builder(ctx, CHANNEL_ID)
-                .setSmallIcon(android.R.drawable.ic_media_play)
+                // Ícone = ESTADO, a mesma convenção da cortina: fixo em "play"
+                // ele dizia "tocando" na barra de status com o louvor pausado.
+                .setSmallIcon(
+                    if (s.playing) android.R.drawable.ic_media_play
+                    else android.R.drawable.ic_media_pause,
+                )
                 .setContentTitle(s.title)
                 .setContentText(s.subtitle)
                 .setContentIntent(abrir)

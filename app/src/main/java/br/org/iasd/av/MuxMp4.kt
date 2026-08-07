@@ -72,6 +72,12 @@ object MuxMp4 {
         val exAudio = MediaExtractor()
         var muxer: MediaMuxer? = null
         var iniciado = false
+        // O desfecho é uma VARIÁVEL, e o `return` vem DEPOIS do finally: um
+        // `return true` computado dentro do `try` era carimbado antes de o
+        // `stop()` do finally rodar — e um `stop()` que lança (trilha sem
+        // amostras) era engolido com a função já devolvendo sucesso, MP4 sem
+        // `moov` entregue como bom.
+        var ok = false
         try {
             exVideo.setDataSource(video.absolutePath)
             exAudio.setDataSource(audio.absolutePath)
@@ -79,48 +85,59 @@ object MuxMp4 {
             val trilhaAudio = acharTrilha(exAudio, "audio/")
             if (trilhaVideo < 0 || trilhaAudio < 0) {
                 Log.w(TAG, "faltou trilha (vídeo=$trilhaVideo, áudio=$trilhaAudio)")
-                return false
+            } else {
+                exVideo.selectTrack(trilhaVideo)
+                exAudio.selectTrack(trilhaAudio)
+                val fmtVideo = exVideo.getTrackFormat(trilhaVideo)
+                val fmtAudio = exAudio.getTrackFormat(trilhaAudio)
+
+                // O contêiner de SAÍDA acompanha o de ENTRADA: AVC/AAC num MP4,
+                // VP9/Opus num WebM. Misturar (VP9 dentro de MP4) é o que o muxer
+                // recusa — e recusa só depois de tudo baixado, que é o pior momento.
+                muxer = MediaMuxer(
+                    saida.absolutePath,
+                    if (webm) MediaMuxer.OutputFormat.MUXER_OUTPUT_WEBM
+                    else MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4,
+                )
+                val destinoVideo = muxer.addTrack(fmtVideo)
+                val destinoAudio = muxer.addTrack(fmtAudio)
+                muxer.start()
+                iniciado = true
+
+                copiar(exVideo, muxer, destinoVideo, balde(fmtVideo))
+                copiar(exAudio, muxer, destinoAudio, balde(fmtAudio))
+                ok = true
             }
-            exVideo.selectTrack(trilhaVideo)
-            exAudio.selectTrack(trilhaAudio)
-            val fmtVideo = exVideo.getTrackFormat(trilhaVideo)
-            val fmtAudio = exAudio.getTrackFormat(trilhaAudio)
-
-            // O contêiner de SAÍDA acompanha o de ENTRADA: AVC/AAC num MP4,
-            // VP9/Opus num WebM. Misturar (VP9 dentro de MP4) é o que o muxer
-            // recusa — e recusa só depois de tudo baixado, que é o pior momento.
-            muxer = MediaMuxer(
-                saida.absolutePath,
-                if (webm) MediaMuxer.OutputFormat.MUXER_OUTPUT_WEBM
-                else MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4,
-            )
-            val destinoVideo = muxer.addTrack(fmtVideo)
-            val destinoAudio = muxer.addTrack(fmtAudio)
-            muxer.start()
-            iniciado = true
-
-            copiar(exVideo, muxer, destinoVideo, balde(fmtVideo))
-            copiar(exAudio, muxer, destinoAudio, balde(fmtAudio))
-            return true
         } catch (e: Exception) {
             Log.w(TAG, "falhou ao juntar", e)
-            return false
+            ok = false
         } finally {
             // O `stop()` é o que fecha o índice do MP4 (o `moov`): sem ele o
             // arquivo existe, tem tamanho e NÃO ABRE. Ele mora aqui, e não no
             // fim do `try`, para valer também quando a cópia morre no meio — e
-            // ele mesmo pode lançar, o que não pode impedir o `release`.
+            // se ELE lançar, o arquivo saiu sem índice: o sucesso vira falha
+            // aqui, nunca silêncio. Lançando ou não, o `release` acontece.
             if (muxer != null) {
-                if (iniciado) try { muxer.stop() } catch (_: Exception) { /* já perdido */ }
+                if (iniciado) {
+                    try {
+                        muxer.stop()
+                    } catch (e: Exception) {
+                        Log.w(TAG, "stop() falhou — saiu sem índice", e)
+                        ok = false
+                    }
+                }
                 try { muxer.release() } catch (_: Exception) {}
             }
             try { exVideo.release() } catch (_: Exception) {}
             try { exAudio.release() } catch (_: Exception) {}
             // Um MP4 sem índice é pior que arquivo nenhum: ele passaria no teste
             // de "tem bytes?" de quem chamou e só falharia na frente da
-            // congregação. Se o muxer não chegou a rodar, o arquivo sai daqui.
-            if (!iniciado) saida.delete()
+            // congregação. QUALQUER desfecho que não seja sucesso apaga a saída
+            // — inclusive a cópia que morreu com o muxer já iniciado, que antes
+            // deixava o arquivo quebrado no cache.
+            if (!ok) saida.delete()
         }
+        return ok
     }
 
     /** O índice da primeira trilha cujo mime começa com [prefixo], ou -1. */

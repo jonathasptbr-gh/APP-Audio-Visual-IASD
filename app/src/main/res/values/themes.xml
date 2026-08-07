@@ -6,7 +6,15 @@
          que num comentário XML são erro de sintaxe e reprovam o arquivo no
          aapt2) e nenhuma action bar, para não haver "flash" claro entre o
          splash e a carga do WebView — e para as barras
-         do sistema não desenharem um preto diferente do corpo do app. -->
+         do sistema não desenharem um preto diferente do corpo do app.
+
+         ATENÇÃO (targetSdk 35): no Android 15+ o sistema força edge-to-edge e
+         IGNORA statusBarColor/navigationBarColor — os dois itens abaixo só
+         valem até o Android 14. Nas versões novas, o preto atrás das barras é
+         o body da base web pintando o MESMO token `bg` por baixo delas; é por
+         isso que a igualdade entre `@color/app_bg` e o token continua
+         OBRIGATÓRIA mesmo com os itens ignorados: divergir reintroduziria a
+         faixa de outro preto, agora só nos aparelhos novos. -->
     <style name="Theme.AvIasd" parent="@android:style/Theme.Material.NoActionBar">
         <item name="android:windowBackground">@color/app_bg</item>
         <item name="android:colorBackground">@color/app_bg</item>

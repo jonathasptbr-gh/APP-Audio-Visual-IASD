@@ -1,6 +1,7 @@
 package br.org.iasd.av
 
 import android.content.Context
+import android.os.SystemClock
 import android.util.Log
 import org.json.JSONObject
 import java.io.File
@@ -92,6 +93,21 @@ object WebUpdater {
     private const val CONNECT_TIMEOUT = 10_000
     private const val READ_TIMEOUT = 30_000
     private const val MAX_ZIP_BYTES = 64L * 1024 * 1024 // teto de sanidade
+
+    /**
+     * Teto do [fetchText]: o `version.json` tem dezenas de bytes, e 1 MB já é
+     * quatro ordens de grandeza de folga. Sem teto, um servidor errado (ou um
+     * portal cativo devolvendo uma página infinita) enchia a memória de um
+     * `readBytes` sem limite.
+     */
+    private const val MAX_TEXT_BYTES = 1L * 1024 * 1024
+
+    /**
+     * Teto de ENTRADAS do [unzip], além do teto de bytes: um zip artesanal com
+     * milhões de arquivos minúsculos passa folgado no [MAX_ZIP_BYTES] e ainda
+     * esgota inodes/tempo na extração. O bundle real tem dezenas de arquivos.
+     */
+    private const val MAX_ZIP_ENTRIES = 10_000
 
     /**
      * Hosts de onde um bundle pode vir. A URL do zip sai do `version.json`, que
@@ -348,6 +364,13 @@ object WebUpdater {
     /** Espera crescente depois de uma falha: ~30 s, 1 min, 2 min, 5 min. */
     private val ESPERAS_FALHA_MS = longArrayOf(30_000, 60_000, 120_000, 300_000)
 
+    // Os marcos abaixo são medidos em `SystemClock.elapsedRealtime()`, não em
+    // `currentTimeMillis()`: os pisos da vigilância são INTERVALOS, e o relógio
+    // de parede anda para trás num acerto de hora (NTP, fuso, ajuste manual) —
+    // um acerto para trás calava os gatilhos pelo tempo recuado. O relógio
+    // monotônico é imune, e é o mesmo que o [SessionService] já usa para a
+    // extrapolação. (O `?t=` da [versionUrl] continua em currentTimeMillis de
+    // propósito: lá o valor é só uma chave anti-cache, não um intervalo.)
     @Volatile private var ultimoOk = 0L
     @Volatile private var ultimoResultado = "ainda não verificou"
     @Volatile private var ultimoInstante = 0L
@@ -424,7 +447,7 @@ object WebUpdater {
      */
     fun checkAsync(ctx: Context, motivo: String = "abertura", forcar: Boolean = false) {
         val app = ctx.applicationContext
-        val agora = System.currentTimeMillis()
+        val agora = SystemClock.elapsedRealtime()
         // Depois de uma falha, a espera crescente segura os gatilhos de rotina —
         // e só eles: a retentativa agendada vem com `forcar` e passa por cima.
         if (!forcar && agora < proximaEm) return
@@ -441,13 +464,13 @@ object WebUpdater {
                 // "nada novo" e "exige shell 32" são respostas diferentes, e
                 // carimbá-las aqui por fora apagaria a segunda.
                 val nova = check(app)
-                ultimoOk = System.currentTimeMillis()
+                ultimoOk = SystemClock.elapsedRealtime()
                 ultimoInstante = ultimoOk
                 falhasSeguidas = 0
                 proximaEm = 0
                 if (nova != null) aoChegar?.invoke(nova)
             } catch (e: Exception) {
-                ultimoInstante = System.currentTimeMillis()
+                ultimoInstante = SystemClock.elapsedRealtime()
                 ultimoResultado = "falhou (${e.message})"
                 // RETENTAR SOZINHO, com espera crescente. Sem isto, uma falha
                 // custava a sessão inteira: a ronda de 5 min ainda viria, mas
@@ -456,7 +479,7 @@ object WebUpdater {
                 val i = minOf(falhasSeguidas, ESPERAS_FALHA_MS.size - 1)
                 val espera = ESPERAS_FALHA_MS[i]
                 falhasSeguidas++
-                proximaEm = System.currentTimeMillis() + espera
+                proximaEm = SystemClock.elapsedRealtime() + espera
                 Log.i(TAG, "sem atualização ($motivo): ${e.message} — de novo em ${espera / 1000}s")
                 try {
                     val n = falhasSeguidas
@@ -480,7 +503,8 @@ object WebUpdater {
      * Sem isto, a única resposta possível era um palpite.
      */
     fun diag(ctx: Context): String {
-        val agora = System.currentTimeMillis()
+        // O mesmo relógio monotônico dos marcos que ele lê (ver acima).
+        val agora = SystemClock.elapsedRealtime()
         val quando = if (ultimoInstante == 0L) "nunca"
         else "há " + ((agora - ultimoInstante) / 1000) + "s"
         val pend = pendingVersion(ctx)
@@ -637,13 +661,21 @@ object WebUpdater {
         null
     }
 
-    /** Compara "4.82" com "4.9" numericamente por componente (não lexical). */
+    /**
+     * Compara "4.82" com "4.9" numericamente por componente (não lexical).
+     *
+     * `takeWhile`, e não `filter`: o filtro CONCATENAVA os dígitos de um
+     * sufixo — "138-rc1" virava 1381 e uma release candidate publicada à mão
+     * passaria na frente da 138 final. Com o prefixo numérico, o sufixo
+     * não-numérico compara como o número que o antecede ("138-rc1" == "138"),
+     * que é o comportamento inofensivo dos dois.
+     */
     fun compareVersions(a: String, b: String): Int {
         val pa = a.split('.')
         val pb = b.split('.')
         for (i in 0 until maxOf(pa.size, pb.size)) {
-            val x = pa.getOrNull(i)?.filter { it.isDigit() }?.toIntOrNull() ?: 0
-            val y = pb.getOrNull(i)?.filter { it.isDigit() }?.toIntOrNull() ?: 0
+            val x = pa.getOrNull(i)?.takeWhile { it.isDigit() }?.toIntOrNull() ?: 0
+            val y = pb.getOrNull(i)?.takeWhile { it.isDigit() }?.toIntOrNull() ?: 0
             if (x != y) return if (x > y) 1 else -1
         }
         return 0
@@ -683,7 +715,10 @@ object WebUpdater {
         val conn = open(url)
         try {
             if (conn.responseCode !in 200..299) error("HTTP ${conn.responseCode}")
-            return conn.inputStream.use { it.readBytes().decodeToString() }
+            // Com teto (ver [MAX_TEXT_BYTES]) — o mesmo `copyLimited` do zip.
+            val out = java.io.ByteArrayOutputStream()
+            conn.inputStream.use { copyLimited(it, out, MAX_TEXT_BYTES) }
+            return out.toByteArray().decodeToString()
         } finally {
             conn.disconnect()
         }
@@ -733,9 +768,14 @@ object WebUpdater {
         dest.mkdirs()
         val destPath = dest.canonicalPath + File.separator
         var written = 0L
+        var entradas = 0
         ZipInputStream(zip.inputStream().buffered()).use { zin ->
             while (true) {
                 val entry = zin.nextEntry ?: break
+                // Teto de entradas, não só de bytes — ver [MAX_ZIP_ENTRIES].
+                if (++entradas > MAX_ZIP_ENTRIES) {
+                    error("bundle com entradas demais")
+                }
                 val out = File(dest, entry.name)
                 // Zip slip: uma entrada com ".." escaparia do diretório de
                 // destino e poderia sobrescrever arquivos do app.

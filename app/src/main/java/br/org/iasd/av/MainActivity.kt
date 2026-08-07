@@ -76,11 +76,32 @@ class MainActivity : ComponentActivity(), BridgeHost {
         )
     }
 
-    /** Share recebido por intent, aguardando o lado web consumir. */
-    private var pendingShare: JSONObject? = null
+    /**
+     * Share recebido por intent, aguardando o lado web consumir.
+     *
+     * `AtomicReference`, e não um campo comum: quem escreve é a main thread
+     * (`onCreate`/`onNewIntent`), mas quem lê é [takePendingShare], chamado da
+     * thread do WebView pela ponte — sem uma aresta de visibilidade a leitura
+     * podia enxergar `null` (ou um objeto pela metade) por sorte de cache. O
+     * `getAndSet(null)` do take também fecha, de graça, a janela de consumo
+     * duplo entre duas chamadas concorrentes.
+     */
+    private val pendingShare =
+        java.util.concurrent.atomic.AtomicReference<JSONObject?>(null)
 
     /** Há download em curso? (evita start/stop repetido do serviço) */
     private var backgroundWork = false
+
+    /**
+     * Geração do estado de [backgroundWork]. Incrementada a cada mudança aceita
+     * em [setBackgroundWork]; o hook do `SyncService.onGone` captura o valor no
+     * momento do aviso e só zera o espelho se ninguém mudou o estado no meio —
+     * sem isso, um `keepAlive(true)` novo que cruzasse com o `onTimeout` da
+     * cota de FGS era apagado pelo runnable atrasado, e o download seguinte
+     * ficava sem proteção, calado.
+     */
+    @Volatile
+    private var backgroundWorkGen = 0
 
     /**
      * O lado web pediu para receber os botões físicos de volume.
@@ -198,7 +219,7 @@ class MainActivity : ComponentActivity(), BridgeHost {
         // integral do arquivo, sem aviso e sem desfazer. `savedInstanceState`
         // não-nulo é exatamente "isto é uma recriação".
         if (savedInstanceState == null) {
-            pendingShare = ShareIntake.parse(this, intent)
+            pendingShare.set(ShareIntake.parse(this, intent))
         }
         // E marca o intent como consumido, para o caso de o sistema recriar a
         // Activity SEM estado salvo: um ACTION_SEND que já foi lido nunca mais
@@ -253,8 +274,18 @@ class MainActivity : ComponentActivity(), BridgeHost {
         // `if (on == backgroundWork)` de [setBackgroundWork] trataria o próximo
         // `keepAlive(true)` como repetido e o download seguinte ficaria sem
         // proteção nenhuma — em silêncio, que é a pior forma de perder isso.
+        //
+        // O TOKEN DE GERAÇÃO fecha a corrida do outro lado: entre o aviso do
+        // `onTimeout` e o runnable rodar, um `keepAlive(true)` novo pode ter
+        // mudado o estado (e subido o serviço de novo) — zerar por cima dele
+        // recriava exatamente o defeito que este hook existe para evitar. A
+        // geração é capturada NO MOMENTO do aviso; se ela mudou até a execução,
+        // o estado já é de outro download e o runnable não toca em nada.
         SyncService.onGone = {
-            runOnUiThread { backgroundWork = false }
+            val gen = backgroundWorkGen
+            runOnUiThread {
+                if (gen == backgroundWorkGen) backgroundWork = false
+            }
         }
 
         onBackPressedDispatcher.addCallback(this) { handleBack() }
@@ -350,6 +381,16 @@ class MainActivity : ComponentActivity(), BridgeHost {
                     Log.w(TAG, "serviço de sincronização não parou", e)
                 }
             }
+            // MESMA classe de estado do documento morto: os dois foram ligados
+            // pela página que acabou de morrer, e a nova pede de novo ao
+            // carregar. `captureVolumeKeys` órfão é o pior dos dois — com a
+            // página morta (ou a recarga falhando), a Activity seguia
+            // consumindo as teclas e entregando o passo a um `__avVolumeKey`
+            // que não existe: o aparelho ficava sem NENHUM controle de volume.
+            // `audioAlive` órfão manteria o WebView novo com prioridade de
+            // renderer que ninguém pediu.
+            captureVolumeKeys = false
+            audioAlive = false
             webContainer.post { buildControleWebView() }
         }
         w.webChromeClient = ControleChromeClient()
@@ -374,7 +415,7 @@ class MainActivity : ComponentActivity(), BridgeHost {
         // um intent inútil não ficar pendurado como o intent da Activity.
         consumeShareIntent()
         if (share == null) return
-        pendingShare = share
+        pendingShare.set(share)
         // App já aberto: empurra o share na hora, sem esperar um novo init.
         web?.evaluateJavascript("window.__avShareArrived && window.__avShareArrived();", null)
     }
@@ -445,7 +486,9 @@ class MainActivity : ComponentActivity(), BridgeHost {
         // sobreviver à Activity segurando um wake lock à toa.
         if (backgroundWork) {
             backgroundWork = false
-            try { SyncService.stop(this) } catch (_: Exception) { }
+            try { SyncService.stop(this) } catch (e: Exception) {
+                Log.w(TAG, "serviço de sincronização não parou", e)
+            }
         }
         // Idem para a sessão: sem WebView não há quem execute a ação, e a
         // notificação de controles viraria um painel de botões mortos.
@@ -506,7 +549,16 @@ class MainActivity : ComponentActivity(), BridgeHost {
 
         val p = StagePresentation(this, target)
         p.setOnDismissListener {
-            if (presentation === p) presentation = null
+            // Dismiss ESPONTÂNEO (o sistema derrubou a janela sem passar pelos
+            // caminhos daqui): só anular a referência deixava o WebView do
+            // telão vivo no MessageBus — recebendo comandos e, com autoplay
+            // liberado, podendo TOCAR áudio numa janela que ninguém vê. O
+            // `release()` é idempotente (na segunda chamada `web` já é null),
+            // então os caminhos que já liberam antes do dismiss não pagam nada.
+            if (presentation === p) {
+                presentation = null
+                p.release()
+            }
         }
         try {
             p.show()
@@ -570,6 +622,11 @@ class MainActivity : ComponentActivity(), BridgeHost {
 
     override fun requestFolderPick(onResult: (Uri?) -> Unit) {
         runOnUiThread {
+            // Um pedido anterior ainda em voo é RESOLVIDO como cancelado antes
+            // de ser sobrescrito — o mesmo padrão do `onShowFileChooser`. Esta
+            // Promise não tem prazo no lado web (espera uma pessoa), então um
+            // callback atropelado era uma Promise pendurada para sempre.
+            pendingFolderPick?.invoke(null)
             pendingFolderPick = onResult
             try {
                 folderPicker.launch(null)
@@ -583,6 +640,10 @@ class MainActivity : ComponentActivity(), BridgeHost {
 
     override fun requestDocPick(mimes: Array<String>, onResult: (List<Uri>) -> Unit) {
         runOnUiThread {
+            // Mesmo padrão do [requestFolderPick]: o pendente resolve vazio
+            // antes de ser sobrescrito, senão a Promise sem prazo do lado web
+            // fica pendurada para sempre.
+            pendingDocPick?.invoke(emptyList())
             pendingDocPick = onResult
             try {
                 docPicker.launch(mimes)
@@ -598,6 +659,10 @@ class MainActivity : ComponentActivity(), BridgeHost {
         runOnUiThread {
             if (on == backgroundWork) return@runOnUiThread
             backgroundWork = on
+            // Toda mudança aceita vira uma geração nova — é contra ela que o
+            // runnable atrasado do `SyncService.onGone` confere se ainda fala
+            // do mesmo estado (ver o hook no onCreate).
+            backgroundWorkGen++
             try {
                 if (on) SyncService.start(this) else SyncService.stop(this)
             } catch (e: Exception) {
@@ -714,7 +779,12 @@ class MainActivity : ComponentActivity(), BridgeHost {
      * o aparelho ofereceu, em vez de descobrir só ao tocar.
      */
     override fun describeCastTarget(): String {
-        val chosen = pickCastIntent() ?: return "Google Cast (sem espelhamento neste aparelho)"
+        // O rótulo do fallback tem de dizer o que o TOQUE de fato abre: sem
+        // alvo de espelhamento, [openCastPicker] tenta DISPLAY_SETTINGS antes
+        // de CAST_SETTINGS — anunciar "Google Cast" aqui era descrever o
+        // último recurso como se fosse o primeiro.
+        val chosen = pickCastIntent()
+            ?: return "Configurações de tela (sem espelhamento neste aparelho)"
         return chosen.second
     }
 
@@ -765,6 +835,12 @@ class MainActivity : ComponentActivity(), BridgeHost {
      * lança, e a cadeia segue).
      */
     private fun castCandidates(): List<Intent> {
+        // MEMOIZADO POR PROCESSO: o conjunto de activities exportadas de
+        // pacotes de sistema não muda enquanto o processo vive, e este método
+        // roda a cada toque no botão de cast E a cada abertura de Configurações
+        // (`describeCastTarget`) — sem o cache, cada uma pagava as consultas ao
+        // PackageManager de novo, pelo mesmo resultado.
+        castCandidatesCache?.let { return it }
         val out = mutableListOf<Intent>()
         // O ramo do Smart View só entra na fila NUM APARELHO SAMSUNG. Ele
         // nasceu do aparelho em que o app é operado (um S24 Ultra), e a cadeia
@@ -794,6 +870,7 @@ class MainActivity : ComponentActivity(), BridgeHost {
         // — e a que NÃO é reivindicada pelo Play Services (ao contrário de
         // CAST_SETTINGS, que na Samsung testada abre o Google Cast).
         out.add(Intent("android.settings.WIFI_DISPLAY_SETTINGS"))
+        castCandidatesCache = out
         return out
     }
 
@@ -857,6 +934,9 @@ class MainActivity : ComponentActivity(), BridgeHost {
     override fun requestMicPermission(onResult: (Boolean) -> Unit) {
         runOnUiThread {
             if (MicChromeClient.hasRecordAudio(this)) { onResult(true); return@runOnUiThread }
+            // Mesmo padrão do [requestFolderPick]: o pedido anterior resolve
+            // negado antes de ser sobrescrito — Promise sem prazo do lado web.
+            pendingMicPermission?.invoke(false)
             pendingMicPermission = onResult
             try {
                 micPermission.launch(android.Manifest.permission.RECORD_AUDIO)
@@ -882,11 +962,7 @@ class MainActivity : ComponentActivity(), BridgeHost {
         }
     }
 
-    override fun takePendingShare(): JSONObject? {
-        val s = pendingShare
-        pendingShare = null
-        return s
-    }
+    override fun takePendingShare(): JSONObject? = pendingShare.getAndSet(null)
 
     // ---------- fullscreen HTML5 ----------
 
@@ -987,5 +1063,14 @@ class MainActivity : ComponentActivity(), BridgeHost {
             "com.samsung.android.smartmirroring",
             "com.samsung.android.app.smartmirroring",
         )
+
+        /**
+         * Cache de [castCandidates] — no companion porque a informação é do
+         * PROCESSO (activities de pacotes de sistema), não desta Activity: uma
+         * recriação de tela não a muda. Os `Intent` cacheados são reusados com
+         * `addFlags`, o que é inócuo — a flag é sempre a mesma.
+         */
+        @Volatile
+        private var castCandidatesCache: List<Intent>? = null
     }
 }

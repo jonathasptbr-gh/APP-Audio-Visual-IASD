@@ -3,6 +3,7 @@ package br.org.iasd.av
 import android.content.Context
 import android.net.Uri
 import android.os.Build
+import android.os.SystemClock
 import android.util.Log
 import org.json.JSONArray
 import org.json.JSONObject
@@ -136,19 +137,6 @@ object YoutubeGrab {
     private const val TETO_AUDIO_SO = 3
 
     /**
-     * O UA do app do YouTube no iPhone.
-     *
-     * Uma URL emitida para um cliente costuma ser servida só a quem se anuncia
-     * como ele — baixá-la com o UA errado é o tipo de incoerência que o CDN
-     * responde com 403. O cliente iOS está desligado desde a v1.49 (ver
-     * [garantirInit]), então na prática nenhuma URL sai por ele hoje; o perfil
-     * fica na fila de [baixarTentando] como rede de segurança, e custa no
-     * máximo uma requisição perdida.
-     */
-    private const val UA_IOS =
-        "com.google.ios.youtube/21.03.2(iPhone16,2; U; CPU iOS 18_7_2 like Mac OS X; )"
-
-    /**
      * O UA do app do YouTube no Apple Vision Pro — o cliente que a biblioteca
      * passou a buscar na v0.26.3 e que é quem entrega as faixas adaptativas sem
      * PO Token (ver o cabeçalho).
@@ -253,9 +241,11 @@ object YoutubeGrab {
         private set
 
     /**
-     * TODA faixa adaptativa foi recusada (403) nesta execução do app.
+     * QUANDO toda faixa adaptativa foi recusada (403) pela última vez — `0` =
+     * nunca. Enquanto a marca é recente ([adaptativoBloqueado]), o caminho
+     * adaptativo nem tenta.
      *
-     * Enquanto a biblioteca só sabia pedir sem token, isso era a regra e não a
+     * Enquanto a biblioteca só sabia pedir sem token, o 403 era a regra e não a
      * exceção: as doze faixas de vídeo-só e as cinco de áudio eram listadas e o
      * CDN recusava todas. Sem esta memória, todo download refazia as mesmas
      * requisições condenadas antes de cair no progressivo — alguns segundos de
@@ -266,15 +256,30 @@ object YoutubeGrab {
      * envenenada pode ter uma boa logo atrás na fila, e desligar o caminho
      * inteiro por causa do primeiro 403 seria jogar fora justamente o 1080p que
      * o bump veio buscar. Só liga quando **todos** os candidatos tentados
-     * morreram com 403, e no mínimo dois.
+     * morreram com 403, e no mínimo dois — e o caminho do ÁUDIO alimenta a
+     * marca com a mesma régua ([baixarAudio]): antes só a montagem de vídeo
+     * contava, e com todo áudio adaptativo recusado a sessão refazia as sondas
+     * condenadas a cada download.
      *
-     * Por PROCESSO, e não persistido: se o YouTube afrouxar (ou se o vídeo
-     * seguinte não for protegido), basta reabrir o app para tentar de novo — e
-     * um estado gravado em disco transformaria uma recusa de um dia numa
-     * desistência permanente.
+     * Com PRAZO ([BLOQUEIO_ADAPTATIVO_MS]), e não pela execução inteira: uma
+     * recusa unânime é evidência sobre UM vídeo agora, não sobre o YouTube até
+     * o app fechar — sem a expiração, dois 403 do vídeo problemático da manhã
+     * desligavam o 1080p de todos os downloads do dia. Por `elapsedRealtime`,
+     * imune a acerto de relógio; em memória e não persistido, porque um estado
+     * em disco transformaria uma recusa de um dia numa desistência permanente.
      */
     @Volatile
-    private var adaptativoBloqueado = false
+    private var adaptativoBloqueadoEm = 0L
+
+    /** Quanto tempo a recusa unânime vale. Quinze minutos cobrem o "tentar de
+     *  novo em seguida" sem condenar o download seguinte do culto. */
+    private const val BLOQUEIO_ADAPTATIVO_MS = 15 * 60 * 1000L
+
+    /** O caminho adaptativo está em quarentena agora? */
+    private fun adaptativoBloqueado(): Boolean {
+        val em = adaptativoBloqueadoEm
+        return em > 0L && SystemClock.elapsedRealtime() - em < BLOQUEIO_ADAPTATIVO_MS
+    }
 
     /**
      * "áudio 2 · vídeo-só 5 (1080p) · progressivo 2 (720p)"
@@ -362,18 +367,21 @@ object YoutubeGrab {
      * Por que uma tentativa morreu, em duas ou três palavras — para caber na
      * linha do diagnóstico.
      *
-     * O código HTTP é o que separa as duas causas possíveis: **403** é o YouTube
-     * recusando a URL (é o que acontece com as faixas protegidas por PO Token,
-     * e nesse caso não há o que fazer no app), qualquer outra coisa é rede ou
-     * arquivo. `HttpURLConnection` não devolve o código quando o `inputStream`
-     * lança — ele vai no texto da exceção —, daí a extração pelo regex.
+     * Três desfechos, porque levam a leituras opostas: o CÓDIGO HTTP (**403**
+     * é o YouTube recusando a URL — faixa protegida por PO Token, não há o que
+     * fazer no app), o CANCELAMENTO (o operador desistiu, e registrá-lo como
+     * `IOException` mandaria caçar uma queda de rede que não existiu — é o que
+     * o KDoc de [CANCELADO] promete ao diagnóstico) e o resto, que é rede ou
+     * arquivo e sai como o nome da exceção.
      */
     private fun motivo(e: Exception): String {
-        // A mensagem de "HTTP nnn" é NOSSA (ver `baixar`), então dá para usá-la
-        // como está. Nada de procurar três dígitos no texto: a v1.45 fazia isso
-        // e leu a duração de dentro da URL (`dur=423.061`) como se fosse um
-        // código HTTP — o diagnóstico apontou para um erro que não existia.
+        // As mensagens de "HTTP nnn" e de cancelamento são NOSSAS (ver
+        // `baixar`), então dá para usá-las como estão. Nada de procurar três
+        // dígitos no texto: a v1.45 fazia isso e leu a duração de dentro da URL
+        // (`dur=423.061`) como se fosse um código HTTP — o diagnóstico apontou
+        // para um erro que não existia.
         val msg = e.message.orEmpty()
+        if (msg == CANCELADO) return "cancelado"
         if (msg.startsWith("HTTP ")) return msg.removePrefix("HTTP ")
         return e.javaClass.simpleName.ifEmpty { "erro" }
     }
@@ -448,6 +456,11 @@ object YoutubeGrab {
         onProgresso: (Long, Long) -> Unit,
     ): JSONObject? {
         baixandoLink = link
+        // Um cancel só vale para download EM VOO. Um que sobrou de um download
+        // já terminado — chegou depois do teste do `finally` — ficaria armado e
+        // mataria ESTE no primeiro bloco copiado, que é justamente o download
+        // que o operador pediria em seguida.
+        cancelarLink = null
         return try {
             garantirInit()
             // Pelo EXTRATOR, e não pelo atalho `getInfo(service, url)`: é o
@@ -507,6 +520,10 @@ object YoutubeGrab {
             faixaDe(melhorProgressivo(info, teto))?.let { tentativas += Alvo(it, false) }
 
             for (alvo in tentativas) {
+                // O cancelamento pode ter chegado na fase da montagem: entrar
+                // na fila do progressivo depois dele seria abrir mais conexões
+                // para um download que o operador já recusou.
+                if (cancelado()) return null
                 val destino = arquivoDestino(ctx, id, alvo.faixa.ext, alvo.soAudio)
                 try {
                     baixarTentando(alvo.faixa.url, destino, onProgresso)
@@ -514,6 +531,10 @@ object YoutubeGrab {
                     Log.w(TAG, "falhou baixando ${alvo.faixa.etiqueta} de $link", e)
                     diagnostico += " · ${alvo.faixa.etiqueta} " + motivo(e)
                     destino.delete()
+                    // CANCELAMENTO ABORTA A FILA, não só esta tentativa: o
+                    // próximo candidato custaria outra conexão real depois do
+                    // pedido de parar. O registro acima já disse "cancelado".
+                    if (foiCancelado(e)) return null
                     continue
                 }
                 if (destino.length() <= 0L) { destino.delete(); continue }
@@ -549,6 +570,12 @@ object YoutubeGrab {
             null
         } catch (e: Exception) {
             Log.w(TAG, "falhou em $link", e)
+            // O RODAPÉ NÃO PODE FICAR COM O VÍDEO ANTERIOR: quando a extração
+            // lança (vídeo removido, geo-block, rede), `diagnostico` ainda era
+            // o resumo — com desfecho de SUCESSO — da extração passada. Para o
+            // instrumento cuja razão de existir é "olhar o que chegou", mostrar
+            // a de ontem para a falha de hoje é o pior modo de falhar.
+            diagnostico = "extração falhou: " + motivo(e) + " · " + link
             null
         } finally {
             baixandoLink = null
@@ -648,6 +675,19 @@ object YoutubeGrab {
     }
 
     /**
+     * Esta falha É o cancelamento? Consultada pelos laços de candidatos: uma
+     * fila que segue para o próximo candidato depois do pedido de parar abre
+     * conexão real de novo — espera DEPOIS de o operador pedir para parar.
+     *
+     * As duas condições, porque o cancelamento tem dois jeitos de aparecer: a
+     * exceção com a mensagem de [CANCELADO] (o laço de cópia saiu por ela) e a
+     * exceção de REDE que estava em voo quando o pedido chegou — nesse caso a
+     * mensagem é outra, mas `cancelado()` ainda responde.
+     */
+    private fun foiCancelado(e: Exception): Boolean =
+        e.message == CANCELADO || cancelado()
+
+    /**
      * A marca do cancelamento nas mensagens.
      *
      * O lado web não a lê (ele sabe que pediu, e a ponte devolve `null` como em
@@ -697,10 +737,17 @@ object YoutubeGrab {
             // A MESMA fila de candidatos do download, e não uma segunda regra:
             // a ordem por cliente (visionOS primeiro) é o que faz a faixa
             // escolhida ser uma que o CDN de fato serve.
-            // As listas INTEIRAS, antes do filtro de `dash`: é a diferença
-            // entre elas e o que sobra que diz o que faltou.
-            val videos = candidatosVideo(info, 0, teto).filter { !it.webm }
-            val audios = candidatosAudio(info, "m4a", TETO_AUDIO)
+            //
+            // A ELEGIBILIDADE (mp4/m4a) VEM ANTES DO TETO de candidatos: um
+            // par transmissível na 3ª posição por ordem era descartado por
+            // dois inelegíveis à frente do `take` — "SEM PAR DASH" com par bom
+            // na lista. No áudio não há teto nenhum: o teto é orçamento de
+            // TENTATIVA de download, e aqui não se tenta nada — escolhe-se UM.
+            // O filtro de `dash` fica DEPOIS, e as contas saem das listas que
+            // o `firstOrNull` de fato varre: é a diferença entre elas e o que
+            // sobra que diz o que faltou.
+            val videos = candidatosVideo(info, 0, teto) { !it.webm }
+            val audios = candidatosAudio(info, "m4a", Int.MAX_VALUE)
             val v = videos.firstOrNull { it.dash }
             val a = audios.firstOrNull { it.dash }
             val contas = porQueNaoDash("vídeo mp4", videos) + " · " + porQueNaoDash("áudio m4a", audios)
@@ -718,6 +765,9 @@ object YoutubeGrab {
                 .put("audio", faixaJson(a))
         } catch (e: Exception) {
             Log.w(TAG, "não deu para montar o manifesto de $link", e)
+            // Mesma regra do download: uma extração que lança não pode deixar
+            // no rodapé o resumo — bem-sucedido — do vídeo anterior.
+            diagnosticoStream = "extração falhou: " + motivo(e) + " · " + link
             null
         }
     }
@@ -801,8 +851,8 @@ object YoutubeGrab {
         teto: Int,
         onProgresso: (Long, Long) -> Unit,
     ): JSONObject? {
-        if (adaptativoBloqueado) {
-            diagnostico += " · adaptativo bloqueado nesta sessão"
+        if (adaptativoBloqueado()) {
+            diagnostico += " · adaptativo em quarentena (403 em série há pouco)"
             return null
         }
 
@@ -828,6 +878,15 @@ object YoutubeGrab {
         var montagens = 0
         try {
             for (v in candidatos) {
+                // O CANCELAMENTO ABORTA A FILA INTEIRA, não só a tentativa em
+                // que o pedido chegou (ele aparece aqui vindo do áudio, que
+                // devolve null, ou da montagem, que devolve Recusado): cada
+                // candidato seguinte abriria conexão real de novo — espera
+                // DEPOIS de o operador pedir para parar.
+                if (cancelado()) {
+                    diagnostico += " · cancelado, fila abortada"
+                    break
+                }
                 // O teto é conferido ANTES de qualquer byte: parar depois de já
                 // ter baixado o áudio do contêiner seguinte seria pagar por uma
                 // tentativa que nunca vai acontecer.
@@ -864,11 +923,13 @@ object YoutubeGrab {
             audioDe.values.forEach { it?.delete() }
         }
 
-        // O DESLIGAMENTO DA SESSÃO EXIGE UNANIMIDADE — ver [adaptativoBloqueado].
-        // Com o pool misturado, um 403 isolado é o comportamento NORMAL de uma
-        // faixa envenenada com uma boa logo atrás na fila; desligar o caminho
+        // A QUARENTENA EXIGE UNANIMIDADE — ver [adaptativoBloqueadoEm]. Com o
+        // pool misturado, um 403 isolado é o comportamento NORMAL de uma faixa
+        // envenenada com uma boa logo atrás na fila; desligar o caminho
         // inteiro por causa dele seria o autogol.
-        if (tentados >= 2 && recusas403 == tentados) adaptativoBloqueado = true
+        if (tentados >= 2 && recusas403 == tentados) {
+            adaptativoBloqueadoEm = SystemClock.elapsedRealtime()
+        }
         return null
     }
 
@@ -894,6 +955,8 @@ object YoutubeGrab {
             return null
         }
         val destino = File(pasta(ctx), "$id-a.$ext")
+        var tentadas = 0
+        var recusas403 = 0
         for (a in candidatos) {
             try {
                 // BYTES DE VERDADE, e não uma escala de 0 a 100 (v1.58).
@@ -929,11 +992,28 @@ object YoutubeGrab {
                 }
                 if (destino.length() > 0L) return destino
                 diagnostico += " · a:${a.etiqueta} vazio"
+                tentadas++
             } catch (e: Exception) {
                 Log.w(TAG, "falhou o áudio ${a.etiqueta} de $id", e)
                 diagnostico += " · a:${a.etiqueta} " + motivo(e)
+                // CANCELAMENTO ABORTA A FILA: cada candidato seguinte abriria
+                // conexão real depois do pedido de parar. O registro acima já
+                // disse "cancelado".
+                if (foiCancelado(e)) {
+                    destino.delete()
+                    return null
+                }
+                tentadas++
+                if (motivo(e) == "403") recusas403++
             }
             destino.delete()
+        }
+        // O 403 EM SÉRIE DO ÁUDIO também alimenta a quarentena, com a MESMA
+        // unanimidade do vídeo ([adaptativoBloqueadoEm]): sem isto, um vídeo
+        // com todo áudio adaptativo recusado fazia a sessão refazer as sondas
+        // condenadas a cada download.
+        if (tentadas >= 2 && recusas403 == tentadas) {
+            adaptativoBloqueadoEm = SystemClock.elapsedRealtime()
         }
         return null
     }
@@ -1083,8 +1163,14 @@ object YoutubeGrab {
          * quem diz onde a faixa acaba é o próprio `sidx`, que lista todos os
          * fragmentos. Era uma condição a mais para dar errado, sem nada em
          * troca.
+         *
+         * Os começos precisam ser NÃO NEGATIVOS além de menores que os fins: o
+         * `ItagItem` usa -1 para "não sei", e se a biblioteca um dia preencher
+         * só metade do par, um `initIni = -1` viraria `?r=-1-500` na query do
+         * proxy — 400 garantido, depois de anunciar a faixa como transmissível.
          */
-        val dash: Boolean = idxFim > idxIni && initFim > initIni && codec.isNotEmpty()
+        val dash: Boolean = initIni >= 0 && idxIni >= 0 &&
+            idxFim > idxIni && initFim > initIni && codec.isNotEmpty()
 
         /** "137@VISIONOS" — o formato exato e de quem ele veio. */
         val etiqueta: String = (if (itag > 0) itag.toString() else ext) + "@" + cliente
@@ -1134,8 +1220,19 @@ object YoutubeGrab {
      *
      * [piso] é a altura do progressivo que já temos de graça: igual ou abaixo
      * dela, montar não compensa.
+     *
+     * [filtro] é a elegibilidade EXTRA de quem chama (o manifesto recusa WebM),
+     * aplicada ANTES do `take`: o teto é orçamento de candidatos ELEGÍVEIS, e
+     * um filtro depois dele deixaria um candidato bom fora da janela por causa
+     * de dois inelegíveis à frente. O padrão aceita tudo — o caminho de
+     * DOWNLOAD continua exatamente como era.
      */
-    private fun candidatosVideo(info: StreamInfo, piso: Int, teto: Int): List<Faixa> =
+    private fun candidatosVideo(
+        info: StreamInfo,
+        piso: Int,
+        teto: Int,
+        filtro: (Faixa) -> Boolean = { true },
+    ): List<Faixa> =
         info.videoOnlyStreams
             .mapNotNull { faixaDe(it) }
             // O par WebM exige Android 10: o muxer só passou a escrever Opus
@@ -1145,6 +1242,7 @@ object YoutubeGrab {
                     (it.webm && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
             }
             .filter { it.altura in (piso + 1)..teto }
+            .filter(filtro)
             .sortedWith(
                 compareBy<Faixa>({ ordemCliente(it.cliente) }, { -it.altura })
                     .thenBy { if (it.webm) 1 else 0 },
@@ -1295,7 +1393,7 @@ object YoutubeGrab {
         // acabou de copiar os bytes para a biblioteca, ou seja, o download foi
         // reclamado. Guardá-lo além disso apontaria para um arquivo que este
         // mesmo método está apagando.
-        if (resgate?.link != null && caminhoDe(url) == resgate?.arquivo) resgate = null
+        if (resgate != null && caminhoDe(url) == resgate?.arquivo) resgate = null
         try {
             val token = Uri.parse(url).lastPathSegment ?: return
             val alvo = SafRegistry.get(token) ?: return
@@ -1368,18 +1466,18 @@ object YoutubeGrab {
      */
     /**
      * Baixa tentando os perfis de cliente, e devolve o que funcionou
-     * ("V" = visionOS, "i" = iOS, "A" = Android/Chrome) — o rótulo entra no
-     * diagnóstico.
+     * ("V" = visionOS, "A" = Android/Chrome) — o rótulo entra no diagnóstico.
      *
      * **O perfil que COMBINA com a URL vem primeiro** (v1.49). Uma URL emitida
      * para um cliente costuma ser servida só a quem se anuncia como ele, e o
      * próprio `c=` da URL diz qual é — pedir uma faixa do visionOS anunciando um
      * Chrome de Android é o tipo de incoerência que o CDN responde com 403.
-     * Antes disto a ordem era fixa (Android, depois iOS) e a faixa boa podia ser
-     * perdida na primeira tentativa.
      *
-     * Os outros perfis continuam atrás, como rede de segurança: no pior caso
-     * custam uma requisição perdida, e um 403 falha antes do primeiro byte.
+     * O outro perfil continua atrás, como rede de segurança: no pior caso custa
+     * uma requisição perdida, e um 403 falha antes do primeiro byte. O perfil
+     * iOS SAIU da fila: com o cliente iOS desligado no extrator
+     * ([garantirInit]) nenhuma URL sai carimbada com ele, e mantê-lo fazia toda
+     * falha real pagar uma requisição extra com um UA que o CDN nunca pediu.
      */
     /**
      * O `User-Agent` que combina com esta URL, lido do `c=` que o CDN carimbou
@@ -1390,26 +1488,19 @@ object YoutubeGrab {
      * conhecido para um 403. Uma segunda tabela lá envelheceria em silêncio na
      * primeira vez que a biblioteca trocasse de cliente.
      */
-    fun uaPara(url: String): String = when (clienteDe(url)) {
-        "VISIONOS" -> UA_VISIONOS
-        "IOS" -> UA_IOS
-        else -> UA
-    }
+    fun uaPara(url: String): String =
+        if (clienteDe(url) == "VISIONOS") UA_VISIONOS else UA
 
     private fun baixarTentando(
         url: String,
         destino: File,
         onProgresso: (Long, Long) -> Unit,
     ): String {
-        val combina = when (clienteDe(url)) {
-            "VISIONOS" -> "V"
-            "IOS" -> "i"
-            else -> "A"
-        }
-        
+        val combina = if (clienteDe(url) == "VISIONOS") "V" else "A"
+
         // `sortedBy` é estável, então os perfis que não combinam mantêm a ordem
         // em que estão escritos aqui.
-        val perfis = listOf("V" to UA_VISIONOS, "i" to UA_IOS, "A" to UA)
+        val perfis = listOf("V" to UA_VISIONOS, "A" to UA)
             .sortedBy { if (it.first == combina) 0 else 1 }
         var erro: Exception? = null
         for ((rotulo, ua) in perfis) {
@@ -1418,11 +1509,20 @@ object YoutubeGrab {
                 if (destino.length() > 0L) return rotulo
             } catch (e: Exception) {
                 erro = e
-                destino.delete()
-                // CANCELAR não é "este perfil de UA não deu": tentar os outros
-                // dois em seguida faria o operador esperar mais DEPOIS de pedir
-                // para parar — e cada tentativa recomeça o arquivo do zero.
-                if (cancelado()) break
+                // O PARCIAL FICA para o próximo perfil: trocar o UA muda o
+                // CABEÇALHO, não a URL — mesma URL ⇒ mesmos bytes, a premissa
+                // da retomada (v1.58) — e a conferência de [parciais] já
+                // garante que o que está no disco é DESTA URL. Apagar aqui
+                // jogava fora os MB que a tentativa seguinte retomaria.
+                //
+                // CANCELAR não é "este perfil de UA não deu": tentar o outro em
+                // seguida faria o operador esperar mais DEPOIS de pedir para
+                // parar. Só aqui o parcial sai: sem download à vista, ele é
+                // lixo no cache.
+                if (cancelado()) {
+                    destino.delete()
+                    break
+                }
             }
         }
         throw erro ?: IOException("download vazio")
@@ -1484,7 +1584,7 @@ object YoutubeGrab {
     private fun baixar(
         url: String,
         destino: File,
-        ua: String = UA,
+        ua: String,
         onProgresso: (Long, Long) -> Unit,
     ) {
         var tentativa = 0

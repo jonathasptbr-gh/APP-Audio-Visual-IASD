@@ -58,7 +58,11 @@ jobs:
       - name: Sanidade da base web (sintaxe do JS)
         run: |
           set -euo pipefail
-          find app/src/main/assets/web -name '*.js' -print0 |
+          # `vendor/` fica de fora: é código buildado de terceiro (ESM), e o
+          # `node --check` só o aceita pela detecção automática de módulo do
+          # Node — uma regressão do runner bloquearia o canal OTA inteiro por
+          # um arquivo que não é nosso.
+          find app/src/main/assets/web -name '*.js' -not -path '*/vendor/*' -print0 |
             xargs -0 -n1 -t node --check
           python3 -c "
           import json
@@ -66,6 +70,24 @@ jobs:
           assert m['version'] and int(m['minShell']) > 0, m
           print('version.json OK:', m)
           "
+          # A versão mora em TRÊS lugares (ver CLAUDE.md), e os três precisam
+          # bater: esquecer o WEB_VERSION é "o erro silencioso" (o OTA distribui
+          # e o aparelho exibe a versão antiga) e esquecer o version.json é "o
+          # erro mudo" (nada chega a aparelho nenhum). Até aqui a única defesa
+          # era disciplina; este assert fecha a classe.
+          python3 - <<'PY'
+          import json, re
+          raiz = 'app/src/main/assets/web'
+          vjson = json.load(open(f'{raiz}/version.json'))['version']
+          js = open(f'{raiz}/controle/controle.js', encoding='utf-8').read()
+          vjs = re.search(r"^const WEB_VERSION = '([^']+)'", js, re.M).group(1)
+          html = open(f'{raiz}/controle/index.html', encoding='utf-8').read()
+          vhtml = re.search(r'id="appVersion"[^>]*>[^<]*?v([0-9][0-9.]*)<', html).group(1)
+          assert vjson == vjs == vhtml, (
+              f'os três lugares de versão divergem: version.json={vjson} '
+              f'controle.js WEB_VERSION={vjs} index.html #appVersion={vhtml}')
+          print('três lugares de versão OK:', vjson)
+          PY
           # O parser do índice DASH (`sidx`) da transmissão direta. Ele entra
           # aqui, e não num framework de teste, porque é a ÚNICA peça daquele
           # caminho que se verifica sem aparelho — e porque um erro de
@@ -237,7 +259,13 @@ jobs:
           fi
           echo "VERSION_CODE=$((100000 + $(git rev-list --count HEAD)))" >> "$GITHUB_ENV"
 
+      # Só quando NÃO é publicação: numa Release o APK que sai é o da variante
+      # release (passo abaixo), e o de debug era compilado e jogado fora —
+      # minutos de runner por um arquivo que ninguém usava. O "Nomear o APK"
+      # já escolhe a fonte pelo mesmo PUBLISH, então nenhum fluxo fica sem
+      # arquivo.
       - name: Build (debug)
+        if: env.PUBLISH != 'true'
         run: ./gradlew --no-daemon assembleDebug
 
       # Assinado com a keystore fixa quando os secrets existem — é o que
