@@ -843,7 +843,13 @@ object YoutubeGrab {
                 if (!audioDe.containsKey(extAudio)) {
                     audioDe[extAudio] = baixarAudio(
                         ctx, id, extAudio,
-                        candidatosAudio(info, extAudio, TETO_AUDIO), onProgresso,
+                        candidatosAudio(info, extAudio, TETO_AUDIO),
+                        // O TAMANHO DO VÍDEO QUE VEM A SEGUIR, para a fase do
+                        // áudio já contar a conta inteira — ver [baixarAudio].
+                        // Pode ser -1 (o YouTube nem sempre informa), e lá isso
+                        // é tratado como "não sei".
+                        v.tamanho,
+                        onProgresso,
                     )
                 }
                 val parteAudio = audioDe[extAudio] ?: continue
@@ -880,6 +886,7 @@ object YoutubeGrab {
         id: String,
         ext: String,
         candidatos: List<Faixa>,
+        previsaoVideo: Long,
         onProgresso: (Long, Long) -> Unit,
     ): File? {
         if (candidatos.isEmpty()) {
@@ -897,12 +904,29 @@ object YoutubeGrab {
                 // minimizado, anunciava "0 de 100" para um vídeo de 380 MB. Do
                 // lado do operador isso se lê como CEM ITENS.
                 //
-                // O áudio é a primeira fase e reporta o tamanho dele; quando o
-                // vídeo entra, o total cresce para a soma real (ver `montar`).
-                // A barra recua uma vez, nesse instante — em troca, os dois
-                // números são sempre verdadeiros, que é o que a notificação
-                // existe para dizer.
-                baixarTentando(a.url, destino, onProgresso)
+                // E O TOTAL JÁ É O DAS DUAS FAIXAS (v1.62).
+                //
+                // Até aqui a fase do áudio reportava o tamanho DELE, e o total
+                // só crescia para a soma real quando o vídeo entrava (ver
+                // `montar`). Os dois números eram verdadeiros e mesmo assim a
+                // tela mentia: o áudio são poucos MB e baixa em segundos, então
+                // o download começava marcando **100%** por alguns instantes —
+                // o fim da primeira fase — para só então recomeçar do zero. Era
+                // a primeira coisa que o operador via, e ela dizia o oposto do
+                // que estava acontecendo.
+                //
+                // A previsão vem do `contentLength` da faixa de vídeo, que o
+                // extrator já entrega antes do primeiro byte. Ela pode faltar
+                // (o YouTube nem sempre informa, e aí o campo vem -1 ou 0): sem
+                // ela nada muda, e o comportamento é o de antes. Com ela, o
+                // total da fase do áudio já é a conta inteira e a barra sobe de
+                // 0 a 100 uma vez só.
+                baixarTentando(a.url, destino) { lidos, total ->
+                    onProgresso(
+                        lidos,
+                        if (total > 0 && previsaoVideo > 0) total + previsaoVideo else total,
+                    )
+                }
                 if (destino.length() > 0L) return destino
                 diagnostico += " · a:${a.etiqueta} vazio"
             } catch (e: Exception) {
