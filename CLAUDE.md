@@ -1359,11 +1359,15 @@ produziria exatamente o mesmo estado, por isso a fila espera.
 todo `.js` de `assets/web`, uma validação de `version.json`, os testes de
 `tools/` — o parser `sidx`, o **oráculo do contrato de `shouldInterceptRequest`**
 (`webview-range.test.mjs`, que trava a invariante 8: Node puro, determinístico,
-sem `continue-on-error`), uma **fumaça em Chromium** que sobe a base web e usa
-a tela, as **mensagens de falha** da transmissão direta e a **transição de
-entrada do palco** (`stage-fade.test.mjs`) — os três últimos em
-`continue-on-error`.
-Os dois últimos existem porque `node --check` prova que o arquivo é
+sem `continue-on-error`) e cinco testes **em Chromium de verdade**, todos em
+`continue-on-error`: a **fumaça** que sobe a base web e usa a tela
+(`smoke.mjs`), as **mensagens de falha** da transmissão direta
+(`mse.test.mjs`), a **transição de entrada do palco** (`stage-fade.test.mjs`),
+o **coletor de lixo do banco** (`db-gc.test.mjs` — o único código do app que
+apaga mídia do operador) e as **contas da biblioteca** (`acervo.test.mjs`:
+"completa?" e "quanto ocupa?", que eram respondidas por fórmulas diferentes na
+mesma tela).
+Eles existem porque `node --check` prova que o arquivo é
 PARSEÁVEL, não que o app funciona — a v5.121 saiu com um botão chamando uma
 função apagada, sintaxe perfeita e CI verde. O canal OTA publica
 direto para a frota, e o watchdog de boot **não evita o primeiro estrago** —
@@ -1554,7 +1558,7 @@ aparelho nenhum.
 O `versionCode`/`versionName` do APK vêm do CI (ver "Build") e não se tocam à
 mão.
 
-**Versão atual: v5.133** (base web) · `SHELL_VERSION` **30**, e o bundle segue com
+**Versão atual: v5.134** (base web) · `SHELL_VERSION` **30**, e o bundle segue com
 `minShell: 2` — ele funciona igual num shell antigo, só sem os recursos que são
 nativos por construção (a escada do voltar, os botões de volume, a notificação de
 controles), que **só chegam instalando o APK novo**, não pelo OTA.

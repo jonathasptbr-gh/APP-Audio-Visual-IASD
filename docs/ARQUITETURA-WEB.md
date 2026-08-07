@@ -4686,13 +4686,63 @@ grande já é demorada por si só.
 chamado por `refreshCollectionsIfVisible()`, então o progresso da
 sincronização aparece no popup aberto sem fechar e reabrir.
 
+#### "Esta coleção está completa?" — uma pergunta, quatro respostas (v5.134)
+
+O botão de baixar não sumia de coleções já inteiras no aparelho, e o chip ao
+lado dele dizia "Completo offline". As duas coisas estavam certas **pela régua de
+cada uma** — e eram réguas diferentes, o que é o defeito.
+
+A pergunta era respondida em QUATRO lugares por `countDownloaded(id) >=
+collSongs(id).length`: uma conta de **músicas**. Mas o download busca
+**variantes** (Cantado + Playback, quando a origem declara
+`has_instrumental_music`), e a medida de peso já contava variantes. Um Playback
+que faltou deixava a barra escrevendo "48 MB" — número exato, portanto sem o
+`~` — ao lado de um card que ainda mostrava o botão. As duas respostas divergiam
+sozinhas, na mesma tela, e nenhuma das duas era "a" resposta.
+
+E havia um caso que **nenhuma das duas** resolvia: uma música cuja origem não
+tem o arquivo (`url_music` vazio no `music_{id}`). Ela nunca ganha
+`fileIdFull` — logo, para toda a tela, "falta baixar" — e o efeito era
+permanente: a coleção nunca ficava completa, o botão nunca sumia, e **cada
+sincronização voltava a buscar o metadado dela** só para redescobrir que não há
+o que baixar.
+
+A v5.134 dá uma fonte única, `levantarColecao(id)`, e três funções finas em
+cima dela:
+
+- **`colecaoCompleta(id)`** — a pergunta da tela inteira, num lugar só. Conta
+  variantes. Sem índice não há resposta: um álbum que nunca sincronizou não está
+  completo nem incompleto, e o botão ali serve para buscar a lista.
+- **`faltamNaColecao(id)`** — quantas variantes faltam, para os diálogos de
+  confirmação e a barra da notificação. Prometer "12 músicas" e baixar 10 é a
+  forma mais barata de parecer quebrado.
+- **`songsBaixaveis(id)`** — o DENOMINADOR do "N de M músicas".
+
+**"Não existe" deixou de ser "não baixei".** `ensureSongVariant` marca a música
+(`semAudio`/`semPlayback`) quando a origem não traz a URL, e apaga a marca se
+ela aparecer depois — o índice é reaproveitado in-place pelo
+`fetchCollectionIndex`, então a marca sobrevive à atualização da lista de graça.
+A partir daí:
+
+- `levantarColecao` conta essa variante como `semFonte`, não como pendente;
+- `songVariantsNeeded` para de pedir o metadado dela — é isso que faz o álbum
+  finalmente chegar a "Já completo offline";
+- ela sai **dos dois lados** da fração: um contador travado em 53/54 ao lado de
+  um chip "Completo offline" seria a mesma contradição, só que menor.
+
+`tools/acervo.test.mjs` prende as duas contas — completude e peso — num Chromium
+de verdade. Conta errada não estoura em lugar nenhum: ela só mostra o número
+errado, que é exatamente a classe de defeito que nenhum `node --check` pega.
+
 #### A medição do peso (v5.93)
 
 São **duas perguntas**, e só uma tem resposta exata:
 
-1. **quanto já está no aparelho** — soma dos `size` do catálogo OPFS da pasta da
-   coleção. É EXATO, e cobre tudo que o download traz: os áudios Cantado e
-   Playback, a capa e as imagens de fundo da letra.
+1. **quanto já está no aparelho** — soma do tamanho real dos arquivos na pasta
+   OPFS da coleção (`AVDB.opfsFolderSize`). É EXATO, e cobre tudo que o download
+   traz: os áudios Cantado e Playback, a capa e as imagens de fundo da letra.
+   **Só passou a cobrir a partir da v5.134** — ver "O peso vinha do catálogo, e
+   metade dele não está no catálogo", abaixo.
 2. **quanto pesa o álbum inteiro** — o que falta ainda não veio, então é
    ESTIMATIVA. O `~` na tela é parte da informação, não enfeite.
 
@@ -4706,7 +4756,10 @@ duração já está no índice (`duration`, `"HH:MM:SS"`).
 **A taxa é MEDIDA no aparelho** — bytes no disco ÷ segundos baixados —, e não
 uma constante de bitrate. Isso amortiza sozinho o que não é áudio (capas e
 imagens de letra pesam, e as faixas que faltam trarão as suas) e acompanha o
-bitrate real do acervo. A escada de fontes vai da mais específica à mais
+bitrate real do acervo — o que também só virou verdade na v5.134: enquanto o
+numerador vinha do catálogo, os bytes das imagens não estavam nele, e a taxa
+"medida" era a do áudio puro. Ela SUBESTIMAVA sistematicamente tudo o que
+projetava. A escada de fontes vai da mais específica à mais
 genérica: a taxa **deste** álbum → a média de tudo o que já foi baixado no
 aparelho → 128 kbps (`BPS_PADRAO`). Sem o último degrau, um álbum ainda vazio
 não teria tamanho nenhum a mostrar — que é exatamente quando a informação mais
@@ -4727,16 +4780,49 @@ músicas no aparelho e peso zerado — quem baixou antes da v5.93 — é reconta
 **uma vez por sessão** (`conferirPesoSeFaltar`, com um `Set` que impede o
 `refreshCollectionsIfVisible` de dentro da recontagem de virar laço).
 
-**O peso NÃO é recalculado durante o render.** `updateCollBytes` faz um
-`filesByFolder` — um `getAll` da index que desserializa TODOS os registros da
-pasta, **com thumbnail e letra**, só para somar um campo. Como
-`renderCollectionCard` o chamava, e o valor mudar dispara outro
+**O peso NÃO é recalculado durante o render.** Recalcular é IO, e
+`renderCollectionCard` o chamava — como o valor mudar dispara outro
 `refreshCollectionsIfVisible`, sincronizar uma coleção com a aba aberta
-executava N `getAll` do catálogo (N = número de cards, dezenas a centenas) a
-cada música baixada. Hoje: `downloadCollectionFile` **soma o `blob.size`** ao
-cache (`ui(id).bytes`), sem tocar o IDB, `deleteCollection` zera, e o
-recálculo completo só roda ao **abrir** o popup de opções — uma coleção, uma
-vez.
+executava N recontagens (N = número de cards, dezenas a centenas) a cada música
+baixada. Hoje: `downloadCollectionFile` e `downloadCollectionImage` **somam o
+`blob.size`** ao cache (`ui(id).bytes`), sem tocar o disco, `deleteCollection`
+zera, e a recontagem completa só roda onde a conta muda em bloco — ao **abrir**
+o popup de opções e ao **terminar** uma sincronização.
+
+##### O peso vinha do catálogo, e metade dele não está no catálogo (v5.134)
+
+O download de uma coleção grava **dois tipos** de arquivo na mesma pasta OPFS:
+os **áudios**, que viram registro no catálogo (`files`), e as **imagens de fundo
+da letra**, que não viram — elas são referenciadas de dentro dos slides, não são
+mídia da biblioteca e não aparecem em lista nenhuma. `updateCollBytes` somava o
+catálogo (`filesByFolder`), então essas imagens ficavam **fora de toda conta**:
+num hinário inteiro, centenas de MB que o operador via sumir do armazenamento do
+aparelho sem explicação, e que nenhuma tela do app somava.
+
+O comentário do código afirmava justamente o contrário — que a taxa medida
+"amortiza sozinha o que não é áudio". Não amortizava: esses bytes nunca entraram
+em conta nenhuma, nem no numerador da taxa.
+
+A correção troca a fonte: `AVDB.opfsFolderSize(path)` enumera a pasta e soma o
+`size` real de cada arquivo. **E é mais barato**, não mais caro — perguntar o
+tamanho de um arquivo não desserializa nada, enquanto o `getAll` do catálogo
+trazia thumbnail e letra inteira de cada faixa só para somar um campo. É essa
+inversão de custo que permite o resto:
+
+- **a reconferência passou a ser a REGRA, não a exceção.** Antes ela só rodava
+  com o peso ZERADO, e o efeito era que um número errado nunca se corrigia: o
+  acumulador só sobe, então qualquer divergência — arquivos apagados por fora,
+  um download contado duas vezes, as imagens que nunca entraram — ficava gravada
+  em `state` para sempre e reaparecia a cada abertura. Agora `conferirPesoSeFaltar`
+  reconta uma vez por sessão e por álbum, tenha ele peso ou não.
+- **o fim de uma sincronização reconcilia** (`updateCollBytes` no `finally` de
+  `syncCollection`). Durante o lote o número sobe por acumulação, que é o certo
+  para dar movimento na tela mas erra em toda borda — uma faixa que falhou no
+  meio, um download repetido que sobrescreveu o arquivo, um cancelamento. O fim
+  do lote é o único momento em que não há IO concorrente e a troca não custa
+  nada.
+- **as imagens passaram a somar na hora** (`downloadCollectionImage`), e não só
+  na reconferência seguinte.
 
 **E o re-render é coalescido** (`refreshCollectionsIfVisible` agenda,
 `renderCollectionsNow` executa; `COLL_REFRESH_MS` = 400 ms). O progresso chama
