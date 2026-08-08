@@ -1317,6 +1317,16 @@ app também fecha, pelo mesmo motivo pelo qual o push-to-talk fecha.
   Controle e telão e deixaria o espelho servindo o bundle ANTIGO, de um
   diretório que o `beginSession()` seguinte apaga. É o terceiro caso de
   `horaRuimParaAtualizar()`, ao lado de cena no ar e download em curso.
+- **E ele é o TERCEIRO DEGRAU de empilhamento** (v5.149). Ele abre de dentro da
+  folha do espelho (z-index 210), que abre de dentro de Configurações (200) — e
+  nasceu no 200 padrão, um degrau **abaixo** da folha que o abre. A folha cobria
+  a câmera por inteiro: o operador via o leitor "funcionando", com o indicador
+  de câmera do sistema aceso, e imagem nenhuma. É a mesma armadilha que o
+  `controle.css` já descrevia num comentário para o `#songMenuPopup` — e o
+  comentário não bastou, então a regra virou **asserção** em `tools/smoke.mjs`:
+  todo popup aninhado precisa de z-index maior que o do pai. O sintoma dessa
+  classe de defeito nunca é "está por baixo"; é "o toque não faz nada", e só
+  aparece em aparelho.
 - **O leitor de QR é TELA CHEIA e sem transform** (v5.146). A primeira versão
   era uma caixa 4:3 dentro da folha comum, e ela falhou em aparelho de duas
   formas ao mesmo tempo: pequena demais para mirar um código numa TV do outro
@@ -2077,7 +2087,7 @@ aparelho nenhum.
 O `versionCode`/`versionName` do APK vêm do CI (ver "Build") e não se tocam à
 mão.
 
-**Versão atual: v5.148** (base web) · `SHELL_VERSION` **33**, e o bundle segue com
+**Versão atual: v5.149** (base web) · `SHELL_VERSION` **33**, e o bundle segue com
 `minShell: 2` — ele funciona igual num shell antigo, só sem os recursos que são
 nativos por construção (a escada do voltar, os botões de volume, a notificação de
 controles), que **só chegam instalando o APK novo**, não pelo OTA.

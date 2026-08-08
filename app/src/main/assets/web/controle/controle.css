@@ -3281,6 +3281,19 @@ body.mode-simple .hymn-add-btn { display: none; }
    dentro do acervo pela mesma razão — as duas nunca coexistem. */
 #mirrorPopup { z-index: 210; }
 
+/* E O LEITOR DE QR É O TERCEIRO DEGRAU: ele abre de dentro da folha do espelho,
+   que abre de dentro de Configurações. Ele nasceu no 200 padrão — um degrau
+   ABAIXO da folha que o abre —, e o resultado foi a folha cobrindo a câmera por
+   inteiro: o operador via o leitor "funcionando" (a câmera acesa, o indicador do
+   sistema aceso) e imagem nenhuma.
+
+   É a MESMA armadilha que o comentário acima descreve, cometida de novo — e é
+   por isso que ela virou asserção em `tools/smoke.mjs`: cada popup aninhado
+   precisa de z-index maior que o do pai, e um comentário pedindo atenção já
+   provou não bastar. 230 e não 221 para deixar espaço, e acima do `#folderPopup`
+   (220) por clareza, ainda que os dois nunca coexistam. */
+#qrPopup { z-index: 230; }
+
 /* O estado, na própria linha da lista de preferências: "Desligado", ou o
    endereço servido. Uma linha só, com reticências — quem quiser o resto abre a
    folha, que é onde o assunto mora. */
