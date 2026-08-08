@@ -609,7 +609,12 @@ class EspelhoServidor(
         val tela = telas[sessao.token]
         when (corpo.optString("do")) {
             "key" -> pedirIdrComFreio(tela)
-            "alive" -> tela?.telaAcesaMin = corpo.optInt("telaAcesaMin", 0).coerceIn(0, 24 * 60)
+            "alive" -> if (tela != null) {
+                tela.telaAcesaMin = corpo.optInt("telaAcesaMin", 0).coerceIn(0, 24 * 60)
+                tela.aviso = EspelhoPares.sanear(corpo.optString("aviso"))
+                tela.som = corpo.optBoolean("som", false)
+                tela.recomecos = corpo.optInt("recomecos", 0).coerceIn(0, 99_999)
+            }
             "audio" -> if (tela != null) {
                 val quer = corpo.optBoolean("on", false)
                 tela.audio = quer
@@ -863,7 +868,14 @@ class EspelhoServidor(
                     .put("audio", t.audio)
                     .put("bytes", t.bytes)
                     .put("descartes", t.descartes)
-                    .put("ultimaEscritaMs", agora - t.ultimaEscritaMs),
+                    .put("ultimaEscritaMs", agora - t.ultimaEscritaMs)
+                    // O LADO DE LÁ, pelas palavras dele. `audio` acima é o que o
+                    // SERVIDOR abriu para esta tela; `som` é o que o CLIENTE de
+                    // fato montou. Os dois discordando é a leitura que faltava:
+                    // torneira aberta e faixa que nunca nasceu.
+                    .put("aviso", t.aviso)
+                    .put("som", t.som)
+                    .put("recomecos", t.recomecos),
             )
         }
         val pend = JSONArray()
@@ -1078,6 +1090,23 @@ class EspelhoServidor(
         @Volatile var descartes = 0
 
         @Volatile var telaAcesaMin = 0
+
+        /**
+         * O QUE A TELA DIZ DE SI — a frase que está escrita nela, se a faixa de
+         * som existe, e quantos recomeços ela já deu.
+         *
+         * Sem estes três campos o Registro respondia só o que o servidor via de
+         * fora (bytes, descartes, último write), e isso não distingue "a tela
+         * está projetando" de "a tela está num laço de reconexão porque nunca
+         * recebeu o `csd` de áudio". Texto vindo da rede, portanto SANEADO —
+         * ele termina no Registro, que é o artefato que este projeto manda
+         * copiar e repassar.
+         */
+        @Volatile var aviso = ""
+
+        @Volatile var som = false
+
+        @Volatile var recomecos = 0
 
         @Volatile var ultimaEscritaMs = SystemClock.elapsedRealtime()
 

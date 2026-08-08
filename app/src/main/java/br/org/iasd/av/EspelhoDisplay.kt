@@ -399,6 +399,15 @@ object EspelhoDisplay {
         // `ERROR_RECLAIMED` não pode rebobinar a base, senão o `tfdt` do
         // cliente anda para trás e a MediaSource quebra em silêncio.
         EspelhoCodec.abrirSessao()
+        // E A ÂNCORA DO ATRASO NASCE JUNTO. O anel de diagnóstico é um campo do
+        // `EspelhoDisplay`, que é um `object` — ele sobrevive a desligar e ligar
+        // o espelho, e a âncora sobrevivia com ele. A guarda de "o carimbo andou
+        // para trás" não pega este caso quando a base do codec não rebobina, e
+        // o resultado é o tempo em que o espelho ficou DESLIGADO sendo impresso
+        // como fila de encoder: no primeiro culto de teste, um espelho com 30 s
+        // no ar relatou "atraso relativo 60000 ms" — o teto, ou seja, uma
+        // medida que não existia. Sessão nova, referência nova.
+        diag.novaSessao()
         reclaimsNaJanela = 0
         ultimoReclaimEm = 0L
         ultimoJpegEm = 0L

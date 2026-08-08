@@ -3341,14 +3341,33 @@ body.mode-simple .hymn-add-btn { display: none; }
 }
 .mirror-scan .msym { font-size: 1.15rem; }
 
-/* O VISOR DA CÂMERA. 4:3 e não 16:9: o alvo é um QUADRADO na tela do outro
-   lado, e um visor largo demais faz o operador aproximar o aparelho até o
-   código sair do foco. */
+/* O VISOR DA CÂMERA — TELA CHEIA.
+   A primeira versão era uma caixa 4:3 dentro da folha comum, e ela falhou no
+   aparelho de duas formas ao mesmo tempo: pequena demais para mirar um código
+   numa TV do outro lado do salão, e dentro de um `.popup-sheet`, que vive num
+   `transform: translateY(...)` — um `<video>` de câmera sob um contêiner
+   transformado é caso conhecido de imagem que não aparece no WebView do
+   Android. Aqui o popup é `--full` e o transform é anulado logo abaixo. */
+/* O corpo do leitor não tem margem nem rolagem: a imagem vai de borda a borda,
+   e o que sobra é a linha de estado embaixo. Sem isto, o `padding` e o `gap`
+   herdados da folha do espelho desenhariam uma moldura em volta da câmera. */
+#qrPopup .mirror-body { padding: 0; gap: 0; overflow: hidden; }
+#qrMsg { padding: .7rem .9rem; flex-shrink: 0; }
+
+#qrPopup .popup-sheet {
+  /* O ponto da regra: NENHUM transform sobre o vídeo da câmera. Ela também
+     tira a animação de subida, que sobre uma imagem ao vivo só atrapalha. */
+  transform: none;
+  transition: none;
+}
 .qr-scan {
   position: relative;
-  width: 100%; aspect-ratio: 4 / 3;
+  /* Ocupa tudo o que sobra da folha. `min-height: 0` porque num contêiner flex
+     em coluna um item NÃO encolhe abaixo do conteúdo sem isso — e era esse o
+     caminho pelo qual a caixa podia ser espremida até quase zero. */
+  flex: 1; min-height: 0;
+  width: 100%;
   background: #000;
-  border-radius: var(--radius-btn);
   overflow: hidden;
 }
 .qr-scan video {
@@ -3361,7 +3380,7 @@ body.mode-simple .hymn-add-btn { display: none; }
 .qr-alvo {
   position: absolute; left: 50%; top: 50%;
   transform: translate(-50%, -50%);
-  width: 62%; aspect-ratio: 1;
+  width: min(70vw, 60vh); aspect-ratio: 1;
   border: 2px solid var(--accent);
   border-radius: var(--radius-btn);
   box-shadow: 0 0 0 100vmax rgba(0, 0, 0, .38);

@@ -1262,7 +1262,7 @@ mesmo?"), lembrada pela sessão.
 | `EspelhoServidor.kt` | sockets, rotas, fan-out. **Bind explícito ao IPv4 da Wi-Fi**, e recusa em celular/VPN: um `ServerSocket(porta)` liga em `0.0.0.0` — inclusive `rmnet`, e operadoras brasileiras entregam IPv6 globalmente roteável ao aparelho. Seria o culto em H.264 numa porta alcançável do mundo |
 | `EspelhoService.kt` | foreground service **`connectedDevice`** (sem cota, ao contrário do `dataSync` que o app já gasta). Exige `CHANGE_WIFI_MULTICAST_STATE` no manifest — sem ela `startForeground` **lança** |
 | `EspelhoAudio.kt` | o PCM que o `AudioWorklet` do WebView do espelho entrega, virando AAC no mesmo fio. **O `AudioWorklet` existe ali porque aquele WebView É contexto seguro** (invariante 1) mesmo com o cliente em `http://` — o princípio geral: *tudo que precisa de contexto seguro pode ir para DENTRO do WebView* |
-| `EspelhoDiag.kt` | o anel. **Devolve JSON, não texto** — quem monta a frase é o `controle.js` |
+| `EspelhoDiag.kt` | o anel. **Devolve JSON, não texto** — quem monta a frase é o `controle.js`. Ele vive num `object` e SOBREVIVE a desligar e ligar o espelho, então a âncora do atraso precisa ser zerada por `novaSessao()` — a guarda de "o carimbo andou para trás" não pega o caso em que a base do codec não rebobina, e o tempo de espelho DESLIGADO era impresso como fila de encoder (v5.146) |
 | `assets/web/espelho/` | a página do cliente (uma página, dois estados), o muxer fMP4 em JS e o **codificador de QR** (`qr.js`, nível M versões 1–6, ~330 linhas sem dependência — o oráculo que o valida DECODIFICA o símbolo, em `tools/qr.test.mjs`) |
 
 ### O pareamento é por QR, e o QR está do lado que parece o errado
@@ -1317,6 +1317,28 @@ app também fecha, pelo mesmo motivo pelo qual o push-to-talk fecha.
   Controle e telão e deixaria o espelho servindo o bundle ANTIGO, de um
   diretório que o `beginSession()` seguinte apaga. É o terceiro caso de
   `horaRuimParaAtualizar()`, ao lado de cena no ar e download em curso.
+- **O leitor de QR é TELA CHEIA e sem transform** (v5.146). A primeira versão
+  era uma caixa 4:3 dentro da folha comum, e ela falhou em aparelho de duas
+  formas ao mesmo tempo: pequena demais para mirar um código numa TV do outro
+  lado do salão, e **dentro de um `.popup-sheet`, que vive num
+  `transform: translateY(…)`** — um `<video>` de câmera sob um contêiner
+  transformado é caso conhecido de imagem que não aparece no WebView do Android.
+  A câmera acendia, a leitura rodava, e o operador olhava para um retângulo
+  preto sem ter como mirar. E como "visor preto" e "visor ainda carregando" são
+  a mesma tela, o app passou a **dizer qual dos dois é**: `videoWidth` só sai de
+  zero quando um quadro de verdade chegou, e depois de dois segundos sem isso a
+  linha de estado nomeia a falha.
+- **A TELA CONTA O QUE ESTÁ VENDO** (v5.146), pelo `alive` que já existia. Até
+  aqui o Registro respondia só o que o SERVIDOR via de fora — bytes, descartes,
+  último write —, e isso não distingue "está projetando" de "está num laço de
+  reconexão dizendo que não recebeu som". Agora cada tela manda a frase que está
+  escrita nela, se a faixa de som nasceu e quantos recomeços deu; e o relato sai
+  **a cada conexão e a cada troca da frase**, não de cinco em cinco minutos —
+  uma tela que reconecta a cada três segundos é justamente a que precisa ser
+  vista. A linha do Registro põe os dois lados do som lado a lado
+  (`som torneira:sim faixa:nao`), e **é a discordância entre eles que é a
+  leitura**: torneira é o que o servidor abriu, faixa é o que o cliente
+  conseguiu montar.
 - **Um BLOCO no Registro** (`#diagBox`, com o botão de copiar de sempre) traz o
   veredito da **sonda de readback** com os RGB medidos, o estado do servidor, a
   tela virtual, o encoder, o **ritmo** e as telas conectadas. Duas linhas de lá
@@ -2021,7 +2043,7 @@ aparelho nenhum.
 O `versionCode`/`versionName` do APK vêm do CI (ver "Build") e não se tocam à
 mão.
 
-**Versão atual: v5.145** (base web) · `SHELL_VERSION` **33**, e o bundle segue com
+**Versão atual: v5.146** (base web) · `SHELL_VERSION` **33**, e o bundle segue com
 `minShell: 2` — ele funciona igual num shell antigo, só sem os recursos que são
 nativos por construção (a escada do voltar, os botões de volume, a notificação de
 controles), que **só chegam instalando o APK novo**, não pelo OTA.

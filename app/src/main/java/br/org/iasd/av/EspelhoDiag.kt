@@ -147,6 +147,31 @@ class EspelhoDiag {
      * duas vezes é um laço sobre 240 caracteres; o custo de não sanear é um
      * Registro forjado.
      */
+    /**
+     * Uma SESSÃO nova do espelho começou: a referência do atraso morre com a
+     * anterior.
+     *
+     * Este anel vive num `object` e sobrevive a desligar e ligar o espelho, mas
+     * a âncora do [medirAtraso] é da SESSÃO — ela mede "quanto o quadro de agora
+     * demorou a mais que o primeiro **desta** sessão". A guarda de "o carimbo
+     * andou para trás" cobre o caso em que a base do codec rebobina; quando ela
+     * não rebobina, a âncora velha faz o tempo de espelho DESLIGADO ser
+     * impresso como fila de encoder — que foi o que apareceu no primeiro culto
+     * de teste ("60000 ms", o teto, num espelho com 30 s no ar).
+     *
+     * O diário e a janela de bytes **não** são zerados de propósito: eles são o
+     * histórico que o operador vai copiar, e um religar no meio de um
+     * diagnóstico não pode apagar o que estava sendo investigado.
+     */
+    fun novaSessao() {
+        synchronized(trava) {
+            ancoraMs = -1L
+            ancoraPtsUs = -1L
+            atrasoMs = 0
+            ultimaImagemMs = -1L
+        }
+    }
+
     fun registrar(linha: String) {
         val txt = sanear(linha)
         if (txt.isEmpty()) return

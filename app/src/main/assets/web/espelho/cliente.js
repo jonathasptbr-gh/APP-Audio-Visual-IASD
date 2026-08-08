@@ -209,6 +209,10 @@
   function avisar(s, ruim) {
     texto('aviso', s, ruim);
     if (el.aviso) el.aviso.classList.toggle('some', !ruim && !s);
+    // A frase que apareceu aqui vale mais no Registro do operador do que nesta
+    // tela: quem está com o celular na mão é quem pode agir. `relatar` só
+    // envia quando ela de fato muda.
+    try { relatar(); } catch (_) { /* antes do token não há para onde mandar */ }
   }
 
   // A FRASE DO SOM É PEGAJOSA, e as outras não. Toda conexão bem-sucedida
@@ -890,9 +894,49 @@
 
   let ultimoAlive = 0;
 
+  // O QUE ESTA TELA ESTÁ VENDO, dito ao celular.
+  //
+  // Até aqui o Registro do operador respondia só o que o SERVIDOR sabia de cada
+  // tela: bytes escritos, descartes, quando foi o último write. Nada disso
+  // distingue "a tela está projetando" de "a tela está num laço de reconexão
+  // dizendo que não recebeu som" — e foi exatamente essa a pergunta que ficou
+  // sem resposta no primeiro culto de teste, com o celular jurando que mandava
+  // AAC e a tela jurando que não recebia. O canal já existia (`alive`); o que
+  // faltava era o cliente contar o próprio estado por ele.
+  //
+  // Três campos, e só três: a frase que está na tela (que é onde o cliente já
+  // escreve a causa), se a faixa de som existe, e quantos recomeços ele já deu.
+  // O texto é cortado aqui e SANEADO no Kotlin, como todo texto vindo da rede.
+  const AVISO_MAX = 110;
+
+  function corpoDoAlive() {
+    return {
+      do: 'alive',
+      telaAcesaMin: minutosAcesa(),
+      aviso: (el.aviso ? el.aviso.textContent || '' : '').slice(0, AVISO_MAX),
+      som: !!sbA,
+      recomecos: conta.recomecos,
+    };
+  }
+
   function bater() {
     if (!vivo || !token) return;
-    postar('/r', { do: 'alive', telaAcesaMin: minutosAcesa() }, true).catch(() => {});
+    postar('/r', corpoDoAlive(), true).catch(() => {});
+  }
+
+  // E ele é enviado também A CADA CONEXÃO e a cada troca da frase, não só de
+  // cinco em cinco minutos: uma tela que reconecta a cada três segundos é
+  // justamente a que o operador precisa enxergar, e um relato que chega no
+  // quinto minuto chegaria depois do culto. O freio é o próprio evento — o
+  // corpo é minúsculo e só sai quando algo de fato mudou.
+  let ultimoRelato = ' ';
+
+  function relatar() {
+    if (!vivo || !token) return;
+    const chave = (el.aviso ? el.aviso.textContent || '' : '') + '|' + (sbA ? '1' : '0');
+    if (chave === ultimoRelato) return;
+    ultimoRelato = chave;
+    postar('/r', corpoDoAlive(), true).catch(() => {});
   }
 
   // --------------------------------------------------------------------------
@@ -1109,6 +1153,11 @@
     // não fosse refeito aqui. É também ele que faz o `csd` de áudio chegar
     // logo atrás do de vídeo — que é o que a retenção em `receber` espera.
     if (audioQuerido) pedirAudio();
+    // E o relato desta conexão, sem esperar a batida de cinco minutos: numa
+    // tela que reconecta em laço, ESTE é o único momento em que ela consegue
+    // contar o que aconteceu na conexão anterior.
+    ultimoRelato = ' ';
+    relatar();
     const leitor = r.body.getReader();
     for (;;) {
       const passo = await leitor.read();
