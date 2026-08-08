@@ -487,8 +487,17 @@ class EspelhoAudio(
      * eles são o mesmo relógio lido noutro ponto do código é supor uma
      * igualdade que a plataforma não promete. Ancorar no último carimbo de
      * VÍDEO amarra as duas faixas ao mesmo eixo por construção, com o erro de
-     * um intervalo de quadro (~33 ms), que é menor que a latência do próprio
-     * grafo de áudio.
+     * **um intervalo de quadro** — e esse número não é o dos 30 fps nominais
+     * do encoder: numa cena PARADA quem produz quadro é só o batimento do
+     * `display.js`, então o intervalo real é o dele.
+     *
+     * Isto já mordeu. Com o batimento em 1 Hz, ligar o áudio com uma estrofe
+     * projetada ancorava com até **um segundo** de defasagem — permanente, já
+     * que não há reancoragem — e a primeira rodada em aparelho relatou
+     * exatamente "desincronia". A 8 Hz o pior caso cai para ~125 ms, na mesma
+     * ordem da latência do próprio grafo de áudio, que é o que torna o erro
+     * aceitável. **Quem mexer no batimento mexe nisto**: o teto de defasagem
+     * do áudio é o intervalo do pulso, e não há aviso automático.
      *
      * Daí em diante o tempo anda por CONTAGEM DE AMOSTRAS, não por relógio: a
      * taxa do worklet é a do hardware de áudio, e é ela que manda. E **nunca há

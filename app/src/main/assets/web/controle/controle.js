@@ -163,7 +163,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.143';
+const WEB_VERSION = '5.144';
 
 // Escrita UMA vez, na carga: o indicador mora no rodapé de Configurações desde
 // a v5.49 e não depende mais de qual aba está aberta (no cabeçalho ele
@@ -10683,6 +10683,31 @@ function blocoEspelho(d) {
         + (ritmo.atrasoPiorMs | 0) + ' ms');
     }
     if (cad.length) l.push('  cadência: ' + cad.join(' · '));
+  }
+  // O ÁUDIO, e ele precisa de DOIS vereditos nomeados — não de um número.
+  //
+  // A cadeia tem duas metades que falham de formas indistinguíveis num log:
+  // o canal nativo (`WebMessageListener`) pode nunca ter sido instalado, e o
+  // grafo Web Audio pode estar de pé produzindo NADA (é o modo de falha que a
+  // especificação chama de pior: um `AudioWorkletNode` sem caminho até o
+  // `destination` não lança, não avisa, e simplesmente não roda). Sem separar
+  // os dois, "não sai som" seria uma frase só para duas causas opostas — e foi
+  // exatamente por não haver esta linha que a primeira rodada em aparelho
+  // gastou um teste inteiro sem descobrir que o `instalar()` nunca era chamado.
+  const au = d.audio;
+  if (au && typeof au === 'object') {
+    if (!au.canal) {
+      l.push('áudio: CANAL FECHADO — o espelho não tem por onde mandar som');
+    } else if (!au.blocosPorSegundo) {
+      l.push('áudio: canal aberto + 0 blocos de PCM/s'
+        + ' — o telão não está entregando som (grafo Web Audio mudo)');
+    } else {
+      l.push('áudio: canal aberto · AAC ' + (au.bitrate ? (au.bitrate / 1000 | 0) + ' kbps' : '?')
+        + ' @ ' + (au.taxa || '?') + ' Hz, ' + (au.canais || '?') + ' canal(is)'
+        + ' · ' + au.blocosPorSegundo + ' blocos de PCM/s'
+        + ' · ' + (au.quadros | 0) + ' quadro(s)'
+        + (au.descartados ? ' · ' + au.descartados + ' descartado(s)' : ''));
+    }
   }
   if (svc.termico != null) {
     l.push('térmica: ' + (MIRROR_TERMICA[svc.termico] || svc.termico)

@@ -344,7 +344,7 @@ ok(F.initVideo(Buffer.from([...START4, 0x09, 0x10])) === null,
   ok(m.pendente(), 'ele fica retido');
 
   // Intervalos deliberadamente DESIGUAIS: 33 333 µs (cena em movimento) e
-  // 1 000 000 µs (cena parada, com o batimento de 1 Hz sendo a única fonte).
+  // 125 000 µs (cena parada, com o batimento de 8 Hz sendo a única fonte).
   // É exatamente o caso que um `sample_duration` fixo transformaria em buraco.
   const f1 = b(m.quadro({ ptsUs: 34333, chave: false, dados: inter }));
   const f2 = b(m.quadro({ ptsUs: 1034333, chave: false, dados: inter }));

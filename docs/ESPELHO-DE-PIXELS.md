@@ -98,7 +98,7 @@ seção indicada; a tabela existe para que ninguém "conserte" de volta o que fo
 | **C6** | drenar todo `post` do `__AVBus` no espelho | **Isso quebra o recurso.** `display.js:1500` emite `display-ready`, e é ele que faz o Controle mandar a cena. Drenado, o espelho fica no wallpaper para sempre **(código)** | §4.1 |
 | **C7** | áudio por `MediaProjection` + `AudioPlaybackCapture` | **Três defeitos**, e o pior é que o desenho se contradizia: a §4 capturava o que o app reproduz e a §6 mandava silenciar o espelho ⇒ **capturava silêncio** | §3.9, §4.1 |
 | **D1** | o espelho "desliga sozinho quando a TV conecta, porque a TV é o culto" | **Está invertido.** Com o interruptor "permitir com TV" nascendo desligado, o espelho **só existe sem TV** — e sem TV as telas da rede SÃO o que a congregação vê. A regra mata a projeção que está no ar | §2.1 |
-| **D2** | o batimento existe porque "o wake lock do `<video>` cai no stall" | **Não cai.** `playing_` é limpo só por `kPause` e `kEmptied`; eventos de `waiting`/stall não são escutados **(Chromium `video_wake_lock.cc`)**. O batimento continua necessário por outros motivos, mas **a 1 Hz, não a 4 Hz** | §3.3 |
+| **D2** | o batimento existe porque "o wake lock do `<video>` cai no stall" | **Não cai.** `playing_` é limpo só por `kPause` e `kEmptied`; eventos de `waiting`/stall não são escutados **(Chromium `video_wake_lock.cc`)**. O batimento continua necessário por outros motivos. **Nasceu a 1 Hz e foi a 8 Hz na v5.144**, depois de a primeira rodada em aparelho mostrar que 1 Hz zera a margem do cliente (amostra de 1 s + o atraso de um quadro do muxer) | §3.3 |
 | **D3** | fragmento de 1 quadro com duração escrita na hora | **Produz `buffered` fragmentado.** Com taxa variável, escrever a duração antes de conhecer o próximo PTS abre buracos, e navegador **para em buraco**. Muxer com **atraso de um quadro** | §3.11 |
 | **D4** | `VirtualDisplay.setSurface` para trocar VÍDEO⇄IMAGEM, e a sonda rodando no display de produção | *"Detaching the surface that backs a virtual display has a **similar effect to turning off the screen**"* **(AOSP)**. `setSurface` sai do desenho inteiro | §3.2 |
 | **D5** | `FLAG_KEEP_SCREEN_ON` copiado do molde do `StagePresentation` + Wi-Fi lock resolvendo latência | Um display privado ganha **`FLAG_NEVER_BLANK`** por não ser `PUBLIC` — ele **nunca entra no caminho de blank do PowerManager**, com a tela do celular apagada. E `WIFI_MODE_FULL` é *"deprecated and non-functional"*; `LOW_LATENCY` exige **app na frente e tela acesa**. As duas promessas eram incompatíveis | §3.1, §3.8 |
@@ -553,7 +553,7 @@ MediaFormat.createVideoFormat(MIMETYPE_VIDEO_AVC, LARG, ALT).apply {
     setInteger(KEY_BIT_RATE, 3_000_000)
     setInteger(KEY_BITRATE_MODE, BITRATE_MODE_VBR)
     setInteger(KEY_FRAME_RATE, 30)          // obrigatório; a taxa real é variável
-    setInteger(KEY_I_FRAME_INTERVAL, 10)    // ← 10 s, não 2 — ver o invariante 3
+    setInteger(KEY_I_FRAME_INTERVAL, 5)     // ← 5 s (era 10; ver o invariante 3)
     setLong(KEY_REPEAT_PREVIOUS_FRAME_AFTER, 1_000_000)   // ← LONG, e 1 s
     setInteger(KEY_MAX_B_FRAMES, 0)         // API 29+ — DTS == PTS
     setInteger(KEY_PRIORITY, 0)             // tempo real
@@ -1469,7 +1469,7 @@ estiver escrito antes.
 | **A ponte `window.AVNative`** | de trinta para **trinta e cinco métodos**: `espelhoLigar`, `espelhoDesligar`, `espelhoEstado`, `espelhoDiag`, `espelhoAprovar`. `SHELL_VERSION` **32**, com o motivo. E a regra que já existe, repetida: um método novo **não chega por OTA**, e o cartão do espelho não é desenhado com `__SHELL_VERSION__ < 32` |
 | **Barramento de comandos** | o parágrafo do **dreno**: por que ele é lista de permissão de um item, por que `display-ready` passa, e por que `BroadcastChannel` é neutralizado no envio em vez de apagado |
 | **Trabalho em segundo plano** | o `EspelhoService` ao lado do `SyncService`: `connectedDevice` **sem cota**, o pré-requisito de `CHANGE_WIFI_MULTICAST_STATE`, e a nota da doc sobre `mediaProjection` (com o motivo de ele ser inalcançável de propósito) |
-| **Divergências web × nativo** | **três linhas novas**: "espelho na rede local" (navegador: não existe; app: `VirtualDisplay` + `MediaCodec` + servidor HTTP); "papel `espelho`" (o terceiro valor de `__AV_ROLE__`, e as guardas que ele ativa); "batimento de 1 Hz" (só no papel espelho) |
+| **Divergências web × nativo** | **três linhas novas**: "espelho na rede local" (navegador: não existe; app: `VirtualDisplay` + `MediaCodec` + servidor HTTP); "papel `espelho`" (o terceiro valor de `__AV_ROLE__`, e as guardas que ele ativa); "batimento de 8 Hz" (só no papel espelho) |
 | **Build e distribuição** | o passo `./gradlew testDebugUnitTest` no CI, **sem `continue-on-error`**, e os testes novos de `tools/` |
 | **Regras de desenvolvimento** | **a quarta exceção** à regra de zero dependência (JUnit, §7.2), escrita no molde das outras três. E a regra que sai do §3.8: *"diagnóstico novo em Kotlin devolve JSON; quem monta a frase é o `controle.js`"* |
 | **Versão atual** | 5.140 → 5.143 ao fim das entregas, `SHELL_VERSION` 31 → 32, `minShell` ficando em **2** |

@@ -1243,7 +1243,7 @@ mesmo?"), lembrada pela sessão.
 |---|---|
 | `MirrorPresentation.kt` | a 2ª `Presentation`. **Cópia do molde da `StagePresentation`, não parametrização dela** — misturar as duas faria uma mudança no espelho poder derrubar a projeção. Sem `FLAG_KEEP_SCREEN_ON` (é wake lock do APARELHO; o `FLAG_NEVER_BLANK` do display privado já resolve) e sem `MicChromeClient` (dois `getUserMedia` no mesmo processo = realimentação pública) |
 | `EspelhoDisplay.kt` | dono do `VirtualDisplay`, da densidade e da sonda de readback. **`flags = 0`**: nunca `PUBLIC` (implica `AUTO_MIRROR`, exige permissão e **remove `FLAG_NEVER_BLANK`**), nunca `FLAG_PRESENTATION` (é a causa do problema que o filtro de telas depois teria de consertar). `setSurface` **não é usado em lugar nenhum** |
-| `EspelhoCodec.kt` | H.264 sobre a input surface. `KEY_REPEAT_PREVIOUS_FRAME_AFTER` é **`setLong`** — a chave é `long` e um int32 simplesmente não é encontrado, sem exceção e sem log —, e ela **repete UMA vez**: não é piso de fps. Quem mantém o fluxo é um batimento de 1 Hz no JS do papel espelho |
+| `EspelhoCodec.kt` | H.264 sobre a input surface. `KEY_REPEAT_PREVIOUS_FRAME_AFTER` é **`setLong`** — a chave é `long` e um int32 simplesmente não é encontrado, sem exceção e sem log —, e ela **repete UMA vez**: não é piso de fps. Quem mantém o fluxo é um batimento de **8 Hz** no JS do papel espelho — e a cadência dele é o TETO da defasagem do áudio, que ancora no último carimbo de vídeo (v5.144: a 1 Hz isso dava até um segundo de desvio permanente) |
 | `EspelhoHttp.kt` · `EspelhoPares.kt` | **PUROS, zero import de Android.** É o primeiro código do projeto que aceita entrada de um desconhecido, e o único em que um erro vira controle de acesso quebrado em vez de pixel errado — daí serem funções puras, com JUnit |
 | `EspelhoServidor.kt` | sockets, rotas, fan-out. **Bind explícito ao IPv4 da Wi-Fi**, e recusa em celular/VPN: um `ServerSocket(porta)` liga em `0.0.0.0` — inclusive `rmnet`, e operadoras brasileiras entregam IPv6 globalmente roteável ao aparelho. Seria o culto em H.264 numa porta alcançável do mundo |
 | `EspelhoService.kt` | foreground service **`connectedDevice`** (sem cota, ao contrário do `dataSync` que o app já gasta). Exige `CHANGE_WIFI_MULTICAST_STATE` no manifest — sem ela `startForeground` **lança** |
@@ -1433,7 +1433,7 @@ contextos.
 | Atualização da base web | recarregar a página | **OTA** — bundle publicado em `web-latest`, aplicado no próximo lançamento (ver seção acima) |
 | **Espelho na rede local** | **não existe** — um navegador não cria tela virtual, não codifica H.264 e não abre `ServerSocket` | **`VirtualDisplay` privado + `MediaCodec` + servidor HTTP** no próprio celular: o telão inteiro em até três navegadores da rede, sem instalar nada neles e sem internet (ver a seção do recurso). Liga e desliga **só** por ação do operador |
 | Papel `__AV_ROLE__` | `'controle'` / `'display'` | **um TERCEIRO valor, `'espelho'`** — o mesmo `/web/display/` numa segunda `Presentation`. Ele é seguro por construção: as duas leituras do papel no bundle comparam `!== 'controle'`, e **nenhum caminho testa `=== 'display'`**. O papel ativa o dreno do barramento, a recusa do `startMic`, o `forceMuted` inicial e o `mute()` forçado no `YT.Player` |
-| Batimento de 1 Hz no `/display/` | — | **só no papel espelho**: com a cena parada o `VirtualDisplay` não produz buffer e o encoder não emite nada. Um elemento de 1×1 px alternando entre dois quase-pretos força o SurfaceFlinger a recompor. **`setInterval`, nunca `requestAnimationFrame`** (rAF é suspenso em página oculta e casado ao vsync). Guardado por papel: **não toca o telão de verdade** |
+| Batimento de 8 Hz no `/display/` | — | **só no papel espelho**: com a cena parada o `VirtualDisplay` não produz buffer e o encoder não emite nada. Um elemento de 1×1 px alternando entre dois quase-pretos força o SurfaceFlinger a recompor. **`setInterval`, nunca `requestAnimationFrame`** (rAF é suspenso em página oculta e casado ao vsync). Guardado por papel: **não toca o telão de verdade**. A 1 Hz (v5.143) cada amostra do fMP4 durava um segundo E chegava um segundo atrasada, porque o muxer retém um quadro — margem ZERO no cliente, e qualquer soluço virava travamento. |
 
 ### Compartilhamento: um ponto de entrada exportado valida o que recebe
 
@@ -1953,7 +1953,7 @@ aparelho nenhum.
 O `versionCode`/`versionName` do APK vêm do CI (ver "Build") e não se tocam à
 mão.
 
-**Versão atual: v5.143** (base web) · `SHELL_VERSION` **32**, e o bundle segue com
+**Versão atual: v5.144** (base web) · `SHELL_VERSION` **32**, e o bundle segue com
 `minShell: 2` — ele funciona igual num shell antigo, só sem os recursos que são
 nativos por construção (a escada do voltar, os botões de volume, a notificação de
 controles), que **só chegam instalando o APK novo**, não pelo OTA.

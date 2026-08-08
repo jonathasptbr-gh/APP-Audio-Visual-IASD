@@ -203,6 +203,23 @@
     if (el.aviso) el.aviso.classList.toggle('some', !ruim && !s);
   }
 
+  // A FRASE DO SOM É PEGAJOSA, e as outras não. Toda conexão bem-sucedida
+  // limpa o aviso (`avisar('')`), porque o que ele carregava era "sem sinal" —
+  // um evento. "Esta tela está sem som" é um ESTADO: some junto no primeiro
+  // reconecte e o visitante nunca fica sabendo por que não ouve nada. Guardá-la
+  // aqui é o que faz ela voltar depois de cada limpeza.
+  let avisoSom = '';
+
+  function semSom(frase) {
+    avisoSom = frase || '';
+    avisar(avisoSom);
+  }
+
+  // O "limpar a tela" de sempre, que agora repõe o estado do som por baixo.
+  function limparAviso() {
+    avisar(avisoSom);
+  }
+
   // `sessionStorage` pode LANÇAR (modo privado de alguns navegadores, cota
   // zerada por política corporativa). Um espelho que não abre porque o
   // armazenamento é hostil seria um defeito gratuito: sem ele o token vive só
@@ -410,7 +427,7 @@
     // levaria a imagem junto.
     let som = infoA;
     if (som && !suporta(som.mime)) {
-      avisar('Esta tela fica sem som: o navegador não decodifica ' + som.codec + '.');
+      semSom('Esta tela fica sem som: o navegador não decodifica ' + som.codec + '.');
       som = null;
     }
     mime = infoV.mime;
@@ -441,7 +458,7 @@
           sbA = null;
           mimeA = '';
           som = null;
-          avisar('Esta tela ficou sem som (' + ((e && e.name) || '?') + ').');
+          semSom('Esta tela ficou sem som (' + ((e && e.name) || '?') + ').');
         }
       }
       // OS DOIS `appendBuffer` SÓ AGORA: enquanto os dois ids não tiverem
@@ -638,7 +655,7 @@
     if (emVoo && emVoo.a) emVoo = null;
     if (muxer) muxer.descartarAudio();
     try { ms.removeSourceBuffer(morto); } catch (_) { /* já saiu com a MediaSource */ }
-    avisar('Esta tela ficou sem som (' + porque + ') — a imagem continua.');
+    semSom('Esta tela ficou sem som (' + porque + ') — a imagem continua.');
     aplicar();
   }
 
@@ -750,6 +767,10 @@
   // do espelho sobe com o espelho (§3.9); o que isto abre é a torneira desta
   // tela, e o servidor responde empurrando o `csd` de áudio guardado.
   function pedirAudio() {
+    // No MODO IMAGEM não há `MediaSource` nem faixa de som — pedir AAC seria
+    // pedir bytes para jogar fora. (Do outro lado o canal de áudio nem chega a
+    // ser instalado naquele modo, então isto é cinto e suspensório.)
+    if (modoImagem) return;
     postar('/r', { do: 'audio', on: true }, true).catch(() => {});
   }
 
@@ -832,7 +853,7 @@
           // O som não veio: o grafo do celular não subiu (§3.9 — o handshake
           // que libera o `forceMuted` nunca chegou). Abre-se só com imagem, e
           // se diz isso: mudo é um estado, não um defeito escondido.
-          avisar('Esta tela está sem som — o celular não está enviando áudio.');
+          semSom('Esta tela está sem som — o celular não está enviando áudio.');
           abrirMidia(retido, null);
         }, ESPERA_CSD_AUDIO_MS);
         return;
@@ -853,7 +874,7 @@
       tentativa = 0;                      // quadro de verdade: a espera zera
       const frag = muxer.quadro({ ptsUs: q.pts, chave: q.chave, dados: carga });
       if (frag) enfileirar(frag);
-      if (conta.quadros === 1) avisar('');
+      if (conta.quadros === 1) limparAviso();
       return;
     }
     if (q.tipo === T_JPEG) {
@@ -873,7 +894,7 @@
       const infoA = muxer.csdAudio(carga);
       // ASC ilegível: MUDO, e a imagem intacta. É a metade do cliente da falha
       // segura do §3.9 — nunca áudio pela metade.
-      if (!infoA) { avisar('Esta tela fica sem som: o sinal veio sem os parâmetros do áudio.'); return; }
+      if (!infoA) { semSom('Esta tela fica sem som: o sinal veio sem os parâmetros do áudio.'); return; }
       if (esperaAudio) {
         // O par completo: as duas faixas nascem agora, juntas.
         clearTimeout(esperaAudio);
@@ -897,6 +918,8 @@
       if (!sbA) return;
       audioUltimoMs = Date.now();
       conta.quadrosAudio++;
+      // O som chegou: a frase pegajosa que dizia o contrário sai de cena.
+      if (avisoSom) semSom('');
       const frag = muxer.quadroAudio({ ptsUs: q.pts, dados: carga });
       if (frag) enfileirar(frag, true);
       return;
@@ -937,6 +960,12 @@
     disponivel = 0;
     cabecalho = null;
     esperandoChave = true;
+    // A RETENÇÃO É POR CONEXÃO. Um `csd` de vídeo guardado à espera de um de
+    // áudio que morreu com a conexão anterior não pode atravessar para esta:
+    // ele abriria a `MediaSource` com o par errado, e o `csd` novo (que vem
+    // logo abaixo) cairia no caminho de reconexão sem faixa de som nenhuma.
+    if (esperaAudio) { clearTimeout(esperaAudio); esperaAudio = null; }
+    initVideoRetido = null;
 
     abortar = typeof global.AbortController === 'function' ? new global.AbortController() : null;
     const r = await fetch('/v', {
@@ -959,7 +988,7 @@
     if (!r.body || !r.body.getReader) throw new Error('sem fluxo');
 
     conta.reconexoes++;
-    avisar('');
+    limparAviso();
     // O PEDIDO DE ÁUDIO É POR CONEXÃO, não por sessão: do lado do servidor a
     // tela é recriada a cada `GET /v` e nasce sem áudio (§3.6, invariante 10),
     // então uma queda de rede deixaria esta tela muda para sempre se o pedido
@@ -1055,6 +1084,10 @@
     vivo = false;
     if (abortar) { try { abortar.abort(); } catch (_) {} abortar = null; }
     if (compasso) { clearInterval(compasso); compasso = null; }
+    // O `csd` de vídeo retido morre com a conexão: soltá-lo depois abriria uma
+    // `MediaSource` para um fluxo que não existe mais.
+    if (esperaAudio) { clearTimeout(esperaAudio); esperaAudio = null; }
+    initVideoRetido = null;
   }
 
   function comecar() {
@@ -1100,16 +1133,12 @@
     // novo. Amarrar a remontagem ao GESTO — e não à chegada do `csd` de áudio —
     // é o que garante que ela aconteça UMA vez, num instante em que o visitante
     // está olhando para a tela porque acabou de tocar nela.
-    const primeiraVez = !audioQuerido;
     audioQuerido = true;
     try {
       el.v.muted = false;
       pedirAudio();
     } catch (_) {}
-    if (primeiraVez && ms && !sbA && !modoImagem && rebuilds < REBUILDS_AUDIO) {
-      rebuilds++;
-      recomecar('Ligando o som', true);
-    }
+    tentarSom();
     tocar();
 
     // CINTO E SUSPENSÓRIO, nunca o único cinto: quem segura a tela acesa no
@@ -1118,6 +1147,22 @@
     if (global.isSecureContext && global.navigator.wakeLock) {
       try { await global.navigator.wakeLock.request('screen'); } catch (_) {}
     }
+  }
+
+  // "Ligar o som" é REMONTAR, e por isso mora numa função com nome.
+  //
+  // A faixa de áudio não pode ser acrescentada a uma `MediaSource` que já
+  // inicializou (ver o cabeçalho da seção da mídia), então ou ela nasce junto
+  // com a de imagem, ou tudo nasce de novo. Só quem toca na tela chega aqui —
+  // nunca a chegada de um `csd`, que produziria um laço de remontagens —, e o
+  // teto de [REBUILDS_AUDIO] garante que a projeção nunca pisque mais que isso
+  // por causa do som. É também o caminho de VOLTA depois de o vigia ter soltado
+  // a faixa: o visitante toca de novo e o som retorna.
+  function tentarSom() {
+    if (!audioQuerido || sbA || modoImagem || !ms) return;
+    if (rebuilds >= REBUILDS_AUDIO) return;
+    rebuilds++;
+    recomecar('Ligando o som', true);
   }
 
   // --------------------------------------------------------------------------
@@ -1144,8 +1189,10 @@
     el.pin.addEventListener('keydown', function (e) { if (e.key === 'Enter') parear(); });
     el.gesto.addEventListener('click', gesto);
     // Um toque em qualquer lugar da projeção vale como o gesto: um visitante
-    // que não viu o botão ainda assim consegue a tela cheia.
-    el.play.addEventListener('click', function () { if (!gestoFeito) gesto(); });
+    // que não viu o botão ainda assim consegue a tela cheia. E, depois do
+    // primeiro, um toque vale como "tenta o som de novo" — é a saída da tela
+    // que ficou sem áudio, dita por ela mesma no aviso.
+    el.play.addEventListener('click', function () { if (gestoFeito) tentarSom(); else gesto(); });
     acordar();
 
     token = guardado();

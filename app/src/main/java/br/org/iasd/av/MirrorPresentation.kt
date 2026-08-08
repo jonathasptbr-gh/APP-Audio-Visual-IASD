@@ -4,6 +4,7 @@ import android.app.Presentation
 import android.content.Context
 import android.graphics.Color
 import android.os.Bundle
+import android.util.Log
 import android.view.Display
 import android.view.View
 import android.view.ViewGroup
@@ -78,11 +79,21 @@ import androidx.webkit.WebViewAssetLoader
  *   passa `/web/espelho/sonda.html`, e **só o telão entra no barramento** — uma
  *   página de instrumento não pode receber comandos de cena nem responder
  *   `display-ready`, sob pena de o Controle achar que há um segundo telão.
+ * @param aoMontarWeb chamado na MAIN THREAD a cada vez que o WebView nasce —
+ *   inclusive na REMONTAGEM por morte de renderer —, e **antes do `loadUrl`**.
+ *   É por onde o [EspelhoAudio] abre o canal `__avEspelhoAudio`, e as duas
+ *   condições são dele: um `addWebMessageListener` é por-INSTÂNCIA de WebView
+ *   (a remontagem o perde, e o grafo de áudio da página nova procuraria um
+ *   objeto que não existe), e ele precisa estar posto antes de a página
+ *   carregar (o `espelhoEsperarCanal` do `display.js` espera ~15 s por ele e
+ *   depois desiste EM SILÊNCIO — som nenhum, erro nenhum). Quem monta a janela
+ *   é quem sabe o que ela hospeda; o `null` é a sonda, que não tem áudio.
  */
 class MirrorPresentation(
     outerContext: Context,
     display: Display,
     private val url: String = WebViewFactory.URL_DISPLAY,
+    private val aoMontarWeb: ((WebView) -> Unit)? = null,
 ) : Presentation(outerContext, display, R.style.Theme_AvIasd_Presentation) {
 
     var web: WebView? = null
@@ -189,6 +200,14 @@ class MirrorPresentation(
 
         web = w
         if (noBarramento) MessageBus.attach(w)
+        // ANTES DO `loadUrl`, e a cada remontagem — ver o `@param aoMontarWeb`.
+        // Uma falha aqui não pode levar a projeção junto: o áudio do espelho é
+        // auxiliar do auxiliar, e o pior desfecho aceitável é ele ficar mudo.
+        try {
+            aoMontarWeb?.invoke(w)
+        } catch (e: Exception) {
+            Log.w(TAG, "o canal de áudio do espelho não abriu", e)
+        }
         w.loadUrl(url)
     }
 
@@ -248,11 +267,21 @@ class MirrorPresentation(
      */
     fun release() {
         released = true
+        // O canal de áudio morre com a instância do WebView — não há
+        // `removeWebMessageListener` a fazer aqui, e chamá-lo depois do
+        // `destroy()` seria falar com um objeto morto. Quem solta o ENCODER é o
+        // dono do ciclo de vida ([EspelhoDisplay.desmontar]), porque ele
+        // sobrevive de propósito a uma remontagem: a página que renasce
+        // reconfigura com a mesma taxa e o eixo de tempo do áudio continua.
         val w = web ?: return
         web = null
         MessageBus.detach(w)
         w.loadUrl("about:blank")
         (w.parent as? ViewGroup)?.removeView(w)
         w.destroy()
+    }
+
+    private companion object {
+        const val TAG = "MirrorPresentation"
     }
 }

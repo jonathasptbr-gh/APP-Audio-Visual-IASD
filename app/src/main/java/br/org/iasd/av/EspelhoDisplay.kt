@@ -17,6 +17,7 @@ import android.util.Log
 import android.view.Display
 import android.view.PixelCopy
 import android.view.Surface
+import android.webkit.WebView
 import org.json.JSONArray
 import org.json.JSONObject
 import org.json.JSONTokener
@@ -240,6 +241,37 @@ object EspelhoDisplay {
 
     /** O anel de diagnóstico. Devolve JSON; quem monta a frase é o web. */
     val diag = EspelhoDiag()
+
+    /**
+     * O ÁUDIO DO ESPELHO (§3.9). Vive aqui porque quem monta a janela é quem
+     * pode abrir o canal dentro dela: `addWebMessageListener` é
+     * **por-instância de WebView**, e este objeto é o único que sabe quando um
+     * WebView do espelho nasce — inclusive na remontagem por morte de renderer.
+     *
+     * O `onQuadro` dele é o MESMO caminho do vídeo ([quadroSaiu]), então o
+     * `csd` de áudio e os quadros AAC saem pelo mesmo fio e o servidor decide a
+     * quem entregar (áudio é estritamente por cliente, §3.6, invariante 10).
+     */
+    private val audio = EspelhoAudio(
+        onQuadro = { q -> quadroSaiu(q) },
+        registrar = { linha -> diag.registrar(linha) },
+    )
+
+    /** Marco da última publicação do estado do áudio no Registro. */
+    @Volatile
+    private var audioPublicadoEm = 0L
+
+    /**
+     * O canal `__avEspelhoAudio` está aberto neste WebView?
+     *
+     * Ele mora AQUI e não no JSON do [EspelhoAudio] porque quem o instala é
+     * este arquivo, e porque sem ele o Registro não separa as duas metades da
+     * mesma frase: "canal aberto e nenhum bloco de PCM" é o grafo do
+     * `display.js` que não subiu; "canal fechado" é este WebView que não
+     * entrega `ArrayBuffer`. As duas soam iguais no salão — silêncio.
+     */
+    @Volatile
+    private var audioCanal = false
 
     private val main = Handler(Looper.getMainLooper())
 
@@ -546,7 +578,18 @@ object EspelhoDisplay {
 
     /** Cria e exibe a janela. `false` = recusada (a frase já foi registrada). */
     private fun criarJanela(act: Activity, vdd: VirtualDisplay): Boolean {
-        val p = MirrorPresentation(act, vdd.display)
+        // O CANAL DE ÁUDIO ENTRA AQUI, e a cada vez que o WebView renascer —
+        // ver o `@param aoMontarWeb` da [MirrorPresentation]. **Só no modo
+        // vídeo**: no modo imagem o cliente recebe JPEG, não tem `MediaSource`
+        // e não teria onde tocar AAC nenhum; instalar o canal ali seria manter
+        // um encoder AAC e ~25 mensagens por segundo na main thread do processo
+        // que está projetando o culto, para ninguém.
+        val comSom = modo == Modo.VIDEO
+        val p = MirrorPresentation(
+            act,
+            vdd.display,
+            aoMontarWeb = if (comSom) ({ w: WebView -> instalarAudio(w) }) else null,
+        )
         p.setOnDismissListener {
             // Dismiss ESPONTÂNEO: só anular a referência deixaria o WebView do
             // espelho vivo no MessageBus — recebendo comandos e, com autoplay
@@ -571,6 +614,41 @@ object EspelhoDisplay {
             try { p.dismiss() } catch (_: Exception) { }
             false
         }
+    }
+
+    /**
+     * Abre o canal `__avEspelhoAudio` no WebView que acabou de nascer e publica
+     * o desfecho no Registro.
+     *
+     * **A publicação é metade do conserto.** Sem ela, "não sai som" tem quatro
+     * causas indistinguíveis da tela do operador — o canal não abriu, o grafo
+     * do `display.js` não subiu, o encoder AAC não configurou, ou nenhuma tela
+     * pediu áudio —, e a única resposta possível seria um palpite. O `linhas` do
+     * anel já carrega as frases do próprio [EspelhoAudio] ("AAC-LC 96 kbps,
+     * 48000 Hz…", "este WebView nao entrega ArrayBuffer"); o fato `audio` traz
+     * os números que só um contador denuncia, a começar por **blocos de PCM por
+     * segundo em zero**, que é a assinatura exata de um `AudioWorkletNode` sem
+     * caminho até o `destination`.
+     */
+    private fun instalarAudio(w: WebView) {
+        audioCanal = audio.instalar(w)
+        if (!audioCanal) diag.registrar("audio do espelho: canal nao abriu — a rede vai sem som")
+        publicarAudio(true)
+    }
+
+    /**
+     * Copia o JSON do [EspelhoAudio] para o anel. Com [agora] falso ele passa
+     * batido a menos de um segundo da última: é chamado de dentro da drenagem
+     * do encoder, e o valor exibido não distingue duas leituras dentro do mesmo
+     * segundo — a janela do `ritmo` também é de segundos.
+     */
+    private fun publicarAudio(agora: Boolean) {
+        val t = SystemClock.elapsedRealtime()
+        if (!agora && t - audioPublicadoEm < 1_000L) return
+        audioPublicadoEm = t
+        // `paraJson()` devolve um objeto NOVO a cada chamada, então acrescentar
+        // o campo do canal aqui não mexe em estado de ninguém.
+        diag.fato("audio", audio.paraJson().put("canal", audioCanal))
     }
 
     private fun derrubarJanela() {
@@ -627,6 +705,18 @@ object EspelhoDisplay {
         soltarPecas()
         onQuadro = null
         dono = null
+        // O ENCODER AAC SÓ MORRE AQUI — e não em [soltarPecas], que é o meio da
+        // remontagem por `ERROR_RECLAIMED`. Ali o WebView renasce e reconfigura
+        // com a MESMA taxa e o mesmo número de canais, caso em que
+        // `ligarEncoder` devolve `ok` sem reiniciar nada e o eixo de tempo do
+        // áudio continua de onde estava; soltá-lo lá trocaria uma recuperação
+        // transparente por um corte. `soltar(null)` porque o WebView já foi
+        // destruído junto com a janela: não há listener a remover, e falar com
+        // um WebView morto seria o único jeito de transformar um desligamento
+        // em exceção.
+        audio.soltar(null)
+        audioCanal = false
+        diag.fato("audio", null)
         diag.fato("telaVirtual", null)
         diag.fato("viewport", null)
         diag.fato("encoder", null)
@@ -747,7 +837,21 @@ object EspelhoDisplay {
      */
     private fun quadroSaiu(q: Quadro) {
         val ehImagem = q.tipo == EspelhoCodec.TIPO_VIDEO || q.tipo == EspelhoCodec.TIPO_JPEG
-        diag.amostra(q.bytes.size, if (ehImagem) 1 else 0, ehImagem && q.chave, q.ptsUs)
+        val ehSom = q.tipo == EspelhoCodec.TIPO_AUDIO || q.tipo == EspelhoCodec.TIPO_CSD_AUDIO
+        // O ÁUDIO FICA FORA DO `ritmo`, e isso é decisão, não esquecimento.
+        // Aquela linha responde uma pergunta só — "a IMAGEM está se movendo?" —
+        // e ela a responde cruzando bytes com quadros. Somar 96 kbps constantes
+        // de AAC ali dentro põe um piso no bitrate que não vem da imagem: uma
+        // tela virtual congelada passaria a exibir um número saudável, que é
+        // exatamente o alarme que o §7.5 existe para dar.
+        if (!ehSom) diag.amostra(q.bytes.size, if (ehImagem) 1 else 0, ehImagem && q.chave, q.ptsUs)
+        // E o estado do som anda no fato `audio`, atualizado por QUALQUER quadro
+        // que passe por aqui — inclusive os de imagem. É o que o mantém vivo no
+        // caso que mais interessa: canal aberto, encoder de pé e **zero blocos
+        // de PCM**, que é a assinatura do `AudioWorkletNode` sem caminho até o
+        // `destination`. Se ele só se atualizasse com quadro de áudio, a leitura
+        // do defeito dependeria do defeito não existir.
+        publicarAudio(false)
         onQuadro?.invoke(q)
     }
 

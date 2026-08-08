@@ -275,7 +275,7 @@ const medir = async (fixa) => pg.evaluate(async (op) => {
 
   // --- os fragmentos -------------------------------------------------------
   // Intervalos DESIGUAIS de propósito: 33 333 µs (cena em movimento) e
-  // 1 000 000 µs (cena parada, só o batimento de 1 Hz). É a taxa variável que
+  // 125 000 µs (cena parada, só o batimento de 8 Hz). É a taxa variável que
   // torna a duração chutada um buraco.
   const passos = [33333, 33333, 1000000, 33333, 500000, 33333];
   const nalu = (n) => {
