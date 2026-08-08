@@ -536,52 +536,14 @@ object EspelhoPares {
     }
 
     /**
-     * Monta um [Relato] a partir dos valores CRUS da rede — já saneado, que é a
-     * única forma em que um relato deve existir neste processo.
+     * O relato inteiro, saneado — e o ÚNICO caminho por onde um [Relato] entra
+     * neste arquivo, porque [tentar] o aplica antes de guardar.
      *
-     * **Por que recebe valores soltos, e não o `JSONObject`:** quem faz o parse
-     * do corpo é o `EspelhoServidor`, porque `org.json` é da PLATAFORMA — num
-     * teste de JVM ele é o esqueleto do `android.jar`, e todo método dele lança
-     * "not mocked". Aceitar um `JSONObject` aqui custaria exatamente a
-     * propriedade que faz este arquivo existir separado, e que paga a QUARTA
-     * EXCEÇÃO do `build.gradle.kts`: poder ser testado sem aparelho. O servidor
-     * lê os `opt*` e passa os valores; o saneamento continua acontecendo num
-     * ponto só, que é o que a invariante 9 exige.
-     *
-     * **E sem valores padrão, de propósito.** Um campo novo do relato que alguém
-     * esquecesse de passar viraria `false`/`0` em silêncio — o modo de falhar
-     * exato do `slideLabel` (v5.97 → v5.102) e do `bytes` do `bgProgress`
-     * (v5.118 → v5.137), duas vezes pago neste projeto. Sem padrão, esquecer não
-     * compila.
-     */
-    fun relatoDe(
-        ua: String?,
-        w: Int,
-        h: Int,
-        seguro: Boolean,
-        mse: Boolean,
-        mms: Boolean,
-        fetchStream: Boolean,
-        videoDecoder: Boolean,
-        wakeLock: Boolean,
-        telaAcesaMin: Int,
-    ): Relato = sanear(
-        Relato(
-            ua = ua ?: "",
-            w = w,
-            h = h,
-            seguro = seguro,
-            mse = mse,
-            mms = mms,
-            fetchStream = fetchStream,
-            videoDecoder = videoDecoder,
-            wakeLock = wakeLock,
-            telaAcesaMin = telaAcesaMin,
-        )
-    )
-
-    /**
-     * O relato inteiro, saneado.
+     * É por isso que o `EspelhoServidor` pode montar o [Relato] **cru**, campo a
+     * campo, a partir do JSON do corpo: `org.json` é da plataforma (num teste de
+     * JVM ele é o esqueleto do `android.jar`, e todo método lança "not mocked"),
+     * então o parse tem de ficar lá — e o saneamento, aqui, num ponto só e do
+     * lado que tem teste. Cada um faz o que só ele pode.
      *
      * Os números também são domados: eles vêm do mesmo JSON que o `ua`, e um
      * `w: -2000000000` no Registro não é um ataque, é ruído que faz o operador

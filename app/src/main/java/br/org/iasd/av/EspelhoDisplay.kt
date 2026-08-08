@@ -1179,6 +1179,13 @@ object EspelhoDisplay {
             return
         }
 
+        // A geometria, uma vez, assim que a página tem chance de existir. Falhou
+        // a leitura? Seguem valendo os [PONTOS_PADRAO] — a sonda não deixa de
+        // medir por causa disso, só passa a medir por uma cópia dos números.
+        h.postDelayed(
+            { p.avaliar(JS_PONTOS) { res -> lerPontos(desembrulhar(res))?.let { pontos.set(it) } } },
+            LEITURA_PONTOS_MS,
+        )
         h.postDelayed({ concluir(julgar(ultima.get(), quadros.get())) }, PRAZO_SONDA_MS)
     }
 
@@ -1189,18 +1196,107 @@ object EspelhoDisplay {
         if (a == null || quadros == 0) {
             return vazia("nenhum quadro em ${PRAZO_SONDA_MS / 1000} s")
         }
+        if (a.size < 5) return vazia("a página devolveu ${a.size} pontos de amostra")
         val fora = a[0]
         val dentro = a[1]
         val v = when {
-            proximo(fora, FUNDO) && proximo(dentro, MAGENTA) -> Sonda.Veredito.OK
+            // `pareceMagenta`, e não `proximo(dentro, MAGENTA)`: entre o clipe e
+            // o pixel lido há um decodificador de hardware e uma conversão
+            // YUV→RGB cuja matriz (601 × 709) e faixa (limitada × cheia) não são
+            // negociadas em lugar nenhum deste caminho. Um magenta saturado pode
+            // voltar deslocado bem mais que a tolerância por canal, e reprovar
+            // por isso seria a sonda medindo a própria imprecisão em vez do que
+            // ela existe para medir: **o vídeo chegou ao framebuffer?**
+            proximo(fora, FUNDO) && pareceMagenta(dentro) -> Sonda.Veredito.OK
             proximo(fora, FUNDO) && proximo(dentro, PRETO) -> Sonda.Veredito.VIDEO_PRETO
             proximo(fora, PRETO) && proximo(dentro, PRETO) -> Sonda.Veredito.TUDO_PRETO
-            escurecido(fora, FUNDO) && (escurecido(dentro, MAGENTA) || proximo(dentro, MAGENTA)) ->
+            escurecido(fora, FUNDO) && (pareceMagenta(dentro) || escurecido(dentro, MAGENTA)) ->
                 Sonda.Veredito.OK_ESCURO
             else -> Sonda.Veredito.INDEFINIDO
         }
         return Sonda(v, fora, dentro, a[2], a[3], a[4], quadros, null, "$quadros quadros")
     }
+
+    /**
+     * Cruza o veredito de pixel com o que a PÁGINA relatou de si
+     * (`__sondaEstado()`: `arquivo` `ok|erro|esperando`, `quadros`, `w`, `h`).
+     *
+     * A regra que justifica a função inteira: **"o clipe não carregou" e "o
+     * vídeo saiu preto" produzem o mesmo pixel**, e só a página sabe distinguir.
+     * Sem esta correção, um `sonda.mp4` ausente — que é o estado do bundle
+     * enquanto ninguém tiver ligado o espelho uma vez, já que o clipe é GERADO
+     * no aparelho ([SondaClipe]) — sairia no Registro como
+     * `readback: VIDEO_PRETO`, e o próximo leitor iria caçar um defeito de
+     * composição que não existe.
+     */
+    private fun comEstado(s: Sonda, estadoJson: String?): Sonda {
+        val o = try {
+            if (estadoJson.isNullOrEmpty()) null else JSONObject(estadoJson)
+        } catch (e: Exception) {
+            Log.w(TAG, "estado da sonda ilegível", e)
+            null
+        } ?: return s.copy(nota = s.nota + " · a página não relatou estado")
+
+        val arquivo = o.optString("arquivo", "?")
+        val quadrosDoVideo = o.optInt("quadros", -1)
+        val detalhe = " · clipe: $arquivo (${quadrosDoVideo} quadros de vídeo)"
+        val erroDaGeracao = SondaClipe.ultimoErro
+        val extra = if (erroDaGeracao.isNotEmpty()) " · $erroDaGeracao" else ""
+
+        return if (arquivo != "ok" && s.veredito == Sonda.Veredito.VIDEO_PRETO) {
+            s.copy(
+                veredito = Sonda.Veredito.INDEFINIDO,
+                nota = s.nota + detalhe + extra +
+                    " · NÃO é readback: o centro está preto porque o clipe não tocou",
+            )
+        } else {
+            s.copy(nota = s.nota + detalhe + extra)
+        }
+    }
+
+    /**
+     * `evaluateJavascript` devolve o valor **codificado em JSON**, então uma
+     * string JS chega aqui entre aspas e com escapes. Desembrulhar é obrigatório
+     * — parsear o envelope como se fosse o conteúdo é o erro que faz a leitura
+     * "funcionar" com um objeto vazio.
+     */
+    private fun desembrulhar(res: String): String? = try {
+        val v = JSONTokener(res).nextValue()
+        if (v is String) v else null
+    } catch (e: Exception) {
+        null
+    }
+
+    /** `[{nome,x,y,espera}, …]` → pares (x, y). `null` mantém o padrão. */
+    private fun lerPontos(json: String?): Array<FloatArray>? = try {
+        if (json.isNullOrEmpty()) {
+            null
+        } else {
+            val arr = JSONArray(json)
+            if (arr.length() < 5) {
+                null
+            } else {
+                Array(arr.length()) { i ->
+                    val o = arr.getJSONObject(i)
+                    floatArrayOf(o.getDouble("x").toFloat(), o.getDouble("y").toFloat())
+                }
+            }
+        }
+    } catch (e: Exception) {
+        Log.w(TAG, "pontos da sonda ilegíveis", e)
+        null
+    }
+
+    /**
+     * "Isto é magenta?" por FAMÍLIA de cor, não por igualdade.
+     *
+     * Vermelho e azul altos, verde baixo. É o bastante para separar das três
+     * outras cores que existem naquela tela — preto (tudo baixo), branco (verde
+     * alto) e o âmbar do fundo (verde 168, azul 73) — e é imune à matriz e à
+     * faixa de conversão que ninguém negociou no caminho.
+     */
+    private fun pareceMagenta(c: Int): Boolean =
+        canal(c, 16) >= 120 && canal(c, 0) >= 120 && canal(c, 8) <= 96
 
     /**
      * Lê um pixel direto do buffer, sem `Bitmap` no meio — são cinco pixels por
