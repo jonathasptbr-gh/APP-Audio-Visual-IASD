@@ -1359,6 +1359,24 @@ app também fecha, pelo mesmo motivo pelo qual o push-to-talk fecha.
   passou a anunciar o som, a folha do operador passou a dizer a regra, e o
   `espelho-cliente.test.mjs` trava a porta nos dois modos — no de vídeo o gesto
   PEDE o AAC, no de imagem ele deliberadamente não pede.
+- **E O RAMO do som viaja junto, sempre** (v5.150). `som: PEDIDO e a faixa não
+  nasceu` responde ONDE o defeito está — deste lado —, não QUAL é: entre o
+  pedido e a faixa há **sete** desfechos (o `csd` não chegou, chegou ilegível,
+  chegou tarde com a `MediaSource` já aberta, o navegador não decodifica o
+  codec, o `addSourceBuffer` foi recusado, o vigia soltou a faixa, ou a tela
+  reconectou reusando uma `MediaSource` muda), e cada um tem correção diferente.
+  O cliente passou a carimbar o ramo exato e a mandá-lo no MESMO campo `aviso`
+  do relato — que o Kotlin já saneia e já mostra como `diz:` —, o que faz o
+  diagnóstico chegar **por OTA, sem APK**. Ele vai **mesmo sem frase na tela**,
+  e é isso que torna a AUSÊNCIA do `diz:` uma leitura por si só: o canal de
+  relato quebrou.
+- **E a reconexão deixou de condenar a tela ao silêncio.** `abrirMidia` com uma
+  `MediaSource` já aberta reenvia o segmento de inicialização e segue — o que é
+  certo para o vídeo e fatal para o som, porque o Chromium recusa
+  `addSourceBuffer` depois da inicialização: uma tela que pediu áudio e
+  reconectou sem faixa ficava muda pelo resto da sessão, **em silêncio**. Agora
+  ela remonta (com o mesmo teto de `REBUILDS_AUDIO` do gesto, para a projeção
+  nunca piscar mais que isso) e, batido o teto, **diz** que ficou muda.
 - **E o Registro diz o som em UMA FRASE**, não em dois booleanos para o operador
   interpretar (`somDaTela`). São dois fatos independentes com saídas diferentes:
   a *torneira* que o servidor abriu para aquela tela e a *faixa* que o cliente
@@ -2087,7 +2105,7 @@ aparelho nenhum.
 O `versionCode`/`versionName` do APK vêm do CI (ver "Build") e não se tocam à
 mão.
 
-**Versão atual: v5.149** (base web) · `SHELL_VERSION` **33**, e o bundle segue com
+**Versão atual: v5.150** (base web) · `SHELL_VERSION` **33**, e o bundle segue com
 `minShell: 2` — ele funciona igual num shell antigo, só sem os recursos que são
 nativos por construção (a escada do voltar, os botões de volume, a notificação de
 controles), que **só chegam instalando o APK novo**, não pelo OTA.
