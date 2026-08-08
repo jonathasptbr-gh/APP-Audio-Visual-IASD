@@ -163,7 +163,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.150';
+const WEB_VERSION = '5.151';
 
 // Escrita UMA vez, na carga: o indicador mora no rodapé de Configurações desde
 // a v5.49 e não depende mais de qual aba está aberta (no cabeçalho ele
@@ -10511,13 +10511,17 @@ function cabecalhoDiag() {
   // primeira pergunta é se o WebView deste aparelho aceita os codecs — e a
   // resposta não se descobre de fora.
   l.push('Transmissão: ' + diagMse());
-  // A ATUALIZAÇÃO QUE ESPERA. Ela é oferecida por um aviso, mas o aviso não
-  // aparece com cena no ar nem com download em curso — e aí o Registro é o
-  // único lugar que responde "por que ainda estou na versão antiga?".
+  // A ATUALIZAÇÃO QUE AINDA NÃO ENTROU. Desde a v5.151 ela entra sozinha, na
+  // hora — então esta linha deixou de ser "esperando a tela livre" e passou a
+  // ser um ALARME: se ela aparece, alguma coisa impediu a aplicação, e o
+  // Registro é o único lugar que responde "por que ainda estou na versão
+  // antiga?". O `horaRuimParaAtualizar()` continua sendo LIDO aqui — não mais
+  // como portão, e sim como a explicação provável de um piscar que aconteceu
+  // numa hora ruim.
   if (otaPendenteVersao) {
-    l.push('Atualização: v' + otaPendenteVersao + ' baixada'
-      + (horaRuimParaAtualizar() ? ' (esperando a tela livre)' : '')
-      + ' — entra na próxima abertura');
+    l.push('Atualização: v' + otaPendenteVersao + ' baixada e AINDA NÃO aplicada'
+      + (otaRecusadas.has(otaPendenteVersao) ? ' — o shell recusou aplicá-la' : ' — entrando…')
+      + (horaRuimParaAtualizar() ? ' (com cena/download/espelho no ar)' : ''));
   }
   // A PROCURA em si (v5.136). "Não apareceu aviso nenhum" tem quatro causas
   // indistinguíveis da tela — não há versão nova, a busca falhou, o bundle
@@ -14771,8 +14775,15 @@ document.addEventListener('visibilitychange', () => {
   // alguns segundos — perguntar agora seria perguntar antes de haver resposta.
   // Depois é de minuto em minuto, e cada consulta custa a leitura de um JSON
   // minúsculo: quem decide se há o que mostrar é `ofertarAtualizacao`.
-  setTimeout(ofertarAtualizacao, 20000);
+  setTimeout(ofertarAtualizacao, 8000);
   setInterval(ofertarAtualizacao, OTA_POLL_MS);
+  // E A RETOMADA É UM GATILHO deste lado também. O shell já procura ao voltar
+  // do segundo plano, mas quem APLICA no caminho web é esta função — e é
+  // exatamente ao retomar que o operador encontra um bundle que chegou
+  // enquanto este WebView estava estrangulado.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') ofertarAtualizacao();
+  });
 })();
 
 // ---------------------------------------------------------------------------
@@ -14796,7 +14807,12 @@ document.addEventListener('visibilitychange', () => {
 //    na próxima abertura de qualquer jeito; oferecer "agora" sem dizer isso
 //    faria parecer que recusar significa ficar para trás.
 // ---------------------------------------------------------------------------
-const OTA_POLL_MS = 60000;
+// A enquete do lado web. 20 s, e não os 60 s de antes: ela não custa rede —
+// `otaPending` lê o disco, e o `otaCheck` que ela dispara respeita o piso do
+// shell — e ela é a rede de segurança para quando o empurrão do shell se perde
+// (o WebView do Controle é estrangulado em segundo plano, e é justamente aí
+// que uma versão nova costuma chegar).
+const OTA_POLL_MS = 20000;
 const otaRecusadas = new Set();
 let otaPerguntando = false;
 // O último diagnóstico da procura, lido do shell (shell 31+). Guardado aqui
@@ -14839,6 +14855,28 @@ window.__avOta = function (versao) {
   ofertarAtualizacao();
 };
 
+// A ATUALIZAÇÃO ENTRA SOZINHA, na hora, sem perguntar (v5.151).
+//
+// Era uma OFERTA — um diálogo "Atualizar agora?" — e ela quase nunca chegava a
+// aparecer, por dois motivos que se somavam. Do lado do shell, "entra no
+// próximo lançamento" era literal: a decisão é por PROCESSO, e o processo é
+// mantido vivo de propósito pelos serviços em primeiro plano, então reabrir o
+// app não reabria nada (ver `WebUpdater.aplicarSozinho`). Deste lado, a
+// pergunta era suprimida com cena no ar, download em curso ou espelho ligado —
+// e durante os testes do espelho ele estava ligado o tempo todo, então ela
+// nunca aparecia. O resultado prático era "o OTA não funciona".
+//
+// **O QUE ISSO CUSTA, dito por inteiro:** a base pode trocar no meio de um
+// culto, e as duas páginas recarregam. Esse custo é conhecido e recuperável — o
+// telão recarrega, dispara `display-ready`, e o Controle reenvia a cena com
+// POSIÇÃO e ESTADO DE REPRODUÇÃO (`resendSceneToDisplay`), que é o mesmo
+// caminho que a queda de um dongle já exercita: uma mídia tocando volta no
+// segundo em que estava. O que se vê é um piscar. Um lote de downloads em curso
+// recomeça o item que estava em voo, sem perder o que já baixou.
+//
+// O `horaRuimParaAtualizar()` continua existindo e continua sendo LIDO pelo
+// Registro — ele é a explicação de um piscar que aconteceu numa hora ruim, e
+// não mais um portão.
 async function ofertarAtualizacao() {
   if (!window.__NATIVE__ || (window.__SHELL_VERSION__ | 0) < 29) return;
   if (otaPerguntando) return;
@@ -14857,33 +14895,25 @@ async function ofertarAtualizacao() {
   let versao = '';
   try { versao = (await AVNative.otaPending()) || ''; } catch (_) { return; }
   otaPendenteVersao = versao;
-  if (!versao || otaRecusadas.has(versao)) return;
-  // Só quando há de fato o que aplicar, e só se acharmos que o espelho está no
-  // ar: a leitura pode estar velha (ele sai sozinho por falha nomeada), e uma
-  // pergunta suprimida por um estado que não existe mais seria pior que a
-  // pergunta. Não custa nada no caso comum — sem espelho, nem chega aqui.
-  if (espelhoLigado()) await lerEspelho();
-  // Depois da ida à ponte, e não antes: assim o Registro fica sabendo da versão
-  // pendente mesmo nas horas em que a pergunta não pode aparecer.
-  if (horaRuimParaAtualizar()) return;
+  if (!versao) return;
+  // `otaRecusadas` guarda o que JÁ TENTAMOS aplicar e não entrou — não mais uma
+  // recusa do operador, que não existe mais. Sem esta guarda, um bundle que o
+  // shell recusa (sem o index do Controle, por exemplo) faria a enquete pedir a
+  // aplicação a cada minuto, para sempre.
+  if (otaRecusadas.has(versao)) return;
   otaPerguntando = true;
-  let ok = false;
+  // AVISAR, e não perguntar. A frase existe porque um piscar sem explicação no
+  // meio de um culto é pior que o piscar — e ela sai ANTES da recarga, que é o
+  // único instante em que ainda há uma página para mostrá-la.
+  try { avisar('Atualizando para a versão ' + versao + '…'); } catch (_) { /* cedo demais */ }
+  let aplicada = null;
   try {
-    ok = await appConfirm({
-      title: 'Atualização disponível',
-      message: 'A versão ' + versao + ' do app já foi baixada.\n\n'
-        + 'Ela entra sozinha na próxima vez que o app abrir. Atualizar agora?\n\n'
-        + 'A tela vai recarregar — leva um instante.',
-      okText: 'Atualizar agora',
-      cancelText: 'Depois',
-    });
+    // Daqui não se volta: o documento é substituído pela recarga. Só quando NÃO
+    // houver o que aplicar a promise devolve null e a página segue viva.
+    aplicada = await AVNative.otaApply();
   } finally {
     otaPerguntando = false;
   }
-  if (!ok) { otaRecusadas.add(versao); return; }
-  // Daqui não se volta: o documento é substituído pela recarga. Só quando NÃO
-  // houver o que aplicar a promise devolve null e a página segue viva.
-  const aplicada = await AVNative.otaApply();
   if (!aplicada) otaRecusadas.add(versao);
 }
 
