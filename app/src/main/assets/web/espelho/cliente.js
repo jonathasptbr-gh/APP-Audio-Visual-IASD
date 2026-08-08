@@ -590,6 +590,50 @@
     el.v.src = URL.createObjectURL(ms);
   }
 
+  // O `error` de um `SourceBuffer` é um evento NU: por especificação ele não
+  // carrega motivo nenhum, e "o decodificador recusou os dados" é uma
+  // CATEGORIA, não um diagnóstico — ela não distingue um fragmento malformado
+  // de um perfil de H.264 que aquele aparelho não decodifica, e as duas têm
+  // correções opostas.
+  //
+  // Quem carrega o motivo é o `MediaError` do `<video>`: o Chromium preenche o
+  // `message` dele com a frase do demuxer ("Append: stream parsing failed",
+  // "Unsupported...", o offset onde o parse morreu). Ela nunca era lida porque
+  // ninguém abre console numa TV — e agora ela viaja até o Registro do
+  // operador junto com o resto do relato da tela.
+  // E a ORDEM não é garantida: o `error` do `SourceBuffer` pode chegar ANTES de
+  // o `<video>` ter o `MediaError` preenchido. Por isso o motivo é lembrado —
+  // e o `error` do próprio elemento, que é onde ele de fato mora, completa a
+  // frase depois, quando ela tiver saído sem detalhe.
+  let ultimoErroMidia = '';
+
+  function porqueDaMidia() {
+    const e = el.v && el.v.error;
+    if (e) {
+      const detalhe = (e.message || '').slice(0, 70);
+      ultimoErroMidia = ' [' + (e.code || '?') + (detalhe ? ': ' + detalhe : '') + ']';
+    }
+    return ultimoErroMidia;
+  }
+
+  // Recusas SEGUIDAS do decodificador, sem um trecho longo entre elas. Ver
+  // `laco`: é este contador que transforma um martelo de três em três segundos
+  // numa escada que diz o que está acontecendo.
+  //
+  // O martelo é o defeito, não o sintoma: um `recomecar` por recusa zera a
+  // espera de reconexão (`tentativa = 0`) de propósito, porque uma recusa
+  // isolada merece voltar rápido. Só que uma recusa que se REPETE não é
+  // isolada — e voltar rápido dezenas de vezes seguidas martela o AP da igreja,
+  // enche o Registro e não conserta nada, enquanto a tela pisca a cada três
+  // segundos na frente de quem está assistindo.
+  let recusasSeguidas = 0;
+  let quadrosDesdeRecusa = 0;
+  // ~13 s a 9 fps. É "esta tela está de fato projetando", não "chegou um
+  // quadro".
+  const QUADROS_SAUDAVEL = 120;
+  // A partir daqui a espera curta acaba e a frase passa a nomear o estado.
+  const RECUSAS_ATE_ESCADA = 3;
+
   function prepararBuffer(tipo, ehAudio) {
     const b = ms.addSourceBuffer(tipo);
     // `segments`, NUNCA `sequence`: nossos fragmentos carregam o `tfdt`
@@ -601,8 +645,9 @@
     b.addEventListener('error', function () {
       // Um erro NA FAIXA DE SOM não pode derrubar a projeção — solta-se o som.
       // Na de imagem não há o que salvar, e recomeçar limpo é a saída.
-      if (ehAudio) soltarAudio('o decodificador recusou o som');
-      else recomecar('o decodificador recusou os dados');
+      if (ehAudio) { soltarAudio('o decodificador recusou o som' + porqueDaMidia()); return; }
+      recusasSeguidas++;
+      recomecar('o decodificador recusou os dados' + porqueDaMidia());
     });
     return b;
   }
@@ -929,7 +974,7 @@
   // justamente a que o operador precisa enxergar, e um relato que chega no
   // quinto minuto chegaria depois do culto. O freio é o próprio evento — o
   // corpo é minúsculo e só sai quando algo de fato mudou.
-  let ultimoRelato = ' ';
+  let ultimoRelato = null;
 
   function relatar() {
     if (!vivo || !token) return;
@@ -1030,6 +1075,12 @@
       }
       conta.quadros++;
       tentativa = 0;                      // quadro de verdade: a espera zera
+      // E UM TRECHO LONGO decodificado sem recusa é o que zera o contador de
+      // recusas — não o primeiro quadro. A falha que este contador existe para
+      // enxergar entrega dezenas de quadros e SÓ ENTÃO estoura, de três em três
+      // segundos: zerar no primeiro quadro faria o contador nunca sair de um e
+      // a escada nunca subir.
+      if (++quadrosDesdeRecusa > QUADROS_SAUDAVEL) recusasSeguidas = 0;
       const frag = muxer.quadro({ ptsUs: q.pts, chave: q.chave, dados: carga });
       if (frag) enfileirar(frag);
       if (conta.quadros === 1) limparAviso();
@@ -1156,8 +1207,9 @@
     // E o relato desta conexão, sem esperar a batida de cinco minutos: numa
     // tela que reconecta em laço, ESTE é o único momento em que ela consegue
     // contar o que aconteceu na conexão anterior.
-    ultimoRelato = ' ';
+    ultimoRelato = null;
     relatar();
+    quadrosDesdeRecusa = 0;
     const leitor = r.body.getReader();
     for (;;) {
       const passo = await leitor.read();
@@ -1185,9 +1237,27 @@
         else avisar('Sem sinal — ' + ((e && e.message) || 'a conexão caiu') + '.', true);
       }
       if (!vivo) return;
-      const espera = RECONEXAO[Math.min(tentativa, RECONEXAO.length - 1)];
+      // A ESCADA VALE TAMBÉM PARA A RECUSA QUE SE REPETE. `recomecar` zera o
+      // `tentativa` para uma falha isolada voltar depressa; a partir da terceira
+      // recusa seguida do decodificador isso vira um martelo — e um martelo é
+      // pior que uma espera, porque não conserta nada e ainda pisca a projeção
+      // de três em três segundos na frente de quem está assistindo.
+      const degrau = recusasSeguidas >= RECUSAS_ATE_ESCADA
+        ? Math.min(recusasSeguidas - RECUSAS_ATE_ESCADA + 1, RECONEXAO.length - 1)
+        : Math.min(tentativa, RECONEXAO.length - 1);
+      const espera = RECONEXAO[degrau];
       tentativa++;
-      if (!nosso) avisar('Sem sinal — tentando de novo em ' + Math.round(espera / 1000) + ' s.', true);
+      if (recusasSeguidas >= RECUSAS_ATE_ESCADA) {
+        // E A FRASE PASSA A NOMEAR O ESTADO, em vez de repetir "sem sinal": não
+        // é a rede que está falhando, é este navegador que não está aceitando o
+        // fluxo — e essa distinção é o que decide se o operador mexe no
+        // roteador ou troca a tela.
+        avisar('Esta tela não está conseguindo decodificar o fluxo ('
+          + recusasSeguidas + ' recusas seguidas) — tentando de novo em '
+          + Math.round(espera / 1000) + ' s.', true);
+      } else if (!nosso) {
+        avisar('Sem sinal — tentando de novo em ' + Math.round(espera / 1000) + ' s.', true);
+      }
       await dormir(espera);
     }
   }
@@ -1356,6 +1426,16 @@
     // primeiro, um toque vale como "tenta o som de novo" — é a saída da tela
     // que ficou sem áudio, dita por ela mesma no aviso.
     el.play.addEventListener('click', function () { if (gestoFeito) tentarSom(); else gesto(); });
+    // O MOTIVO DE VERDADE mora aqui, e não no `SourceBuffer`: é o `MediaError`
+    // do elemento que traz a frase do demuxer do Chromium. Se a mensagem do
+    // recomeço já saiu sem detalhe (a ordem dos dois eventos não é garantida),
+    // esta a completa — e o relato ao celular sai junto, porque `avisar` chama
+    // `relatar`.
+    el.v.addEventListener('error', function () {
+      const p = porqueDaMidia();
+      const atual = el.aviso ? el.aviso.textContent || '' : '';
+      if (p && atual.indexOf('[') < 0) avisar((atual || 'O navegador rejeitou o vídeo') + p, true);
+    });
     acordar();
 
     token = guardado();
