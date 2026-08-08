@@ -414,7 +414,11 @@ object SondaClipe {
         try {
             codec.configure(fmt, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
             codec.start()
-            muxer = MediaMuxer(saida.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+            // Um `val` não-nulo para o laço usar, e o `var` só para o `finally`
+            // alcançar: assim nenhuma linha daqui para baixo depende de smart
+            // cast sobre variável mutável.
+            val m = MediaMuxer(saida.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+            muxer = m
 
             val info = MediaCodec.BufferInfo()
             val total = FPS * SEGUNDOS
@@ -448,8 +452,8 @@ object SondaClipe {
                         // isso que o buffer com CODEC_CONFIG é descartado
                         // abaixo. Escrevê-lo como amostra produz um MP4 que
                         // alguns decodificadores recusam.
-                        trilha = muxer.addTrack(codec.outputFormat)
-                        muxer.start()
+                        trilha = m.addTrack(codec.outputFormat)
+                        m.start()
                         iniciado = true
                     }
                     os < 0 -> Unit
@@ -459,7 +463,7 @@ object SondaClipe {
                         if (buf != null && info.size > 0 && !ehConfig && iniciado) {
                             buf.position(info.offset)
                             buf.limit(info.offset + info.size)
-                            muxer.writeSampleData(trilha, buf, info)
+                            m.writeSampleData(trilha, buf, info)
                         }
                         codec.releaseOutputBuffer(os, false)
                         if ((info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) fim = true

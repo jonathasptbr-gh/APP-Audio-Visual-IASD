@@ -23,6 +23,20 @@ const textSubEl = document.getElementById('textSub');
 // tem com a época dele.
 const INSTANCIA = 'd' + Math.random().toString(36).slice(2, 10).padEnd(8, '0');
 
+// ESTE DOCUMENTO É O ESPELHO DE PIXELS? (ver docs/ESPELHO-DE-PIXELS.md)
+//
+// O espelho é uma SEGUNDA cópia deste mesmo `/display/`, hospedada numa
+// `Presentation` sobre um `VirtualDisplay` privado cujo framebuffer é
+// codificado e servido na rede local. É o mesmo arquivo, o mesmo origin e o
+// mesmo barramento do telão de verdade — o que muda é o PAPEL, e todas as
+// diferenças de comportamento penduram nesta constante.
+//
+// No navegador ela é `false` (não há `__AV_ROLE__` sem a ponte) e no telão de
+// verdade também, então tudo o que ela guarda é código morto nos dois casos —
+// que é exatamente a regra de escrita do projeto: o comportamento de sempre é
+// o padrão, o novo é a exceção que se declara.
+const ESPELHO = window.__AV_ROLE__ === 'espelho';
+
 // Config de transições, usada aqui para animar o player do YouTube (que vive
 // fora do stage). INERENTE ao sistema: toda troca visual é animada com fade,
 // sempre — não há opção de desligar nem ajustar. Vem de stage.js para não
@@ -90,7 +104,15 @@ const stage = createStage({
   wallpaper: wallpaperEl,
   img: imgEl,
   video: videoEl,
-  forceMuted: false,
+  // O ESPELHO NASCE MUDO, e isso é a falha segura do §3.9 (invariante 4), não
+  // uma preferência: enquanto o grafo de Web Audio não estiver de pé E o
+  // encoder do lado Kotlin não tiver confirmado, o áudio deste documento não
+  // pode sair em lugar nenhum. Quem libera é `espelhoAudioIniciar()`, lá
+  // embaixo, e só depois do `{"ok":true}`. Se qualquer passo falhar, fica
+  // mudo — o cliente da rede diz "esta tela está sem som" e o salão continua
+  // em silêncio. NUNCA o contrário: um espelho que toca alto por engano é um
+  // culto interrompido.
+  forceMuted: ESPELHO,
   onTime: sendStatus,
   // O TELÃO NÃO RECUPERA SOZINHO uma transmissão que falhou, e não é omissão:
   // ele não tem a ponte (`host = null`, ver NativeBridge) para pedir um
