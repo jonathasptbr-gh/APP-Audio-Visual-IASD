@@ -3326,6 +3326,48 @@ body.mode-simple .hymn-add-btn { display: none; }
   font-size: 1.35rem; font-weight: 700; letter-spacing: .18em;
   color: var(--accent);
 }
+/* O botão de LER O CÓDIGO é o caminho curto, e por isso é o único preenchido
+   no accent dentro da folha: a hierarquia da tela precisa dizer, sem texto, que
+   é por aqui. O par endereço/PIN acima continua sendo o plano B por escrito. */
+.mirror-scan {
+  display: flex; align-items: center; justify-content: center; gap: .45rem;
+  width: 100%;
+  padding: .7rem .8rem;
+  font: inherit; font-size: .85rem; font-weight: 600;
+  color: var(--on-accent);
+  background: var(--accent-fill);
+  border: 0; border-radius: var(--radius-btn);
+  cursor: pointer;
+}
+.mirror-scan .msym { font-size: 1.15rem; }
+
+/* O VISOR DA CÂMERA. 4:3 e não 16:9: o alvo é um QUADRADO na tela do outro
+   lado, e um visor largo demais faz o operador aproximar o aparelho até o
+   código sair do foco. */
+.qr-scan {
+  position: relative;
+  width: 100%; aspect-ratio: 4 / 3;
+  background: #000;
+  border-radius: var(--radius-btn);
+  overflow: hidden;
+}
+.qr-scan video {
+  width: 100%; height: 100%;
+  object-fit: cover;   /* aqui recortar é o certo: o quadro é uma mira, não uma projeção */
+  display: block;
+}
+/* A mira. Ela não recorta nem restringe a leitura (o detector olha o quadro
+   inteiro) — ela diz ONDE pôr o código, que é o que falta a quem nunca usou. */
+.qr-alvo {
+  position: absolute; left: 50%; top: 50%;
+  transform: translate(-50%, -50%);
+  width: 62%; aspect-ratio: 1;
+  border: 2px solid var(--accent);
+  border-radius: var(--radius-btn);
+  box-shadow: 0 0 0 100vmax rgba(0, 0, 0, .38);
+  pointer-events: none;
+}
+
 /* A linha do modo reusa a anatomia da lista de preferências (é a mesma
    decisão, no mesmo formato), só sem o fundo de cartão: aqui ela já está
    dentro de uma folha. */

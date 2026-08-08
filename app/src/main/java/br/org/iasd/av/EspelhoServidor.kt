@@ -585,6 +585,10 @@ class EspelhoServidor(
                 val relato = relatoDe(corpo)
                 respostaDoVeredito(tentarPin(corpo.optString("pin"), origem, relato))
             }
+            // O QR: a tela pede um `id` para desenhar, sem provar nada — e o
+            // `id` não vale nada até o operador ler o desenho (§3.5, invariante
+            // 5b). `optBoolean` e não `has`: um `{"qr":false}` não é um pedido.
+            corpo.optBoolean("qr", false) -> respostaDoVeredito(esperaQr(origem, relatoDe(corpo)))
             corpo.has("espera") -> respostaDoVeredito(consultarEspera(corpo.optString("espera")))
             else -> 403 to RECUSADA
         }
@@ -884,6 +888,11 @@ class EspelhoServidor(
             // TENTANDO. Os dois números são do [EspelhoPares], que é quem conta.
             .put("recusas", EspelhoPares.recusas())
             .put("origensBloqueadas", EspelhoPares.origensEmBloqueio(agoraMs()))
+            // Telas com um QR EM CARTAZ esperando a câmera. É o que separa
+            // "ninguém abriu o endereço" de "a tela abriu, o código está lá, e o
+            // que não funcionou foi a leitura" — na folha do operador as duas
+            // são a mesma lista vazia, porque a espera de QR não aparece nela.
+            .put("qrEsperando", EspelhoPares.esperandoQr())
             .put("conexoesTotais", conexoesTotais.get())
             .put("semConexaoMs", if (conexoesTotais.get() == 0 && ligadoEm != 0L) agora - ligadoEm else 0L)
             .put("ultimaSaida", ultimaSaida ?: JSONObject.NULL)
@@ -932,6 +941,9 @@ class EspelhoServidor(
         EspelhoPares.tentar(pin, origem, relato, agoraMs())
 
     private fun consultarEspera(id: String) = EspelhoPares.consultar(id, agoraMs())
+
+    private fun esperaQr(origem: String, relato: EspelhoPares.Relato) =
+        EspelhoPares.esperaQr(origem, relato, agoraMs())
 
     /**
      * O relato que veio no corpo do `POST /par`, **cru**.
@@ -1124,6 +1136,7 @@ class EspelhoServidor(
             "/" to "web/espelho/index.html",
             "/e.js" to "web/espelho/cliente.js",
             "/f.js" to "web/espelho/fmp4.js",
+            "/q.js" to "web/espelho/qr.js",
             "/e.css" to "web/espelho/espelho.css",
         )
 

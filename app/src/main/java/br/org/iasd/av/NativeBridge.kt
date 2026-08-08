@@ -62,6 +62,9 @@ interface BridgeHost {
     /** Pede a permissão de microfone ao Android (push-to-talk). */
     fun requestMicPermission(onResult: (Boolean) -> Unit)
 
+    /** Pede a permissão de CÂMERA ao Android (ler o QR da tela do espelho). */
+    fun requestCamPermission(onResult: (Boolean) -> Unit)
+
     /** Consome (uma única vez) um compartilhamento recebido por intent. */
     fun takePendingShare(): JSONObject?
 
@@ -135,13 +138,21 @@ class NativeBridge(
          * exijam mais do que o shell instalado oferece (ver [WebUpdater]).
          * Subir SEMPRE que a superfície da ponte mudar.
          *
+         * 33 (v5.145) — `requestCam`, a permissão de CÂMERA para o Controle ler
+         * o QR que a tela do espelho mostra. Ela é indispensável e não tem
+         * degradação possível: sem ela o `getUserMedia` do WebView é negado **em
+         * silêncio** pelo `onPermissionRequest` (o mesmo modo de falhar que o
+         * `MicChromeClient` documenta), e o botão de ler o código ficaria sem
+         * fazer nada e sem dizer por quê. Abaixo do 33 o Controle nem o desenha
+         * e o pareamento segue pelos seis dígitos, que continuam existindo.
+         *
          * 32 (v5.141) — os cinco métodos do ESPELHO DE PIXELS (`espelhoLigar`,
          * `espelhoDesligar`, `espelhoEstado`, `espelhoDiag`, `espelhoAprovar`).
          * O lado web não desenha o cartão do espelho abaixo disto: um método
          * novo NÃO chega por OTA, e um botão que não faz nada no meio de um
          * culto é pior que botão nenhum (a mesma regra do `appendYoutubeSearch`).
          */
-        const val SHELL_VERSION = 32
+        const val SHELL_VERSION = 33
 
         /**
          * Fila de IO da ponte, **compartilhada por todas as instâncias**.
@@ -892,6 +903,28 @@ class NativeBridge(
         val h = host
         if (h == null) { resolve(callId, "false"); return }
         h.requestMicPermission { granted -> resolve(callId, if (granted) "true" else "false") }
+    }
+
+    /**
+     * O mesmo, para a CÂMERA: ler o QR que a tela do espelho mostra.
+     *
+     * **Privilégio do Controle** — `host == null` no telão e no espelho, e ali
+     * a resposta é `false` sem nem chegar ao Android. É a invariante 9 do shell
+     * aplicada ao caso mais óbvio dela: os dois WebViews que hospedam código de
+     * terceiro por design não têm nenhum uso para uma câmera, e conceder-lhes
+     * um caminho para pedi-la seria o oposto de tudo o que aquela invariante
+     * existe para fazer.
+     *
+     * Ela nasce SOB DEMANDA, no toque do botão de ler o código, pelo mesmo
+     * motivo do [requestMic]: um pedido de câmera no primeiro lançamento, sem
+     * contexto, é o tipo de coisa que se nega por reflexo — e o recurso ficaria
+     * quebrado sem que ninguém soubesse por quê.
+     */
+    @JavascriptInterface
+    fun requestCam(callId: String) {
+        val h = host
+        if (h == null) { resolve(callId, "false"); return }
+        h.requestCamPermission { granted -> resolve(callId, if (granted) "true" else "false") }
     }
 
     // ---------- compartilhamento (substitui o share_target do SW) ----------

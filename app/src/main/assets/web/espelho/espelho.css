@@ -66,7 +66,9 @@ html, body {
 }
 
 .cartao {
-  width: 100%; max-width: 340px;
+  /* 380 e não 340 desde que o QR passou a morar aqui: o código precisa caber
+     inteiro com o respiro de 24 px de cada lado (380 − 48 = 332 > 300). */
+  width: 100%; max-width: 380px;
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 16px;
@@ -78,11 +80,51 @@ h1 { font-size: 20px; font-weight: 600; letter-spacing: .01em; }
 
 .ajuda { margin-top: 8px; color: var(--muted); font-size: 14px; }
 
+/* ---------- o QR ----------
+   Ele é o assunto da tela agora: quem MOSTRA é aqui, quem LÊ é o celular. Numa
+   TV a 3 metros o código precisa ser grande — daí o cartão crescer quando há
+   QR — e precisa ser BRANCO, não a superfície da paleta: um QR sobre fundo
+   escuro inverte o contraste que o leitor procura, e vários telefones
+   simplesmente não o veem. É a mesma exceção que `--stage-text: #fff` já
+   declara: legibilidade vence calibração. */
+
+.qr-box { margin-top: 18px; }
+
+.qr {
+  display: block;
+  width: min(52vmin, 300px);
+  height: auto;
+  margin: 0 auto;
+  border-radius: 8px;
+  /* O canvas tem UM PIXEL POR MÓDULO e quem estica é esta linha. Ampliar com
+     interpolação borraria as bordas — e um módulo cinza é um módulo que a
+     câmera vai adivinhar. */
+  image-rendering: pixelated;
+  /* O `background` cobre a zona de silêncio caso o arredondamento do
+     navegador deixe meia borda de fora. */
+  background: #fff;
+}
+
+.qr-box .ajuda { margin-top: 12px; }
+
+/* O PIN vira o plano B, e um `<details>` diz isso sem precisar de texto: ele
+   está ali, fechado, e abre com um toque. Aberto por conta própria só quando o
+   QR não pôde ser gerado — que é quando ele deixa de ser plano B. */
+.pin-box { margin-top: 18px; text-align: left; }
+
+.pin-box > summary {
+  color: var(--muted);
+  font-size: 14px;
+  text-align: center;
+  cursor: pointer;
+  padding: 6px;
+}
+
 #pin {
-  /* O campo é o assunto da tela: seis dígitos grandes, espaçados, para serem
-     conferidos de longe contra a tela do celular. */
+  /* Seis dígitos grandes, espaçados, para serem conferidos de longe contra a
+     tela do celular. */
   width: 100%;
-  margin-top: 20px;
+  margin-top: 12px;
   padding: 12px 8px;
   font: 600 30px/1.1 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   letter-spacing: .22em;

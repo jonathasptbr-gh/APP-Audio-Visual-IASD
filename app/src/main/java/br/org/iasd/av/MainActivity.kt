@@ -18,6 +18,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.webkit.ConsoleMessage
+import android.webkit.PermissionRequest
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebView
@@ -133,6 +134,20 @@ class MainActivity : ComponentActivity(), BridgeHost {
     ) { granted ->
         val cb = pendingMicPermission
         pendingMicPermission = null
+        cb?.invoke(granted)
+    }
+
+    /**
+     * E o mesmo par para a CÂMERA, pedida no toque de "ler o código da tela" do
+     * espelho — nunca antes. Um app de projeção pedindo câmera na abertura é
+     * exatamente o pedido que se nega sem ler.
+     */
+    private var pendingCamPermission: ((Boolean) -> Unit)? = null
+    private val camPermission = registerForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        val cb = pendingCamPermission
+        pendingCamPermission = null
         cb?.invoke(granted)
     }
 
@@ -1082,6 +1097,25 @@ class MainActivity : ComponentActivity(), BridgeHost {
         }
     }
 
+    override fun requestCamPermission(onResult: (Boolean) -> Unit) {
+        runOnUiThread {
+            if (temCamera()) { onResult(true); return@runOnUiThread }
+            pendingCamPermission?.invoke(false)
+            pendingCamPermission = onResult
+            try {
+                camPermission.launch(android.Manifest.permission.CAMERA)
+            } catch (e: Exception) {
+                Log.w(TAG, "não foi possível pedir a permissão de câmera", e)
+                pendingCamPermission = null
+                onResult(false)
+            }
+        }
+    }
+
+    private fun temCamera(): Boolean =
+        checkSelfPermission(android.Manifest.permission.CAMERA) ==
+            PackageManager.PERMISSION_GRANTED
+
     override fun setCaptureVolumeKeys(on: Boolean) {
         runOnUiThread { captureVolumeKeys = on }
     }
@@ -1261,6 +1295,11 @@ class MainActivity : ComponentActivity(), BridgeHost {
             .put("erro", erro)
             .put("telas", srv?.optJSONArray("telas") ?: JSONArray())
             .put("pendentes", srv?.optJSONArray("pendentes") ?: JSONArray())
+            // Quantas telas estão com um QR em cartaz. A folha usa este número
+            // para dizer "há uma tela esperando a leitura" — sem ele, uma tela
+            // que já fez a parte dela é indistinguível de tela nenhuma, porque a
+            // espera de QR não entra na lista de pendentes de propósito.
+            .put("qrEsperando", srv?.optInt("qrEsperando", 0) ?: 0)
     }
 
     override fun mirrorState(onResult: (JSONObject) -> Unit) {
@@ -1335,6 +1374,45 @@ class MainActivity : ComponentActivity(), BridgeHost {
                 callback.onReceiveValue(null)
                 false
             }
+        }
+
+        /**
+         * Concede ao WebView do CONTROLE o uso da câmera — e **só** a câmera,
+         * e **só** para ler o QR do espelho.
+         *
+         * Sem este override o WebView nega `getUserMedia` **em silêncio**: a
+         * promise é rejeitada e não há erro no console que explique. É o mesmo
+         * padrão do [onShowFileChooser] (invariante 6) e a mesma armadilha que o
+         * [MicChromeClient] documenta para o telão — e ela custou aqui o
+         * recurso inteiro até este método existir.
+         *
+         * As três regras são as de lá, trocando áudio por vídeo:
+         *
+         * - **Só vídeo.** Microfone, MIDI e proteção de conteúdo são negados
+         *   aqui. O microfone do app é do TELÃO, por decisão de arquitetura (um
+         *   `MediaStream` não atravessa o barramento, então quem abre é quem
+         *   reproduz) — conceder áudio neste WebView não habilitaria recurso
+         *   nenhum e só ampliaria a superfície.
+         * - **Só se o APP já tiver `CAMERA`.** Conceder ao WebView uma permissão
+         *   que o processo não tem adia a falha para um ponto sem sinal claro. O
+         *   lado web pede antes, por `AVNative.requestCam()`.
+         * - **Só da própria origem.** O Controle não carrega terceiro por
+         *   design — mas ele é o WebView com `host != null`, o que injeta
+         *   `pickFolder`, `listFolder`, `openExternal` e `espelhoLigar`. É
+         *   justamente o documento em que uma concessão silenciosa custa mais
+         *   caro. Origem ausente não é negada, pela mesma razão de lá.
+         */
+        override fun onPermissionRequest(request: PermissionRequest) {
+            val origem = request.origin?.toString()?.trimEnd('/')
+            val querido = request.resources.filter { it == PermissionRequest.RESOURCE_VIDEO_CAPTURE }
+            if (querido.isEmpty() || !temCamera() ||
+                (origem != null && origem != WebViewFactory.ORIGIN)
+            ) {
+                Log.w(TAG, "permissão de mídia negada ao Controle ($origem): ${request.resources.joinToString()}")
+                request.deny()
+                return
+            }
+            request.grant(querido.toTypedArray())
         }
 
         override fun onShowCustomView(view: View, callback: CustomViewCallback) {

@@ -599,6 +599,17 @@
     // tenta o getUserMedia mesmo assim, que é o caminho do navegador.
     requestMic: () => call((id) => B.requestMic(id)).then((r) => r === true),
 
+    // Câmera: a permissão CAMERA do Android antes do getUserMedia que lê o QR
+    // da tela do espelho. Sem ela o `onPermissionRequest` do Controle nega em
+    // silêncio — o MESMO modo de falhar do microfone no telão. Num shell antigo
+    // (< 33) o método não existe, o `call` resolve null e o `.then` devolve
+    // false: quem desenha o botão já perguntou o `__SHELL_VERSION__` antes.
+    //
+    // SEM PRAZO, como o `pickFolder` e o `requestMic`: quem responde é uma
+    // PESSOA num diálogo do sistema, e um timeout de 60 s resolveria `false`
+    // com o operador ainda lendo a pergunta.
+    requestCam: () => call((id) => B.requestCam(id)).then((r) => r === true),
+
     // Downloads em andamento: sem isto o Android congela o processo quando o
     // app é minimizado e a sincronização para no meio — justamente o que
     // acontece no uso normal, já que ninguém fica olhando a tela enquanto um

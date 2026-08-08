@@ -746,7 +746,7 @@
              METADADO de diagnóstico e o lugar onde se procura diagnóstico é
              junto do estado do telão e do alvo de espelhamento, não numa faixa
              de navegação. Preenchido por `renderVersionLabel`. -->
-        <span id="appVersion" class="app-version">Controle v5.144</span>
+        <span id="appVersion" class="app-version">Controle v5.145</span>
       </div>
     </div>
   </div>
@@ -780,6 +780,16 @@
           <span class="mirror-url" id="mirrorUrl"></span>
           <span class="mirror-pin" id="mirrorPin"></span>
         </div>
+        <!-- O CAMINHO CURTO: a tela mostra um QR, o operador lê aqui, pronto.
+             Ele não substitui o PIN acima — a câmera pode não existir, a
+             leitura pode não estar disponível no WebView, e o operador pode
+             estar do outro lado do salão. O botão só é DESENHADO quando o shell
+             tem `requestCam` e o aparelho sabe ler QR: botão que não faz nada no
+             meio de um culto é pior que botão nenhum. -->
+        <button type="button" id="mirrorScan" class="mirror-scan" hidden>
+          <span class="msym" aria-hidden="true">&#xe3b0;</span>
+          <span>Ler o código da tela</span>
+        </button>
         <div class="fade-row fade-row--fit mirror-mode" id="mirrorModeRow">
           <span>Modo</span>
           <div class="fit-seg" id="mirrorModeSeg">
@@ -800,6 +810,33 @@
       </div>
       <div class="popup-footer">
         <button type="button" id="mirrorToggle" class="new-folder-btn">Ligar o espelho</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- O LEITOR DE QR. Popup próprio, e não um estado da folha do espelho, por
+       uma razão de ciclo de vida: enquanto ele está aberto há uma CÂMERA LIGADA,
+       e "fechar" precisa querer dizer "desligar a câmera" nos três caminhos (✕,
+       toque no fundo, botão voltar do aparelho). Entrando na tabela POPUPS ele
+       ganha os três de uma vez — que é exatamente o que a tabela existe para
+       fazer. Uma câmera que sobrevive ao fechamento é o equivalente visual do
+       microfone esquecido ligado. -->
+  <div id="qrPopup" class="popup-backdrop">
+    <div class="popup-sheet">
+      <div class="popup-header">
+        <span class="msym popup-header-icon" aria-hidden="true">&#xe3b0;</span>
+        <span class="popup-title">Ler o código da tela</span>
+        <button id="qrClose" class="popup-close" title="Fechar"><span class="msym" aria-hidden="true">&#xe14c;</span></button>
+      </div>
+      <div class="mirror-body">
+        <div class="qr-scan">
+          <!-- `playsinline` e `muted` no HTML: sem eles o Android abre o vídeo
+               em tela cheia por conta própria e a política de autoplay recusa o
+               `play()`. É a mesma dupla do `<video>` do cliente do espelho. -->
+          <video id="qrVideo" playsinline muted autoplay></video>
+          <div class="qr-alvo" aria-hidden="true"></div>
+        </div>
+        <p class="mirror-lead" id="qrMsg" role="status" aria-live="polite"></p>
       </div>
     </div>
   </div>
