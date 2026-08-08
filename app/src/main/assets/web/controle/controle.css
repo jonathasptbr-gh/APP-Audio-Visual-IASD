@@ -3268,3 +3268,99 @@ body.mode-simple .hymn-add-btn { display: none; }
 .btn-pulso--dup { background: var(--warn-soft); color: var(--warn-text); }
 .btn-pulso--erro { background: var(--danger-soft); color: var(--danger-text); }
 .btn-pulso--erro::after { content: '\e14c'; }   /* close */
+
+/* ---------- Espelho de pixels (v5.141) ---------- */
+/* O telão inteiro em até três navegadores da rede local. Uma LINHA em
+   Configurações e uma FOLHA — ver o comentário no HTML para por que são as
+   duas coisas e não uma.
+
+   A folha abre DE DENTRO de Configurações, e por isso sobe um degrau: com o
+   mesmo z-index de todos, quem decidiria seria a ordem do documento, e é
+   justamente esse acaso que já cobriu um popup por inteiro aqui (o toque
+   parecia não fazer nada). O degrau é o mesmo de `#songMenuPopup`, que abre de
+   dentro do acervo pela mesma razão — as duas nunca coexistem. */
+#mirrorPopup { z-index: 210; }
+
+/* O estado, na própria linha da lista de preferências: "Desligado", ou o
+   endereço servido. Uma linha só, com reticências — quem quiser o resto abre a
+   folha, que é onde o assunto mora. */
+.mirror-hint {
+  font-size: .75rem; color: var(--muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* Ligado, o estado deixa de ser um detalhe e passa a ser um fato sobre a rede:
+   verde é "há uma tela recebendo" no resto do app, e aqui significa a mesma
+   coisa. NUNCA o vermelho de "no ar" — vermelho preenchido é o telão, e o
+   espelho é auxiliar por contrato. */
+.mirror-hint.on { color: var(--ok); }
+
+.mirror-body {
+  flex: 1; overflow-y: auto;
+  padding: .6rem .7rem .8rem;
+  display: flex; flex-direction: column; gap: .55rem;
+}
+/* As ressalvas em texto corrido, no alto: o roteador da igreja pode bloquear
+   isso sozinho, o celular precisa do carregador, o som não vai completo. Elas
+   não cabem num rótulo de botão e não podem virar um manual que ninguém lê —
+   ficam onde o operador está no segundo em que decide ligar. */
+.mirror-lead {
+  margin: 0; font-size: .78rem; line-height: 1.5; color: var(--muted);
+  white-space: pre-line;
+}
+/* O ENDEREÇO e o PIN: o par que alguém vai ler de longe e digitar em outra
+   tela. Corpo grande, monoespaçado e selecionável — ditar "192.168.0.42" por
+   cima de uma fonte proporcional é onde 1, l e I viram a mesma coisa. */
+.mirror-addr {
+  display: flex; flex-direction: column; align-items: center; gap: .25rem;
+  background: var(--surface); border-radius: var(--radius-btn);
+  padding: .6rem .5rem;
+  -webkit-user-select: text; user-select: text;
+}
+.mirror-url {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: .95rem; font-weight: 700; color: var(--text);
+  overflow-wrap: anywhere; text-align: center;
+}
+.mirror-pin {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 1.35rem; font-weight: 700; letter-spacing: .18em;
+  color: var(--accent);
+}
+/* A linha do modo reusa a anatomia da lista de preferências (é a mesma
+   decisão, no mesmo formato), só sem o fundo de cartão: aqui ela já está
+   dentro de uma folha. */
+.mirror-mode { background: transparent; padding: 0; }
+
+.mirror-auto {
+  display: flex; align-items: center; gap: .5rem;
+  font-size: .8rem; color: var(--muted); cursor: pointer;
+  padding: .1rem .1rem;
+}
+.mirror-auto input { accent-color: var(--accent); width: 1rem; height: 1rem; }
+
+.mirror-list {
+  list-style: none; padding: 0; margin: 0;
+  display: flex; flex-direction: column; gap: .35rem;
+}
+.mirror-item {
+  display: flex; align-items: center; gap: .5rem;
+  background: var(--surface); border-radius: var(--radius-btn);
+  padding: .5rem .6rem; font-size: .8rem;
+}
+.mirror-item-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: .1rem; }
+.mirror-item-name { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mirror-item-sub { font-size: .7rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Aprovar é a ação afirmativa (accent contornado, como todo botão largo das
+   folhas); recusar é destrutiva e usa o vermelho CONTORNADO — nunca preenchido,
+   que é reservado ao que está no ar no telão. */
+.mirror-act {
+  flex-shrink: 0; border: 1px solid var(--accent); border-radius: var(--radius-btn);
+  background: var(--surface); color: var(--accent);
+  font-family: inherit; font-size: .76rem; font-weight: 600;
+  padding: .35rem .6rem; cursor: pointer;
+}
+.mirror-act--no { border-color: var(--danger-text); color: var(--danger-text); }
+/* Ligado, o botão do rodapé passa a ser "Desligar": ação destrutiva, contorno
+   vermelho. É a única forma de o espelho sair do ar por vontade de alguém — ele
+   não se desliga sozinho, nem quando a TV conecta. */
+#mirrorToggle.on { border-color: var(--danger-text); color: var(--danger-text); }

@@ -29,6 +29,25 @@
          notificação não aparece. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- ESPELHO DE PIXELS: o telão servido aos navegadores da rede local.
+         O serviço é do tipo `connectedDevice` ("interações com dispositivos
+         externos que exigem … uma conexão de REDE"), que é o único tipo
+         aplicável e não tem cota — ao contrário do `dataSync`, que este app já
+         gasta com hinário, Bíblia e pastas.
+
+         A SEGUNDA PERMISSÃO NÃO É OPCIONAL, e é a que derruba a primeira
+         Release de quem não ler a documentação: `connectedDevice` exige, ALÉM
+         de FOREGROUND_SERVICE_CONNECTED_DEVICE, pelo menos uma de
+         CHANGE_NETWORK_STATE / CHANGE_WIFI_STATE / CHANGE_WIFI_MULTICAST_STATE
+         / NFC / TRANSMIT_IR (ou uma de Bluetooth/UWB concedida em runtime).
+         INTERNET e ACCESS_NETWORK_STATE — as duas que o app já tinha — NÃO
+         estão nessa lista. Sem uma delas, `startForeground` lança
+         SecurityException e leva junto os dois WebViews e a Presentation.
+         CHANGE_WIFI_MULTICAST_STATE é de nível `normal` (sem diálogo) e a menos
+         poderosa das cinco; o app não faz multicast nenhum. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
+
     <!-- Sem TV conectada o app continua útil (preview em tela cheia no
          próprio celular), então a Presentation não é um requisito de hardware. -->
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
@@ -137,5 +156,14 @@
             android:name=".SessionService"
             android:exported="false"
             android:foregroundServiceType="mediaPlayback" />
+
+        <!-- Ver EspelhoService.kt. `exported="false"`: quem o inicia é o próprio
+             app (o interruptor mora na UI do Controle) e o botão "Desligar" da
+             notificação, que é um PendingIntent nosso — nada de fora tem por que
+             alcançá-lo. -->
+        <service
+            android:name=".EspelhoService"
+            android:exported="false"
+            android:foregroundServiceType="connectedDevice" />
     </application>
 </manifest>

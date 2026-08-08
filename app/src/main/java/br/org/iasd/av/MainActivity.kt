@@ -12,6 +12,7 @@ import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.util.Log
+import android.view.Display
 import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
@@ -231,6 +232,16 @@ class MainActivity : ComponentActivity(), BridgeHost {
         displayManager = getSystemService(DisplayManager::class.java)
         displayManager?.registerDisplayListener(displayListener, null)
 
+        // A JANELA DO ESPELHO RENASCE COM A ACTIVITY. `android:configChanges`
+        // não cobre `fontScale` nem `locale`, e este repositório já documenta
+        // duas vezes que isso recria a Activity e que já causou defeito real.
+        // Com o serviço mantendo o processo vivo, a Activity pode morrer sozinha
+        // enquanto a tela virtual e o encoder do espelho continuam: o resultado
+        // seria H.264 impecável de um RETÂNGULO PRETO, com todos os contadores
+        // subindo e nada no Registro. O gatilho é a existência da tela virtual,
+        // não a desta Activity — sem espelho no ar isto é um no-op.
+        EspelhoDisplay.sincronizarJanela(this)
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
             PackageManager.PERMISSION_GRANTED
@@ -287,6 +298,20 @@ class MainActivity : ComponentActivity(), BridgeHost {
                 if (gen == backgroundWorkGen) backgroundWork = false
             }
         }
+
+        // OS HOOKS DO ESPELHO, no `onCreate` e não no `startMirror`, pela mesma
+        // razão do `SyncService.onGone` logo acima: eles capturam ESTA Activity,
+        // e o espelho sobrevive a uma recriação de tela. Definidos só ao ligar,
+        // uma mudança de fonte do sistema deixaria o botão "Desligar" da
+        // notificação sem efeito — a única janela para o espelho com o app
+        // minimizado, com o botão morto e nada dizendo por quê.
+        //
+        // `onGone` é o serviço morrendo sem ninguém pedir: o Kotlin tem de
+        // ESQUECER que estava servindo, senão sobra um servidor sem serviço e a
+        // folha continua dizendo "ligado".
+        EspelhoService.onDesligar = { stopMirror() }
+        EspelhoService.onGone = { runOnUiThread { desmontarEspelho() } }
+        EspelhoService.onTermica = { grau -> aoEsquentar(grau) }
 
         onBackPressedDispatcher.addCallback(this) { handleBack() }
     }
@@ -446,6 +471,15 @@ class MainActivity : ComponentActivity(), BridgeHost {
     override fun onStop() {
         super.onStop()
         presentation?.keepPlaying()
+        // O ESPELHO é projeção como o telão, e pela mesma razão: as telas da
+        // rede continuam olhando para ele com o app minimizado — que é o estado
+        // NORMAL deste app no meio do culto. Sem isto o Chromium suspende o
+        // WebView dele no instante exato em que ninguém mais está olhando o
+        // celular, e a primeira coisa a ser estrangulada é o batimento de 1 Hz
+        // que mantém o encoder produzindo numa cena parada. É o mesmo contrato
+        // que o KDoc do `MirrorPresentation.keepPlaying` já declara ("chamado do
+        // `onStop` da Activity"). No-op quando não há espelho no ar.
+        EspelhoDisplay.keepPlaying()
         // Mesa de som ligada: o áudio sai DESTE WebView, e ele também precisa
         // atravessar o segundo plano. Sem isso o louvor calava no instante em
         // que o operador saía do app — que é justamente o caso relatado, e o
@@ -497,6 +531,40 @@ class MainActivity : ComponentActivity(), BridgeHost {
         // esta Activity, e a ronda do `WebUpdater` sobrevive à tela.
         WebUpdater.aoChegar = null
         try { SessionService.stop(this) } catch (_: Exception) { }
+        // O ESPELHO NÃO SOBREVIVE AO FECHAMENTO DO APP — ele é auxiliar e
+        // nasceu de um toque do operador nesta tela. Deixá-lo servindo com a
+        // Activity morta manteria um `ServerSocket` na rede da igreja e um
+        // encoder ligado sem ninguém para desligá-los, e a janela dele já teria
+        // ido junto: o que sobraria na rede seria um retângulo preto.
+        //
+        // **`!isChangingConfigurations` NÃO É ZELO.** `android:configChanges`
+        // não cobre `fontScale` nem `locale`, e este repositório já documenta
+        // duas vezes que mudar o tamanho da fonte RECRIA esta Activity. Sem a
+        // guarda, esse `onDestroy` derrubaria o espelho no meio do culto por uma
+        // preferência do sistema — e o `onCreate` seguinte não o traria de
+        // volta, porque `sincronizarJanela` só remonta a JANELA sobre uma tela
+        // virtual que ainda exista. Numa recriação quem mantém tudo vivo é o
+        // serviço, e é o `sincronizarJanela` do `onCreate` que reata a janela à
+        // Activity nova.
+        if (!isChangingConfigurations) {
+            try {
+                EspelhoDisplay.desligar()
+                desmontarEspelho()
+            } catch (e: Exception) {
+                Log.w(TAG, "espelho não desligou", e)
+            }
+        }
+        // Os hooks saem SEMPRE, inclusive numa recriação: eles capturam ESTA
+        // Activity, e o `onCreate` da próxima os redefine incondicionalmente —
+        // é justamente por isso que eles são armados lá e não no `startMirror`.
+        // Um hook apontando para uma tela morta é o mesmo defeito que o
+        // `SyncService.onGone = null` daqui de cima já evita. (A ordem do
+        // Android numa mudança de configuração é `onDestroy` da antiga e só
+        // então `onCreate` da nova, então não há janela em que o espelho fique
+        // sem dono.)
+        EspelhoService.onDesligar = null
+        EspelhoService.onGone = null
+        EspelhoService.onTermica = null
         displayManager?.unregisterDisplayListener(displayListener)
         presentation?.let {
             it.release()
@@ -521,13 +589,49 @@ class MainActivity : ComponentActivity(), BridgeHost {
     }
 
     /**
+     * As telas de apresentação **externas** — a TV, o dongle. A tela virtual
+     * PRIVADA que o espelho de pixels cria para si fica de fora, e os DOIS
+     * pontos que perguntam "há telão?" ([syncPresentation] e [listDisplays])
+     * passam por aqui. Filtrar na fonte cobre de uma vez o
+     * `renderDisplayStatus`, o `applyPreviewAspect` e o `simpleDisplay` do lado
+     * web, que leem todos o mesmo `lastDisplays`.
+     *
+     * **ISTO É CINTO E SUSPENSÓRIO PARA UMA FLAG QUE NÃO ESTAMOS PASSANDO**, e
+     * precisa estar escrito ou o próximo leitor apaga o filtro como código morto
+     * e leva a proteção junto: `DISPLAY_CATEGORY_PRESENTATION` devolve só
+     * display com `FLAG_PRESENTATION`, e o espelho cria o `VirtualDisplay` com
+     * `flags = 0` — que nunca a põe. Ou seja, HOJE nenhum dos dois chamadores
+     * consegue enxergar o espelho. O filtro existe porque o custo de a premissa
+     * mudar é desproporcional ao dele: sem TV conectada, [syncPresentation]
+     * acharia a nossa tela virtual e criaria uma `StagePresentation` DENTRO do
+     * próprio espelho — um terceiro `/display/` e, porque
+     * `StagePresentation.buildWebView` instala o [MicChromeClient], um WebView
+     * habilitado a abrir o microfone do templo numa janela que o operador não vê.
+     *
+     * O predicado é **estrutural** (`Display.FLAG_PRIVATE`), nunca um nome nem
+     * um id adivinhado, mais a exclusão explícita do nosso `displayId` quando
+     * ele já é conhecido. E o risco que ele fecha **não é uma janela de
+     * corrida**: no Android 14+ a ordenação de `getDisplays` por tipo foi
+     * removida — hoje é ordem de `displayId` —, enquanto o javadoc público
+     * continua prometendo "sorted by order of preference". É determinístico, e
+     * é por isso que a resposta é um filtro e não um `firstOrNull` mais esperto.
+     */
+    private fun telasExternas(): List<Display> {
+        val dm = displayManager ?: return emptyList()
+        val meu = EspelhoDisplay.displayId
+        return dm.getDisplays(DisplayManager.DISPLAY_CATEGORY_PRESENTATION).filter { d ->
+            d.displayId != meu && (d.flags and Display.FLAG_PRIVATE) == 0
+        }
+    }
+
+    /**
      * Mantém no ar exatamente uma Presentation na primeira tela de
      * apresentação disponível — e nenhuma quando não há TV conectada (aí o
      * app funciona como o PWA sozinho: a preview em tela cheia projeta).
      */
     private fun syncPresentation() {
-        val dm = displayManager ?: return
-        val target = dm.getDisplays(DisplayManager.DISPLAY_CATEGORY_PRESENTATION).firstOrNull()
+        if (displayManager == null) return
+        val target = telasExternas().firstOrNull()
         val current = presentation
 
         if (target == null) {
@@ -700,10 +804,15 @@ class MainActivity : ComponentActivity(), BridgeHost {
         }
     }
 
+    /**
+     * As telas que o lado web vê. É o escritor ÚNICO de `lastDisplays`, então o
+     * filtro de [telasExternas] aqui é o que impede a tela virtual do espelho de
+     * aparecer no app como se fosse uma TV — inclusive destravando o modo
+     * simplificado, que se considera "conectado" pela primeira entrada da lista.
+     */
     override fun listDisplays(): JSONArray {
         val out = JSONArray()
-        val dm = displayManager ?: return out
-        for (d in dm.getDisplays(DisplayManager.DISPLAY_CATEGORY_PRESENTATION)) {
+        for (d in telasExternas()) {
             val metrics = android.util.DisplayMetrics()
             @Suppress("DEPRECATION")
             d.getRealMetrics(metrics)
@@ -989,6 +1098,216 @@ class MainActivity : ComponentActivity(), BridgeHost {
 
     override fun takePendingShare(): JSONObject? = pendingShare.getAndSet(null)
 
+    // ---------- espelho de pixels ----------
+    //
+    // A Activity é a COSTURA do recurso, e só isso. Ela é o dono porque a
+    // `MirrorPresentation` precisa de um `Context` de UI e de uma thread com
+    // `Looper` — a mesma razão pela qual a `StagePresentation` nasce aqui —, e
+    // porque as quatro peças (tela virtual, encoder, servidor, serviço) não se
+    // conhecem de propósito: `EspelhoDisplay` recebe por parâmetro para onde
+    // mandar os quadros e `EspelhoServidor` recebe por parâmetro como pedir um
+    // IDR. Costurar isso é uma dúzia de linhas; fundir os dois seria um arquivo
+    // que ninguém consegue testar.
+    //
+    // Fora isso ela não sabe nada do espelho: sockets, PIN, densidade, encoder
+    // e sonda vivem nos `Espelho*.kt`, como `WebUpdater` e `YoutubeGrab` guardam
+    // OTA e YouTube. É a mesma disciplina que impede esta classe de crescer com
+    // o app.
+
+    /**
+     * LIGAR — na MAIN THREAD, sempre, e é por isso que este método existe em vez
+     * de a ponte falar direto com o `EspelhoDisplay`: uma `Presentation` é um
+     * `Dialog`, e um `Dialog` criado numa thread sem `Looper` lança
+     * `Can't create handler inside thread that has not called Looper.prepare()`
+     * — a fila de IO da ponte é exatamente isso.
+     *
+     * **A ORDEM é rede → servidor → tela/encoder → pareamento → serviço**, e ela
+     * é escolhida pelo custo de desfazer cada passo. A rede é a primeira porque
+     * é a recusa mais provável e a mais barata (dados móveis, VPN, sem Wi-Fi):
+     * descobrir isso DEPOIS de alocar um encoder e uma tela virtual seria pagar
+     * o caro para descobrir o barato. O servidor vem antes da tela porque ele
+     * também pode recusar (porta ocupada) e desfazê-lo é fechar um socket; a
+     * tela e o encoder vêm por último entre os que podem falhar, e são os que
+     * custam memória de verdade. Nenhum cliente vê nada antes do primeiro IDR,
+     * então subir o servidor primeiro não mostra tela preta a ninguém.
+     *
+     * Devolve o estado resultante (o mesmo objeto do [mirrorState]), com `erro`
+     * preenchido quando não deu: a folha do Controle desenha os dois casos com o
+     * mesmo código, e **a frase da falha vem PRONTA de quem sabe o motivo** —
+     * "só liga em Wi-Fi — este aparelho está em dados móveis", "o aparelho não
+     * tem encoder livre agora". A especificação proíbe degradar calado em todos
+     * os pontos deste caminho.
+     */
+    override fun startMirror(modo: String, onResult: (JSONObject) -> Unit) {
+        runOnUiThread {
+            if (EspelhoDisplay.estaLigado) { onResult(mirrorJson()); return@runOnUiThread }
+
+            // 1. A REDE. `Recusa` traz a frase do operador na mensagem.
+            val rede = try {
+                EspelhoServidor.redeDaWifi(this)
+            } catch (e: Exception) {
+                onResult(mirrorJson(erro = e.message ?: "o espelho só liga em Wi-Fi"))
+                return@runOnUiThread
+            }
+
+            // 2. O SERVIDOR. `pedirIdr` fecha o ciclo com o encoder sem que um
+            //    arquivo conheça o outro; `aoPerderRede` é a Wi-Fi sumindo com o
+            //    espelho no ar — o servidor se derruba sozinho, e aqui a tela
+            //    virtual e o encoder precisam cair junto, senão sobra um encoder
+            //    codificando para ninguém.
+            val srv = EspelhoServidor(
+                applicationContext,
+                WebPathHandler(applicationContext),
+                registrar = { linha -> EspelhoDisplay.diag.registrar(linha) },
+                pedirIdr = { EspelhoDisplay.pedirIdr() },
+                aoPerderRede = { stopMirror() },
+            )
+            val endereco = try {
+                srv.ligar(EspelhoServidor.PORTA_PADRAO, rede.ip, null, null)
+            } catch (e: Exception) {
+                srv.desligar()
+                onResult(mirrorJson(erro = e.message ?: "o servidor do espelho não subiu"))
+                return@runOnUiThread
+            }
+
+            // 3. A TELA VIRTUAL E O ENCODER.
+            val alvo = if (modo.equals("video", ignoreCase = true)) Modo.VIDEO else Modo.IMAGEM
+            val r = EspelhoDisplay.ligar(this@MainActivity, alvo) { q -> srv.difundir(q) }
+            if (r is Resultado.Recusado) {
+                srv.desligar()
+                onResult(mirrorJson(erro = r.motivo))
+                return@runOnUiThread
+            }
+            espelhoSrv = srv
+            espelhoModo = if (alvo == Modo.VIDEO) "video" else "imagem"
+
+            // 4. O PAREAMENTO nasce do zero — é isto que faz nenhum token
+            //    sobreviver ao culto anterior — e o SERVIÇO sobe por último,
+            //    quando já há endereço para a notificação mostrar.
+            EspelhoPares.ligar(System.currentTimeMillis())
+            EspelhoService.ligar(this, endereco)
+
+            // 5. A SONDA DE READBACK, depois de tudo de pé e sem segurar a
+            //    resposta: ela roda numa tela virtual DESCARTÁVEL (nunca na de
+            //    produção) e escreve o veredito no Registro sozinha. É o R1
+            //    respondido em produção, na primeira vez que o operador liga.
+            EspelhoDisplay.sonda(this) { /* o veredito já foi para o diag */ }
+
+            onResult(mirrorJson())
+        }
+    }
+
+    /**
+     * DESLIGAR — e este é o único do bloco que **não** salta para a main thread.
+     *
+     * O ponto é justamente esse: `EspelhoDisplay.desligar()` escreve um campo
+     * `@Volatile` e volta, e quem responde são os laços que o consultam (a
+     * drenagem do encoder, as threads de cliente). Enfileirar a desistência
+     * atrás do trabalho que se quer parar é o oposto de parar — a mesma lição
+     * do `ytCancel`. A demolição de verdade cada peça posta para a main sozinha.
+     */
+    override fun stopMirror() {
+        EspelhoDisplay.desligar()
+        desmontarEspelho()
+    }
+
+    /**
+     * Solta o que não é do `EspelhoDisplay`: servidor, pareamento e serviço.
+     *
+     * Separado do [stopMirror] porque ele tem DOIS chamadores com origens
+     * opostas — o operador desligando, e o serviço morrendo por conta própria
+     * (`onGone`). Idempotente de propósito: `desligar()` de servidor e
+     * pareamento já o são, e o `stopService` de um serviço que não está de pé é
+     * um no-op.
+     */
+    private fun desmontarEspelho() {
+        espelhoSrv?.desligar()
+        espelhoSrv = null
+        EspelhoPares.desligar()
+        try { EspelhoService.desligar(this) } catch (e: Exception) {
+            Log.w(TAG, "serviço do espelho não parou", e)
+        }
+    }
+
+    /**
+     * O aparelho esquentou. **Cai bitrate, nunca resolução** — mudar a resolução
+     * mudaria a densidade da tela virtual, e a densidade define o viewport CSS:
+     * o `/display/` refaria a quebra de estrofe na frente da congregação. E cai
+     * com uma frase no Registro, para "ficou ruim" ter causa.
+     */
+    private fun aoEsquentar(grau: Int) {
+        if (grau >= 3) {
+            EspelhoDisplay.ajustarBitrate(BITRATE_QUENTE)
+            EspelhoDisplay.diag.registrar("aparelho quente — qualidade reduzida")
+        } else {
+            EspelhoDisplay.ajustarBitrate(BITRATE_NORMAL)
+        }
+    }
+
+    /**
+     * O estado do espelho num objeto só — e é o MESMO que o [startMirror]
+     * devolve, com `erro` preenchido quando não deu. Um formato, um desenho do
+     * lado web: a folha do Controle não tem dois caminhos de render.
+     */
+    private fun mirrorJson(erro: String = ""): JSONObject {
+        val srv = espelhoSrv?.estado()
+        val ligado = EspelhoDisplay.estaLigado && espelhoSrv?.ligado == true
+        return JSONObject()
+            .put("ligado", ligado)
+            .put("modo", espelhoModo)
+            .put("endereco", srv?.optString("url") ?: "")
+            .put("pin", if (ligado) EspelhoPares.pin() else "")
+            .put("autoAprovar", EspelhoPares.autoAprovando())
+            .put("erro", erro)
+            .put("telas", srv?.optJSONArray("telas") ?: JSONArray())
+            .put("pendentes", srv?.optJSONArray("pendentes") ?: JSONArray())
+    }
+
+    override fun mirrorState(onResult: (JSONObject) -> Unit) {
+        runOnUiThread { onResult(mirrorJson()) }
+    }
+
+    /**
+     * O diagnóstico inteiro, JUNTADO aqui: o anel do `EspelhoDisplay` (tela
+     * virtual, viewport, encoder, readback, ritmo) mais o que só o servidor sabe
+     * e o que só o serviço sabe. Cada um devolve DADO; quem escreve as frases é
+     * o `blocoEspelho` do `controle.js`.
+     */
+    override fun mirrorDiag(onResult: (JSONObject) -> Unit) {
+        runOnUiThread {
+            val o = EspelhoDisplay.diag.paraJson()
+            o.put("ligado", EspelhoDisplay.estaLigado)
+            espelhoSrv?.let { o.put("servidor", it.estado()) }
+            try { o.put("servico", EspelhoService.estado(this)) } catch (e: Exception) {
+                Log.w(TAG, "estado do serviço do espelho indisponível", e)
+            }
+            onResult(o)
+        }
+    }
+
+    /**
+     * O operador decidindo sobre uma tela pendente — ou, com `id` vazio/`"*"`,
+     * ligando a aprovação automática desta sessão.
+     *
+     * Aprovar aqui não "abre" nada: o cliente está enquetando `POST /par` e a
+     * sessão que nasce da aprovação é o que a próxima enquete dele encontra.
+     */
+    override fun approveMirrorScreen(id: String, approve: Boolean, onResult: (Boolean) -> Unit) {
+        runOnUiThread {
+            if (id.isBlank() || id == "*") {
+                EspelhoPares.definirAutoAprovar(approve)
+                onResult(true)
+                return@runOnUiThread
+            }
+            if (approve) {
+                onResult(EspelhoPares.aprovar(id, System.currentTimeMillis()) != null)
+            } else {
+                EspelhoPares.recusar(id)
+                onResult(true)
+            }
+        }
+    }
+
     // ---------- fullscreen HTML5 ----------
 
     private inner class ControleChromeClient : WebChromeClient() {
@@ -1083,11 +1402,43 @@ class MainActivity : ComponentActivity(), BridgeHost {
         private const val BACK_JS_TIMEOUT_MS = 350L
         /** `Build.MANUFACTURER`/`Build.BRAND` de um aparelho Samsung. */
         private const val SAMSUNG_VENDOR = "samsung"
+
+        /**
+         * Bitrate do espelho, normal e com o aparelho quente.
+         *
+         * A degradação térmica mexe em BITRATE e taxa de quadros, **nunca em
+         * resolução**: a resolução define a densidade da tela virtual, a
+         * densidade define o viewport CSS, e o viewport define onde a estrofe
+         * quebra. Degradar por resolução refluiria o layout do telão na frente
+         * da congregação — que é exatamente o que ninguém pediu ao reclamar de
+         * calor.
+         */
+        private const val BITRATE_NORMAL = 3_000_000
+        private const val BITRATE_QUENTE = 1_200_000
         /** Pacotes do Smart View conhecidos (varia por versão do One UI). */
         private val SAMSUNG_MIRROR_PACKAGES = listOf(
             "com.samsung.android.smartmirroring",
             "com.samsung.android.app.smartmirroring",
         )
+
+        /**
+         * O servidor do espelho e o modo escolhido — **no companion porque são
+         * do PROCESSO, não desta Activity**.
+         *
+         * O espelho sobrevive a uma recriação de tela de propósito (o serviço
+         * mantém o processo, e o `EspelhoDisplay.sincronizarJanela` do
+         * `onCreate` reata a janela à Activity nova). Se a referência do
+         * servidor morresse com a Activity, um simples ajuste de tamanho de
+         * fonte deixaria um `ServerSocket` servindo o culto sem ninguém capaz de
+         * desligá-lo — e a folha do Controle diria "Desligado" com telas
+         * recebendo do outro lado. `EspelhoServidor` guarda o
+         * `applicationContext`, então não há Activity retida aqui.
+         */
+        @Volatile
+        private var espelhoSrv: EspelhoServidor? = null
+
+        @Volatile
+        private var espelhoModo = "imagem"
 
         /**
          * Cache de [castCandidates] — no companion porque a informação é do

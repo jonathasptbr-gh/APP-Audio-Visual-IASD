@@ -685,6 +685,23 @@
             <button type="button" class="fit-opt" id="wallReset">Padrão</button>
           </div>
         </div>
+        <!-- ESPELHO DE PIXELS: o telão inteiro em até três navegadores da rede
+             local, sem instalar nada nas telas e sem depender de internet (ver
+             docs/ESPELHO-DE-PIXELS.md). A LINHA fica aqui, entre as
+             preferências, porque é uma decisão que se toma uma vez ao montar o
+             culto; o que ela abre é uma FOLHA, porque endereço, PIN e a fila de
+             telas esperando aprovação não cabem — nem devem caber — numa linha.
+             `hidden` por padrão: ela só é desenhada num shell que tenha os
+             métodos (>= 32). Um método novo não chega por OTA, e um botão que
+             não faz nada no meio de um culto é pior que botão nenhum — ele
+             aparece sozinho quando o APK novo for instalado. -->
+        <div class="fade-row fade-row--fit" id="mirrorRow" hidden>
+          <span>Espelho na rede local</span>
+          <span class="mirror-hint" id="mirrorRowHint">Desligado</span>
+          <div class="fit-seg">
+            <button type="button" class="fit-opt" id="mirrorOpenBtn">Abrir</button>
+          </div>
+        </div>
         <!-- O REGISTRO, e é UM só (v5.121). Ele nasceu como a caixa-preta do
              telão: três versões seguidas tentaram consertar "o vídeo para
              quando o app é minimizado" por hipótese e as três erraram, porque
@@ -729,7 +746,60 @@
              METADADO de diagnóstico e o lugar onde se procura diagnóstico é
              junto do estado do telão e do alvo de espelhamento, não numa faixa
              de navegação. Preenchido por `renderVersionLabel`. -->
-        <span id="appVersion" class="app-version">Controle v5.142</span>
+        <span id="appVersion" class="app-version">Controle v5.143</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ESPELHO DE PIXELS — a folha (bottom sheet).
+       Ela abre DE DENTRO de Configurações, então precisa ficar por cima: daí o
+       degrau de z-index no CSS, pela mesma razão já documentada para a folha da
+       música (com o mesmo z de todos, quem decidiria seria a ordem do
+       documento — e esse acaso já cobriu um popup por inteiro aqui).
+
+       O que a folha diz, nesta ordem: o que o recurso é, o endereço e o PIN,
+       o modo (imagem × vídeo, escolhido no LIGAR — trocar ao vivo é desligar e
+       ligar de novo), a fila de telas esperando aprovação, e o botão que liga
+       ou desliga. A frase do topo é a única propaganda: as três ressalvas que o
+       operador precisa ouvir ANTES (o roteador pode bloquear sozinho, o celular
+       no carregador, o som não vai completo) estão ali, não num manual. -->
+  <div id="mirrorPopup" class="popup-backdrop">
+    <div class="popup-sheet">
+      <div class="popup-header">
+        <span class="msym popup-header-icon" aria-hidden="true">&#xe251;</span>
+        <span class="popup-title">Espelho na rede local</span>
+        <button id="mirrorClose" class="popup-close" title="Fechar"><span class="msym" aria-hidden="true">&#xe14c;</span></button>
+      </div>
+      <div class="mirror-body">
+        <p class="mirror-lead" id="mirrorLead"></p>
+        <!-- O ENDEREÇO e o PIN, em corpo grande: é o que alguém do outro lado do
+             salão vai digitar olhando por cima do ombro do operador. O token da
+             sessão NUNCA aparece aqui nem em URL nenhuma — ele nasce da
+             aprovação e vive no `sessionStorage` da tela que pareou. -->
+        <div class="mirror-addr" id="mirrorAddr" hidden>
+          <span class="mirror-url" id="mirrorUrl"></span>
+          <span class="mirror-pin" id="mirrorPin"></span>
+        </div>
+        <div class="fade-row fade-row--fit mirror-mode" id="mirrorModeRow">
+          <span>Modo</span>
+          <div class="fit-seg" id="mirrorModeSeg">
+            <button type="button" class="fit-opt" data-mirrormode="imagem">Imagem</button>
+            <button type="button" class="fit-opt" data-mirrormode="video">Vídeo</button>
+          </div>
+        </div>
+        <!-- O OPERADOR NO LAÇO (§3.5): acertar o PIN põe a tela na fila; quem a
+             deixa entrar é este botão. O interruptor de aprovação automática
+             existe para quando ele estiver ocupado e NASCE DESLIGADO — um PIN de
+             seis dígitos visível na tela do celular durante todo o culto é fraco
+             demais para ser o único controle. -->
+        <label class="mirror-auto">
+          <input type="checkbox" id="mirrorAuto">
+          <span>Aprovar automaticamente nesta sessão</span>
+        </label>
+        <ul class="mirror-list" id="mirrorList"></ul>
+      </div>
+      <div class="popup-footer">
+        <button type="button" id="mirrorToggle" class="new-folder-btn">Ligar o espelho</button>
       </div>
     </div>
   </div>

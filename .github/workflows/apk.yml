@@ -246,6 +246,33 @@ jobs:
       - name: Permissão de execução do wrapper
         run: chmod +x ./gradlew
 
+      # OS TESTES UNITÁRIOS EM JVM, E SEM `continue-on-error`.
+      #
+      # Este passo existe por um arquivo e meio: o `EspelhoHttp.kt` e o
+      # `EspelhoPares.kt` (espelho de pixels — ver docs/ESPELHO-DE-PIXELS.md) são
+      # o ÚNICO código do projeto que encara a rede. Tudo o mais que entra no app
+      # vem do operador (SAF, compartilhamento) ou de uma URL que o próprio app
+      # cunhou; ali entra o que um desconhecido na rede da igreja mandar. E é o
+      # único código em que um erro não vira pixel errado: vira controle de acesso
+      # quebrado — um parser que se perde no `read()` parcial, um teto que não
+      # segura, um 404 que responde diferente conforme o que existe atrás dele.
+      #
+      # É também o único que TEM oráculo sem aparelho: os dois arquivos são puros
+      # (zero import de android.*) e recebem o relógio por parâmetro, então prazo
+      # de seis horas e bloqueio de um minuto se verificam em milissegundos. O
+      # documento que desenhou o espelho recusou o RFC 6455 por ser "protocolo sem
+      # oráculo" — escrever um parser HTTP com autenticação sem teste seria o mesmo
+      # argumento aplicado contra ele mesmo (a justificativa inteira, como QUARTA
+      # EXCEÇÃO à regra de zero dependência, está no `dependencies` do
+      # app/build.gradle.kts).
+      #
+      # Sem `continue-on-error`, ao contrário dos testes de Chromium: aqui não há
+      # download de navegador nem rede para falhar por infraestrutura — é Kotlin
+      # puro no JDK que o runner já tem. Uma falha aqui é defeito, e um defeito
+      # nesta camada não pode virar APK.
+      - name: Testes unitários (JVM)
+        run: ./gradlew --no-daemon testDebugUnitTest
+
       # A versão sai da tag (v1.1 → versionName 1.1). O versionCode NÃO sai
       # mais do número da execução: `github.run_number` conta por WORKFLOW, e
       # renomear o `apk.yml` (ou trocar o `name:`) reinicia a contagem em 1 —
