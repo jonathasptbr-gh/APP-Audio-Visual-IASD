@@ -1122,8 +1122,8 @@ Completo o suficiente para duas implementações independentes conversarem.
 | Rota | Autenticação | Resposta |
 |---|---|---|
 | `GET /` | nenhuma | a página única (`index.html`), no estado de pareamento. **Anônima**: sem versão, sem nome de aparelho, sem SSID |
-| `GET /e.js`, `GET /e.css` | nenhuma | estáticos, resolvidos por `WebPathHandler` (OTA→APK, por arquivo), por **mapa fixo** de rota→caminho |
-| `POST /par` | nenhuma | corpo ≤ 256 B. Duas formas: `{"pin":"418302","ua":…,"w":…,…}` → `202 {"espera":"<id opaco>"}` ou `403`; e `{"espera":"<id>"}` → `202 {"estado":"pendente"}` \| `200 {"t":"<token base64url 128 bits>"}` \| `403 {"estado":"recusada"}` |
+| `GET /e.js`, `GET /e.css`, `GET /f.js`, `GET /q.js` | nenhuma | estáticos, resolvidos por `WebPathHandler` (OTA→APK, por arquivo), por **mapa fixo** de rota→caminho |
+| `POST /par` | nenhuma | corpo ≤ 256 B. **Três** formas: `{"pin":"418302","ua":…,"w":…,…}` → `202 {"espera":"<id opaco>"}` ou `403`; `{"qr":true,"ua":…,…}` → `202 {"espera":"<id>"}` (o id que vira o QR — §5.4); e `{"espera":"<id>"}` → `202 {"estado":"pendente"}` \| `200 {"t":"<token base64url 128 bits>"}` \| `403 {"estado":"recusada"}` |
 | `GET /v` | `Authorization: Bearer <token>` | `200`, `Transfer-Encoding: chunked`, `Content-Type: application/octet-stream`, `X-Content-Type-Options: nosniff`, `Cache-Control: no-store`. **Corpo infinito.** Nunca `Content-Encoding` |
 | `POST /r` | `Authorization: Bearer <token>` | corpo ≤ 256 B: `{"do":"key"}` · `{"do":"alive","telaAcesaMin":N}` · `{"do":"audio","on":true}` |
 
@@ -1178,18 +1178,68 @@ servidor → [0x02] delta … para sempre
 
 ### 5.4 O pareamento, passo a passo
 
+**Dois caminhos, e o principal é o QR — que INVERTE quem mostra e quem lê** (v5.145).
+
+O desenho original tinha o QR do lado errado: ele seria desenhado pelo celular e conteria a URL, o
+que resolve descoberta e não resolve autorização — e ainda esbarrava no fato de que, para ler um QR
+com a URL, a tela já precisa de um leitor. A inversão desfaz os dois problemas de uma vez: **a TELA
+mostra e o CELULAR lê**.
+
+O que o QR carrega **não é segredo nenhum**: é o `id` da espera que aquela página acabou de criar,
+que o servidor devolve a quem pedir. Ele não abre nada. O que autoriza é o operador ter apontado a
+câmera para AQUELA tela — a mesma decisão da invariante 5 do §3.5, tomada com um gesto em vez de uma
+lista. Quem fotografar o código de longe leva 22 caracteres que já foram usados. É por isso que o QR
+é **mais forte** que o PIN, e não mais fraco: some o segredo curto em cartaz na tela do operador
+durante todo o culto, que era justamente o motivo de a aprovação automática nascer desligada.
+
 ```
-1. operador liga o espelho          → PIN de 6 dígitos (SecureRandom), na folha do Controle e no QR
-2. QR contém APENAS  http://192.168.0.42:8787/     (sem PIN, sem token, sem fragmento)
-3. visitante abre a página          → estado "pareamento", anônimo
-4. POST /par {"pin":…, relato}      → 403 (com bloqueio por origem após 5 erros)
+   CAMINHO A — QR (o principal)
+1. a tela abre a página             → POST /par {"qr":true, relato}  → 202 {"espera": id}
+2. a página desenha  AVE1:<id>      → QR nível M versão 3, em `espelho/qr.js` (JS puro)
+3. o operador toca em "Ler o código da tela" no Controle
+   → AVNative.requestCam()          → permissão CAMERA do Android (SOB DEMANDA, shell 33)
+   → getUserMedia + BarcodeDetector → prefixo `AVE1:` e forma base64url conferidos
+   → AVNative.espelhoAprovar(id,true)  — o MESMO método do botão "Aprovar" da lista
+4. POST /par {"espera": id} (poll)  → 200 {"t": token}
+5. a tela entra. NINGUÉM DIGITOU NADA.
+
+   CAMINHO B — PIN (o plano B, que nunca deixou de existir)
+1. operador liga o espelho          → PIN de 6 dígitos (SecureRandom), na folha do Controle
+2. POST /par {"pin":…, relato}      → 403 (com bloqueio por origem após 5 erros)
                                     → 202 {"espera": id}
-5. a folha do Controle mostra       → "tela pendente — aprovar? [Aprovar] [Recusar]"
+3. a folha do Controle mostra       → "tela pendente — aprovar? [Aprovar] [Recusar]"
    (interruptor "aprovar automaticamente nesta sessão", nasce DESLIGADO)
-6. POST /par {"espera": id} (poll)  → 202 pendente | 200 {"t": token} | 403 recusada
-7. o token vive em sessionStorage e sobe em Authorization: Bearer — NUNCA numa URL
-8. a mesma página troca para o estado "player" sem navegar
+4. POST /par {"espera": id} (poll)  → 202 pendente | 200 {"t": token} | 403 recusada
+
+   NOS DOIS
+5. o token vive em sessionStorage e sobe em Authorization: Bearer — NUNCA numa URL, NUNCA no QR
+6. a mesma página troca para o estado "player" sem navegar
 ```
+
+**As três regras que sustentam a segurança do caminho A** (invariante 5b do §3.5, com JUnit):
+
+1. **A espera de QR não aparece na folha do operador.** Qualquer aparelho da rede cria uma; numa
+   lista, ele não teria como distinguir "a TV da sala anexa" de "o aparelho de alguém", e aprovar às
+   cegas é o oposto da invariante 5. Ela se apresenta de outro jeito — desenhada na tela que a criou.
+2. **A aprovação automática não a alcança.** Aquele interruptor sempre significou "quem acertou o PIN
+   não precisa do meu toque", nunca "qualquer aparelho da rede entra sozinho".
+3. **As duas filas são separadas** (`MAX_ESPERAS` × `MAX_ESPERAS_QR`, mais um teto por origem).
+   Encher o balde do QR não pode negar o pareamento por PIN — negar o plano B é pior que a ausência
+   do plano A. O bloqueio por origem da invariante 6 vale para os dois.
+
+**O plano B é obrigatório, e por três motivos que acontecem:** um aparelho sem câmera, um WebView sem
+o módulo de leitura de código (`BarcodeDetector.getSupportedFormats()` é a única pergunta honesta — a
+classe existir não promete que ela leia `qr_code`), e um operador do outro lado do salão. O botão de
+ler o código só é DESENHADO quando os três estão resolvidos: shell ≥ 33, `BarcodeDetector` presente e
+`qr_code` suportado. Abaixo disso, seis dígitos, como antes.
+
+**Por que um codificador de QR próprio** (`espelho/qr.js`, ~330 linhas, nenhuma dependência nova):
+uma carga de 27 bytes se resolve sem biblioteca, a norma é de 2000 e não muda, e o resultado é
+verificável por um oráculo que **decodifica** o que o codificador produziu — informação de formato com
+o BCH conferido, remoção da máscara, leitura no zigue-zague, desintercalação, síndromes de
+Reed-Solomon e modo byte (`tools/qr.test.mjs`, Node puro, **sem `continue-on-error`**). Só nível M e
+só as versões 1 a 6, o que elimina o bloco de informação de versão (que só existe da 7 em diante) e a
+divisão em grupos de blocos de tamanhos diferentes.
 
 ### 5.5 O relato do cliente
 

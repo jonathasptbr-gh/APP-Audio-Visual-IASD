@@ -151,6 +151,31 @@ try {
     'acima de 2³¹ ms a linha do tempo NÃO vira negativa (o defeito irmão do bgProgress)',
     l.positionMs + '/' + l.durationMs);
 
+  // ---- requestCam: o método novo do shell 33, e a FALHA FECHADA -----------
+  //
+  // Ele é a permissão de câmera para ler o QR da tela do espelho. Duas coisas
+  // precisam ser verdade e a segunda é a que importa: num shell ANTIGO o método
+  // simplesmente não existe no `__AVBridge`, e a ponte tem de resolver `false`
+  // em vez de lançar — quem chama é um botão, e um `throw` ali deixaria o
+  // popup do leitor aberto com a câmera desligada e nenhuma frase na tela.
+  const semCam = await pg.evaluate(async () => {
+    try { return await AVNative.requestCam(); } catch (e) { return 'LANÇOU: ' + e; }
+  });
+  checar(semCam === false,
+    'requestCam resolve FALSE num shell sem o método, em vez de lançar', semCam);
+
+  const comCam = await pg.evaluate(async () => {
+    window.__AVBridge.requestCam = (id) => {
+      // O shell responde pelo mesmo canal de sempre (`__avResolve`), e é a
+      // ponte que casa o `callId` — inclusive a época, que muda a cada carga.
+      // O valor chega como BOOLEANO, não como string: o Kotlin monta a chamada
+      // com o literal JS (`resolve(callId, "true")` vira `__avResolve(id,true)`).
+      setTimeout(() => window.__avResolve(id, true), 0);
+    };
+    return AVNative.requestCam();
+  });
+  checar(comCam === true, 'e TRUE quando o shell concede', comCam);
+
   // ---- o DRENO do ESPELHO DE PIXELS, e o PAR NEGATIVO ---------------------
   //
   // O espelho é uma segunda cópia de `/web/display/` (ver

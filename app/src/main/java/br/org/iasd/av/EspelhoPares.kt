@@ -46,6 +46,22 @@ import java.util.Base64
  *    ([definirAutoAprovar]) e morre com o [desligar]. Um PIN de seis dígitos
  *    visível na tela do celular durante todo o culto é fraco demais para ser o
  *    único controle.
+ * 5b. **O QR INVERTE quem mostra e quem lê, e é por isso que ele é mais forte
+ *    que o PIN, não mais fraco** ([esperaQr]). No PIN o celular exibe um
+ *    segredo curto e a tela o digita; no QR a TELA exibe o `id` da própria
+ *    espera — que não é segredo nenhum: o servidor o acabou de devolver para
+ *    quem pediu — e o CELULAR o lê pela câmera. Não há o que espiar por cima do
+ *    ombro, não há o que fotografar de longe que sirva para alguma coisa, e a
+ *    aprovação continua sendo o mesmo ato do operador da invariante 5, só que
+ *    apontando a câmera em vez de tocando numa lista.
+ *
+ *    Daí as três regras que sustentam isso, e que são o contrário de detalhes:
+ *    uma espera de QR **não aparece na folha** ([pendentes] a esconde), **não é
+ *    tocada pela aprovação automática** e **só é aprovada por quem apresentar o
+ *    `id` exato**. Sem a primeira, qualquer um na rede encheria a lista do
+ *    operador de linhas que ele não tem como distinguir; sem a segunda, o
+ *    interruptor de conveniência viraria "qualquer aparelho da rede entra
+ *    sozinho", que é precisamente o que ele nunca significou.
  * 6. **Bloqueio por ORIGEM antes de qualquer rotação global.** Cinco tentativas
  *    erradas do mesmo endereço ⇒ [BLOQUEIO_MS] de espera **para aquele
  *    endereço**. **O PIN NÃO ROTACIONA por tentativa errada** — isso seria negação
@@ -110,11 +126,29 @@ object EspelhoPares {
     const val MAX_SESSOES = 3
 
     /**
-     * Teto de esperas simultâneas. Sem ele, quem descobriu o PIN pode encher a
-     * folha do operador com pendências no meio do culto — e a folha é onde ele
-     * decide. Nada a ver com o teto de conexões em voo do servidor.
+     * Teto de esperas simultâneas **do PIN**. Sem ele, quem descobriu o PIN pode
+     * encher a folha do operador com pendências no meio do culto — e a folha é
+     * onde ele decide. Nada a ver com o teto de conexões em voo do servidor.
      */
     const val MAX_ESPERAS = 8
+
+    /**
+     * Teto de esperas de QR, contado **à parte** do [MAX_ESPERAS].
+     *
+     * Separado porque a espera de QR nasce sem provar nada: qualquer aparelho
+     * da rede que abra a página cria uma. Num balde só, encher de esperas de QR
+     * seria negar o pareamento por PIN — o caminho que ainda funciona quando a
+     * câmera falha —, e uma negação de serviço contra o plano B é pior que a
+     * ausência do plano A.
+     */
+    const val MAX_ESPERAS_QR = 6
+
+    /**
+     * E quantas cada ORIGEM pode manter. Duas, porque uma tela que recarrega a
+     * página legitimamente cria a segunda antes de a primeira vencer — e a
+     * terceira despeja a mais velha daquele endereço, nunca a de outro.
+     */
+    const val MAX_QR_POR_ORIGEM = 2
 
     /** Corte duro de todo texto vindo da rede (invariante 9). */
     const val TETO_TEXTO = 120
@@ -218,6 +252,10 @@ object EspelhoPares {
         val id: String,
         val relato: Relato,
         val desde: Long,
+        /** Nasceu de um QR (invariante 5b) e não de um PIN. */
+        val viaQr: Boolean = false,
+        /** O endereço que a criou — só usado para o teto por origem do QR. */
+        val origem: String = "",
     ) {
         var estado: Estado = Estado.AGUARDANDO
         var sessao: Sessao? = null
@@ -367,12 +405,70 @@ object EspelhoPares {
         }
 
         erros.remove(chave)
-        if (esperas.size >= MAX_ESPERAS) return Veredito.Lotada
+        // Só as esperas de PIN contam para este teto: ver [MAX_ESPERAS_QR].
+        if (esperas.count { !it.viaQr } >= MAX_ESPERAS) return Veredito.Lotada
 
         val e = Pendencia(novoToken(), sanear(relato), agora)
         esperas.add(e)
         if (autoOn) aprovarPendencia(e, agora)
         return Veredito.Espera(e.id)
+    }
+
+    /**
+     * A espera do QR: **sem PIN, e por isso invisível para o operador até ele
+     * apontar a câmera** (invariante 5b).
+     *
+     * Devolve um `id` a quem quer que peça — o que soa alarmante escrito assim,
+     * e não é: o `id` é o que a tela vai DESENHAR num QR, e ele só vira acesso
+     * quando o operador ler aquele desenho e chamar [aprovar]. Quem pede um id
+     * sem ter uma tela na frente do operador tem 22 caracteres inúteis.
+     *
+     * O bloqueio por origem da invariante 6 **vale aqui também**, e é o que
+     * impede que a mesma origem que está martelando o PIN use este caminho para
+     * seguir consumindo estado enquanto cumpre o castigo. Ele não é ARMADO
+     * aqui (não há segredo a errar), só respeitado.
+     */
+    @Synchronized
+    fun esperaQr(origem: String, relato: Relato, agora: Long): Veredito {
+        limpar(agora)
+        if (!noAr) return Veredito.Desligado
+
+        val chave = sanear(origem, 64)
+        val t = erros[chave]
+        if (t != null && t.bloqueadoAte > agora) return Veredito.Bloqueada(t.bloqueadoAte - agora)
+        if (!abrirVagaQr(chave)) return Veredito.Lotada
+
+        val e = Pendencia(novoToken(), sanear(relato), agora, viaQr = true, origem = chave)
+        esperas.add(e)
+        // **Nunca [autoOn] aqui** (invariante 5b): "aprovar automaticamente"
+        // significa "quem acertou o PIN não precisa esperar meu toque", e não
+        // "qualquer aparelho da rede entra sozinho".
+        return Veredito.Espera(e.id)
+    }
+
+    /**
+     * Abre uma vaga de QR: primeiro no teto da origem, depois no global.
+     *
+     * **Só despeja espera AGUARDANDO.** Despejar uma já aprovada devolveria
+     * [Veredito.Desconhecida] à tela que acabou de ser liberada — ela voltaria
+     * ao pareamento com um slot de sessão consumido, e o operador veria "a tela
+     * não foi liberada" logo depois de tê-la liberado. Não havendo o que
+     * despejar, o pedido é recusado com [Veredito.Lotada], que é uma frase.
+     */
+    private fun abrirVagaQr(chave: String): Boolean {
+        if (!despejar({ it.viaQr && it.origem == chave }, MAX_QR_POR_ORIGEM)) return false
+        return despejar({ it.viaQr }, MAX_ESPERAS_QR)
+    }
+
+    private fun despejar(quais: (Pendencia) -> Boolean, teto: Int): Boolean {
+        while (esperas.count(quais) >= teto) {
+            // `esperas` é acrescida no fim, então a primeira que casa é a mais
+            // velha — nenhuma ordenação é necessária.
+            val velha = esperas.firstOrNull { quais(it) && it.estado == Estado.AGUARDANDO }
+                ?: return false
+            esperas.remove(velha)
+        }
+        return true
     }
 
     /**
@@ -395,11 +491,29 @@ object EspelhoPares {
         }
     }
 
-    /** As telas que esperam o operador — é o que a folha do Controle mostra. */
+    /**
+     * As telas que esperam o operador — é o que a folha do Controle mostra.
+     *
+     * **As de QR ficam de fora** (invariante 5b): elas não provaram nada, e uma
+     * lista em que o operador não consegue distinguir "esta é a TV da sala
+     * anexa" de "este é o aparelho de alguém" é pior do que lista nenhuma. A
+     * espera de QR se apresenta de outro jeito — desenhada na tela que a criou.
+     */
     @Synchronized
     fun pendentes(): List<Pendente> = esperas
-        .filter { it.estado == Estado.AGUARDANDO }
+        .filter { it.estado == Estado.AGUARDANDO && !it.viaQr }
         .map { Pendente(it.id, it.relato, it.desde) }
+
+    /**
+     * Quantas telas estão com um QR em cartaz esperando a câmera — linha do
+     * Registro.
+     *
+     * É o único jeito de o operador distinguir "ninguém abriu o endereço" de "a
+     * tela abriu, criou a espera e o QR está lá, e o que não está funcionando é
+     * a leitura". As duas coisas são a mesma folha vazia.
+     */
+    @Synchronized
+    fun esperandoQr(): Int = esperas.count { it.viaQr && it.estado == Estado.AGUARDANDO }
 
     /**
      * O operador aprova. Devolve `null` quando não há espera com esse id, quando

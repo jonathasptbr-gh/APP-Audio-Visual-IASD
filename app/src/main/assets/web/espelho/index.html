@@ -34,13 +34,39 @@
 <section id="par" class="tela">
   <div class="cartao">
     <h1>Tela</h1>
-    <p class="ajuda">Digite o código de seis dígitos que aparece no celular.</p>
-    <!-- `inputmode` e `pattern`, não `type="number"`: um campo numérico traz
-         as setinhas de incremento, aceita sinal e expoente, e come o zero à
-         esquerda — e um PIN começa com zero uma vez em cada dez. -->
-    <input id="pin" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="6"
-           autocomplete="off" autocorrect="off" spellcheck="false" aria-label="Código">
-    <button id="parBtn" class="botao">Entrar</button>
+
+    <!-- O QR VEM PRIMEIRO, e a inversão é o ponto: aqui quem MOSTRA é a tela e
+         quem LÊ é o celular. O código desenhado abaixo não é segredo nenhum —
+         é o `id` da espera que esta página acabou de criar, que o servidor
+         devolveu a quem pediu. Ele só vira acesso quando o operador apontar a
+         câmera para ELE, que é o mesmo ato de aprovação de sempre.
+
+         O canvas nasce escondido: sem espera criada (espelho desligado, rede
+         caída, servidor recusando) não há o que desenhar, e um quadrado branco
+         vazio no meio da tela seria pior que ausência. -->
+    <div id="qrBox" class="qr-box" hidden>
+      <!-- `image-rendering: pixelated` na folha: o canvas tem UM pixel por
+           módulo e quem estica é o CSS. Ampliar módulos inteiros mantém as
+           bordas duras, que é o que a câmera precisa. -->
+      <canvas id="qr" class="qr" aria-label="Código para o aplicativo ler"></canvas>
+      <p class="ajuda">No celular, abra <b>Espelho na rede local</b> e toque em
+        <b>Ler o código da tela</b>.</p>
+    </div>
+
+    <!-- O PIN CONTINUA, e continua por escrito: a câmera pode não existir
+         naquele aparelho, a leitura de QR pode não estar disponível no WebView,
+         e o operador pode simplesmente estar do outro lado do salão. Um caminho
+         só seria um caminho sem plano B no meio de um culto. -->
+    <details id="pinBox" class="pin-box">
+      <summary>Ou digitar o código de seis dígitos</summary>
+      <!-- `inputmode` e `pattern`, não `type="number"`: um campo numérico traz
+           as setinhas de incremento, aceita sinal e expoente, e come o zero à
+           esquerda — e um PIN começa com zero uma vez em cada dez. -->
+      <input id="pin" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="6"
+             autocomplete="off" autocorrect="off" spellcheck="false" aria-label="Código">
+      <button id="parBtn" class="botao">Entrar</button>
+    </details>
+
     <p id="parMsg" class="msg" role="status" aria-live="polite"></p>
   </div>
 </section>
@@ -86,10 +112,12 @@
          "/e.css" → espelho/espelho.css
          "/e.js"  → espelho/cliente.js
          "/f.js"  → espelho/fmp4.js
+         "/q.js"  → espelho/qr.js
 
      Os nomes na rede não são os nomes no disco, e isso é o certo: o que sai
      pelo fio não deve descrever a árvore do bundle. -->
 <script src="/f.js"></script>
+<script src="/q.js"></script>
 <script src="/e.js"></script>
 </body>
 </html>

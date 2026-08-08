@@ -197,6 +197,124 @@ class EspelhoParesTest {
         )
     }
 
+    // ------------------------------------------------------------ o QR (5b)
+    //
+    // A espera de QR é o caminho em que ninguém prova nada — e ela é mais forte
+    // que o PIN justamente por isso: o que autoriza não é um segredo digitado, é
+    // o operador ter apontado a câmera para AQUELA tela. Os casos abaixo travam
+    // as três regras que sustentam a afirmação.
+
+    @Test
+    fun qrDaUmIdSemPinENaoLiberaNada() {
+        val v = EspelhoPares.esperaQr(origem, relato(), t0)
+        assertTrue(v is EspelhoPares.Veredito.Espera)
+        val id = (v as EspelhoPares.Veredito.Espera).id
+        assertTrue(id.length >= 16)
+        // Sem a aprovação, o poll continua respondendo "pendente" para sempre —
+        // ter o id não é ter acesso.
+        assertSame(EspelhoPares.Veredito.Pendente, EspelhoPares.consultar(id, t0))
+        assertTrue(EspelhoPares.sessoes().isEmpty())
+    }
+
+    @Test
+    fun qrSoEntraQuandoOOperadorAprovaAquelaEspera() {
+        val id = (EspelhoPares.esperaQr(origem, relato(), t0) as EspelhoPares.Veredito.Espera).id
+        assertNotNull(EspelhoPares.aprovar(id, t0))
+        val v = EspelhoPares.consultar(id, t0)
+        assertTrue(v is EspelhoPares.Veredito.Aprovada)
+        assertEquals(1, EspelhoPares.sessoes().size)
+    }
+
+    /**
+     * **A regra que impede a folha do operador de virar lixo**: a espera de QR
+     * não aparece na lista. Ele não teria como distinguir "a TV da sala anexa"
+     * de "o aparelho de alguém", e aprovar às cegas é o oposto da invariante 5.
+     */
+    @Test
+    fun esperaDeQrNaoApareceNaFolhaDoOperador() {
+        EspelhoPares.esperaQr(origem, relato(), t0)
+        EspelhoPares.esperaQr(origem, relato(), t0)
+        assertTrue(EspelhoPares.pendentes().isEmpty())
+        assertEquals(2, EspelhoPares.esperandoQr())
+        // E a do PIN continua aparecendo — o par negativo, sem o qual este caso
+        // passaria com `pendentes()` devolvendo sempre vazio.
+        EspelhoPares.tentar(pin, origem, relato(), t0)
+        assertEquals(1, EspelhoPares.pendentes().size)
+    }
+
+    /**
+     * **"Aprovar automaticamente" nunca significou "qualquer aparelho da rede
+     * entra sozinho".** Ele existe para poupar o toque de quem ACERTOU O PIN.
+     */
+    @Test
+    fun aprovacaoAutomaticaNaoAlcancaOQr() {
+        EspelhoPares.definirAutoAprovar(true)
+        val id = (EspelhoPares.esperaQr(origem, relato(), t0) as EspelhoPares.Veredito.Espera).id
+        assertSame(EspelhoPares.Veredito.Pendente, EspelhoPares.consultar(id, t0))
+        assertTrue(EspelhoPares.sessoes().isEmpty())
+        // Enquanto pelo PIN ela sai na hora, como sempre.
+        val v = EspelhoPares.tentar(pin, origem, relato(), t0)
+        assertTrue(EspelhoPares.consultar((v as EspelhoPares.Veredito.Espera).id, t0)
+            is EspelhoPares.Veredito.Aprovada)
+    }
+
+    /**
+     * O teto por ORIGEM despeja a mais velha DAQUELA origem — uma tela que
+     * recarrega a página não pode acumular esperas para sempre, e não pode
+     * empurrar a de outra tela para fora.
+     */
+    @Test
+    fun tetoDeQrPorOrigemDespejaAMaisVelhaDaMesmaOrigem() {
+        val a = (EspelhoPares.esperaQr(origem, relato(), t0) as EspelhoPares.Veredito.Espera).id
+        val b = (EspelhoPares.esperaQr(origem, relato(), t0) as EspelhoPares.Veredito.Espera).id
+        val outra = (EspelhoPares.esperaQr("192.168.0.90", relato(), t0) as EspelhoPares.Veredito.Espera).id
+        val c = (EspelhoPares.esperaQr(origem, relato(), t0) as EspelhoPares.Veredito.Espera).id
+        assertSame(EspelhoPares.Veredito.Desconhecida, EspelhoPares.consultar(a, t0))
+        assertSame(EspelhoPares.Veredito.Pendente, EspelhoPares.consultar(b, t0))
+        assertSame(EspelhoPares.Veredito.Pendente, EspelhoPares.consultar(c, t0))
+        // A de outro endereço fica INTACTA: o teto é por origem, não global.
+        assertSame(EspelhoPares.Veredito.Pendente, EspelhoPares.consultar(outra, t0))
+    }
+
+    /**
+     * E uma espera de QR **já aprovada nunca é despejada**. Despejá-la devolveria
+     * `Desconhecida` à tela que o operador acabou de liberar — ela voltaria ao
+     * pareamento com um dos três slots de sessão consumido.
+     */
+    @Test
+    fun qrAprovadoNaoEDespejadoPeloTeto() {
+        val vivo = (EspelhoPares.esperaQr(origem, relato(), t0) as EspelhoPares.Veredito.Espera).id
+        EspelhoPares.aprovar(vivo, t0)
+        repeat(4) { EspelhoPares.esperaQr(origem, relato(), t0) }
+        assertTrue(EspelhoPares.consultar(vivo, t0) is EspelhoPares.Veredito.Aprovada)
+    }
+
+    /**
+     * As duas filas são SEPARADAS, e é isso que impede que encher o balde do QR
+     * (que qualquer um na rede pode fazer) negue o pareamento por PIN — o
+     * caminho que ainda funciona quando não há câmera.
+     */
+    @Test
+    fun qrLotadoNaoTrancaOPin() {
+        repeat(EspelhoPares.MAX_ESPERAS_QR + 4) { EspelhoPares.esperaQr("10.0.0.$it", relato(), t0) }
+        assertTrue(EspelhoPares.tentar(pin, origem, relato(), t0) is EspelhoPares.Veredito.Espera)
+    }
+
+    /** E o bloqueio por origem da invariante 6 vale para o QR também. */
+    @Test
+    fun origemBloqueadaNaoGanhaQr() {
+        repeat(ERRADAS) { EspelhoPares.tentar(pinErrado(), origem, relato(), t0) }
+        assertTrue(EspelhoPares.esperaQr(origem, relato(), t0) is EspelhoPares.Veredito.Bloqueada)
+        // Outra origem segue livre — o castigo é do endereço, não do recurso.
+        assertTrue(EspelhoPares.esperaQr("192.168.0.90", relato(), t0) is EspelhoPares.Veredito.Espera)
+    }
+
+    @Test
+    fun qrComEspelhoDesligadoNaoDaId() {
+        EspelhoPares.desligar()
+        assertSame(EspelhoPares.Veredito.Desligado, EspelhoPares.esperaQr(origem, relato(), t0))
+    }
+
     // -------------------------------------------------- bloqueio por origem
 
     /**

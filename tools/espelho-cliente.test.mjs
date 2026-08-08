@@ -58,23 +58,33 @@ function checar(cond, msg, obtido) {
 // ---------------------------------------------------------------------------
 // O SERVIDOR DE MENTIRA — o §5 inteiro, e NADA além dele.
 //
-// O mapa de rotas é FIXO, quatro entradas, exatamente como o
-// `EspelhoServidor` terá de implementá-lo (§3.6, invariante 7): nunca por
-// concatenação, senão `/controle/controle.js` e `/shared/native.js` sairiam
-// para quem estiver na rede. Este teste é o primeiro lugar em que esse mapa
-// existe escrito, e é de propósito.
+// O mapa de rotas é FIXO — CINCO entradas desde que o pareamento por QR
+// entrou —, exatamente como o `EspelhoServidor` o implementa (§3.6, invariante
+// 7): nunca por concatenação, senão `/controle/controle.js` e
+// `/shared/native.js` sairiam para quem estiver na rede.
+//
+// **E ele precisa bater com o `ESTATICOS` do Kotlin, entrada por entrada.** Uma
+// rota que exista lá e falte aqui não dá 404 no teste: dá um `<script>` servido
+// com o tipo errado, que o Chromium RECUSA por `nosniff` — foi assim que este
+// arquivo pegou a ausência do `/q.js` no primeiro minuto.
 // ---------------------------------------------------------------------------
 const MAPA = {
   '/': [path.join(ESP, 'index.html'), 'text/html; charset=utf-8'],
   '/e.css': [path.join(ESP, 'espelho.css'), 'text/css; charset=utf-8'],
   '/e.js': [path.join(ESP, 'cliente.js'), 'text/javascript; charset=utf-8'],
   '/f.js': [path.join(ESP, 'fmp4.js'), 'text/javascript; charset=utf-8'],
+  '/q.js': [path.join(ESP, 'qr.js'), 'text/javascript; charset=utf-8'],
 };
 
 const PIN = '424242';
 const TOKEN = 'Zm9vYmFyLXRva2VuLTEyOA';
 
-const visto = { urls: [], autorizacoes: [], volta: [], gets: 0 };
+const visto = { urls: [], autorizacoes: [], volta: [], gets: 0, qr: [] };
+// O id de espera que o QR carrega. 22 caracteres base64url, como o
+// `EspelhoPares.novoToken()` produz — é o tamanho que decide a versão do QR.
+const ESPERA_QR = 'aB3-_xY9zQ1kLmNoPqRsTu';
+let qrLiberado = true;       // o servidor aceita criar espera de QR?
+let qrAprovado = false;      // e o "operador" já leu o código?
 let pendencias = 0;          // quantos polls de `espera` ainda respondem "pendente"
 let aprovar = true;
 let fluxo = null;            // a resposta de /v em curso
@@ -128,7 +138,24 @@ const servidor = http.createServer(async (req, res) => {
       json(res, 202, { espera: 'e1' });
       return;
     }
+    // O QR: a tela pede um id SEM provar nada, e o id não vale nada até alguém
+    // ler o desenho (§3.5, invariante 5b). `qrDado` guarda o corpo para o teste
+    // conferir que ele cabe no teto de 256 B do `POST /par`.
+    if (c && c.qr === true) {
+      visto.qr.push(c);
+      if (!qrLiberado) { json(res, 403, {}); return; }
+      json(res, 202, { espera: ESPERA_QR });
+      return;
+    }
     if (c && c.espera) {
+      // A espera do QR tem o seu próprio interruptor: enquanto o operador não
+      // "lê o código", ela responde PENDENTE — o QR fica em cartaz sem
+      // atravessar o percurso do PIN, que é o que o resto deste arquivo testa.
+      if (c.espera === ESPERA_QR) {
+        if (qrAprovado) { json(res, 200, { t: TOKEN }); return; }
+        json(res, 202, { estado: 'pendente' });
+        return;
+      }
       if (!aprovar) { json(res, 403, { estado: 'recusada' }); return; }
       if (pendencias > 0) { pendencias--; json(res, 202, { estado: 'pendente' }); return; }
       json(res, 200, { t: TOKEN });
@@ -429,7 +456,47 @@ await pg.goto(base + '/', { waitUntil: 'domcontentloaded' });
   checar(jogaPlayer, 'a página abre no estado de PAREAMENTO');
 }
 
+// O QR NASCE COM A PÁGINA — sem toque, sem foco, sem nada a digitar. É o ponto
+// inteiro do recurso: numa TV ninguém vai clicar em "gerar código".
+{
+  await pg.waitForFunction(() => !document.getElementById('qrBox').hidden,
+    null, { timeout: 8000 }).catch(() => {});
+  const visivel = await pg.$eval('#qrBox', (e) => !e.hidden);
+  checar(visivel, 'o QR aparece sozinho ao abrir a página, sem nenhum toque');
+
+  // E ele foi DESENHADO: um canvas em branco passaria na asserção acima.
+  const desenho = await pg.evaluate(() => {
+    const c = document.getElementById('qr');
+    const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+    let escuros = 0;
+    for (let i = 0; i < d.length; i += 4) if (d[i] < 128) escuros += 1;
+    return { lado: c.width, escuros, total: d.length / 4 };
+  });
+  // Versão 3 (29 módulos) + 4 de zona de silêncio de cada lado = 37.
+  checar(desenho.lado === 37, 'com o tamanho da versão 3 mais a zona de silêncio', desenho.lado);
+  checar(desenho.escuros > desenho.total * 0.2 && desenho.escuros < desenho.total * 0.6,
+    'e com módulos escuros de verdade — não é um quadrado em branco',
+    desenho.escuros + '/' + desenho.total);
+
+  // O CORPO CABE NO TETO. O `POST /par` aceita 256 bytes e o servidor fecha a
+  // conexão acima disso, o que na tela vira "não foi possível falar com o
+  // celular" — uma falha sem causa visível. A conta é apertada e precisa de
+  // guarda.
+  const corpo = visto.qr[0];
+  const bytes = Buffer.byteLength(JSON.stringify(corpo));
+  checar(bytes <= 256, 'e o corpo do pedido de QR cabe nos 256 B do POST /par', bytes);
+  checar(corpo && corpo.qr === true && !corpo.pin,
+    'o pedido de QR não leva PIN nenhum — ele não prova nada, e não precisa');
+
+  // O PIN continua existindo como plano B, e ISSO É O CONTRATO: a câmera pode
+  // faltar, a leitura de QR pode não existir naquele WebView.
+  checar(await pg.$('#pin') !== null, 'e os seis dígitos continuam na tela como plano B');
+}
+
 // PIN errado: mensagem, e o botão volta a funcionar.
+// O campo mora num `<details>` fechado desde que o QR virou o caminho
+// principal — abri-lo é o que o visitante faria, e é o que este teste faz.
+await pg.click('#pinBox > summary');
 await pg.fill('#pin', '000000');
 await pg.click('#parBtn');
 await pg.waitForFunction(() => document.getElementById('parMsg').textContent.length > 0
@@ -519,6 +586,35 @@ checar(true, 'aprovada, a MESMA página troca para o player (sem navegar)');
   const tipos = new Set(visto.volta.filter(Boolean).map((x) => x.do));
   checar([...tipos].every((t) => t === 'key' || t === 'alive' || t === 'audio'),
     'o upstream do cliente é só key/alive/audio', JSON.stringify([...tipos]));
+}
+
+// ---------------------------------------------------------------------------
+// E O PERCURSO INTEIRO DO QR, numa aba limpa: abrir o endereço, o operador ler
+// o código, e a tela entrar — SEM NINGUÉM DIGITAR NADA. É a promessa do
+// recurso, e ela precisa estar travada por um caso e não por uma frase no doc.
+//
+// Aba nova (contexto novo) porque o `sessionStorage` da anterior já tem token:
+// com ele a página vai direto ao player e o pareamento não acontece.
+// ---------------------------------------------------------------------------
+{
+  const ctx2 = await navegador.newContext();
+  const pg2 = await ctx2.newPage();
+  await pg2.goto(base + '/', { waitUntil: 'domcontentloaded' });
+  await pg2.waitForFunction(() => window.__espelho && window.__espelho.estado().qr,
+    null, { timeout: 8000 }).catch(() => {});
+  const antes = await pg2.evaluate(() => window.__espelho.estado());
+  checar(antes.qr && !antes.pareado, 'numa aba limpa a tela mostra o código e NÃO está pareada');
+
+  // O "operador lê o código": no aparelho é a câmera do Controle chamando
+  // `espelhoAprovar(id, true)`; aqui é o servidor de mentira aprovando a MESMA
+  // espera que o QR carrega.
+  qrAprovado = true;
+  await pg2.waitForFunction(() => !document.getElementById('play').hidden,
+    null, { timeout: 15000 });
+  const depois = await pg2.evaluate(() => window.__espelho.estado());
+  checar(depois.pareado, 'lido o código, a tela entra sozinha — nenhuma tecla foi digitada');
+  checar(!depois.qr, 'e o código sai do ar assim que ela entra');
+  await ctx2.close();
 }
 
 checar(errosConsole.length === 0, 'nenhum erro de console no percurso inteiro',

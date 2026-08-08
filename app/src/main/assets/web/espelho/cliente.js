@@ -133,11 +133,19 @@
   // sem parar por causa do recurso auxiliar.
   const REBUILDS_AUDIO = 3;
 
-  // O relato cabe no corpo de 256 B que o `POST /par` aceita (§5.1). A conta:
-  // os campos fixos somam 154 caracteres, então sobram ~100 para o `ua`. 96
-  // deixa folga para o escape de JSON e ainda carrega a parte que interessa de
-  // um User-Agent (o motor e a versão vêm no começo em todo navegador atual).
-  const UA_MAX = 96;
+  // O relato cabe no corpo de 256 B que o `POST /par` aceita (§5.1), e a conta
+  // é apertada de propósito — passar do teto não dá erro de validação, dá um
+  // `close` seco do servidor, que na tela vira "não foi possível falar com o
+  // celular". A conta, no pior caso: os campos fixos somam 141 caracteres
+  // (booleanos todos `false`, tela de quatro dígitos), mais 15 do `pin` OU 10
+  // do `qr`, mais até 3 de um `telaAcesaMin` de quatro dígitos. Sobram 97 para
+  // o `ua`.
+  //
+  // 88, e não 97, porque a margem paga o escape de JSON (um `"` ou `\` no
+  // User-Agent vira dois caracteres) e um campo futuro. O que se perde são os
+  // últimos oito caracteres de um User-Agent — o motor e a versão, que é o que
+  // interessa no Registro, vêm no COMEÇO em todo navegador atual.
+  const UA_MAX = 88;
 
   // --------------------------------------------------------------------------
   // Elementos e estado
@@ -293,6 +301,107 @@
   // PAREAMENTO (§5.4) — o operador fica no laço, e é ele quem aprova
   // --------------------------------------------------------------------------
 
+  // ---- O QR: quem MOSTRA é esta tela, e quem LÊ é o celular ----------------
+  //
+  // A inversão é o recurso inteiro. No PIN, o celular exibia um segredo curto
+  // durante todo o culto e alguém o digitava aqui — num teclado de controle
+  // remoto, do outro lado do salão. Aqui esta página pede um `id` de espera,
+  // desenha, e espera a câmera do operador. O `id` NÃO é segredo (o servidor o
+  // devolve a quem pedir): o que autoriza é o operador ter apontado a câmera
+  // para ESTA tela, que é a mesma decisão que ele já tomava na folha.
+  //
+  // O prefixo `AVE1:` existe para o app poder RECUSAR um QR qualquer — um
+  // cartaz, uma nota fiscal, o Wi-Fi da igreja — em vez de mandar um texto
+  // aleatório como id de aprovação.
+  const QR_PREFIXO = 'AVE1:';
+  // A espera do servidor vence em 5 min; o desenho é refeito antes disso para
+  // nunca haver um QR em cartaz que já não vale. Um código que "não funciona"
+  // sem dizer por quê é o pior desfecho possível para este recurso.
+  const QR_RENOVA_MS = 4 * 60 * 1000;
+  // E a espera entre tentativas quando o pedido falha (espelho ainda subindo,
+  // rede associando). Curta: é a primeira coisa que acontece na tela.
+  const QR_RETENTA_MS = 4000;
+
+  let qrVivo = false;
+  let qrId = '';
+
+  function mostrarQr(id) {
+    qrId = id || '';
+    if (!el.qrBox || !el.qr) return;
+    if (!qrId || !global.AVQr) { el.qrBox.hidden = true; return; }
+    try {
+      // As cores do QR são as do PALCO (preto sobre branco), e não as da
+      // paleta: contraste máximo é requisito de leitura, não escolha de estilo.
+      // É a mesma exceção que `--stage-text: #fff` já declara.
+      global.AVQr.pintar(el.qr, QR_PREFIXO + qrId, '#000000', '#ffffff');
+      el.qrBox.hidden = false;
+    } catch (_) {
+      el.qrBox.hidden = true;
+    }
+  }
+
+  /**
+   * O laço do QR: pede uma espera, desenha, enquete a aprovação, e renova antes
+   * de a espera vencer. Roda até alguém entrar (por aqui ou pelo PIN).
+   *
+   * Ele NÃO desabilita o campo do PIN nem compete com ele: os dois caminhos
+   * criam esperas independentes, e a primeira que for aprovada ganha. Quem
+   * cancela o outro é o `qrVivo`, conferido depois de cada `await`.
+   */
+  async function cicloQr() {
+    if (qrVivo || !el.qrBox) return;
+    qrVivo = true;
+    while (qrVivo) {
+      let r;
+      try {
+        const corpo = relato();
+        corpo.qr = true;
+        r = await postar('/par', corpo, false);
+      } catch (_) { r = { status: 0 }; }
+      if (!qrVivo) return;
+
+      if (!(r.status === 202 && r.corpo && r.corpo.espera)) {
+        // Sem QR, a tela ainda tem o PIN — e precisa DIZER isso, porque um
+        // espaço vazio onde deveria haver um código não explica nada.
+        mostrarQr('');
+        if (el.pinBox) el.pinBox.open = true;
+        texto('parMsg', 'O código não pôde ser gerado agora. Use os seis dígitos abaixo.');
+        await dormir(QR_RETENTA_MS);
+        continue;
+      }
+
+      const id = String(r.corpo.espera);
+      mostrarQr(id);
+      texto('parMsg', 'Esperando a leitura no celular…');
+      const ate = Date.now() + QR_RENOVA_MS;
+      let entrou = false;
+      while (qrVivo && Date.now() < ate) {
+        await dormir(POLL_MS);
+        if (!qrVivo) return;
+        let p;
+        try { p = await postar('/par', { espera: id }, false); } catch (_) { p = { status: 0 }; }
+        if (p.status === 200 && p.corpo && p.corpo.t) {
+          token = String(p.corpo.t);
+          guardado(token);
+          entrou = true;
+          break;
+        }
+        // 403 aqui é o operador tendo RECUSADO esta tela, ou a espera vencida.
+        // Nos dois casos a resposta certa é pedir um código novo, não desistir:
+        // esta página é uma TV que ninguém vai atender, e ela precisa continuar
+        // oferecendo uma forma de entrar.
+        if (p.status === 403) break;
+      }
+      if (entrou) { pararQr(); aoPlayer(); return; }
+    }
+  }
+
+  function pararQr() {
+    qrVivo = false;
+    qrId = '';
+    if (el.qrBox) el.qrBox.hidden = true;
+  }
+
   async function parear() {
     const pin = (el.pin.value || '').replace(/[^0-9]/g, '');
     if (pin.length !== 6) { texto('parMsg', 'São seis dígitos.', true); return; }
@@ -331,6 +440,7 @@
       if (r.status === 200 && r.corpo && r.corpo.t) {
         token = String(r.corpo.t);
         guardado(token);
+        pararQr();
         aoPlayer();
         return;
       }
@@ -355,7 +465,11 @@
     el.parBtn.disabled = false;
     el.pin.value = '';
     if (motivo) texto('parMsg', motivo, true);
-    try { el.pin.focus(); } catch (_) {}
+    // O QR volta ao ar SEM esperar toque: uma tela que caiu (sessão vencida,
+    // espelho desligado e religado) é justamente a que ninguém está olhando —
+    // e a que o operador vai querer readmitir apontando a câmera de novo.
+    pararQr();
+    cicloQr();
   }
 
   function aoPlayer() {
@@ -1180,7 +1294,7 @@
   }
 
   function iniciar() {
-    ['par', 'pin', 'parBtn', 'parMsg', 'play', 'v', 'foto', 'gesto', 'aviso'].forEach(function (id) {
+    ['par', 'pin', 'pinBox', 'parBtn', 'parMsg', 'qrBox', 'qr', 'play', 'v', 'foto', 'gesto', 'aviso'].forEach(function (id) {
       el[id] = doc.getElementById(id);
     });
     if (!el.par || !el.play) return;      // não é a página do espelho
@@ -1196,8 +1310,12 @@
     acordar();
 
     token = guardado();
+    // O QR NASCE JUNTO COM A PÁGINA — sem toque, sem foco, sem nada a digitar.
+    // É uma TV: ninguém vai clicar em "gerar código". O campo do PIN não recebe
+    // foco por isso mesmo: um teclado virtual abrindo sozinho numa smart TV
+    // cobriria justamente o código que ela precisa mostrar.
     if (token) aoPlayer();
-    else { try { el.pin.focus(); } catch (_) {} }
+    else cicloQr();
   }
 
   // O ESTADO, LEGÍVEL DE FORA. Esta página não tem Registro — o Registro do
@@ -1209,6 +1327,10 @@
     estado: function () {
       return {
         pareado: !!token, vivo: vivo, modoImagem: modoImagem,
+        // O QR em cartaz: `qr` é o desenho na tela, `qrId` diz se há espera
+        // criada. Os dois juntos separam "o servidor não deu id" de "deu e o
+        // desenho falhou" — que na tela são o mesmo espaço vazio.
+        qr: !!(el.qrBox && !el.qrBox.hidden), qrId: !!qrId,
         mime: mime, fila: fila.length, posicionado: posicionado,
         quadros: conta.quadros, bytes: conta.bytes,
         recomecos: conta.recomecos, reconexoes: conta.reconexoes,
