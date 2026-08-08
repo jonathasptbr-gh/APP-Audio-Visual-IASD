@@ -1339,6 +1339,25 @@ app também fecha, pelo mesmo motivo pelo qual o push-to-talk fecha.
   (`som torneira:sim faixa:nao`), e **é a discordância entre eles que é a
   leitura**: torneira é o que o servidor abriu, faixa é o que o cliente
   conseguiu montar.
+- **"O decodificador recusou os dados" é uma CATEGORIA, não um diagnóstico**
+  (v5.147). O evento `error` de um `SourceBuffer` é NU por especificação — ele
+  não distingue um fragmento malformado de um perfil de H.264 que aquele
+  aparelho não decodifica, e as duas têm correções opostas. Quem carrega o
+  motivo é o `MediaError` do `<video>`, cujo `message` o Chromium preenche com a
+  frase do demuxer; ela nunca era lida porque **ninguém abre console numa TV**.
+  Agora ela é capturada nos dois pontos (o `error` do buffer e o do elemento, em
+  ordem não garantida) e viaja até o Registro do operador junto com o resto do
+  relato da tela.
+- **E a recusa que se REPETE deixou de martelar.** `recomecar` zera a espera de
+  reconexão de propósito — uma falha isolada merece voltar depressa. Só que uma
+  recusa que se repete não é isolada: em aparelho isso virou uma tela
+  reconectando **de três em três segundos indefinidamente**, que não conserta
+  nada, martela o AP da igreja e pisca a projeção na frente de quem assiste. A
+  partir da terceira recusa seguida — com "seguida" medido por **um trecho longo
+  decodificado sem falha** (~13 s), nunca pelo primeiro quadro — a escada de
+  reconexão volta a valer e a frase passa a nomear o estado: *esta tela não está
+  conseguindo decodificar o fluxo*, que é o que separa "mexer no roteador" de
+  "trocar a tela".
 - **Um BLOCO no Registro** (`#diagBox`, com o botão de copiar de sempre) traz o
   veredito da **sonda de readback** com os RGB medidos, o estado do servidor, a
   tela virtual, o encoder, o **ritmo** e as telas conectadas. Duas linhas de lá
@@ -2043,7 +2062,7 @@ aparelho nenhum.
 O `versionCode`/`versionName` do APK vêm do CI (ver "Build") e não se tocam à
 mão.
 
-**Versão atual: v5.146** (base web) · `SHELL_VERSION` **33**, e o bundle segue com
+**Versão atual: v5.147** (base web) · `SHELL_VERSION` **33**, e o bundle segue com
 `minShell: 2` — ele funciona igual num shell antigo, só sem os recursos que são
 nativos por construção (a escada do voltar, os botões de volume, a notificação de
 controles), que **só chegam instalando o APK novo**, não pelo OTA.
