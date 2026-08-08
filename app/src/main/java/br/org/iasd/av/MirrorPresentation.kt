@@ -9,6 +9,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.webkit.WebView
 import android.widget.FrameLayout
+import androidx.webkit.WebViewAssetLoader
 
 /**
  * O ESPELHO — uma segunda `Presentation`, na tela virtual privada que este app
@@ -139,7 +140,22 @@ class MirrorPresentation(
      */
     private fun buildWebView(root: FrameLayout) {
         if (released) return
-        val loader = WebViewFactory.assetLoader(context, withSaf = false)
+        // O loader da SONDA tem um handler a mais, e só ela o tem: o
+        // `sonda.mp4` é gerado no aparelho e vive no cache, fora do alcance de
+        // qualquer `PathHandler` do bundle (ver [SondaPathHandler]). O espelho
+        // de produção e o telão seguem com o loader de sempre — superfície nova
+        // em código que roda em culto se paga com necessidade, e aqui a
+        // necessidade é do instrumento.
+        val loader = if (noBarramento) {
+            WebViewFactory.assetLoader(context, withSaf = false)
+        } else {
+            WebViewAssetLoader.Builder()
+                // Antes do handler da raiz, senão ele engole tudo — a mesma
+                // regra de ordem do `/saf/`.
+                .addPathHandler("/web/espelho/", SondaPathHandler(context))
+                .addPathHandler("/", WebPathHandler(context.applicationContext))
+                .build()
+        }
         val w = WebViewFactory.create(context, loader, keepVisible = true) {
             web = null
             root.post { buildWebView(root) }
