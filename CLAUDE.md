@@ -1191,6 +1191,8 @@ contextos.
 | Onde o share ATERRISSA | idem ao nativo (o caminho é o mesmo `importShare`) | **`focarImportado`** (v5.77): fecha os popups abertos e a seleção, e então **projeta na hora** no simplificado ou **vai para o Cronograma** no avançado — e no simplificado o item NÃO entra em lista visível nenhuma (v5.89: vai para a prateleira `avulsos`), porque aquela tela não tem Cronograma nem playlist. A preview em tela cheia só é encerrada se houver telão — sem ele, ela É a projeção |
 | Estado do telão (rodapé de Configurações) | atalho `window.open('../display/')`, útil só para desenvolver | **indicador ao vivo** (desabilitado como botão) — a Presentation é criada sozinha |
 | Botão de cast da preview | oculto | `AVNative.openCast()` → seletor de **espelhamento de tela** (ver abaixo) |
+| Retomada do telão ao RECONECTAR | idem (o caminho é o mesmo `resendSceneToDisplay`) | **só reenvia o que ESTAVA no ar** (v5.142). `currentId` sobrevive de propósito ao stop e ao fim natural — é o que permite repetir a faixa com o ▶ —, e reenviar por ele fazia o telão acordar com um vídeo engatilhado que ninguém pediu (o retângulo cinza com o play) ou ressuscitar a música que já tinha acabado. Quem responde a pergunta certa é `midiaNoAr`; um telão vazio também é um estado, e restaurá-lo é não mandar nada |
+| Girar a mídia | idem (o comando é o mesmo `rotate`) | **novo na v5.142**: vídeo gravado de lado chega DEITADO no telão e não havia o que fazer. Um botão em Configurações avança 90° por toque; o motor TROCA O EIXO da caixa antes de girar, para o `object-fit` fazer a conta no retângulo em que a mídia vai de fato aparecer. Tomou o lugar do "Esticar", que distorcia a proporção — o defeito que "Ajustar" e "Preencher" existem para evitar |
 | Botão da mesa de som (som da preview) | mesma regra: some com a janela do Display aberta | **oculto com telão conectado** (v5.141). Os dois WebViews dividem o processo e a saída de áudio do Android: ligar o som da preview com o telão projetando faz o `<video>` do Controle tomar o foco de áudio e INTERROMPER o player do telão, no meio do louvor. O modo existe para quando o celular É a caixa de som — o caso sem telão, por definição. Conectar a tela com o som já ligado DESLIGA o modo, em vez de deixar o estado proibido sem controle na tela |
 | PDF, PowerPoint, Google Apresentações | **PDF não existe** (não há quem o desenhe); o `.pptx` funciona, e é o MESMO caminho do app | **viram UMA IMAGEM POR PÁGINA**, cada formato pelo caminho que existe para ele: o **PDF** pelo `PdfRenderer` da PLATAFORMA (`SlideDeck.kt` + `AVNative.deckPages`) — fidelidade total, zero dependência; o **`.pptx`** pelo renderizador de OOXML em `assets/web/vendor/` (`pptxParaPaginas`, em `controle.js`), carregado por `import()` dinâmico e rasterizado com `<foreignObject>` + canvas. Daí para a frente é mídia comum: fade, cortina, telão e `MediaSession` que já existem, com ⏮/⏭ passando página. **Não há botão de "apresentação"**: uma apresentação é um arquivo como outro qualquer, e entra pelo mesmo "Importar arquivos" (que no app abre o seletor do SISTEMA, `pickDoc` — o `<input type="file">` devolve bytes, e o PDF precisa que o shell abra o ARQUIVO) ou pelo compartilhamento. O `.ppt` anterior a 2007 e o `.odp` ficam de fora: ninguém sabe desenhá-los, e aceitar para depois falhar é pior que não aceitar. O link do Google entra sozinho pela URL de exportação |
 | **Tocar agora** de um vídeo do YouTube | player embutido (IFrame API) | **TRANSMISSÃO DIRETA** (v5.120/shell 26; **funcionando só do shell 27 em diante**): o shell monta o manifesto das duas faixas adaptativas (`ytStream`), o `StreamProxy` as serve pelo NOSSO origin com o UA que combina com a URL, e o `MediaSource` de `shared/mse.js` as vira um `<video>` COMUM — fade, cortina, `MediaSession`, barra e segundo plano de graça, **e zero pixel de YouTube no telão**. Sem esperar o download. A faixa de bytes viaja na QUERY (`?r=<ini>-<fim>`), nunca no cabeçalho `Range` — ver a invariante 8, que é a razão de o recurso ter passado três versões sem tocar um único vídeo. Só em "Tocar agora": as outras três ações GUARDAM o item, e um manifesto expira em horas. Falhando qualquer coisa (shell < 27, vídeo sem par adaptativo, WebView sem o codec) cai no download, calado — o operador pediu o louvor, não o método |
@@ -1472,7 +1474,7 @@ produziria exatamente o mesmo estado, por isso a fila espera.
 todo `.js` de `assets/web`, uma validação de `version.json`, os testes de
 `tools/` — o parser `sidx`, o **oráculo do contrato de `shouldInterceptRequest`**
 (`webview-range.test.mjs`, que trava a invariante 8: Node puro, determinístico,
-sem `continue-on-error`) e oito testes **em Chromium de verdade**, todos em
+sem `continue-on-error`) e nove testes **em Chromium de verdade**, todos em
 `continue-on-error`: a **fumaça** que sobe a base web e usa a tela
 (`smoke.mjs`), as **mensagens de falha** da transmissão direta
 (`mse.test.mjs`), a **transição de entrada do palco** (`stage-fade.test.mjs`),
@@ -1491,7 +1493,11 @@ também o endereçamento do reenvio de cena) e **os DESTINOS das folhas de
 escolha** (`destinos.test.mjs`, v5.141 — o que está marcado tem de atravessar o
 fechamento da folha: a ação roda depois de `closeSongMenu()`, que zera o
 conjunto, e uma leitura tarde demais mandaria o item para UM destino em vez de
-dois, sem erro nenhum).
+dois, sem erro nenhum) e **A CENA** (`cena.test.mjs`, v5.142 — o que o telão
+mostra ao RECONECTAR. `currentId` sobrevive de propósito ao stop e ao fim
+natural, então reenviar a cena por ele fazia o telão acordar tocando o que o
+operador tinha parado; e a reconexão do dongle é o caminho menos testável à mão,
+porque exige TV, dongle e o timing de derrubá-lo).
 Eles existem porque `node --check` prova que o arquivo é
 PARSEÁVEL, não que o app funciona — a v5.121 saiu com um botão chamando uma
 função apagada, sintaxe perfeita e CI verde. O canal OTA publica
@@ -1684,7 +1690,7 @@ aparelho nenhum.
 O `versionCode`/`versionName` do APK vêm do CI (ver "Build") e não se tocam à
 mão.
 
-**Versão atual: v5.141** (base web) · `SHELL_VERSION` **31**, e o bundle segue com
+**Versão atual: v5.142** (base web) · `SHELL_VERSION` **31**, e o bundle segue com
 `minShell: 2` — ele funciona igual num shell antigo, só sem os recursos que são
 nativos por construção (a escada do voltar, os botões de volume, a notificação de
 controles), que **só chegam instalando o APK novo**, não pelo OTA.

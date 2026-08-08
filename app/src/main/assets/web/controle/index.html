@@ -121,9 +121,18 @@
            neste modo não se arrasta nada (o volume também virou tecla); quem
            precisa saltar no tempo usa o modo avançado. Some quando o que está
            em cena não tem duração (imagem, texto). -->
+      <!-- A BARRA VIROU INTERATIVA na v5.142 (o comentário acima dizia que
+           "neste modo não se arrasta nada" — e mandava usar o modo avançado para
+           saltar no tempo, que é sair do modo justamente para fazer a coisa mais
+           comum durante um louvor). Tocar salta para o ponto; arrastar procura.
+           O alvo de toque é a FAIXA inteira (`.simple-time-hit`, com folga em
+           cima e embaixo), não o traço de 4px — ver `.simple-time-bar`. -->
       <div class="simple-time" id="simpleTime" hidden>
         <span class="simple-time-num" id="simpleTimeCur">0:00</span>
-        <div class="simple-time-bar"><div class="simple-time-fill" id="simpleTimeFill"></div></div>
+        <div class="simple-time-hit" id="simpleTimeHit" role="slider" tabindex="0"
+             aria-label="Posição da mídia" aria-valuemin="0" aria-valuenow="0">
+          <div class="simple-time-bar"><div class="simple-time-fill" id="simpleTimeFill"></div></div>
+        </div>
         <span class="simple-time-num" id="simpleTimeDur">0:00</span>
       </div>
       <div class="simple-lyrics" id="simpleLyrics"></div>
@@ -625,13 +634,34 @@
              no canto inferior esquerdo da preview. É a única preferência desta
              lista que se mexe DURANTE o culto, e o lugar de decidir se há som
              no celular é olhando para a preview, não dentro de um popup.) -->
+        <!-- "ESTICAR" SAIU na v5.142. Ele distorcia a proporção, e distorção não
+             é uma escolha de exibição: é o defeito que as outras duas existem
+             para evitar — "Ajustar" mostra tudo com barras, "Preencher" corta o
+             excesso, e entre as duas não sobra caso para uma terceira que
+             deforma o rosto de quem está no vídeo. Nenhum operador escolhe
+             isso de propósito; escolhia por engano, e o telão inteiro pagava. -->
         <div class="fade-row fade-row--fit">
           <span>Preenchimento da mídia</span>
           <div class="fit-seg" id="fitSeg">
             <button type="button" class="fit-opt" data-fit="contain">Ajustar</button>
             <button type="button" class="fit-opt" data-fit="cover">Preencher</button>
-            <button type="button" class="fit-opt" data-fit="fill">Esticar</button>
           </div>
+        </div>
+        <!-- GIRAR (v5.142): o lugar que o "Esticar" deixou, e por um motivo que
+             o esticar nunca teve — vídeo gravado de lado no celular chega
+             deitado no telão, e até aqui não havia nada a fazer sobre isso.
+             Um botão que AVANÇA 90° por toque, e não quatro segmentos: o
+             operador não pensa em "270°", pensa em "gira mais uma vez até
+             ficar de pé". O rótulo mostra o ângulo vigente, para o estado ser
+             legível sem contar toques. -->
+        <div class="fade-row fade-row--fit">
+          <span>Girar a mídia</span>
+          <button type="button" class="fit-opt fit-opt--rot" id="rotBtn" title="Girar 90° no telão">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M4 12a8 8 0 1 1 2.3 5.6"/><polyline points="4 7 4 12 9 12"/>
+            </svg>
+            <span id="rotLabel">0°</span>
+          </button>
         </div>
         <!-- Imagens dos slides da música: cada estrofe do hino traz uma imagem
              de fundo baixada com ele. Removê-las deixa a letra sobre preto —
@@ -699,7 +729,7 @@
              METADADO de diagnóstico e o lugar onde se procura diagnóstico é
              junto do estado do telão e do alvo de espelhamento, não numa faixa
              de navegação. Preenchido por `renderVersionLabel`. -->
-        <span id="appVersion" class="app-version">Controle v5.141</span>
+        <span id="appVersion" class="app-version">Controle v5.142</span>
       </div>
     </div>
   </div>

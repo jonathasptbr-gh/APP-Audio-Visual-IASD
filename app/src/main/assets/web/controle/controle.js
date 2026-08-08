@@ -44,6 +44,7 @@ const simpleTimeEl = document.getElementById('simpleTime');
 const simpleTimeCurEl = document.getElementById('simpleTimeCur');
 const simpleTimeDurEl = document.getElementById('simpleTimeDur');
 const simpleTimeFillEl = document.getElementById('simpleTimeFill');
+const simpleTimeHitEl = document.getElementById('simpleTimeHit');
 const simpleVolWrapEl = document.getElementById('simpleVolWrap');
 const simpleVolUpEl = document.getElementById('simpleVolUp');
 const simpleVolDownEl = document.getElementById('simpleVolDown');
@@ -162,7 +163,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.141';
+const WEB_VERSION = '5.142';
 
 // Escrita UMA vez, na carga: o indicador mora no rodapé de Configurações desde
 // a v5.49 e não depende mais de qual aba está aberta (no cabeçalho ele
@@ -238,6 +239,8 @@ const libSearchEl = document.getElementById('libSearch');
 const fadePopupEl = document.getElementById('fadePopup');
 const fadePopupCloseEl = document.getElementById('fadePopupClose');
 const fitSegEl = document.getElementById('fitSeg');
+const rotBtnEl = document.getElementById('rotBtn');
+const rotLabelEl = document.getElementById('rotLabel');
 const lyricsBgSegEl = document.getElementById('lyricsBgSeg');
 const wallFileEl = document.getElementById('wallFile');
 const wallPickEl = document.getElementById('wallPick');
@@ -984,6 +987,30 @@ let mediaFit = 'contain'; // preenchimento da mídia (persistido em state 'fit')
 // (preview muda), evitando som inesperado saindo do celular numa sessão nova.
 let standalone = false;
 let ytEnded = false;       // YouTube terminou/parou sem player tocando: ▶ recarrega
+// HÁ MÍDIA EM CENA NO TELÃO? (v5.142)
+//
+// Não é "existe uma mídia selecionada" — isso é o `currentId`, que sobrevive de
+// propósito ao stop e ao fim natural, para o ▶ poder repetir a faixa. É "o telão
+// está mostrando esta mídia agora", e as duas coisas divergem em exatamente dois
+// pontos: `stopClear` (o operador cobriu o telão) e `resetAfterEnd` (a música
+// acabou e nada a seguiu). Nos dois o telão voltou ao wallpaper e o `currentId`
+// ficou onde estava.
+//
+// Faltava uma resposta para essa pergunta, e três defeitos saíram daí:
+//
+//  1. A RECONEXÃO DO TELÃO reenviava `load` para uma mídia parada, e o telão
+//     acordava com um vídeo engatilhado que ninguém pediu — o retângulo cinza
+//     com o play, ou o primeiro quadro da música que já tinha acabado.
+//  2. O MESMO no fim de cada música: o item continua selecionado, então todo
+//     dongle que caísse e voltasse ressuscitava a faixa anterior.
+//  3. O ▶ DEPOIS DO STOP decidia por `preview.getCurrent()`, que só fica nulo no
+//     FIM do fade de saída do `clearFaded` — meio segundo depois. Tocar play
+//     nessa janela mandava um `play` que o `clear` em curso apagava logo em
+//     seguida: o botão não fazia nada, e o operador aprendeu a tocar em stop
+//     duas vezes para "destravar". Era o fade, não o stop.
+//
+// Uma variável, três defeitos: o estado que faltava era esse.
+let midiaNoAr = false;
 let displayAudioBlocked = false; // Display reportou áudio bloqueado pelo navegador
 const scrollPos = {};      // posição de scroll por aba/pasta (sessão)
 
@@ -1966,6 +1993,7 @@ async function load() {
   const chronoPrefsV = (await AVDB.getState('chronoPrefs')) || null;
   const drawPrefsV = (await AVDB.getState('drawPrefs')) || null;
   const storedFit = await AVDB.getState('fit');
+  const storedRot = await AVDB.getState('rotate');
   const lyricsBgV = (await AVDB.getState('lyricsBg')) === 'image' ? 'image' : 'black';
   const downloadOkV = !!(await AVDB.getState('downloadOk'));
   let libItemsV;
@@ -2008,7 +2036,13 @@ async function load() {
   messages = messagesV;
   applyChronoPrefs(chronoPrefsV);
   applyDrawPrefs(drawPrefsV);
-  if (storedFit) mediaFit = storedFit;
+  // "Esticar" SAIU da UI na v5.142 e o valor guardado é MIGRADO aqui, uma vez.
+  // Sem a migração, quem já o tinha escolhido continuaria com a mídia distorcida
+  // no telão e sem nenhum botão na tela que explicasse por quê — o pior estado
+  // possível: o defeito permanece e o controle dele some.
+  if (storedFit === 'fill') { mediaFit = 'contain'; AVDB.setState('fit', mediaFit); }
+  else if (storedFit) mediaFit = storedFit;
+  mediaRot = ROTACOES.includes(storedRot | 0) ? (storedRot | 0) : 0;
   lyricsBg = lyricsBgV;
   downloadConsent = downloadOkV;
   libItems = libItemsV;
@@ -2034,6 +2068,8 @@ async function load() {
   preview.setMute(muted); preview.setVolume(volume);
   preview.setFade({ fadeIn: fadeCfg.in, fadeOut: fadeCfg.out, time: fadeCfg.time });
   preview.setFit(mediaFit);
+  preview.setRotate(mediaRot);
+  renderRotBtn();
 
   // restaura a posição de scroll da aba/pasta atual
   listHost().scrollTop = scrollPos[scrollKey()] || 0;
@@ -3957,7 +3993,18 @@ function micErrorText(err) {
   }
   if (err === 'NotFoundError') return 'Nenhum microfone encontrado neste aparelho.';
   if (err === 'unsupported') return 'Este aparelho não expõe captura de áudio ao app.';
-  if (err === 'NotReadableError') return 'O microfone está em uso por outro app.';
+  // "EM USO POR OUTRO APP" SAIU (v5.142) — a frase nomeava uma causa e quase
+  // sempre a errada. `NotReadableError` é o "não consegui abrir o dispositivo"
+  // genérico do WebRTC, e no Android a causa comum aqui não é outro app: é o
+  // sistema recusando a sessão de VOZ que o cancelamento de eco pede enquanto o
+  // áudio está indo para outro lugar (o telão). O app agora tenta de novo sem o
+  // processamento antes de desistir (ver `startMic`), então chegar até esta
+  // mensagem já significa que as três tentativas falharam — e aí a única coisa
+  // honesta a dizer é o que de fato costuma destravar.
+  if (err === 'NotReadableError') {
+    return 'O Android não liberou o microfone. Costuma ser uma chamada, um gravador '
+      + 'aberto em outro app ou o assistente de voz — feche-os e tente de novo.';
+  }
   return 'Não foi possível abrir o microfone (' + err + ').';
 }
 
@@ -6410,6 +6457,9 @@ async function send(id) {
   // no meio do deck anterior seria um slide aleatório no telão.
   deckPagina = 0;
   cmd({ type: 'load', mediaId: id, view, muted, volume, page: 0 });
+  // A partir daqui há mídia no telão — é o que a reconexão precisa reenviar e o
+  // que o ▶ pode retomar em vez de recarregar (ver `midiaNoAr`).
+  midiaNoAr = true;
   // re-render leve de estados ativos
   document.querySelectorAll('.lib-item,.row-item').forEach((el) => el.classList.toggle('active', el.dataset.id === id));
   renderNowPlaying();
@@ -6722,10 +6772,31 @@ function lvBuildSong(el, cur) {
         aux.textContent = slide.auxText;
         row.appendChild(aux);
       }
-      const txt = document.createElement('div');
-      txt.className = 'lv-text';
-      txt.textContent = slide.text || '';
-      row.appendChild(txt);
+      // A DIVISÃO DENTRO DO SLIDE (v5.142).
+      //
+      // Um slide da API pode trazer mais de uma estrofe, separadas por uma
+      // LINHA EM BRANCO (`<br><br>` na origem, que o `normalizeLyricText`
+      // converte em `\n\n`). O visualizador desenhava tudo num nó só com
+      // `white-space: pre-line` — e é aí que a divisão se perdia: `pre-line`
+      // COLAPSA sequências de espaço em branco, então `\n\n` vira UMA quebra
+      // simples e as duas estrofes encostam uma na outra como se fossem um
+      // bloco só. Era literalmente o relato: "alguns hinos não estão dividindo,
+      // mesmo na realidade tendo divisões".
+      //
+      // Cada bloco vira um parágrafo próprio. A LINHA continua sendo UMA (o
+      // mesmo `data-i`, o mesmo destaque, a mesma posição no tempo): o que se
+      // divide é a apresentação do texto, não a unidade de projeção — dividir a
+      // unidade quebraria o realce da estrofe em cena e o ⏮/⏭.
+      String(slide.text || '')
+        .split(/\n[ \t]*\n+/)
+        .map((b) => b.trim())
+        .filter(Boolean)
+        .forEach((bloco) => {
+          const txt = document.createElement('div');
+          txt.className = 'lv-text';
+          txt.textContent = bloco;
+          row.appendChild(txt);
+        });
     }
     if (i === cur) row.classList.add('current');
     el.appendChild(row);
@@ -6835,6 +6906,12 @@ function lvScroll(el, follow, smooth) {
 function resetAfterEnd() {
   // stage.js já voltou ao wallpaper internamente (ended flag);
   // apenas atualiza a UI sem limpar currentId (replay possível com play)
+  //
+  // E o telão está no wallpaper: o item continua SELECIONADO (é o que permite
+  // repetir com o ▶), mas não está mais EM CENA. Sem esta linha, todo dongle
+  // que caísse depois do fim de um louvor trazia a faixa de volta à TV — que é
+  // o "ele tenta exibir a primeira tela/thumbnail" do relato.
+  midiaNoAr = false;
   setPlaying(false);
   seekEl.value = 0;
   curTimeEl.textContent = '0:00';
@@ -6904,6 +6981,10 @@ async function stopClear() {
   pausaEm = Date.now();
   cmd({ type: 'clear' });
   clearManualText();
+  // O TELÃO ESTÁ VAZIO A PARTIR DAQUI, e isso precisa ser dito ANTES do fade
+  // terminar: quem pergunta a `preview.getCurrent()` recebe "ainda tem mídia"
+  // durante todo o esmaecimento do `clearFaded` (ver `midiaNoAr`).
+  midiaNoAr = false;
   setPlaying(false);
   // YouTube: 'clear' derruba o player da preview (dropYtPreview via cmd) e o do
   // Display → o próximo ▶ precisa recarregar (send), não só reenviar 'play'.
@@ -10345,6 +10426,7 @@ function openFadePopup() {
   renderAppModeSeg();
   renderStandaloneSeg();
   renderFitSeg();
+  renderRotBtn();
   renderLyricsBgSeg();
   renderWallSeg();
   pedirDiag();
@@ -10587,6 +10669,37 @@ async function applyFit(mode) {
   renderFitSeg();
   await AVDB.setState('fit', mediaFit);
   cmd({ type: 'fit', fit: mediaFit });
+}
+
+// ===== GIRAR A MÍDIA (v5.142) =====
+//
+// Vídeo gravado de lado no celular chega DEITADO no telão. Não havia nada a
+// fazer: a mídia é do operador, reencodar no meio de um culto não existe, e
+// "grave de pé" não conserta um arquivo já pronto.
+//
+// UM BOTÃO QUE AVANÇA, não quatro segmentos. Ninguém pensa em "270°" — pensa em
+// "gira mais uma vez até ficar de pé", e são no máximo três toques até qualquer
+// orientação. O rótulo mostra o ângulo vigente para o estado ser legível sem
+// contar toques, e é ele que diz que o giro está ligado quando a mídia em cena
+// já está de pé por acaso.
+//
+// PERSISTIDO como o preenchimento (`state.rotate`), e pelo mesmo motivo: o
+// telão pode reconectar, o app pode ser reaberto no meio do culto, e voltar ao
+// zero sozinho seria desfazer um ajuste que ninguém pediu para desfazer.
+const ROTACOES = [0, 90, 180, 270];
+let mediaRot = 0;
+function renderRotBtn() {
+  if (!rotBtnEl) return;
+  rotBtnEl.classList.toggle('active', mediaRot !== 0);
+  if (rotLabelEl) rotLabelEl.textContent = mediaRot + '°';
+  rotBtnEl.title = mediaRot ? 'Girada ' + mediaRot + '° — tocar gira mais 90°' : 'Girar 90° no telão';
+}
+async function applyRotate(graus) {
+  mediaRot = ((graus | 0) % 360 + 360) % 360;
+  if (!ROTACOES.includes(mediaRot)) mediaRot = 0;
+  renderRotBtn();
+  await AVDB.setState('rotate', mediaRot);
+  cmd({ type: 'rotate', rotate: mediaRot });
 }
 
 // ===== URL / compartilhamento =====
@@ -12253,7 +12366,14 @@ playPauseEl.addEventListener('click', () => {
   if (playing) { cmd({ type: 'pause' }); }
   // YouTube sem player vivo no Display (fim natural ou stop manual) → recarrega
   else if (ytEnded && currentItem && currentItem.kind === 'youtube' && currentId) { send(currentId); }
-  else if (preview.getCurrent()) { cmd({ type: 'play' }); }
+  // RETOMAR só vale com a mídia AINDA EM CENA. `preview.getCurrent()` sozinho
+  // não respondia isso: depois de um stop ele continua devolvendo o registro
+  // durante todo o fade de saída do `clearFaded` (~0,6 s), e o `play` mandado
+  // nessa janela era apagado pelo `clear` que terminava logo atrás — o ▶ não
+  // fazia nada, e o operador aprendia a tocar em STOP DUAS VEZES para
+  // destravar. `midiaNoAr` cai no mesmo instante em que o stop é dado, então o
+  // primeiro toque no ▶ já cai no `send` e recarrega. (v5.142)
+  else if (midiaNoAr && preview.getCurrent()) { cmd({ type: 'play' }); }
   else if (currentId) { send(currentId); } // após stop: recarrega e inicia do início
 });
 stopEl.addEventListener('click', stopClear);
@@ -12500,6 +12620,10 @@ volSliderEl.addEventListener('change', () => { volSeekingEl = null; persistCurre
 // (`appMode` é declarado no TOPO do arquivo, junto de `storedAppMode`: a classe
 // do `<body>` precisa estar certa antes do primeiro quadro.)
 let lastDisplays = [];          // telas conectadas (ponte nativa)
+// Releitura da lista de telas, definida junto do bloco nativo (ver mais abaixo)
+// e chamada na retomada do app. No navegador continua no-op: lá quem responde
+// "há tela?" é a janela do Display, e ela é observada por um relógio próprio.
+let reconferirTelas = () => {};
 
 function setAppMode(mode) {
   appMode = mode === 'simple' ? 'simple' : 'full';
@@ -12560,10 +12684,92 @@ function renderSimpleTime() {
   const timed = !seekEl.disabled && dur > 0;
   simpleTimeEl.hidden = !timed;
   if (!timed) return;
+  // DURANTE O ARRASTE quem escreve a barra é o dedo (ver `setupSimpleSeek`).
+  // Sem esta guarda, o `timeupdate` da mídia — que continua tocando enquanto se
+  // procura o ponto — puxaria o preenchimento de volta a cada quadro e o dedo
+  // brigaria com ele. É a mesma regra do `volSeekingEl` no fader.
+  if (simpleSeeking) return;
   simpleTimeCurEl.textContent = fmtTime(cur);
   simpleTimeDurEl.textContent = fmtTime(dur);
   simpleTimeFillEl.style.width = Math.max(0, Math.min(100, (cur / dur) * 100)) + '%';
+  if (simpleTimeHitEl) {
+    simpleTimeHitEl.setAttribute('aria-valuemax', String(Math.round(dur)));
+    simpleTimeHitEl.setAttribute('aria-valuenow', String(Math.round(cur)));
+  }
 }
+
+// ===== A BARRA DE TEMPO DO SIMPLIFICADO É INTERATIVA (v5.142) =====
+//
+// Ela nasceu como indicador — "neste modo não se arrasta nada; quem precisa
+// saltar no tempo usa o modo avançado". Só que saltar no tempo é a coisa mais
+// comum que se faz durante um louvor (voltar o refrão, pular a introdução), e
+// mandar o operador SAIR do modo para fazê-la é o oposto do que o modo existe
+// para dar. As teclas grandes continuam sendo a regra; o que muda é que a barra
+// deixou de ser um enfeite.
+//
+// Tocar salta; arrastar procura, e o comando só sai ao SOLTAR — um `seek` por
+// quadro de movimento faria a mídia engasgar durante todo o gesto. O tempo
+// enquanto o dedo anda é escrito na tela pelo próprio gesto (`simpleSeeking`),
+// que é como o operador enxerga para onde está indo.
+let simpleSeeking = false;
+function setupSimpleSeek() {
+  if (!simpleTimeHitEl) return;
+  const dur = () => parseFloat(seekEl.max) || 0;
+  const posicao = (e) => {
+    const r = simpleTimeHitEl.getBoundingClientRect();
+    if (!r.width) return 0;
+    const f = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
+    return f * dur();
+  };
+  const pintar = (t) => {
+    const d = dur();
+    simpleTimeCurEl.textContent = fmtTime(t);
+    simpleTimeFillEl.style.width = (d > 0 ? Math.max(0, Math.min(100, (t / d) * 100)) : 0) + '%';
+  };
+  simpleTimeHitEl.addEventListener('pointerdown', (e) => {
+    if (seekEl.disabled || dur() <= 0) return;
+    simpleSeeking = true;
+    // `seeking` é o MESMO sinal que a barra do modo avançado arma: é ele que
+    // impede a sessão de mídia de republicar uma posição que ainda está sob o
+    // dedo (ver `pushNowPlaying`). Dois estados para a mesma coisa divergiriam.
+    seeking = true;
+    simpleTimeHitEl.classList.add('seeking');
+    try { simpleTimeHitEl.setPointerCapture(e.pointerId); } catch (_) {}
+    pintar(posicao(e));
+  });
+  simpleTimeHitEl.addEventListener('pointermove', (e) => {
+    if (!simpleSeeking) return;
+    pintar(posicao(e));
+  });
+  const soltar = (e) => {
+    if (!simpleSeeking) return;
+    simpleSeeking = false;
+    seeking = false;
+    simpleTimeHitEl.classList.remove('seeking');
+    try { simpleTimeHitEl.releasePointerCapture(e.pointerId); } catch (_) {}
+    const t = posicao(e);
+    // A barra do modo avançado é a fonte de verdade da posição em toda a tela
+    // (o `renderSimpleTime` a espelha, e `pushNowPlaying` a lê): escrevê-la aqui
+    // é o que mantém os dois modos contando a mesma coisa até o próximo pulso
+    // do `display-status` chegar.
+    seekEl.value = String(t);
+    curTimeEl.textContent = fmtTime(t);
+    cmd({ type: 'seek', time: t });
+    renderSimpleTime();
+  };
+  simpleTimeHitEl.addEventListener('pointerup', soltar);
+  simpleTimeHitEl.addEventListener('pointercancel', (e) => {
+    // Cancelado (o sistema tomou o gesto): NÃO salta. Um `seek` para onde o
+    // dedo por acaso estava quando a chamada entrou seria um salto que ninguém
+    // pediu; a barra volta sozinha ao valor real no próximo render.
+    simpleSeeking = false;
+    seeking = false;
+    simpleTimeHitEl.classList.remove('seeking');
+    try { simpleTimeHitEl.releasePointerCapture(e.pointerId); } catch (_) {}
+    renderSimpleTime();
+  });
+}
+setupSimpleSeek();
 
 // Volume em passos, como num controle remoto — o MESMO passo dos botões
 // físicos (VOL_KEY_STEP), para os dois caminhos não discordarem, e a mesma
@@ -12590,23 +12796,34 @@ function holdRepeat(btn, fn) {
 // sozinha quando há telão, então o cartão informa o que já está conectado — e
 // o toque abre o seletor de espelhamento. No navegador não há Presentation
 // nem seletor: o cartão vira o atalho para a tela do Display.
-function renderSimpleCast() {
-  if (appMode !== 'simple') return;
+// O ÍCONE DE CAST SOBRE A PREVIEW — e ele vale nos DOIS modos (v5.142).
+//
+// Esta função morava dentro de `renderSimpleCast`, que começa com
+// `if (appMode !== 'simple') return`. O efeito era duplo e o segundo é o do
+// relato: no modo avançado o ícone NUNCA era repintado, então o vermelho de
+// "conectado" que o simplificado deixou aceso ficava para sempre — o operador
+// trocava de modo, a tela caía, e o ícone seguia dizendo que havia telão. O
+// estado da tela não é uma decoração de um dos modos; é o mesmo fato nos dois.
+function renderCastBtn() {
   const tv = simpleDisplay();
-  // `.connected` é o verde de "há uma tela recebendo"; a liberação de teste
-  // NUNCA o veste (ver `castTestUnlocked`) — ela é aviso, não conexão.
-  simpleCastBtnEl.classList.toggle('connected', !!tv && !castTestUnlocked);
-  simpleCastBtnEl.classList.toggle('testing', castTestUnlocked);
-  // Conectado, o botão dá lugar à PREVIEW e quem carrega o estado é o ícone de
-  // cast no canto dela: verde = uma tela recebendo, âmbar de aviso = liberação
-  // de teste (que não é conexão nenhuma). O mesmo par de cores do botão que ele
-  // substitui — o sinal mudou de lugar, não de significado.
+  // `.connected` marca "há uma tela recebendo"; a liberação de teste NUNCA o
+  // veste (ver `castTestUnlocked`) — ela é aviso, não conexão.
   pvCastBtnEl.classList.toggle('connected', !!tv && !castTestUnlocked);
   pvCastBtnEl.classList.toggle('testing', castTestUnlocked);
   pvCastBtnEl.title = castTestUnlocked
     ? 'Liberação de teste ativa — toque para trancar'
     : (tv ? 'Conectado: ' + (tv.name || 'TV') + ' — toque para trocar ou desconectar'
           : 'Espelhar na TV');
+}
+
+function renderSimpleCast() {
+  renderCastBtn();
+  if (appMode !== 'simple') return;
+  const tv = simpleDisplay();
+  // `.connected` é o verde de "há uma tela recebendo"; a liberação de teste
+  // NUNCA o veste (ver `castTestUnlocked`) — ela é aviso, não conexão.
+  simpleCastBtnEl.classList.toggle('connected', !!tv && !castTestUnlocked);
+  simpleCastBtnEl.classList.toggle('testing', castTestUnlocked);
   // Sem tela, o botão é a tela inteira (ver o bloqueio abaixo) e precisa dizer
   // tudo sozinho: uma frase, no rótulo. Com tela conectada ele volta a ser um
   // cartão entre outros — o rótulo nomeia a ação e o subtítulo informa o
@@ -13316,6 +13533,8 @@ fitSegEl.addEventListener('click', (e) => {
   const btn = e.target.closest('.fit-opt');
   if (btn) applyFit(btn.dataset.fit);
 });
+// Girar: AVANÇA 90° por toque, dando a volta. Ver `applyRotate`.
+if (rotBtnEl) rotBtnEl.addEventListener('click', () => applyRotate(mediaRot + 90));
 // Wallpaper: escolher imagem / voltar ao padrão.
 wallFileEl.addEventListener('change', async () => {
   const file = (wallFileEl.files || [])[0];
@@ -13350,6 +13569,13 @@ if (window.__NATIVE__) {
   };
   AVNative.displays().then(renderDisplayStatus);
   AVNative.onDisplayChange(renderDisplayStatus);
+  // E RECONFERE AO VOLTAR PARA A FRENTE (v5.142). O aviso do shell é um evento,
+  // e um evento perdido não se recupera sozinho: a tela pode cair (ou voltar)
+  // com o app minimizado, e este WebView é estrangulado justamente aí. Uma
+  // leitura na retomada — a lista, não um evento — é o piso que fecha esse
+  // buraco, e é barata: uma consulta ao DisplayManager quando o operador pega o
+  // aparelho de volta.
+  reconferirTelas = () => { AVNative.displays().then(renderDisplayStatus); };
   // Para onde o botão de cast da preview abre neste aparelho. Espelhamento de
   // tela não é Google Cast, e o alvo muda por fabricante (Smart View na
   // Samsung, "Wireless display" no AOSP) sem API documentada — então o app
@@ -13490,6 +13716,13 @@ seekEl.addEventListener('pointerup', () => { seeking = false; });
 // sempre: um bundle velho no telão continua reconectando igual.
 function resendSceneToDisplay(para) {
   const enviar = (cmd) => AVDB.sendCommand(para ? Object.assign({ __para: para }, cmd) : cmd);
+  // O GIRO VIAJA PRIMEIRO, antes do `load` (v5.142). Ele é preferência de
+  // exibição, não conteúdo: o telão o lê do estado no arranque, mas entre o
+  // `display-ready` e essa leitura há uma janela — e um telão que reconecta no
+  // meio de um vídeo girado não pode mostrá-lo deitado nem por um quadro. Antes
+  // do `load` porque `applyMedia` repõe o giro ao revelar a mídia; depois dele
+  // seria um giro visível acontecendo na frente da congregação.
+  if (mediaRot) enviar({ type: 'rotate', rotate: mediaRot });
   // Reenvia SEMPRE que houver mídia carregada — não só a que está tocando.
   // A condição anterior (`playing || isImage`) deixava de fora justamente o
   // caso mais comum de uma queda de dongle: o louvor de fundo PAUSADO para a
@@ -13500,7 +13733,14 @@ function resendSceneToDisplay(para) {
   // abaixo (é uma sessão, como um versículo escolhido pela aba da Bíblia) — dar
   // `load` no id dela mandaria o telão carregar uma mídia sem bytes e apagaria
   // a projeção justamente na reconexão que este código existe para consertar.
-  if (currentId && !isCue(currentItem)) {
+  //
+  // `midiaNoAr` (v5.142) É A PERGUNTA CERTA, e `currentId` sozinho era a errada.
+  // Ele sobrevive de propósito ao stop e ao fim natural — é o que permite repetir
+  // a faixa com o ▶ —, então reenviar por ele fazia o telão ACORDAR TOCANDO algo
+  // que o operador tinha parado, ou ressuscitar a música que acabou. Esta função
+  // restaura o que ESTAVA no ar; um telão vazio também é um estado, e restaurá-lo
+  // é não mandar nada.
+  if (midiaNoAr && currentId && !isCue(currentItem)) {
     // E leva a POSIÇÃO. Sem ela o telão recarregava a mídia do ZERO: um hino
     // aos 3:20 recomeçava do início na frente da congregação. Pior, o
     // `display-status` seguinte chegava com `currentTime` 0 e arrastava a
@@ -13654,6 +13894,11 @@ document.addEventListener('visibilitychange', () => {
     return;
   }
   autoRefreshCollections();
+  // A tela pode ter caído (ou voltado) com o app minimizado — e é exatamente aí
+  // que este WebView está estrangulado e pode perder o aviso do shell. Reler a
+  // lista ao voltar para a frente é o piso que impede o ícone de cast de ficar
+  // aceso sobre uma TV que não está mais lá (v5.142).
+  reconferirTelas();
 });
 
 (async function init() {

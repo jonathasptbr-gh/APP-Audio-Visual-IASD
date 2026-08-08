@@ -165,6 +165,11 @@ jobs:
           # devolveria só a linha tocada — o item iria para um destino em vez de
           # dois, sem erro nenhum. Mesma classe de falha muda do `slideLabel`.
           PW_CHROMIUM="" node tools/destinos.test.mjs
+          # E A CENA: o que o telão mostra ao RECONECTAR, o que o operador
+          # ajusta nela (girar, preencher) e o que ele lê sobre ela. A reconexão
+          # do dongle é o caminho menos testável à mão — exige TV, dongle e o
+          # timing de derrubá-lo — e roda sozinho na frente da congregação.
+          PW_CHROMIUM="" node tools/cena.test.mjs
 
       - name: Empacotar a base web
         run: |
