@@ -162,7 +162,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.139';
+const WEB_VERSION = '5.140';
 
 // Escrita UMA vez, na carga: o indicador mora no rodapé de Configurações desde
 // a v5.49 e não depende mais de qual aba está aberta (no cabeçalho ele
@@ -13018,7 +13018,18 @@ seekEl.addEventListener('pointerup', () => { seeking = false; });
 // Ordem importa: a mídia primeiro, o texto depois. No Display um `load` visual
 // encerra a Camada de Texto e um `load` de áudio a mantém — mandar o texto por
 // último faz as duas combinações caírem no estado certo.
-function resendSceneToDisplay() {
+//
+// `para` é o ENDEREÇO de quem pediu, e ele existe porque o barramento é um
+// broadcast: até a v5.139 esta função era chamada sem destinatário e reenviava
+// a cena para TODO MUNDO. Com um telão de verdade no ar, qualquer segunda
+// instância de `/display/` que abrisse, recarregasse ou fosse restaurada pelo
+// navegador fazia a TV rodar um `load` inteiro — fade de saída, releitura da
+// mídia, re-seek, fade de entrada — na frente da congregação, por um evento
+// que não tinha nada a ver com ela. Endereçado, o reenvio vai só para quem se
+// anunciou. `undefined` (telão antigo, sem `__de`) mantém o broadcast de
+// sempre: um bundle velho no telão continua reconectando igual.
+function resendSceneToDisplay(para) {
+  const enviar = (cmd) => AVDB.sendCommand(para ? Object.assign({ __para: para }, cmd) : cmd);
   // Reenvia SEMPRE que houver mídia carregada — não só a que está tocando.
   // A condição anterior (`playing || isImage`) deixava de fora justamente o
   // caso mais comum de uma queda de dongle: o louvor de fundo PAUSADO para a
@@ -13042,7 +13053,7 @@ function resendSceneToDisplay() {
     // A apresentação volta na PÁGINA em que estava, pelo mesmo motivo do
     // tempo: um telão que reconecta no meio da pregação não pode voltar ao
     // primeiro slide na frente de todo mundo.
-    AVDB.sendCommand({
+    enviar({
       type: 'load', mediaId: currentId, view, muted, volume, time: t, playing,
       page: isDeck(currentItem) ? deckPagina : 0,
     });
@@ -13054,20 +13065,20 @@ function resendSceneToDisplay() {
     // O telão que reconecta no MEIO do rolo entra no mesmo quadro dos demais: o
     // quadro é função de `rollUntil` e do relógio, não de quantos ticks já
     // passaram por ali (ver drawReading).
-    AVDB.sendCommand({ type: 'text', mode: 'draw', draw: drawDescriptor(), sub: draw.label || '', view });
+    enviar({ type: 'text', mode: 'draw', draw: drawDescriptor(), sub: draw.label || '', view });
   } else if (chronoProjecting()) {
-    AVDB.sendCommand({ type: 'text', mode: 'chrono', chrono: chronoDescriptor(), sub: chrono.label || '', view });
+    enviar({ type: 'text', mode: 'chrono', chrono: chronoDescriptor(), sub: chrono.label || '', view });
   } else if (bibleSession && bibleSession.projecting) {
     const v = bibleSession.verses[bibleSession.idx];
     if (v) {
       const ref = bibleSession.bookName + ' ' + bibleSession.chapter + ':' + v.n;
-      AVDB.sendCommand({ type: 'text', mode: 'verse', main: v.text, sub: ref, view });
+      enviar({ type: 'text', mode: 'verse', main: v.text, sub: ref, view });
     }
   } else if (msgProjecting()) {
     const m = messages[msgSession.idx];
-    if (m) AVDB.sendCommand({ type: 'text', mode: 'message', main: m.text, sub: '', view });
+    if (m) enviar({ type: 'text', mode: 'message', main: m.text, sub: '', view });
   } else if (lyricProjecting()) {
-    AVDB.sendCommand({ type: 'text', mode: 'message', main: lyricSession.stanzas[lyricSession.idx], sub: '', view });
+    enviar({ type: 'text', mode: 'message', main: lyricSession.stanzas[lyricSession.idx], sub: '', view });
   }
 }
 
@@ -13085,7 +13096,10 @@ function resendSceneToDisplay() {
 // diferentes nos dois lados.
 AVDB.onCommand((msg) => {
   if (!msg) return;
-  if (msg.type === 'display-ready') { resendSceneToDisplay(); return; }
+  // Reenvia SÓ para quem se anunciou (ver `resendSceneToDisplay`). Um telão
+  // com bundle antigo não manda `__de`, e aí o reenvio volta a ser broadcast —
+  // exatamente o comportamento de antes desta versão.
+  if (msg.type === 'display-ready') { resendSceneToDisplay(msg.__de); return; }
   if (msg.type === 'diag-dump') {
     juntarDiag(Array.isArray(msg.linhas) ? msg.linhas : []);
     return;

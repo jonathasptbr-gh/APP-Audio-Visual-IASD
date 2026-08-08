@@ -151,6 +151,14 @@ jobs:
           # `slideLabel` (v5.97→v5.102) e `bytes`, que nunca chegou a viajar
           # desde a versão que o criou.
           PW_CHROMIUM="" node tools/ponte.test.mjs
+          # E O TELÃO, que até agora NENHUM teste tinha carregado. A fumaça
+          # acima abre o Controle; o `stage-fade` monta o palco à mão. A metade
+          # que roda na frente da congregação era a metade que a CI nunca
+          # executou — e é a que menos rede de segurança tem, porque o watchdog
+          # do OTA também não a valida (quem confirma o bundle é o Controle).
+          # Ele trava, de quebra, o endereçamento do reenvio de cena: sem ele,
+          # uma segunda instância do Display faz a TV recarregar a mídia.
+          PW_CHROMIUM="" node tools/display-smoke.mjs
 
       - name: Empacotar a base web
         run: |
