@@ -626,6 +626,15 @@ checar(true, 'aprovada, a MESMA página troca para o player (sem navegar)');
   checar(alives.some((a) => 'aviso' in a && 'som' in a && 'recomecos' in a),
     'com a frase da tela, o estado do som e os recomeços',
     JSON.stringify(alives[0]));
+
+  // O RAMO DO SOM VAI SEMPRE, com ou sem frase na tela. É ele que separa os
+  // sete desfechos possíveis entre "a tela pediu" e "a faixa nasceu" — e sem
+  // ele o Registro dizia só ONDE o defeito estava (deste lado), nunca QUAL era.
+  // Ir SEMPRE é o que torna a AUSÊNCIA do `diz:` no Registro uma leitura por si
+  // só: o canal de relato quebrou.
+  checar(alives.every((a) => /«som: /.test(a.aviso || '')),
+    'e TODO relato carrega o ramo do som («som: …»), mesmo sem frase na tela',
+    JSON.stringify(alives.map((a) => a.aviso).slice(0, 3)));
 }
 
 // ---------------------------------------------------------------------------

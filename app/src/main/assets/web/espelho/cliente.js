@@ -181,6 +181,24 @@
   let audioUltimoMs = 0;                  // e quando chegou o último quadro AAC
   let rebuilds = 0;
 
+  // POR QUE ESTA TELA ESTÁ MUDA — o ramo exato, em texto curto, e sempre.
+  //
+  // `som: PEDIDO e a faixa não nasceu` responde ONDE o defeito está (deste
+  // lado), e não QUAL é: entre o pedido e a faixa há sete desfechos possíveis —
+  // o `csd` de áudio não chegou, chegou ilegível, chegou tarde demais (com a
+  // `MediaSource` já aberta sem som), o navegador não decodifica aquele codec,
+  // o `addSourceBuffer` foi recusado, o vigia soltou a faixa, ou a tela
+  // reconectou reusando uma `MediaSource` muda. Cada um tem uma correção
+  // diferente, e adivinhar entre eles a partir de um `false` custou três
+  // rodadas.
+  //
+  // Ele viaja no MESMO campo `aviso` do relato (não num campo novo): o Kotlin
+  // já o sanea e já o mostra como `diz:`, então isto chega por OTA, sem APK. E
+  // ele é enviado SEMPRE, mesmo quando não há frase na tela — assim `diz:`
+  // deixa de ser opcional, e a AUSÊNCIA dele passa a significar "o canal de
+  // relato está quebrado", que é uma leitura que hoje não existe.
+  let porqueSemSom = 'não pedido';
+
   let modoImagem = false;
   let ctx2d = null;
   let ultimaChave = 0;
@@ -523,7 +541,32 @@
       // Reconexão: o `csd` chega de novo em toda conexão (§5.3). Reenviar o
       // segmento de inicialização é legal em MSE e é o que mantém a
       // `SourceBuffer` viva do outro lado de uma troca de encoder.
-      if (infoV.mime === mime) { enfileirar(infoV.bytes, false); return; }
+      if (infoV.mime === mime) {
+        // MAS UMA TELA QUE PEDIU SOM E NÃO TEM FAIXA NÃO PODE SEGUIR ASSIM.
+        // Reusar a `MediaSource` muda é condená-la a ficar muda pelo resto da
+        // sessão — o Chromium recusa `addSourceBuffer` depois da
+        // inicialização, então a faixa não pode ser acrescentada depois. E o
+        // pior: em silêncio. Foi este o caminho que produziu
+        // `som torneira:sim faixa:nao` em aparelho, com o servidor entregando
+        // AAC e a tela sem por onde recebê-lo.
+        //
+        // O teto de [REBUILDS_AUDIO] é o mesmo do gesto, e pelo mesmo motivo:
+        // a projeção nunca pisca mais que isso por causa do som.
+        if (audioQuerido && !sbA && !modoImagem) {
+          if (rebuilds < REBUILDS_AUDIO) {
+            rebuilds++;
+            porqueSemSom = 'remontando na reconexão (' + rebuilds + '/' + REBUILDS_AUDIO + ')';
+            recomecar('Ligando o som', true);
+            return;
+          }
+          // Teto batido: a tela segue muda, e agora DIZ isso. Um silêncio que
+          // se explica é um estado; um silêncio mudo é um defeito escondido.
+          porqueSemSom = 'teto de remontagens batido — segue muda';
+          semSom('Esta tela ficou sem som e não vai voltar nesta sessão.');
+        }
+        enfileirar(infoV.bytes, false);
+        return;
+      }
       // Mime diferente é resolução/perfil trocados — proibido durante a sessão
       // (§3.2, invariante 3). Se acontecer, recomeçar é a única saída honesta.
       recomecar('o formato do vídeo mudou');
@@ -545,6 +588,7 @@
     // levaria a imagem junto.
     let som = infoA;
     if (som && !suporta(som.mime)) {
+      porqueSemSom = 'o navegador não decodifica ' + som.codec;
       semSom('Esta tela fica sem som: o navegador não decodifica ' + som.codec + '.');
       som = null;
     }
@@ -570,12 +614,14 @@
           sbA = prepararBuffer(som.mime, true);
           audioDesde = Date.now();
           audioUltimoMs = 0;
+          porqueSemSom = 'faixa aberta, esperando o primeiro AAC';
         } catch (e) {
           // O SOM CAI SOZINHO, e a imagem segue. É a falha segura inteira numa
           // linha: nada aqui derruba a `MediaSource` que já tem vídeo.
           sbA = null;
           mimeA = '';
           som = null;
+          porqueSemSom = 'o navegador recusou a faixa (' + ((e && e.name) || '?') + ')';
           semSom('Esta tela ficou sem som (' + ((e && e.name) || '?') + ').');
         }
       }
@@ -817,6 +863,7 @@
     for (let i = fila.length - 1; i >= 0; i--) if (fila[i].a) fila.splice(i, 1);
     if (emVoo && emVoo.a) emVoo = null;
     if (muxer) muxer.descartarAudio();
+    porqueSemSom = 'faixa solta: ' + porque;
     try { ms.removeSourceBuffer(morto); } catch (_) { /* já saiu com a MediaSource */ }
     semSom('Esta tela ficou sem som (' + porque + ') — a imagem continua.');
     aplicar();
@@ -955,10 +1002,16 @@
   const AVISO_MAX = 110;
 
   function corpoDoAlive() {
+    // O RAMO DO SOM VAI SEMPRE, e vem primeiro quando não há frase na tela: ele
+    // é o dado que decide, e a frase é o contexto. Os dois no mesmo campo
+    // porque o Kotlin já o saneia e já o mostra (`diz:`) — um campo novo
+    // exigiria APK, e isto precisa chegar por OTA.
+    const tela = (el.aviso ? el.aviso.textContent || '' : '').trim();
+    const nota = '«som: ' + porqueSemSom + '»';
     return {
       do: 'alive',
       telaAcesaMin: minutosAcesa(),
-      aviso: (el.aviso ? el.aviso.textContent || '' : '').slice(0, AVISO_MAX),
+      aviso: (tela ? nota + ' ' + tela : nota).slice(0, AVISO_MAX),
       som: !!sbA,
       recomecos: conta.recomecos,
     };
@@ -978,7 +1031,8 @@
 
   function relatar() {
     if (!vivo || !token) return;
-    const chave = (el.aviso ? el.aviso.textContent || '' : '') + '|' + (sbA ? '1' : '0');
+    const chave = (el.aviso ? el.aviso.textContent || '' : '')
+      + '|' + (sbA ? '1' : '0') + '|' + porqueSemSom;
     if (chave === ultimoRelato) return;
     ultimoRelato = chave;
     postar('/r', corpoDoAlive(), true).catch(() => {});
@@ -1056,6 +1110,7 @@
           // O som não veio: o grafo do celular não subiu (§3.9 — o handshake
           // que libera o `forceMuted` nunca chegou). Abre-se só com imagem, e
           // se diz isso: mudo é um estado, não um defeito escondido.
+          porqueSemSom = 'o csd de áudio não chegou em ' + ESPERA_CSD_AUDIO_MS + ' ms';
           semSom('Esta tela está sem som — o celular não está enviando áudio.');
           abrirMidia(retido, null);
         }, ESPERA_CSD_AUDIO_MS);
@@ -1103,7 +1158,11 @@
       const infoA = muxer.csdAudio(carga);
       // ASC ilegível: MUDO, e a imagem intacta. É a metade do cliente da falha
       // segura do §3.9 — nunca áudio pela metade.
-      if (!infoA) { semSom('Esta tela fica sem som: o sinal veio sem os parâmetros do áudio.'); return; }
+      if (!infoA) {
+        porqueSemSom = 'csd de áudio ilegível';
+        semSom('Esta tela fica sem som: o sinal veio sem os parâmetros do áudio.');
+        return;
+      }
       if (esperaAudio) {
         // O par completo: as duas faixas nascem agora, juntas.
         clearTimeout(esperaAudio);
@@ -1116,6 +1175,7 @@
       // Reconexão com a faixa já de pé: reenviar o segmento de inicialização é
       // legal em MSE e é o que a mantém viva do outro lado da queda.
       if (sbA && infoA.mime === mimeA) { enfileirar(infoA.bytes, true); return; }
+      porqueSemSom = 'csd chegou tarde (MediaSource já aberta sem som)';
       // E o `csd` que chega com a `MediaSource` já montada sem faixa de som
       // não pode montar uma agora — o Chromium recusa `addSourceBuffer` depois
       // da inicialização (ver o cabeçalho desta seção). Quem remonta é o GESTO,
@@ -1127,6 +1187,7 @@
       if (!sbA) return;
       audioUltimoMs = Date.now();
       conta.quadrosAudio++;
+      porqueSemSom = 'ok';
       // O som chegou: a frase pegajosa que dizia o contrário sai de cena.
       if (avisoSom) semSom('');
       const frag = muxer.quadroAudio({ ptsUs: q.pts, dados: carga });
@@ -1338,6 +1399,12 @@
     ultimoAlive = Date.now();
     compasso = setInterval(function () {
       if (!modoImagem) borda();
+      // O RELATO SEGUE O COMPASSO, e não cada ponto de decisão: os ramos do som
+      // são sete e nem todos passam por `avisar`. `relatar` deduplica pela
+      // chave, então isto não gera tráfego nenhum enquanto nada muda — e
+      // garante que qualquer mudança de estado chegue ao Registro do operador
+      // sem que cada ramo novo precise lembrar de avisar.
+      relatar();
       if (Date.now() - ultimoAlive > ALIVE_MS) { ultimoAlive = Date.now(); bater(); }
     }, BORDA_MS);
     laco();
@@ -1367,6 +1434,7 @@
     // é o que garante que ela aconteça UMA vez, num instante em que o visitante
     // está olhando para a tela porque acabou de tocar nela.
     audioQuerido = true;
+    porqueSemSom = 'pedido, esperando o csd';
     try {
       el.v.muted = false;
       pedirAudio();
