@@ -564,6 +564,16 @@ let micSeq = 0;
 
 async function startMic() {
   if (micStream) return; // já no ar
+  // O ESPELHO NÃO ABRE MICROFONE, e a razão não é economia: ele é uma SEGUNDA
+  // instância de `/display/`, e o comando `mic` chega às duas por broadcast.
+  // A janela do espelho é montada sem o `MicChromeClient` de propósito (dois
+  // `getUserMedia` no mesmo microfone é realimentação na caixa de som do
+  // templo), então o WebView NEGA em silêncio — e a rejeição cairia no
+  // `micStatus(false, …)` daqui, que o Controle aplica sem olhar de quem veio.
+  // Ou seja: o espelho APAGARIA o estado do microfone real, no meio de um
+  // push-to-talk. Sair antes de qualquer status é o que mantém o telão dono
+  // dessa informação.
+  if (ESPELHO) { diag('mic ignorado (espelho)'); return; }
   const seq = ++micSeq;
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
     micStatus(false, 'unsupported');
@@ -1851,5 +1861,51 @@ async function espelhoAudioIniciar() {
 // do áudio. Soltar aqui trocaria uma recuperação transparente por um corte. O
 // `fim` é do operador fechando o espelho, e quem o dá é o lado Kotlin.
 espelhoAudioIniciar();
+
+// ---------- O BATIMENTO DO ESPELHO ----------
+//
+// Um `VirtualDisplay` só produz buffer quando algum PIXEL MUDA. E o estado
+// normal de um telão de igreja é imagem PARADA: uma estrofe projetada por três
+// minutos, um versículo durante a pregação, o cronômetro entre dois segundos.
+// Sem nada mudando, o encoder fica minutos sem emitir um quadro — e do lado do
+// cliente isso é uma `SourceBuffer` que para de receber: o `<video>` esgota o
+// buffer, o `currentTime` congela, e a tela do coral fica mostrando o último
+// quadro sem que ninguém saiba se aquilo é a cena ou um travamento.
+//
+// A especificação chegou a atribuir isso ao `KEY_REPEAT_PREVIOUS_FRAME_AFTER`
+// do `MediaCodec`. Duas correções desfizeram esse caminho: a chave é `long` (um
+// `setInteger` nem chega a ligá-la) e, mesmo ligada, ela **repete uma vez** —
+// não é piso de quadros. O conserto tinha de morar aqui, no lado que sabe o que
+// está em cena, e vem de graça por OTA.
+//
+// UM PIXEL, alternando entre dois pretos quase iguais. É a menor mudança que o
+// compositor reconhece como quadro novo, e a diferença é imperceptível num
+// telão — mas ela é REAL, e é isso que importa: `#000` para `#000` não muda
+// nada e não gera quadro.
+//
+// A 1 Hz, e não a 4 Hz. A justificativa original ("o wake lock do `<video>` cai
+// no stall") é FALSA — o Chromium só limpa `playing_` em `pause` e `emptied`,
+// não em `waiting`. O batimento continua necessário pelo resto: manter a faixa
+// do buffer avançando, dar um quadro recente a quem conectar no meio de uma
+// cena parada, e fazer o "sem conexão há N s" do diagnóstico significar alguma
+// coisa. Nada disso pede quatro vezes por segundo, e cada batida é um quadro
+// codificado que atravessa a rede.
+const ESPELHO_BATIMENTO_MS = 1000;
+if (ESPELHO) {
+  const pulso = document.createElement('div');
+  // Fora de qualquer fluxo, acima de tudo, e do tamanho de um pixel: ele não
+  // pode empurrar layout nem aparecer sobre a projeção. `pointer-events: none`
+  // porque o telão não recebe toque, mas um elemento no topo do `z-index` que
+  // engolisse um clique seria o tipo de coisa que ninguém liga à causa.
+  pulso.style.cssText = 'position:fixed;left:0;top:0;width:1px;height:1px;'
+    + 'z-index:2147483647;pointer-events:none;background:#000';
+  document.body.appendChild(pulso);
+  let claro = false;
+  setInterval(() => {
+    claro = !claro;
+    pulso.style.background = claro ? '#010101' : '#000000';
+  }, ESPELHO_BATIMENTO_MS);
+  diag('batimento do espelho ligado (' + ESPELHO_BATIMENTO_MS + ' ms)');
+}
 
 restore();
