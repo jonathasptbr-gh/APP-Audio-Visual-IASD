@@ -124,6 +124,36 @@ try {
 
   const copiado = await pg.evaluate(() => navigator.clipboard.readText().catch(() => ''));
   checar(copiado.includes('Linha do tempo'), 'e o texto do Registro foi para a área de transferência');
+
+  // ---- O EMPILHAMENTO DOS POPUPS ANINHADOS -------------------------------
+  //
+  // Um popup que abre DE DENTRO de outro precisa de um degrau próprio de
+  // z-index: com o mesmo valor, quem decide é a ordem do documento, e esse
+  // acaso já cobriu um popup por inteiro mais de uma vez neste arquivo. O
+  // sintoma nunca é "está por baixo" — é "o toque não faz nada", ou, no caso
+  // do leitor de QR, uma câmera acesa e imagem nenhuma na tela.
+  //
+  // O `controle.css` pedia atenção num comentário, e o comentário não bastou:
+  // o leitor de QR nasceu no 200 padrão, um degrau ABAIXO da folha do espelho
+  // que o abre. Por isso a regra virou asserção — ela custa três linhas e
+  // pega uma classe inteira de defeito que só aparece em aparelho.
+  const ANINHADOS = [
+    ['fadePopup', 'mirrorPopup'],   // a folha do espelho abre de Configurações
+    ['mirrorPopup', 'qrPopup'],     // e o leitor de QR abre da folha do espelho
+    ['songMenuPopup', 'folderPopup'], // o seletor de pastas abre da folha da música
+  ];
+  const z = await pg.evaluate((pares) => pares.map(([pai, filho]) => {
+    const v = (id) => {
+      const e = document.getElementById(id);
+      return e ? parseInt(getComputedStyle(e).zIndex, 10) || 0 : NaN;
+    };
+    return { pai, filho, zPai: v(pai), zFilho: v(filho) };
+  }), ANINHADOS);
+  z.forEach((p) => {
+    checar(p.zFilho > p.zPai,
+      'o popup `' + p.filho + '` fica ACIMA do `' + p.pai + '`, de onde ele abre'
+      + ' (' + p.zFilho + ' > ' + p.zPai + ')');
+  });
 } catch (e) {
   checar(false, 'o percurso terminou sem exceção (' + (e && e.message) + ')');
 }
