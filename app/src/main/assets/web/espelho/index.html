@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <!-- ANÔNIMA ATÉ O PAREAMENTO (§3.5, invariante 7).
+       Sem versão do app, sem nome do aparelho, sem SSID, sem nome da igreja —
+       nem aqui no <title>, nem em nenhum texto abaixo, nem num comentário que
+       viaje no HTML. Quem abriu este endereço ainda não provou nada, e
+       reconhecimento não se dá de graça: um `<title>` dizendo o nome da igreja
+       transformaria um IP varrido ao acaso numa informação sobre um prédio.
+       "Tela" é tudo o que esta página tem direito de dizer antes do PIN. -->
+  <title>Tela</title>
+  <!-- Nada de `<link rel="icon">`, `manifest` ou `theme-color`: os três só
+       existem para o navegador GUARDAR a página (histórico, tela inicial,
+       aba fixada), e o token do espelho morre com a sessão de propósito. -->
+  <link rel="stylesheet" href="/e.css">
+</head>
+<body>
+
+<!-- ============================================================
+     UMA PÁGINA, DOIS ESTADOS — e é por isso que o token nunca
+     entra numa URL (§3.5, invariante 2).
+     Não há navegação entre o pareamento e o player: os dois moram
+     aqui e o JS troca qual está `hidden`. Se fossem duas páginas,
+     o token teria de atravessar de uma para a outra, e o único
+     canal barato para isso seria a URL — que vaza para o
+     histórico, para o cache, para a captura de tela e para o
+     compartilhamento de tela. Ele vive em `sessionStorage` e sobe
+     em `Authorization: Bearer`, e mais nada.
+     ============================================================ -->
+
+<!-- ---------- estado 1: PAREAMENTO ---------- -->
+<section id="par" class="tela">
+  <div class="cartao">
+    <h1>Tela</h1>
+    <p class="ajuda">Digite o código de seis dígitos que aparece no celular.</p>
+    <!-- `inputmode` e `pattern`, não `type="number"`: um campo numérico traz
+         as setinhas de incremento, aceita sinal e expoente, e come o zero à
+         esquerda — e um PIN começa com zero uma vez em cada dez. -->
+    <input id="pin" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="6"
+           autocomplete="off" autocorrect="off" spellcheck="false" aria-label="Código">
+    <button id="parBtn" class="botao">Entrar</button>
+    <p id="parMsg" class="msg" role="status" aria-live="polite"></p>
+  </div>
+</section>
+
+<!-- ---------- estado 2: PLAYER ---------- -->
+<section id="play" class="tela" hidden>
+  <!-- `muted` e `playsinline` no HTML, não no JS: a política de autoplay é
+       avaliada quando o elemento começa a tocar, e "muted autoplay is always
+       allowed". Um `video.muted = true` que só rodasse depois de um `play()`
+       chegaria tarde. `playsinline` impede o iOS de abrir o player em tela
+       cheia por conta própria, o que tiraria a página do ar.
+       `disableremoteplayback` sai no JS (não há atributo em todo navegador). -->
+  <video id="v" muted playsinline autoplay></video>
+
+  <!-- Modo IMAGEM (Entrega 1): o MESMO transporte, quadros 0x20 no fluxo /v.
+       Fica escondido até o primeiro JPEG chegar. -->
+  <canvas id="foto" hidden></canvas>
+
+  <!-- UM GESTO, QUATRO EFEITOS (§3.11, invariante 9). `requestFullscreen()`
+       exige ativação transitória do usuário e não há truque: um botão grande,
+       uma vez, e daí em diante a ativação é *sticky* pela sessão. É o mesmo
+       padrão do `#startBtn` do `/display/`. -->
+  <button id="gesto" class="gesto">Ver em tela cheia</button>
+
+  <!-- O ESTADO, DESENHADO. Com o app do outro lado do salão, esta linha é a
+       única coisa que responde "por que a tela está preta?". -->
+  <div id="aviso" class="aviso" role="status" aria-live="polite"></div>
+</section>
+
+<!-- A ORDEM IMPORTA: `espelho.js` usa `window.AVFmp4` na primeira chamada de
+     `csd()`, que só acontece depois do primeiro byte do fluxo — mas carregar o
+     muxer depois do cliente deixaria uma janela em que um fluxo muito rápido
+     chegaria antes dele. Dois `<script>` clássicos (sem `defer`, sem
+     `type=module`) executam na ordem em que aparecem, e é isso que se quer.
+
+     E OS NOMES DE ROTA SÃO CURTOS DE PROPÓSITO. O mapa que o
+     `EspelhoServidor` precisa implementar é FIXO, quatro entradas, nunca por
+     concatenação (§3.6, invariante 7 — um `handle("espelho/" + nome)` com
+     `nome` vindo da URL serviria `/controle/controle.js` e `/shared/native.js`
+     para quem estiver na rede):
+
+         "/"      → espelho/index.html
+         "/e.css" → espelho/espelho.css
+         "/e.js"  → espelho/espelho.js
+         "/f.js"  → espelho/fmp4.js
+
+     Os nomes na rede não são os nomes no disco, e isso é o certo: o que sai
+     pelo fio não deve descrever a árvore do bundle. -->
+<script src="/f.js"></script>
+<script src="/e.js"></script>
+</body>
+</html>

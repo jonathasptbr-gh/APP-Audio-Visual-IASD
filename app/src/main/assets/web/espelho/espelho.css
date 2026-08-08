@@ -1,0 +1,165 @@
+/* ============================================================================
+   A FOLHA DO CLIENTE DO ESPELHO — servida em `/e.css` para um navegador
+   QUALQUER da rede da igreja (§5.1).
+
+   ## Por que a paleta está COPIADA aqui, contra a regra da casa
+
+   O `CLAUDE.md` manda: "cor nova entra em `assets/web/shared/tokens.css`, nunca
+   literal na folha do app". Esta folha é a exceção, e ela é do mesmo tipo da
+   que já existe e está documentada — `res/values/colors.xml` espelha `--bg` à
+   mão, porque o que pinta a janela antes do WebView carregar não tem como
+   ler um CSS.
+
+   Aqui o motivo é o mapa de rotas: o servidor do espelho serve QUATRO arquivos,
+   por um mapa FIXO, e nunca por concatenação (§3.6, invariante 7). Publicar
+   `shared/tokens.css` para a rede seria abrir uma quinta rota para um arquivo
+   cuja única razão de existir é ser fonte única — e fonte única de um app que
+   este cliente não é. Ele usa SEIS cores.
+
+   Então a disciplina é a mesma do `colors.xml`: **mexeu no token lá, mexe no
+   valor aqui**. Cada linha abaixo cita o token de que veio, para essa
+   conferência ser um `grep` e não uma lembrança.
+
+   ## E por que ela é curta
+
+   Esta página tem dois estados e nove elementos. Tudo o que ela precisa fazer
+   é: não emitir luz (é uma tela num salão escuro), pôr o vídeo em `contain`
+   (nunca `cover` — cortar o telão é perder a letra da estrofe) e sumir com o
+   cursor depois que ninguém mais vai tocar nela.
+   ============================================================================ */
+
+:root {
+  --bg: #131211;          /* tokens.css --bg */
+  --panel: #343330;       /* tokens.css --panel */
+  --line: #5a5854;        /* tokens.css --line */
+  --text: #d6cfc3;        /* tokens.css --text */
+  --muted: #b8b0a3;       /* tokens.css --muted */
+  --accent: #dba849;      /* tokens.css --accent (marca IASD e accent) */
+  --accent-fill: #7c5a17; /* tokens.css --accent-fill — FUNDO de botão preenchido */
+  --on-accent: #f6ecd6;   /* tokens.css --on-accent — o que se escreve sobre ele */
+  --danger-text: #f0aaa2; /* tokens.css --danger-text — o salmão do erro */
+  --stage-bg: #000;       /* tokens.css --stage-bg — o preto do PALCO, não o do app */
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body {
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  overflow: hidden;
+  /* Uma tela de exibição não é um documento: um toque comprido acidental não
+     deve abrir alça de seleção nem o menu de "copiar". */
+  -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+}
+
+[hidden] { display: none !important; }
+
+.tela { position: fixed; inset: 0; }
+
+/* ---------- pareamento ---------- */
+
+#par {
+  display: flex; align-items: center; justify-content: center;
+  padding: 24px;
+}
+
+.cartao {
+  width: 100%; max-width: 340px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 28px 24px;
+  text-align: center;
+}
+
+h1 { font-size: 20px; font-weight: 600; letter-spacing: .01em; }
+
+.ajuda { margin-top: 8px; color: var(--muted); font-size: 14px; }
+
+#pin {
+  /* O campo é o assunto da tela: seis dígitos grandes, espaçados, para serem
+     conferidos de longe contra a tela do celular. */
+  width: 100%;
+  margin-top: 20px;
+  padding: 12px 8px;
+  font: 600 30px/1.1 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  letter-spacing: .22em;
+  text-align: center;
+  color: var(--text);
+  /* Dentro de um CARTÃO a superfície AFUNDA: o overlay é PRETO, não branco.
+     É a regra do topo de `controle.css` — branco com alfa EMPILHA, e sobre
+     `--panel` produziria uma base clara demais para o texto. */
+  background: rgba(0, 0, 0, .28);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  outline: none;
+}
+#pin:focus { border-color: var(--accent); }
+
+.botao {
+  width: 100%;
+  margin-top: 14px;
+  padding: 13px 16px;
+  font: 600 16px/1 inherit;
+  color: var(--on-accent);
+  background: var(--accent-fill);
+  border: 0; border-radius: 10px;
+  cursor: pointer;
+}
+.botao:disabled { opacity: .5; cursor: default; }
+
+.msg { margin-top: 14px; min-height: 20px; font-size: 14px; color: var(--muted); }
+.msg.ruim { color: var(--danger-text); }
+
+/* ---------- player ---------- */
+
+#play { background: var(--stage-bg); }
+
+/* O PRETO DO PALCO, não o do app: aqui o fundo é a moldura de uma projeção, e
+   um `#131211` em volta de um telão preto aparece como uma borda cinza. */
+#v, #foto {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  background: var(--stage-bg);
+  /* `contain`, NUNCA `cover`. O telão é 16:9 e a tela do visitante pode não
+     ser: recortar para preencher cortaria justamente a borda onde a última
+     linha da estrofe cai. Barra preta é honesta; letra faltando, não. */
+  object-fit: contain;
+}
+
+.gesto {
+  position: absolute; left: 50%; bottom: 12%;
+  transform: translateX(-50%);
+  padding: 14px 22px;
+  font: 600 16px/1 inherit;
+  color: var(--on-accent);
+  background: var(--accent-fill);
+  border: 0; border-radius: 999px;
+  /* Acima do aviso e do vídeo: é o único elemento clicável desta tela. */
+  z-index: 3;
+  cursor: pointer;
+}
+
+.aviso {
+  position: absolute; left: 0; right: 0; top: 0;
+  padding: 14px 18px;
+  font-size: 14px;
+  color: var(--text);
+  /* Legível sobre QUALQUER quadro do telão — inclusive um wallpaper claro —
+     sem pintar uma faixa opaca que apareceria numa foto da projeção. */
+  background: linear-gradient(rgba(0, 0, 0, .72), rgba(0, 0, 0, 0));
+  text-shadow: 0 1px 2px rgba(0, 0, 0, .9);
+  z-index: 2;
+  pointer-events: none;
+}
+.aviso:empty { display: none; }
+.aviso.ruim { color: var(--danger-text); }
+
+/* O CURSOR SOME DEPOIS DO GESTO, e só depois dele: num notebook ligado à
+   parede, a setinha parada no meio da projeção fica lá o culto inteiro. Antes
+   do gesto ela precisa existir — há um botão para acertar. */
+body.projetando { cursor: none; }
+body.projetando .aviso { transition: opacity .4s; }
+body.projetando .aviso.some { opacity: 0; }
