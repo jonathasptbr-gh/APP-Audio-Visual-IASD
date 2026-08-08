@@ -10,11 +10,9 @@ import android.util.Log
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedInputStream
-import java.io.ByteArrayInputStream
 import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
-import java.io.SequenceInputStream
 import java.net.Inet4Address
 import java.net.InetAddress
 import java.net.InetSocketAddress
@@ -462,26 +460,34 @@ class EspelhoServidor(
      * O vigia de [TETO_ESCRITA_MS] deixaria de funcionar exatamente quando é
      * necessário, e o teto de três telas seria consumido por fantasmas.
      *
-     * Feito assim, **uma porta só**: espia o primeiro byte (`0x16` = handshake
-     * TLS) e envolve ou não. "TLS: ligado" passa a ser propriedade da CONEXÃO,
-     * não da URL que o operador lembrou.
+     * **TLS é propriedade do SERVIDOR, não da conexão** — e isso não era o
+     * desenho original. A ideia era uma porta só, espiando o primeiro byte
+     * (`0x16` = handshake TLS) e envolvendo ou não, com o byte devolvido ao
+     * TLS pela sobrecarga `createSocket(Socket, InputStream, boolean)`. **Essa
+     * sobrecarga não existe no SDK do Android** — ela é do JDK, e o compilador
+     * lista as candidatas sem ela. Não há como devolver um byte já lido a um
+     * `SSLSocket`, então a farejada sai inteira: se há keystore, o servidor
+     * sobe em TLS e toda conexão é envolvida; se não há, tudo é HTTP.
      *
-     * A espiada é um `read()` de UM byte no stream cru (nunca um
-     * `BufferedInputStream`, que encheria o buffer dele com o começo do
-     * handshake e o perderia), e o byte é devolvido: ao TLS pela sobrecarga
-     * `createSocket(Socket, InputStream, boolean)`, que existe exatamente para
-     * isso, e ao HTTP por um [SequenceInputStream].
+     * O que se perde é a degradação graciosa por conexão: um cliente que
+     * chegar em `http://` num servidor com TLS ligado leva erro de handshake
+     * em vez de ser atendido em claro. É aceitável porque o endereço com o
+     * esquema certo é o que a folha do Controle e o Registro mostram — e
+     * porque o chão continua sendo o HTTP: TLS só existe quando alguém
+     * instalou um certificado de propósito.
+     *
+     * O que se PRESERVA, e era a razão de existir desta função, é envolver um
+     * `Socket` **CRU** em vez de aceitar de um `SSLServerSocket`: quem chama
+     * guarda o `cru` e é ele que o vigia de [TETO_ESCRITA_MS] fecha. Fechar um
+     * `SSLSocket` tenta emitir `close_notify` — isto é, tenta **escrever**,
+     * numa conexão que pode estar travada justamente em escrita —, e o vigia
+     * deixaria de funcionar exatamente quando é necessário.
      */
     private fun envelopar(cru: Socket): Pair<Socket, InputStream> {
         val contexto = ssl ?: return cru to BufferedInputStream(cru.getInputStream())
-        val bruto = cru.getInputStream()
-        val b0 = bruto.read()
-        if (b0 < 0) throw IOException("conexão fechada antes do primeiro byte")
-        val consumido = ByteArrayInputStream(byteArrayOf(b0.toByte()))
-        if (b0 != 0x16) {
-            return cru to BufferedInputStream(SequenceInputStream(consumido, bruto))
-        }
-        val s = contexto.socketFactory.createSocket(cru, consumido, true) as SSLSocket
+        val s = contexto.socketFactory.createSocket(
+            cru, cru.inetAddress?.hostAddress, cru.port, true,
+        ) as SSLSocket
         s.useClientMode = false
         s.soTimeout = PRAZO_LINHA_MS
         return s to BufferedInputStream(s.inputStream)

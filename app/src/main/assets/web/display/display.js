@@ -807,6 +807,24 @@ function loadYtApi() {
 // aceita comandos ou já foi destruído (evita exceções não tratadas).
 function ytSafeCall(fn) { try { fn(); } catch (_) {} }
 
+// O MUDO DO PLAYER DO YOUTUBE, num lugar só.
+//
+// O embed é a primeira das duas exceções nomeadas do §3.9: é um iframe de
+// OUTRA ORIGEM, e o Web Audio não alcança o áudio dele. Ou seja, o grafo do
+// espelho — que silencia o salão pelo roteamento do `<video>` — não tem
+// absolutamente nenhum efeito aqui: com um vídeo do YouTube em cena, ligar o
+// espelho jogaria o som do embed no salão inteiro. Aquela cena vai MUDA para a
+// rede (o cliente diz isso), e muda também no salão.
+//
+// `yt.muted` é uma máquina de estados própria e ignora o `forceMuted` do stage
+// por completo, então a regra precisa morar aqui — e num lugar SÓ, porque são
+// três caminhos que desmutam (`onPlayerReady`, o comando `mute` e o botão
+// "Ligar Sistema"), e três cópias divergiriam no primeiro caminho novo.
+function ytAplicarMudo(p) {
+  if (ESPELHO || (yt && yt.muted)) ytSafeCall(() => p.mute());
+  else ytSafeCall(() => p.unMute());
+}
+
 // A API substitui este elemento host pelo <iframe> real que ela cria e
 // gerencia — um host novo a cada vídeo garante um iframe/contentWindow novo,
 // então nunca há confusão entre eventos de um player e o próximo.
@@ -1096,7 +1114,7 @@ function onPlayerReady(e) {
     if (frame) frame.setAttribute('allow', 'autoplay; fullscreen; encrypted-media; picture-in-picture');
   });
   ytKillCaptions(p);
-  ytSafeCall(() => { if (yt.muted) p.mute(); else p.unMute(); });
+  ytAplicarMudo(p);
   ytSafeCall(() => p.setVolume(Math.round(yt.volume * 100)));
   // Cena que voltou PAUSADA (reconexão): o quadro precisa aparecer, mas o vídeo
   // não pode sair andando sozinho na frente da congregação. `ytWatchStart`
@@ -1267,6 +1285,11 @@ function ytHandle(cmd) {
         cur.muteApplyTimer = setTimeout(() => {
           if (yt === cur && cur.muted) ytSafeCall(() => cur.player.mute());
         }, MUTE_RAMP_TIME * 1000);
+      } else if (ESPELHO) {
+        // No espelho o operador pode desmutar à vontade: o embed continua mudo
+        // (ver ytAplicarMudo). O estado é aceito para o `display-status` não
+        // mentir ao Controle; o que não acontece é o som.
+        ytSafeCall(() => p.mute());
       } else {
         ytSafeCall(() => p.unMute());
         ytRampVolume(0, cur.volume, MUTE_RAMP_TIME);
@@ -1548,7 +1571,7 @@ if (window.__NATIVE__) startBtnEl.hidden = true;
 startBtnEl.addEventListener('click', () => {
   if (yt && yt.player) {
     const p = yt.player;
-    ytSafeCall(() => { if (yt.muted) p.mute(); else p.unMute(); });
+    ytAplicarMudo(p);
     ytSafeCall(() => p.setVolume(Math.round(yt.volume * 100)));
     ytSafeCall(() => p.playVideo());
   }
@@ -1567,5 +1590,266 @@ startBtnEl.addEventListener('click', () => {
 // que não existia. Quem atualiza a base web agora é o OTA do shell, aplicado
 // no PRÓXIMO lançamento — justamente para nunca recarregar o WebView do telão
 // no meio de um culto.
+
+// ===== O ÁUDIO DO ESPELHO DE PIXELS =====
+//
+// Ver docs/ESPELHO-DE-PIXELS.md §3.9 e o KDoc de `EspelhoAudio.kt`, que é o
+// outro lado exato deste bloco.
+//
+// ## A observação que destrava tudo
+//
+// Este WebView JÁ É CONTEXTO SEGURO — ele carrega
+// `https://appassets.androidplatform.net/` (invariante 1 do projeto), então
+// `AudioWorklet`, que é `[SecureContext]`, existe aqui dentro **mesmo com o
+// cliente da rede em `http://`**. É o princípio geral do recurso: tudo o que
+// precisa de contexto seguro pode ser movido para DENTRO do WebView; só o que
+// obrigatoriamente roda no navegador do visitante fica preso ao piso `http://`.
+//
+// ## O grafo, e por que ele tem dois ganhos zerados
+//
+//   <video> ─createMediaElementSource()─┬─ Gain(0) ──────────────→ destination
+//                                       └─ AudioWorkletNode ─ Gain(0) → destination
+//                                             │ postMessage(Int16, ~40 ms)
+//                                             ↓ __avEspelhoAudio  (addWebMessageListener)
+//                                        MediaCodec AAC-LC 96 kbps → 2ª SourceBuffer do cliente
+//
+// O que tira o som do SALÃO não é `video.muted` — é o próprio ROTEAMENTO:
+// criado o `MediaElementAudioSourceNode`, o áudio do elemento passa a existir
+// só dentro do grafo, e os dois ganhos em zero fecham a saída. Mutar o
+// elemento seria pior que inútil, porque zeraria TAMBÉM o que entra no grafo,
+// e aí a rede receberia silêncio (é por isso que o `forceMuted` inicial é
+// LIBERADO no fim deste bloco, e não mantido).
+//
+// O segundo `Gain(0)` — o do worklet — parece decorativo e não é. A spec do
+// Web Audio cobre explicitamente o caso de ENTRADA desconectada e **não** cobre
+// o de SAÍDA desconectada (`WebAudio/web-audio-api#2566`, aberto: *"the spec
+// text doesn't cover the case of unconnected output"*), e o comportamento do
+// Chrome depende do retorno de `process()` combinado com o estado do nó. Um nó
+// folha é a armadilha clássica do velho `ScriptProcessorNode`, e o modo de
+// falhar é **zero áudio na rede, sem exceção, sem log, com o grafo
+// aparentemente saudável** — a assinatura que este projeto trata como a pior de
+// todas. Um `GainNode(0)` custa nada e faz a pergunta nunca ser feita.
+//
+// ## E por que blocos de ~40 ms
+//
+// `WebViewCompat.WebMessageListener.onPostMessage` é anotado `@UiThread`, e o
+// `AudioWorklet` processa em quanta de 128 amostras (~2,7 ms a 48 kHz): um
+// `postMessage` por quantum seriam ~375 mensagens por segundo entregues na MAIN
+// THREAD do processo que hospeda o Controle *e* a `Presentation` na TV, cada
+// uma pagando JNI, alocação e GC. Acumulando ~40 ms e já convertendo para
+// Int16 dentro do worklet, são ~25 msg/s e metade dos bytes — e a conversão sai
+// da main thread de brinde. Grande demais não serve pelo motivo oposto:
+// latência e um `TETO_BLOCO` de 64 kB do outro lado.
+const ESPELHO_BLOCO_MS = 40;
+const ESPELHO_CANAL_ESPERA_MS = 250;
+const ESPELHO_CANAL_TENTATIVAS = 60;  // ~15 s
+const ESPELHO_HANDSHAKE_MS = 5000;
+
+// O worklet, como TEXTO, virando um módulo por `blob:`.
+//
+// `addModule` só aceita URL, e um arquivo separado seria um segundo lugar para
+// esta lógica envelhecer — além de mais um asset para o OTA e para o CI
+// conhecerem. Um `blob:` HERDA a origem do documento, então o módulo continua
+// same-origin e o contexto seguro vale para ele igual.
+//
+// Ele converte para Int16 little-endian INTERCALADO (o formato que o
+// `EspelhoAudio.aoReceberPcm` espera) e transfere o `ArrayBuffer` em vez de
+// copiá-lo — o buffer sai do worklet e nunca mais é tocado aqui.
+const ESPELHO_WORKLET = `
+class ColetorPcm extends AudioWorkletProcessor {
+  constructor(opts) {
+    super();
+    const o = (opts && opts.processorOptions) || {};
+    this.canais = o.canais || 2;
+    // Capacidade em AMOSTRAS Int16: quadros × canais.
+    this.buf = new Int16Array((o.quadros || 1920) * this.canais);
+    this.escrito = 0;
+  }
+  process(entradas) {
+    const ent = entradas[0];
+    // Sem entrada ligada ainda: seguir VIVO. Devolver false aqui mataria o nó
+    // para sempre, e o defeito seria justamente o silêncio silencioso.
+    if (!ent || !ent.length || !ent[0]) return true;
+    const n = ent[0].length;
+    for (let i = 0; i < n; i++) {
+      for (let c = 0; c < this.canais; c++) {
+        const faixa = ent[c] || ent[0];
+        let v = faixa[i];
+        // Satura em vez de estourar, e NaN vira zero: um único valor fora da
+        // faixa vira estalo na caixa de som do templo depois do AAC.
+        if (v > 1) v = 1;
+        else if (v < -1) v = -1;
+        else if (!(v === v)) v = 0;
+        // Assimétrico de propósito: o fundo de escala negativo do Int16 é
+        // -32768 e o positivo é +32767.
+        this.buf[this.escrito++] = v < 0 ? v * 32768 : v * 32767;
+      }
+      if (this.escrito >= this.buf.length) this.despejar();
+    }
+    return true;
+  }
+  despejar() {
+    if (!this.escrito) return;
+    const fatia = this.buf.slice(0, this.escrito);
+    this.escrito = 0;
+    this.port.postMessage(fatia.buffer, [fatia.buffer]);
+  }
+}
+registerProcessor('av-espelho-pcm', ColetorPcm);
+`;
+
+let espelhoAudioLigado = false;
+
+// O canal pode não existir AINDA. O Kotlin instala o `__avEspelhoAudio` antes
+// de a página carregar, mas numa remontagem do WebView (morte de renderer, que
+// neste processo é evento conhecido) a ordem entre `instalar()` e o
+// `/display/` que renasce não é garantida. Esperar por ele é o que faz o
+// espelho REARMAR sozinho depois de um renderer morto — sem isso, a página
+// voltaria muda para sempre e ninguém saberia por quê.
+function espelhoEsperarCanal() {
+  return new Promise((resolve) => {
+    let tentativas = 0;
+    (function olhar() {
+      const c = window.__avEspelhoAudio;
+      if (c && typeof c.postMessage === 'function') return resolve(c);
+      if (++tentativas >= ESPELHO_CANAL_TENTATIVAS) return resolve(null);
+      setTimeout(olhar, ESPELHO_CANAL_ESPERA_MS);
+    })();
+  });
+}
+
+// O HANDSHAKE. É ele que decide se o salão vai deixar de ser a saída deste
+// documento: a resposta `{"ok":true}` do Kotlin é a ÚNICA coisa que libera o
+// `forceMuted`. Sem resposta (encoder que não subiu, canal que caiu, WebView
+// sem `ArrayBuffer` neste transporte), o prazo vence e o espelho fica mudo.
+function espelhoPedirEncoder(canal, sr, ch) {
+  return new Promise((resolve) => {
+    let respondido = false;
+    const fechar = (r) => {
+      if (respondido) return;
+      respondido = true;
+      try { canal.removeEventListener('message', ouvir); } catch (_) { canal.onmessage = null; }
+      resolve(r);
+    };
+    const ouvir = (ev) => {
+      let r = null;
+      try { r = JSON.parse(String((ev && ev.data) || '')); } catch (_) { return; }
+      fechar(r);
+    };
+    // O ouvinte ENTRA ANTES do envio: o Kotlin responde de dentro do próprio
+    // `onPostMessage`, e uma resposta que chegasse antes do listener existir
+    // seria perdida — e o desfecho disso é o espelho mudo por um prazo que
+    // nunca precisou existir.
+    try { canal.addEventListener('message', ouvir); } catch (_) { canal.onmessage = ouvir; }
+    setTimeout(() => fechar(null), ESPELHO_HANDSHAKE_MS);
+    try { canal.postMessage(JSON.stringify({ sr, ch })); } catch (_) { fechar(null); }
+  });
+}
+
+async function espelhoAudioIniciar() {
+  // Papel `display` e navegador comum: nada acontece aqui, nunca.
+  if (!ESPELHO || espelhoAudioLigado) return;
+
+  const canal = await espelhoEsperarCanal();
+  if (!canal) { diag('espelho-audio: canal ausente'); return; }
+
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) { diag('espelho-audio: sem AudioContext'); return; }
+    const ctx = new Ctx();
+    // Um contexto suspenso não PUXA o grafo: sem `process()` não há PCM, e o
+    // sintoma é o mesmo do nó folha — tudo saudável, nada saindo.
+    try { await ctx.resume(); } catch (_) { /* segue e o statechange reporta */ }
+    if (!ctx.audioWorklet) { diag('espelho-audio: sem AudioWorklet'); return; }
+
+    // PORTA DE MÃO ÚNICA, e por isso UMA VEZ por carregamento, aqui — nunca
+    // por `load`: a segunda chamada no mesmo elemento lança `InvalidStateError`.
+    // Isso só é viável porque `shared/stage.js` NUNCA faz `createElement`: ele
+    // usa o único `#video` de `display/index.html`, que é o `videoEl` do topo
+    // deste arquivo.
+    const fonte = ctx.createMediaElementSource(videoEl);
+
+    const saidaDireta = ctx.createGain();
+    saidaDireta.gain.value = 0;
+    fonte.connect(saidaDireta).connect(ctx.destination);
+
+    const url = URL.createObjectURL(new Blob([ESPELHO_WORKLET], { type: 'text/javascript' }));
+    try { await ctx.audioWorklet.addModule(url); } finally { URL.revokeObjectURL(url); }
+
+    // 1 ou 2 canais: é o que o AAC do outro lado aceita (`ligarEncoder` recusa
+    // o resto com texto, em vez de configurar e não emitir nada).
+    const canais = Math.min(2, Math.max(1, ctx.destination.channelCount || 2));
+    // Múltiplo de 128 (o quantum do worklet) mais próximo de 40 ms — a 48 kHz
+    // dá 1920 exato; a 44,1 kHz, 1792 (~40,6 ms).
+    const quadros = Math.max(128, Math.round((ctx.sampleRate * ESPELHO_BLOCO_MS / 1000) / 128) * 128);
+
+    const no = new AudioWorkletNode(ctx, 'av-espelho-pcm', {
+      numberOfInputs: 1,
+      numberOfOutputs: 1,
+      outputChannelCount: [canais],
+      // `explicit` para o worklet receber SEMPRE o número de canais que foi
+      // anunciado ao encoder. No modo padrão (`max`) uma mídia mono faria
+      // `entradas[0]` chegar com um canal só, e o intercalado sairia com
+      // metade dos quadros — o áudio na rede tocaria no dobro da velocidade.
+      channelCount: canais,
+      channelCountMode: 'explicit',
+      channelInterpretation: 'speakers',
+      processorOptions: { canais, quadros },
+    });
+
+    const saidaWorklet = ctx.createGain();
+    saidaWorklet.gain.value = 0;
+    fonte.connect(no).connect(saidaWorklet).connect(ctx.destination);
+
+    // O ouvinte entra ANTES do handshake, mas com a tranca fechada: o worklet
+    // começa a produzir no instante em que é conectado, e uma `MessagePort`
+    // ENFILEIRA o que chega antes de `onmessage` existir. Sem a tranca, os
+    // segundos de PCM acumulados durante o handshake sairiam todos de uma vez
+    // assim que ele terminasse — um atraso permanente entre o áudio e o vídeo,
+    // logo na abertura.
+    let liberado = false;
+    no.port.onmessage = (ev) => {
+      if (!liberado) return;
+      const buf = ev.data;
+      if (!buf || !buf.byteLength) return;
+      try { canal.postMessage(buf); } catch (_) { /* canal caiu: o Kotlin já parou */ }
+    };
+
+    const resp = await espelhoPedirEncoder(canal, Math.round(ctx.sampleRate), canais);
+    if (!resp || resp.ok !== true) {
+      diag('espelho-audio: encoder recusou', { erro: (resp && resp.erro) || 'sem resposta' });
+      return; // MUDO — a falha segura
+    }
+
+    liberado = true;
+    espelhoAudioLigado = true;
+
+    // Um contexto que volte a `suspended` depois de um `resume()` bem-sucedido
+    // deixa o espelho mudo no salão E na rede ao mesmo tempo — e em silêncio.
+    // Aqui ele vira uma linha do diário e uma tentativa de voltar.
+    ctx.addEventListener('statechange', () => {
+      diag('espelho-audio: contexto ' + ctx.state);
+      if (ctx.state === 'suspended') { try { ctx.resume(); } catch (_) {} }
+    });
+
+    // E SÓ AGORA o som deixa de ser barrado no elemento. A partir daqui o
+    // áudio existe só dentro do grafo (os dois ganhos estão em zero), então o
+    // salão continua em silêncio — quem o mantinha mudo até este ponto era o
+    // `forceMuted`, que também barrava a entrada do grafo.
+    stage.setForceMuted(false);
+    diag('espelho-audio: no ar', { sr: Math.round(ctx.sampleRate), ch: canais, quadros });
+  } catch (e) {
+    // Qualquer tropeço deixa o `forceMuted` como está: mudo.
+    diag('espelho-audio: falhou', { erro: String((e && e.message) || e) });
+  }
+}
+
+// NÃO se manda `{"fim":true}` no `pagehide`, e a omissão é deliberada: numa
+// remontagem do WebView o encoder do Kotlin continua de pé, e a página que
+// renasce reconfigura com a MESMA taxa e o mesmo número de canais — caso em que
+// `ligarEncoder` devolve `ok` sem reiniciar nada, preservando o eixo de tempo
+// do áudio. Soltar aqui trocaria uma recuperação transparente por um corte. O
+// `fim` é do operador fechando o espelho, e quem o dá é o lado Kotlin.
+espelhoAudioIniciar();
 
 restore();
