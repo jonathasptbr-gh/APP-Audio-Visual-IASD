@@ -102,6 +102,7 @@ app/src/main/
 │   ├── EspelhoPares.kt          # PIN, aprovação, tokens, prazo — PURO
 │   ├── EspelhoServidor.kt       # sockets, rotas, fan-out
 │   ├── EspelhoService.kt        # foreground service `connectedDevice`
+│   ├── EspelhoAudio.kt          # PCM do WebView do espelho → AAC no mesmo fio
 │   └── EspelhoDiag.kt           # o anel de diagnóstico — devolve JSON, não frase
 └── res/
     ├── drawable/                # ic_image{,_off} — a cortina, na notificação
@@ -116,12 +117,15 @@ docs/
 └── FONTE-DE-DADOS-LOUVORJA.md   # referência do banco LouvorJA (hinos/Bíblia)
 ```
 
-**Vinte e quatro arquivos Kotlin, uma dependência de terceiros no shell** — o
+**Vinte e cinco arquivos Kotlin, uma dependência de terceiros no shell** — o
 resto é AndroidX oficial (`core-ktx`, `activity-ktx`, `webkit`). Medido agora
 (`wc -l`, com o espelho de pixels chegando):
-**~11.700 linhas de Kotlin** contra **~19.400 linhas de JavaScript** em
+**~14.000 linhas de Kotlin** contra **~20.400 linhas de JavaScript** em
 `assets/web/` (sem contar `vendor/`, que é código buildado de terceiro) — a
-proporção é o argumento, não o número absoluto. Manter o nativo pequeno respeita
+proporção é o argumento, não o número absoluto — e ela **encolheu de propósito**
+com o espelho: ~1.600 linhas de Kotlin novas em oito arquivos é o maior lote
+nativo da história do projeto, e está assumido por escrito na seção do recurso.
+Manter o nativo pequeno respeita
 a filosofia do projeto muito melhor que Capacitor/Cordova, que arrastariam npm e
 um build system inteiro e ainda assim exigiriam código nativo próprio para a
 Presentation.
@@ -1243,6 +1247,7 @@ mesmo?"), lembrada pela sessão.
 | `EspelhoHttp.kt` · `EspelhoPares.kt` | **PUROS, zero import de Android.** É o primeiro código do projeto que aceita entrada de um desconhecido, e o único em que um erro vira controle de acesso quebrado em vez de pixel errado — daí serem funções puras, com JUnit |
 | `EspelhoServidor.kt` | sockets, rotas, fan-out. **Bind explícito ao IPv4 da Wi-Fi**, e recusa em celular/VPN: um `ServerSocket(porta)` liga em `0.0.0.0` — inclusive `rmnet`, e operadoras brasileiras entregam IPv6 globalmente roteável ao aparelho. Seria o culto em H.264 numa porta alcançável do mundo |
 | `EspelhoService.kt` | foreground service **`connectedDevice`** (sem cota, ao contrário do `dataSync` que o app já gasta). Exige `CHANGE_WIFI_MULTICAST_STATE` no manifest — sem ela `startForeground` **lança** |
+| `EspelhoAudio.kt` | o PCM que o `AudioWorklet` do WebView do espelho entrega, virando AAC no mesmo fio. **O `AudioWorklet` existe ali porque aquele WebView É contexto seguro** (invariante 1) mesmo com o cliente em `http://` — o princípio geral: *tudo que precisa de contexto seguro pode ir para DENTRO do WebView* |
 | `EspelhoDiag.kt` | o anel. **Devolve JSON, não texto** — quem monta a frase é o `controle.js` |
 | `assets/web/espelho/` | a página do cliente (uma página, dois estados) e o muxer fMP4 em JS |
 
@@ -1717,10 +1722,14 @@ senão o dreno pode vazar para o telão de verdade e ninguém vê). O
 rodava no default do Playwright por acidente, e fixado ali ele **prova a decisão
 de densidade do espelho sem aparelho**.
 
-> **Ainda falta,** e está aqui para não se perder: o passo
-> `./gradlew testDebugUnitTest` (**sem `continue-on-error`**) no `apk.yml`, com
-> os testes de `EspelhoHttp`/`EspelhoPares` em `app/src/test` — ver a quarta
-> exceção nas regras de desenvolvimento.
+**E há um passo de JUnit no CI desde a v5.141:** `./gradlew testDebugUnitTest`,
+**sem `continue-on-error`**, antes do `assembleRelease`, cobrindo os dois
+arquivos PUROS do espelho (`app/src/test/.../EspelhoHttpTest.kt` e
+`EspelhoParesTest.kt`): tetos do parser, `read()` parcial, `Host` fora da
+allowlist, `Origin` estranha, 404 uniforme, PIN, prazo, bloqueio por origem,
+teto de sessões e saneamento. É a primeira fronteira de rede do projeto, e é o
+único lugar dele em que um erro vira controle de acesso quebrado em vez de pixel
+errado — ver a quarta exceção nas regras de desenvolvimento.
 
 Eles existem porque `node --check` prova que o arquivo é
 PARSEÁVEL, não que o app funciona — a v5.121 saiu com um botão chamando uma

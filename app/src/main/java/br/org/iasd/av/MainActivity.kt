@@ -473,9 +473,12 @@ class MainActivity : ComponentActivity(), BridgeHost {
         presentation?.keepPlaying()
         // O ESPELHO é projeção como o telão, e pela mesma razão: as telas da
         // rede continuam olhando para ele com o app minimizado — que é o estado
-        // normal deste app no meio do culto. Sem isto o Chromium suspende o
+        // NORMAL deste app no meio do culto. Sem isto o Chromium suspende o
         // WebView dele no instante exato em que ninguém mais está olhando o
-        // celular. No-op quando não há espelho no ar.
+        // celular, e a primeira coisa a ser estrangulada é o batimento de 1 Hz
+        // que mantém o encoder produzindo numa cena parada. É o mesmo contrato
+        // que o KDoc do `MirrorPresentation.keepPlaying` já declara ("chamado do
+        // `onStop` da Activity"). No-op quando não há espelho no ar.
         EspelhoDisplay.keepPlaying()
         // Mesa de som ligada: o áudio sai DESTE WebView, e ele também precisa
         // atravessar o segundo plano. Sem isso o louvor calava no instante em
@@ -615,7 +618,7 @@ class MainActivity : ComponentActivity(), BridgeHost {
      */
     private fun telasExternas(): List<Display> {
         val dm = displayManager ?: return emptyList()
-        val meu = EspelhoDisplay.idDaTelaVirtual
+        val meu = EspelhoDisplay.displayId
         return dm.getDisplays(DisplayManager.DISPLAY_CATEGORY_PRESENTATION).filter { d ->
             d.displayId != meu && (d.flags and Display.FLAG_PRIVATE) == 0
         }

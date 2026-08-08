@@ -874,6 +874,10 @@ class EspelhoServidor(
             .put("telas", lista)
             .put("teto", TETO_TELAS)
             .put("pendentes", pend)
+            // "3 PINs recusados (2 origens)" — a linha que diz que alguém está
+            // TENTANDO. Os dois números são do [EspelhoPares], que é quem conta.
+            .put("recusas", EspelhoPares.recusas())
+            .put("origensBloqueadas", EspelhoPares.origensEmBloqueio(agoraMs()))
             .put("conexoesTotais", conexoesTotais.get())
             .put("semConexaoMs", if (conexoesTotais.get() == 0 && ligadoEm != 0L) agora - ligadoEm else 0L)
             .put("ultimaSaida", ultimaSaida ?: JSONObject.NULL)
@@ -886,39 +890,14 @@ class EspelhoServidor(
     // Se a implementação dele divergir, é ESTE bloco que se conserta — o resto
     // do arquivo não sabe que ele existe.
     //
-    // A §3.5 declara sete funções e duas data classes; o que ESTE arquivo
-    // consome, e portanto o contrato que aquele arquivo precisa cumprir, é:
-    //
-    //   object EspelhoPares {
-    //       data class Relato(
-    //           val ua: String, val w: Int, val h: Int, val seguro: Boolean,
-    //           val mse: Boolean, val mms: Boolean, val fetchStream: Boolean,
-    //           val videoDecoder: Boolean, val wakeLock: Boolean,
-    //       )                                              // os nomes da §5.5
-    //       data class Pendente(val id: String, val relato: Relato, val desde: Long)
-    //       data class Sessao(val token: String, val relato: Relato, val expiraEm: Long)
-    //       sealed class Veredito {
-    //           data class Espera(val id: String) : Veredito()    // PIN certo, aguarda o operador
-    //           data class Aprovada(val sessao: Sessao) : Veredito()
-    //           object Pendente : Veredito()                      // consulta: ainda esperando
-    //           object Nao : Veredito()                           // errado, recusado ou bloqueado
-    //       }
-    //       fun novoPin(rnd: SecureRandom): String
-    //       fun relatoDe(json: JSONObject): Relato       // SANEIA o texto da rede — invariante 9
-    //       fun tentar(pin: String, origem: String, relato: Relato, agora: Long): Veredito
-    //       fun consultar(id: String, agora: Long): Veredito
-    //       fun aprovar(id: String, agora: Long): Sessao?         // ação do OPERADOR
-    //       fun recusar(id: String)                               // ação do OPERADOR
-    //       fun validar(token: String?, agora: Long): Sessao?
-    //       fun encerrar(token: String)
-    //       fun pendentes(): List<Pendente>
-    //       fun limpar(agora: Long)
-    //       fun zerar()
-    //   }
-    //
-    // (`aprovar`, `recusar`, `novoPin` e `encerrar` não são chamados daqui: os
-    // dois primeiros são do `espelhoAprovar` da ponte, e os outros dois do dono
-    // que liga e desliga o espelho.)
+    // O que ESTE arquivo consome de lá, e nada mais: `Relato`, `Pendente`,
+    // `Sessao` e `Veredito` (os tipos), mais `validar`, `tentar`, `consultar`,
+    // `pendentes`, `limpar`, `zerar`, `recusas` e `origensEmBloqueio`.
+    // `ligar`, `desligar`, `pin`, `trocarPin`, `aprovar`, `recusar` e
+    // `definirAutoAprovar` são do DONO (a `MainActivity`, pela ponte): quem
+    // decide sobre uma tela pendente é o operador, e o servidor nem sabe que
+    // aquela decisão aconteceu — ele descobre no `POST /par` seguinte do
+    // cliente, que é justamente o que mantém a rede fora do laço de decisão.
     //
     // O relógio entregue a ele é `System.currentTimeMillis()`, e não o
     // `elapsedRealtime` que este arquivo usa internamente: [EspelhoPares] é
@@ -927,14 +906,16 @@ class EspelhoServidor(
 
     private fun agoraMs(): Long = System.currentTimeMillis()
 
-    private fun tokenDe(autorizacao: String?): String? {
-        val v = autorizacao?.trim() ?: return null
-        if (!v.regionMatches(0, "Bearer ", 0, 7, ignoreCase = true)) return null
-        return v.substring(7).trim().ifEmpty { null }
-    }
-
+    /**
+     * O cabeçalho `Authorization` vai CRU para o [EspelhoPares].
+     *
+     * Quem entende de `Bearer` é ele — e é ele **sozinho**: extrair o token aqui
+     * seria a mesma regra escrita em dois lugares, e a cópia deste lado
+     * envelheceria calada. Ele aceita as duas formas (cabeçalho e token nu), que
+     * é o que permite ao [vigiar] usar a mesma porta com o que tem na mão.
+     */
     private fun validarToken(autorizacao: String?): EspelhoPares.Sessao? =
-        EspelhoPares.validar(tokenDe(autorizacao), agoraMs())
+        EspelhoPares.validar(autorizacao, agoraMs())
 
     /** O mesmo, para um token que já está guardado (o vigia, que não tem
      *  cabeçalho nenhum na mão). */
@@ -946,7 +927,30 @@ class EspelhoServidor(
 
     private fun consultarEspera(id: String) = EspelhoPares.consultar(id, agoraMs())
 
-    private fun relatoDe(json: JSONObject) = EspelhoPares.relatoDe(json)
+    /**
+     * O relato que veio no corpo do `POST /par`, **cru**.
+     *
+     * Ele é montado aqui e saneado LÁ: o `tentar` passa o relato inteiro pelo
+     * `sanear` antes de guardá-lo (§3.5, invariante 9), num ponto só e do lado
+     * que tem teste. Sanear aqui também seria a segunda cópia de uma regra de
+     * segurança — exatamente o que este projeto não faz.
+     *
+     * Campo ausente vira o padrão do `opt*`: um cliente que não se descreve fica
+     * com "não sei" em vez de derrubar o pareamento. O `telaAcesaMin` nasce em 0
+     * e quem o mantém depois é o `POST /r {"do":"alive"}`, por CONEXÃO.
+     */
+    private fun relatoDe(json: JSONObject) = EspelhoPares.Relato(
+        ua = json.optString("ua"),
+        w = json.optInt("w", 0),
+        h = json.optInt("h", 0),
+        seguro = json.optBoolean("seguro", false),
+        mse = json.optBoolean("mse", false),
+        mms = json.optBoolean("mms", false),
+        fetchStream = json.optBoolean("fetchStream", false),
+        videoDecoder = json.optBoolean("videoDecoder", false),
+        wakeLock = json.optBoolean("wakeLock", false),
+        telaAcesaMin = json.optInt("telaAcesaMin", 0).coerceIn(0, 24 * 60),
+    )
 
     private fun pendentes(): List<EspelhoPares.Pendente> = EspelhoPares.pendentes()
 
@@ -994,6 +998,10 @@ class EspelhoServidor(
         .put("fetchStream", r.fetchStream)
         .put("videoDecoder", r.videoDecoder)
         .put("wakeLock", r.wakeLock)
+        // O do relato é o que a tela DECLAROU ao parear; para uma tela
+        // conectada, [estado] o sobrescreve logo em seguida com o número vivo
+        // do `alive`. Aqui ele serve às PENDENTES, que ainda não têm conexão.
+        .put("telaAcesaMin", r.telaAcesaMin)
 
     // ---------- utilidades ----------
 

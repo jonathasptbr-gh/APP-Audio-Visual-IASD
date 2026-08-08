@@ -1002,11 +1002,25 @@ object EspelhoDisplay {
             return
         }
 
+        // O CLIPE DA SONDA é gerado pelo próprio aparelho, uma vez, e guardado
+        // no cache (ver [SondaClipe]). Começar aqui, antes de a página existir,
+        // tira a geração do caminho crítico: quando o `<video>` pedir o
+        // arquivo, o handler encontra `garantir()` já pronto (ele é
+        // `@Synchronized`, então no pior caso a requisição espera o mesmo
+        // trabalho em vez de duplicá-lo).
+        thread(name = "av-sonda-clipe", isDaemon = true) { SondaClipe.garantir(act) }
+
         val ht = HandlerThread("av-espelho-sonda").apply { start() }
         val h = Handler(ht.looper)
         val leitorS = ImageReader.newInstance(SONDA_LARG, SONDA_ALT, PixelFormat.RGBA_8888, 3)
         var vdS: VirtualDisplay? = null
         var janelaS: MirrorPresentation? = null
+
+        /**
+         * A geometria vem da PÁGINA (`window.__sondaPontos()`), com
+         * [PONTOS_PADRAO] como rede de segurança até a leitura responder.
+         */
+        val pontos = AtomicReference(PONTOS_PADRAO)
 
         val fechado = AtomicBoolean(false)
 
@@ -1044,12 +1058,7 @@ object EspelhoDisplay {
         // (normal), e preto nos dois é buffer protegido. É o único código deste
         // lote que ninguém neste repositório jamais exercitou — daí o `try` e o
         // prazo próprio.
-        fun concluir(s: Sonda) {
-            if (!decidido.compareAndSet(false, true)) return
-            if (s.veredito != Sonda.Veredito.VIDEO_PRETO) {
-                encerrar(s)
-                return
-            }
+        fun copiarJanela(s: Sonda) {
             val win = janelaS?.window
             if (win == null) {
                 encerrar(s)
@@ -1085,20 +1094,40 @@ object EspelhoDisplay {
             }
         }
 
+        /**
+         * O último passo antes do veredito: **perguntar à página o que ela sabe
+         * de si**.
+         *
+         * `window.__sondaEstado()` diz se o `sonda.mp4` carregou. Sem essa
+         * pergunta, um clipe ausente (ou que o aparelho não conseguiu gerar)
+         * produz o MESMO pixel preto que um readback quebrado — e a sonda
+         * acusaria "VÍDEO SAI PRETO" com toda a confiança, exatamente o
+         * diagnóstico falso que ela existe para não dar.
+         *
+         * A resposta é assíncrona e pode nunca chegar (renderer morto): o
+         * `postDelayed` fecha o caso, e `encerrar` é idempotente.
+         */
+        fun concluir(bruto: Sonda) {
+            if (!decidido.compareAndSet(false, true)) return
+            val p0 = janelaS
+            if (p0 == null) {
+                encerrar(bruto)
+                return
+            }
+            h.postDelayed({ encerrar(bruto) }, PRAZO_ESTADO_MS)
+            p0.avaliar(JS_ESTADO) { res ->
+                val s = comEstado(bruto, desembrulhar(res))
+                if (s.veredito == Sonda.Veredito.VIDEO_PRETO) copiarJanela(s) else encerrar(s)
+            }
+        }
+
         leitorS.setOnImageAvailableListener({ origem ->
             val img = try { origem.acquireLatestImage() } catch (_: Exception) { null }
             if (img != null) {
                 try {
                     quadros.incrementAndGet()
-                    ultima.set(
-                        intArrayOf(
-                            amostrar(img, 0.10f, 0.50f),
-                            amostrar(img, 0.50f, 0.50f),
-                            amostrar(img, 0.50f, 0.05f),
-                            amostrar(img, 0.50f, 0.95f),
-                            amostrar(img, 0.02f, 0.02f),
-                        ),
-                    )
+                    val pt = pontos.get()
+                    ultima.set(IntArray(pt.size) { k -> amostrar(img, pt[k][0], pt[k][1]) })
                 } catch (e: Exception) {
                     Log.w(TAG, "amostragem falhou", e)
                 } finally {

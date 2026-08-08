@@ -115,7 +115,7 @@ class EspelhoParesTest {
         val v = EspelhoPares.tentar(pin, origem, relato(), t0)
         assertTrue(v is EspelhoPares.Veredito.Espera)
         val id = (v as EspelhoPares.Veredito.Espera).id
-        assertSame(EspelhoPares.Consulta.Aguardando, EspelhoPares.consultar(id, t0))
+        assertSame(EspelhoPares.Veredito.Pendente, EspelhoPares.consultar(id, t0))
         assertEquals(1, EspelhoPares.pendentes().size)
         assertEquals(id, EspelhoPares.pendentes()[0].id)
     }
@@ -127,8 +127,8 @@ class EspelhoParesTest {
         val s = EspelhoPares.aprovar(id, t0)
         assertNotNull(s)
         val consulta = EspelhoPares.consultar(id, t0)
-        assertTrue(consulta is EspelhoPares.Consulta.Pronta)
-        assertEquals(s, (consulta as EspelhoPares.Consulta.Pronta).sessao)
+        assertTrue(consulta is EspelhoPares.Veredito.Aprovada)
+        assertEquals(s, (consulta as EspelhoPares.Veredito.Aprovada).sessao)
         // Aprovada, some da fila do operador.
         assertEquals(0, EspelhoPares.pendentes().size)
     }
@@ -150,7 +150,7 @@ class EspelhoParesTest {
         val id = (v as EspelhoPares.Veredito.Espera).id
         val s = EspelhoPares.aprovar(id, t0)!!
         EspelhoPares.recusar(id)
-        assertSame(EspelhoPares.Consulta.Recusada, EspelhoPares.consultar(id, t0))
+        assertSame(EspelhoPares.Veredito.Recusada, EspelhoPares.consultar(id, t0))
         assertNull(EspelhoPares.validar("Bearer ${s.token}", t0))
     }
 
@@ -159,13 +159,13 @@ class EspelhoParesTest {
         val v = EspelhoPares.tentar(pin, origem, relato(), t0)
         val id = (v as EspelhoPares.Veredito.Espera).id
         val depois = t0 + EspelhoPares.PRAZO_ESPERA_MS + 1
-        assertSame(EspelhoPares.Consulta.Desconhecida, EspelhoPares.consultar(id, depois))
+        assertSame(EspelhoPares.Veredito.Desconhecida, EspelhoPares.consultar(id, depois))
         assertNull(EspelhoPares.aprovar(id, depois))
     }
 
     @Test
     fun idDeEsperaDesconhecidoNaoVazaNada() {
-        assertSame(EspelhoPares.Consulta.Desconhecida, EspelhoPares.consultar("nao-existe", t0))
+        assertSame(EspelhoPares.Veredito.Desconhecida, EspelhoPares.consultar("nao-existe", t0))
         assertNull(EspelhoPares.aprovar("nao-existe", t0))
     }
 
@@ -174,7 +174,7 @@ class EspelhoParesTest {
         EspelhoPares.definirAutoAprovar(true)
         val v = EspelhoPares.tentar(pin, origem, relato(), t0)
         val id = (v as EspelhoPares.Veredito.Espera).id
-        assertTrue(EspelhoPares.consultar(id, t0) is EspelhoPares.Consulta.Pronta)
+        assertTrue(EspelhoPares.consultar(id, t0) is EspelhoPares.Veredito.Aprovada)
     }
 
     @Test
@@ -245,14 +245,20 @@ class EspelhoParesTest {
     // ------------------------------------------------------------------ token
 
     @Test
-    fun tokenValidaSoComOEsquemaBearer() {
+    fun tokenValidaComOCabecalhoCruOuComOTokenSozinho() {
         val s = parear()
         assertEquals(s, EspelhoPares.validar("Bearer ${s.token}", t0))
-        // O esquema é insensível a caixa (RFC 7235); o token, não.
+        // O esquema é insensível a caixa (RFC 7235); o token, não — base64url
+        // distingue caixa, e "quase igual" aqui é igual a errado.
         assertEquals(s, EspelhoPares.validar("bearer ${s.token}", t0))
-        assertNull(EspelhoPares.validar(s.token, t0))
+        assertNull(EspelhoPares.validar("Bearer ${s.token.uppercase()}x", t0))
+        // O vigia das conexões só guardou o token, sem cabeçalho nenhum.
+        assertEquals(s, EspelhoPares.validar(s.token, t0))
+        // E tolerar as duas formas não abre nada: um token não tem espaço, então
+        // nenhum outro esquema casa.
         assertNull(EspelhoPares.validar("Basic ${s.token}", t0))
         assertNull(EspelhoPares.validar("Bearer ", t0))
+        assertNull(EspelhoPares.validar("", t0))
         assertNull(EspelhoPares.validar(null, t0))
     }
 
@@ -379,6 +385,35 @@ class EspelhoParesTest {
         // "ã" cai junto com o emoji (que são dois surrogates, os dois fora da
         // faixa), e sobram só os ASCII: "N", "o" e o espaço.
         assertEquals("No ", EspelhoPares.sanear("Não 🙂"))
+    }
+
+    /**
+     * A fábrica que o servidor usa: valores crus da rede entram, um relato
+     * saneado sai. É aqui que a invariante 9 acontece "num ponto só" — e é ela
+     * que permite ao `EspelhoServidor` fazer o parse do JSON sem nunca precisar
+     * pensar em saneamento.
+     */
+    @Test
+    fun relatoDeSaneiaOsValoresCrus() {
+        val r = EspelhoPares.relatoDe(
+            ua = "Chrome\r\ntelas: 99 conectadas \"x\"",
+            w = -5,
+            h = 999_999,
+            seguro = false,
+            mse = true,
+            mms = false,
+            fetchStream = true,
+            videoDecoder = false,
+            wakeLock = false,
+            telaAcesaMin = -1,
+        )
+        assertFalse(r.ua.contains('\n'))
+        assertFalse(r.ua.contains('"'))
+        assertEquals(0, r.w)
+        assertEquals(20_000, r.h)
+        assertEquals(0, r.telaAcesaMin)
+        // `ua` ausente não é exceção nem "null" na tela: é vazio.
+        assertEquals("", EspelhoPares.relatoDe(null, 0, 0, false, false, false, false, false, false, 0).ua)
     }
 
     /** E o relato guardado já vem saneado — não é o JS que limpa. */
