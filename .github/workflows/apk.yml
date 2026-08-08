@@ -159,6 +159,12 @@ jobs:
           # Ele trava, de quebra, o endereçamento do reenvio de cena: sem ele,
           # uma segunda instância do Display faz a TV recarregar a mídia.
           PW_CHROMIUM="" node tools/display-smoke.mjs
+          # E OS DESTINOS das folhas de escolha. O que está marcado precisa
+          # ATRAVESSAR o fechamento da folha: a ação roda depois de
+          # `closeSongMenu()`, que zera o conjunto, e uma leitura tarde demais
+          # devolveria só a linha tocada — o item iria para um destino em vez de
+          # dois, sem erro nenhum. Mesma classe de falha muda do `slideLabel`.
+          PW_CHROMIUM="" node tools/destinos.test.mjs
 
       - name: Empacotar a base web
         run: |
