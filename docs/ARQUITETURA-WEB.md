@@ -2701,6 +2701,24 @@ igreja, sem precisar nem abrir o Display).
   muda), evitando som inesperado saindo do celular numa sessão nova. Por isso
   `renderStandaloneSeg()` também roda na carga: sem ela o segmento abriria com
   os dois botões apagados, sem nenhuma escolha marcada.
+- **O BOTÃO SOME COM TELÃO CONECTADO** (v5.141). Os dois WebViews dividem o
+  mesmo processo e a mesma saída de áudio do Android: ligar o som da preview
+  enquanto o telão projeta não é "ouvir junto" — o `<video>` do Controle assume
+  o foco de áudio e o player do telão é **interrompido** no meio do louvor, na
+  frente da congregação. O modo existe para o caso em que o celular É a caixa de
+  som, e esse caso é, por definição, o caso sem telão. Quem responde "há tela?"
+  é `telaoConectado()`, que pergunta pela CONEXÃO (a `Presentation` no app, a
+  janela do Display no navegador) e não por `displayActive()`, que mede se o
+  telão mandou notícia há pouco — um telão mostrando o wallpaper não emite
+  `display-status` nenhum e continua sendo um telão conectado. A **liberação de
+  teste** do simplificado não conta: ela não conecta nada, logo não há player a
+  interromper, e esconder o botão ali tiraria o som do único lugar em que ele
+  pode ser ouvido. Conectar a tela com o som JÁ LIGADO **desliga o modo**
+  (`pushTelaoNoSom`) — esconder o botão sem desligá-lo deixaria exatamente o
+  estado que a regra existe para impedir, e sem controle na tela para desfazê-lo.
+  Some em vez de ficar desabilitado: um botão apagado num canto da preview seria
+  mais um elemento a decifrar durante o culto, e a explicação não cabe num
+  `title` que ninguém vai abrir.
 - **Voltou a ser um ícone, e desta vez sobre a PREVIEW** (v5.82). Ela era a
   única preferência da lista de Configurações que se mexe DURANTE o culto —
   chega-se, liga-se a caixa de som, e ou há som no aparelho ou não —, e dois
@@ -2791,11 +2809,11 @@ Não há uma segunda rota de importação: `importarPeloSistema` reusa
 
 | Origem | Caminho | Destino |
 |---|---|---|
-| "Importar arquivos" (seletor do sistema, shell ≥ 21) | `importarPeloSistema` → `importShare` | `imports` (simplificado: `avulsos`) |
+| "Importar arquivos" (seletor do sistema, shell ≥ 21) | `importarPeloSistema` → `importShare` → `escolherDestinos` | **os marcados** (simplificado: `avulsos`) |
 | `<input type="file">` (navegador / shell antigo) | handler do `fileEl` | idem |
 | Compartilhamento de outro app | `checkPendingShare` → `importShare` | idem |
-| Música do acervo | folha de destinos → `addSongVariant` | `imports` |
-| Resultado do YouTube | folha de destinos → `ytAcao` | `avulsos` \| `playlist` \| `imports` \| `favs` |
+| Música do acervo | folha de destinos → `addSongToDestinos` | **os marcados** |
+| Resultado do YouTube | folha de destinos → `ytAcao` | `avulsos` \| **os marcados** |
 | Arquivo de pasta do sistema, item de pasta, favorito | botão `+` da linha | `imports` |
 | Link YT já no Cronograma → arquivo | botão de download da linha | substitui **na mesma posição** |
 | Versículo em leitura | botão ⊞ no rodapé da Bíblia | `imports` (cue `verse`) |
@@ -2807,6 +2825,89 @@ Não há uma segunda rota de importação: `importarPeloSistema` reusa
 
 As seis últimas linhas são a v5.103 (ver "Cenas de roteiro"): antes delas, o
 Cronograma só aceitava o que tem bytes.
+
+##### UM item, VÁRIOS destinos (v5.141)
+
+Toda porta acima aceitava **uma** resposta: a folha fechava no primeiro toque, e
+quem quisesse o mesmo louvor na playlist E nos Favoritos tinha de refazer a
+busca, reabrir a folha e — no caso do YouTube — **pagar o download de novo**. O
+item é o mesmo; o que muda é em quantas listas o mesmo id aparece, e isso nunca
+foi uma escolha exclusiva.
+
+A tabela `DESTINOS` (em `controle.js`) é a fonte única — `chave` é o nome como o
+app fala do destino, `lista` é o nome dele no banco (o Cronograma é a lista
+`imports` desde antes de se chamar Cronograma). Ela substituiu o `YT_LISTA`, que
+era uma **segunda** tabela com as mesmas três listas só para o YouTube; duas
+divergiriam no primeiro destino que alguém acrescentasse a uma só.
+
+**A regra de interação é uma só, e vale para as duas folhas** (acervo e YouTube):
+
+- **Toque no corpo da linha** = executa AGORA, para aquela linha **mais o que já
+  estiver marcado**. É o caminho de um toque de sempre quando nada está marcado
+  — o mais usado durante um culto —, e é o que fecha a escolha quando há algo
+  marcado. Ignorar o marcado seria o app desfazer, calado, uma escolha que o
+  operador acabou de fazer.
+- **Toque na caixa** (`.song-menu-check`, na borda direita da linha) = só marca
+  ou desmarca, e a folha CONTINUA aberta. Ela vive DENTRO do botão da linha,
+  então o `stopPropagation` não é detalhe: sem ele, marcar dispararia a ação e
+  fecharia a folha — o oposto exato do que a caixa existe para permitir.
+- Com algo marcado aparece a **linha de confirmação** no fim da folha, para o
+  caso em que todos os destinos desejados já estão marcados e não sobrou nenhuma
+  linha para tocar.
+
+**O conjunto é da FOLHA ABERTA, não do item** (`destMarcados`, zerado por
+`destLimpar()` em `openSongMenu`/`openYtMenu`/`closeSongMenu`). Pelo mesmo motivo
+que o teto de resolução do YouTube nasce no padrão a cada item: uma marcação que
+grudasse mandaria para os Favoritos, sem aviso, o vídeo que se quis ver uma vez
+no domingo seguinte.
+
+**A união é lida NO CLIQUE**, antes de `closeSongMenu()` — exatamente como a
+variante Cantada/Playback e o teto de resolução já eram. Uma leitura feita dentro
+da ação encontraria o conjunto zerado e o item iria para **um** destino em vez de
+dois, sem erro nenhum: é a mesma classe de falha muda do `slideLabel` no
+`nowPlaying`. `tools/destinos.test.mjs` trava justamente esse ponto.
+
+Casos particulares:
+
+- **"Tocar agora" (YouTube) não ganha caixa**, mas honra o que estiver marcado: o
+  telão não é uma lista, e marcá-lo não faz sentido — mas "Cronograma marcado +
+  Tocar agora" projeta e guarda no mesmo toque, que é o que se faz com o louvor
+  que acabou de chegar. Combinado com um destino de guarda, a **transmissão
+  direta fica de fora**: ela não produz arquivo (é um manifesto que expira em
+  horas), e quem marcou "Cronograma" pediu justamente o que sobra depois do
+  domingo.
+- **Um download só** (`ytAcao`): o arquivo nasce na PRIMEIRA lista escolhida e é
+  espalhado por `listAdd` (idempotente) para as demais. "Já estava lá" passou a
+  ser sobre o CONJUNTO — um vídeo que está no Cronograma e não está nos Favoritos
+  não é duplicata, metade do pedido é nova.
+- **"Só a letra, no Cronograma" não ganha caixa**: ela não é o mesmo item em
+  outra lista, é OUTRO item (uma cena de roteiro, sem áudio). Misturá-la aos
+  destinos faria um toque criar duas coisas diferentes de uma vez.
+- **A importação PERGUNTA** (`escolherDestinos`, a mesma folha como pergunta):
+  arquivos e links não-YouTube abrem as três linhas marcáveis com o Cronograma
+  já marcado. É a única porta em que a folha precisa de confirmação — nas outras
+  cada linha é uma ação completa, e aqui não há ação nenhuma até o operador dizer
+  para onde. **Desistir não perde o item**: fechar (✕, fundo, voltar) resolve
+  `null` e o lote entra no Cronograma, como sempre entrou. Um link do YouTube
+  compartilhado não passa por aqui — ele abre a folha própria dele, com os mesmos
+  destinos mais a forma e a qualidade, e perguntar duas vezes seria pior que não
+  perguntar. No **simplificado** a pergunta nem chega a ser feita: ali não existe
+  Cronograma nem playlist.
+- **A seleção múltipla sobrevive ao destino.** Os três botões da `#selbar`
+  (playlist, favoritos, pasta) já eram destinos lado a lado; o que os separava
+  era a barra sumindo no primeiro toque (`sairDaSelecaoDepois` chamava
+  `exitSelection`). Ela agora só redesenha a lista, e quem a fecha continua sendo
+  o ✕, o botão voltar do aparelho ou desmarcar o último item.
+- **As cenas de roteiro não precisaram de nada**: os dois destinos (⊞ Cronograma
+  e ★ Favoritar) já são botões visíveis ao mesmo tempo, e nenhum deles fecha a
+  tela — tocar nos dois sempre foi possível, em dois toques, que é o mínimo.
+
+A frase do aviso nomeia **todos** os destinos, montada por `ondeDe`/`juntarFrases`
+a partir do `LISTA_ROTULO` de sempre ("adicionado à playlist e aos favoritos"), e
+separa o que ENTROU do que JÁ ESTAVA — é essa distinção que impede o toque
+repetido. Um aviso por lista seria três faixas piscando para um toque único, o
+mesmo argumento que o `textoLote` já resolvia para o caso espelho (vários itens
+num destino só).
 
 As abas ficam **no alto da caixa de controles** (`.bottombar`, v5.54 — antes
 eram o último elemento do `<main>`; ver "Layout geral") e são **abas de
@@ -5228,7 +5329,11 @@ para os dois botões, com listas diferentes (`renderSongMenu`):
   de dobrar a lista de destinos: com playback, seis linhas diriam três coisas.
   Sem playback ele nem aparece — não há o que escolher.
 - A variante é lida **no clique**, antes de `closeSongMenu()` zerar
-  `songMenuFor` — uma ação que fosse consultá-lo depois encontraria `null`.
+  `songMenuFor` — uma ação que fosse consultá-lo depois encontraria `null`. O
+  mesmo vale para os **destinos marcados** (v5.141, ver "UM item, VÁRIOS
+  destinos"): as três linhas do ➕ ganharam uma caixa de marcação, o toque na
+  linha executa para ela **mais o que estiver marcado**, e a união é lida no
+  mesmo ponto.
 - **Favoritos reusa o seletor de pastas** da barra de seleção múltipla:
   `openFolderPicker([id])` passa o id explícito, e sem argumento ele age sobre
   `selected`, como sempre. Uma segunda lista de pastas só para o acervo
@@ -5242,11 +5347,14 @@ para os dois botões, com listas diferentes (`renderSongMenu`):
   `simplePlaySong` direto: escolher variante e destino é justamente a decisão
   que este modo poupa.
 
-Tocar (`playSongVariant`), +Cronograma (`addSongVariant` →
-`AVDB.listAdd('imports', id)`), +Playlist (`addSongToPlaylist` →
-`AVDB.listAdd('playlist', id)` + `renderPlaylist`) e +Favoritos
-(`addSongToFavorites`) baixam a música na hora se ainda não estiver offline (ver
-"Resolução do id de mídia por variante" abaixo). **"Apenas a letra"** baixa
+Tocar (`playSongVariant`) e os três destinos (`addSongToDestinos` →
+`adicionarNasListas`) baixam a música na hora se ainda não estiver offline (ver
+"Resolução do id de mídia por variante" abaixo) — e o download é **um só** por
+toque, mesmo com os três destinos marcados: o caro é resolver o id, e o item
+resultante é o MESMO em todas as listas. (`addSongVariant`, `addSongToPlaylist` e
+`addSongToFavorites` eram três funções que diferiam apenas na lista; o
+multi-destino as unificou na v5.141, e só `addSongVariant` ficou, como o atalho
+de um destino que os chamadores de fora da folha usam.) **"Apenas a letra"** baixa
 também, mas só quando precisa: a letra costuma já estar no acervo de textos (ver
 "Letra avulsa", na Camada de Texto).
 
