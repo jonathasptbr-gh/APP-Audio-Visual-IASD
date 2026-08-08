@@ -947,28 +947,33 @@ object EspelhoDisplay {
      *     `acquireLatestImage()` devolve `null` para sempre e a sonda nunca
      *     termina — justamente no caso que ela existe para detectar.
      *
-     * ## O contrato de layout que a `sonda.html` tem de honrar
+     * ## A geometria é da PÁGINA, e o Kotlin a pergunta
      *
-     * Estes pontos são amostrados em fração da tela, e a página tem de pintar
-     * exatamente isto (fundo `--accent` chapado; um `<video>` de magenta puro
-     * centrado, ocupando ~40% × 40%; uma faixa preta no topo e uma branca
-     * embaixo, ambas centradas horizontalmente):
+     * `sonda.html` publica os cinco pontos em `window.__sondaPontos()`, em
+     * fração do viewport, e esta função os LÊ ([JS_PONTOS]) em vez de repetir
+     * os números: duas cópias das mesmas coordenadas divergem no primeiro
+     * ajuste de layout, e o modo de falhar seria um veredito sobre o pixel
+     * errado — dito com a mesma confiança de um veredito certo.
+     * [PONTOS_PADRAO] é só a rede de segurança para quando a leitura não
+     * responde, e tem de acompanhar aquele arquivo.
      *
-     * | amostra | ponto | esperado |
-     * |---|---|---|
-     * | fora    | (10%, 50%) | `--accent` |
-     * | dentro  | (50%, 50%) | `#FF00FF` |
-     * | preto   | (50%, 5%)  | `#000000` |
-     * | branco  | (50%, 95%) | `#FFFFFF` |
-     * | canto   | (2%, 2%)   | `--accent` |
+     * A ordem é contrato: **fundo, vídeo, preto, branco, canto**. Preto e
+     * branco existem para responder em NÚMERO o que o `KEY_COLOR_RANGE` não
+     * garante (ver a armadilha 5 do [EspelhoCodec]).
      *
-     * Preto e branco existem para responder em NÚMERO o que o
-     * `KEY_COLOR_RANGE` não garante (ver a armadilha 5 do [EspelhoCodec]).
+     * ## E a página também diz o que sabe DE SI
      *
-     * **Enquanto a `sonda.html` não existir no bundle** (ela é entrega do lado
-     * web), o WebView carrega a página de erro do próprio Chromium: a sonda
-     * medirá as cores dela e dirá `INDEFINIDO` com os RGB à vista. Isso é o
-     * comportamento certo — instrumento não inventa.
+     * `window.__sondaEstado()` responde se o `sonda.mp4` carregou. Isso não é
+     * enfeite: **arquivo ausente e vídeo preto produzem o MESMO pixel**, e sem
+     * essa pergunta a sonda acusaria "VÍDEO SAI PRETO" — mandando o próximo
+     * leitor caçar um defeito de composição que não existe — sempre que o
+     * binário faltasse no bundle. Nesse caso o veredito é rebaixado a
+     * `INDEFINIDO` e a nota diz por quê.
+     *
+     * **Enquanto a `sonda.html` não existir no bundle**, o WebView carrega a
+     * página de erro do próprio Chromium: a sonda medirá as cores dela e dirá
+     * `INDEFINIDO` com os RGB à vista. Isso é o comportamento certo —
+     * instrumento não inventa.
      *
      * ## Quem a chama
      *

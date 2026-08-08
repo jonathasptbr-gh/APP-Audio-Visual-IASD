@@ -551,10 +551,14 @@ class MainActivity : ComponentActivity(), BridgeHost {
                 Log.w(TAG, "espelho não desligou", e)
             }
         }
-        // Os hooks saem SEMPRE (inclusive numa recriação): eles capturam ESTA
-        // Activity, e o `onCreate` seguinte os redefine ao ligar. Um hook de uma
-        // tela morta é o mesmo defeito que o `SyncService.onGone = null` daqui
-        // de cima já evita.
+        // Os hooks saem SEMPRE, inclusive numa recriação: eles capturam ESTA
+        // Activity, e o `onCreate` da próxima os redefine incondicionalmente —
+        // é justamente por isso que eles são armados lá e não no `startMirror`.
+        // Um hook apontando para uma tela morta é o mesmo defeito que o
+        // `SyncService.onGone = null` daqui de cima já evita. (A ordem do
+        // Android numa mudança de configuração é `onDestroy` da antiga e só
+        // então `onCreate` da nova, então não há janela em que o espelho fique
+        // sem dono.)
         EspelhoService.onDesligar = null
         EspelhoService.onGone = null
         EspelhoService.onTermica = null
@@ -611,7 +615,7 @@ class MainActivity : ComponentActivity(), BridgeHost {
      */
     private fun telasExternas(): List<Display> {
         val dm = displayManager ?: return emptyList()
-        val meu = EspelhoDisplay.displayId
+        val meu = EspelhoDisplay.idDaTelaVirtual
         return dm.getDisplays(DisplayManager.DISPLAY_CATEGORY_PRESENTATION).filter { d ->
             d.displayId != meu && (d.flags and Display.FLAG_PRIVATE) == 0
         }

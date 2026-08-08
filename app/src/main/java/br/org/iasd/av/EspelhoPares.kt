@@ -164,32 +164,44 @@ object EspelhoPares {
             "Sessao(token=<oculto>, ua=${relato.ua}, expiraEm=$expiraEm)"
     }
 
-    /** O que [tentar] responde. Na rede, tudo que não é [Veredito.Espera] é 403. */
+    /**
+     * A resposta de [tentar] **e** de [consultar] — as duas formas do `POST /par`
+     * (§5.1), num tipo só.
+     *
+     * Um tipo só, e não um por método, porque cada variante corresponde a UMA
+     * resposta do fio: quem roteia escreve um `when` com `else -> 403`, e
+     * qualquer variante que este arquivo ganhe amanhã **nega** por omissão em vez
+     * de autorizar. Falha fechada é a única postura possível num controle de
+     * acesso, e ela sai de graça desta forma.
+     *
+     * (Repare que [Veredito.Pendente] não é a `data class` [Pendente]: aquela é a
+     * VISTA da fila que o operador vê no Controle, esta é a resposta "ainda não"
+     * que o cliente recebe. Nomes iguais em escopos diferentes; sempre qualifique.)
+     */
     sealed class Veredito {
-        /** PIN certo: a tela entrou na fila do operador com este id opaco. */
+        /** PIN certo: a tela entrou na fila do operador. `202 {"espera": id}`. */
         data class Espera(val id: String) : Veredito()
 
-        /** PIN errado. */
+        /** A espera existe e o operador ainda não decidiu. `202 {"estado":"pendente"}`. */
+        object Pendente : Veredito()
+
+        /** O operador aprovou: o token, uma vez. `200 {"t": token}`. */
+        data class Aprovada(val sessao: Sessao) : Veredito()
+
+        /** PIN errado, ou o operador recusou. `403`. */
         object Recusada : Veredito()
 
-        /** Origem bloqueada por tentativas erradas — [restaMs] até liberar. */
+        /** Origem bloqueada por tentativas erradas — [restaMs] até liberar. `403`. */
         data class Bloqueada(val restaMs: Long) : Veredito()
 
-        /** PIN certo, mas a fila do operador está cheia ([MAX_ESPERAS]). */
+        /** PIN certo, mas a fila do operador está cheia ([MAX_ESPERAS]). `403`. */
         object Lotada : Veredito()
 
-        /** O espelho não está ligado. */
+        /** Id de espera que não existe — ou que expirou, e é a mesma resposta. `403`. */
+        object Desconhecida : Veredito()
+
+        /** O espelho não está ligado. `403`. */
         object Desligado : Veredito()
-    }
-
-    /** O que o cliente recebe ao consultar a própria espera (`POST /par`). */
-    sealed class Consulta {
-        object Aguardando : Consulta()
-        data class Pronta(val sessao: Sessao) : Consulta()
-        object Recusada : Consulta()
-
-        /** Id desconhecido — ou expirado, e os dois têm a mesma resposta. */
-        object Desconhecida : Consulta()
     }
 
     private enum class Estado { AGUARDANDO, APROVADA, RECUSADA }
@@ -252,6 +264,25 @@ object EspelhoPares {
     /** Desliga e apaga tudo. Não há token que sobreviva a isto. */
     @Synchronized
     fun desligar() = zerar()
+
+    /**
+     * O mesmo que [desligar], sob o nome que o caminho de PARADA usa.
+     *
+     * Dois nomes para um ato só porque são dois pontos de vista: o operador
+     * *desliga* o espelho; o servidor, ao morrer, *zera* o pareamento. Ter só um
+     * deles obrigaria um dos dois lados a chamar uma coisa pelo nome da outra —
+     * e neste arquivo o nome é a documentação.
+     */
+    @Synchronized
+    fun zerar() {
+        noAr = false
+        pinAtual = ""
+        autoOn = false
+        recusados = 0
+        esperas.clear()
+        vivas.clear()
+        erros.clear()
+    }
 
     @Synchronized
     fun estaLigado(): Boolean = noAr
@@ -346,18 +377,18 @@ object EspelhoPares {
      *
      * Id desconhecido e id expirado dão a MESMA resposta, pelo mesmo motivo do
      * 404 uniforme do [EspelhoHttp]. E a espera aprovada continua respondendo
-     * [Consulta.Pronta] até vencer o prazo dela — se a resposta se perdeu na rede
-     * (que é o cenário deste recurso: rede ruim), o cliente repete o poll e
+     * [Veredito.Aprovada] até vencer o prazo dela — se a resposta se perdeu na
+     * rede (que é o cenário deste recurso: rede ruim), o cliente repete o poll e
      * recebe o mesmo token, em vez de ser mandado de volta ao PIN.
      */
     @Synchronized
-    fun consultar(id: String, agora: Long): Consulta {
+    fun consultar(id: String, agora: Long): Veredito {
         limpar(agora)
-        val e = acharPendencia(id) ?: return Consulta.Desconhecida
+        val e = acharPendencia(id) ?: return Veredito.Desconhecida
         return when (e.estado) {
-            Estado.APROVADA -> e.sessao?.let { Consulta.Pronta(it) } ?: Consulta.Desconhecida
-            Estado.RECUSADA -> Consulta.Recusada
-            Estado.AGUARDANDO -> Consulta.Aguardando
+            Estado.APROVADA -> e.sessao?.let { Veredito.Aprovada(it) } ?: Veredito.Desconhecida
+            Estado.RECUSADA -> Veredito.Recusada
+            Estado.AGUARDANDO -> Veredito.Pendente
         }
     }
 
@@ -398,25 +429,34 @@ object EspelhoPares {
     // --------------------------------------------------------------- sessões
 
     /**
-     * Valida o cabeçalho `Authorization` CRU (`Bearer <token>`) e devolve a
-     * sessão viva, ou `null`.
+     * Devolve a sessão viva de um token, ou `null`.
      *
-     * Recebe o cabeçalho inteiro, e não o token já fatiado, de propósito: quem
-     * conhece o esquema é quem guarda o segredo (invariante 2). O esquema é
-     * comparado sem caixa porque o RFC 7235 assim o define; o token, não —
-     * base64url distingue caixa e "quase igual" aqui é igual a errado.
+     * Aceita as DUAS formas: o cabeçalho `Authorization` cru
+     * (`Bearer <token>`, com o esquema sem caixa, como manda o RFC 7235) e o
+     * token já extraído — porque há dois chamadores legítimos e eles têm coisas
+     * diferentes na mão: a rota, que tem o cabeçalho, e o vigia das conexões, que
+     * só guardou o token. Tolerar as duas não afrouxa nada: um token é base64url
+     * e **não tem espaço**, então `Basic xyz` (ou qualquer outro esquema) nunca
+     * casa com sessão nenhuma.
+     *
+     * O token NUNCA viaja numa URL (invariante 2) — isto aqui é o outro lado
+     * daquela regra, e é o único ponto do projeto que lê um `Bearer`.
      *
      * Expiração é conferida ANTES da comparação (o [limpar] já removeu as
      * vencidas), então um token expirado é indistinguível de um inventado — que é
-     * o que se quer.
+     * o que se quer. A varredura da lista é linear e em tempo constante por
+     * elemento: ver a invariante 4.
      */
     @Synchronized
     fun validar(autorizacao: String?, agora: Long): Sessao? {
         limpar(agora)
-        val cru = autorizacao ?: return null
-        if (!cru.startsWith("Bearer ", ignoreCase = true)) return null
-        val token = cru.substring(7).trim()
-        if (token.isEmpty()) return null
+        val cru = autorizacao?.trim() ?: return null
+        val token = if (cru.regionMatches(0, "Bearer ", 0, 7, ignoreCase = true)) {
+            cru.substring(7).trim()
+        } else {
+            cru
+        }
+        if (token.isEmpty() || token.contains(' ')) return null
         for (s in vivas) if (igual(token, s.token)) return s
         return null
     }
@@ -507,16 +547,6 @@ object EspelhoPares {
     )
 
     // ---------------------------------------------------------------- interno
-
-    private fun zerar() {
-        noAr = false
-        pinAtual = ""
-        autoOn = false
-        recusados = 0
-        esperas.clear()
-        vivas.clear()
-        erros.clear()
-    }
 
     private fun aprovarPendencia(e: Pendencia, agora: Long): Sessao? {
         if (e.estado == Estado.RECUSADA) return null
