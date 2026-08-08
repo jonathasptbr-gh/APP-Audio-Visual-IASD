@@ -266,8 +266,14 @@ const AMOSTRAS = [
     esperado: ['VideoDecoder'],
   },
   {
-    nome: 'AudioWorklet no cliente, em qualquer caixa',
-    fonte: 'await ctx.audioWorklet.addModule("pcm.js"); const n = new AudioWorkletNode(ctx, "pcm");',
+    // Duas LINHAS de propósito: o varredor acusa uma vez por API por linha, e
+    // o que se quer provar aqui são as duas grafias — o método (`audioWorklet`)
+    // e o construtor (`AudioWorkletNode`), que é onde a caixa alta engana quem
+    // procurar só a primeira.
+    nome: 'AudioWorklet no cliente, nas duas grafias',
+    fonte: `
+      await ctx.audioWorklet.addModule('pcm.js');
+      const no = new AudioWorkletNode(ctx, 'pcm');`,
     esperado: ['audioWorklet', 'audioWorklet'],
   },
 ];
@@ -294,9 +300,11 @@ function arquivos(dir) {
 }
 
 if (!fs.existsSync(ALVO)) {
-  // Não é falha: a pasta nasce no P2 e só fica povoada no P5/P6. O que garante
-  // que este arquivo não é um verde vazio é o auto-teste acima.
-  console.log('    (a pasta ainda não existe — o cliente do espelho chega no P2; o oráculo acima já roda)');
+  // Não é falha. A pasta nasce no P2 e só fica povoada no P5/P6, e este
+  // arquivo é do P3: durante essa janela ele roda com a pasta ausente, e a
+  // ordem entre os passos não pode virar um vermelho. O que garante que ele
+  // não é um verde VAZIO nessa janela é o auto-teste acima, que roda sempre.
+  console.log('    (a pasta ainda não existe — o oráculo acima já roda; a varredura entra com o P2)');
 } else {
   const lista = arquivos(ALVO);
   checar(lista.length > 0, 'há arquivos para varrer em assets/web/espelho/');
