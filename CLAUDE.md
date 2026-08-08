@@ -1339,6 +1339,21 @@ app também fecha, pelo mesmo motivo pelo qual o push-to-talk fecha.
   (`som torneira:sim faixa:nao`), e **é a discordância entre eles que é a
   leitura**: torneira é o que o servidor abriu, faixa é o que o cliente
   conseguiu montar.
+- **O SOM DE CADA TELA É OPT-IN, e o botão precisa dizer isso** (v5.148). As
+  telas nascem mudas por decisão — três telas com som dentro da igreja são três
+  alto-falantes com eco —, e **nada no cliente liga `audioQuerido` além do
+  toque do visitante**. O botão desse toque dizia só "Ver em tela cheia", o que
+  fazia procurar defeito onde havia um botão não tocado: no primeiro culto de
+  teste o Registro mostrou `som torneira:nao` (que quer dizer "esta tela nunca
+  pediu") e a leitura na sala foi *"o celular não está enviando som"*. O rótulo
+  passou a anunciar o som, a folha do operador passou a dizer a regra, e o
+  `espelho-cliente.test.mjs` trava a porta nos dois modos — no de vídeo o gesto
+  PEDE o AAC, no de imagem ele deliberadamente não pede.
+- **E o Registro diz o som em UMA FRASE**, não em dois booleanos para o operador
+  interpretar (`somDaTela`). São dois fatos independentes com saídas diferentes:
+  a *torneira* que o servidor abriu para aquela tela e a *faixa* que o cliente
+  conseguiu montar. `não pedido` é uma tela que ninguém mandou ouvir; `PEDIDO e
+  a faixa não nasceu` é o defeito de verdade.
 - **"O decodificador recusou os dados" é uma CATEGORIA, não um diagnóstico**
   (v5.147). O evento `error` de um `SourceBuffer` é NU por especificação — ele
   não distingue um fragmento malformado de um perfil de H.264 que aquele
@@ -2062,7 +2077,7 @@ aparelho nenhum.
 O `versionCode`/`versionName` do APK vêm do CI (ver "Build") e não se tocam à
 mão.
 
-**Versão atual: v5.147** (base web) · `SHELL_VERSION` **33**, e o bundle segue com
+**Versão atual: v5.148** (base web) · `SHELL_VERSION` **33**, e o bundle segue com
 `minShell: 2` — ele funciona igual num shell antigo, só sem os recursos que são
 nativos por construção (a escada do voltar, os botões de volume, a notificação de
 controles), que **só chegam instalando o APK novo**, não pelo OTA.

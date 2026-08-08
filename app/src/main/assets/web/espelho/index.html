@@ -88,8 +88,17 @@
   <!-- UM GESTO, QUATRO EFEITOS (§3.11, invariante 9). `requestFullscreen()`
        exige ativação transitória do usuário e não há truque: um botão grande,
        uma vez, e daí em diante a ativação é *sticky* pela sessão. É o mesmo
-       padrão do `#startBtn` do `/display/`. -->
-  <button id="gesto" class="gesto">Ver em tela cheia</button>
+       padrão do `#startBtn` do `/display/`.
+
+       E O RÓTULO PRECISA DIZER O SOM. Este botão é a ÚNICA porta para o áudio
+       desta tela — as telas nascem mudas por decisão (§3.11, invariante 10:
+       três telas desmutadas dentro da igreja são três alto-falantes com eco), e
+       nada mais no cliente liga `audioQuerido`. Dizendo só "ver em tela cheia",
+       ele fazia o operador procurar um defeito onde havia um botão não tocado:
+       no primeiro culto de teste o Registro mostrou `som torneira:nao`, que é
+       "esta tela nunca pediu som" — e a leitura na sala foi "o celular não está
+       enviando som". -->
+  <button id="gesto" class="gesto">Ver em tela cheia e ouvir</button>
 
   <!-- O ESTADO, DESENHADO. Com o app do outro lado do salão, esta linha é a
        única coisa que responde "por que a tela está preta?". -->

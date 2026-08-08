@@ -581,6 +581,32 @@ checar(true, 'aprovada, a MESMA página troca para o player (sem navegar)');
   }
 }
 
+// O GESTO É A ÚNICA PORTA DO SOM, e é por isso que ele precisa de um caso.
+//
+// As telas nascem MUDAS por decisão (§3.11, invariante 10), e nada no cliente
+// liga `audioQuerido` além deste toque. No primeiro culto de teste o Registro
+// mostrou `som torneira:nao` — que quer dizer "esta tela nunca pediu" — e a
+// leitura na sala foi "o celular não está enviando som", porque o botão dizia
+// só "ver em tela cheia". O rótulo mudou; este caso é o que impede a porta de
+// ser fechada de novo por um refactor.
+// (O toque em si é exercitado na aba limpa, no fim: esta página já entrou em
+// MODO IMAGEM, e ali o gesto NÃO pede áudio de propósito — pedir AAC para uma
+// tela que não tem `MediaSource` seria pedir bytes para jogar fora.)
+{
+  const rotulo = await pg.$eval('#gesto', (e) => e.textContent || '');
+  checar(/ouvir|som/i.test(rotulo),
+    'o botão do gesto ANUNCIA o som — ele é a única porta para o áudio da tela',
+    rotulo);
+
+  const antes = visto.volta.filter((x) => x && x.do === 'audio').length;
+  await pg.click('#gesto');
+  await espera(600);
+  const depois = visto.volta.filter((x) => x && x.do === 'audio').length;
+  checar(depois === antes,
+    'e no MODO IMAGEM ele não pede AAC — não há faixa de som para receber',
+    antes + ' → ' + depois);
+}
+
 // A VOLTA (§5.1): três palavras, e nada que venha da rede entra no barramento.
 {
   const tipos = new Set(visto.volta.filter(Boolean).map((x) => x.do));
@@ -628,6 +654,24 @@ checar(true, 'aprovada, a MESMA página troca para o player (sem navegar)');
   const depois = await pg2.evaluate(() => window.__espelho.estado());
   checar(depois.pareado, 'lido o código, a tela entra sozinha — nenhuma tecla foi digitada');
   checar(!depois.qr, 'e o código sai do ar assim que ela entra');
+
+  // E O GESTO, NO MODO VÍDEO — a única porta do som.
+  //
+  // Esta aba nunca recebeu um quadro `0x20`, então ela está no caminho de
+  // vídeo, que é onde o pedido de áudio faz sentido. As telas nascem MUDAS por
+  // decisão (§3.11, invariante 10) e nada mais no cliente liga `audioQuerido`:
+  // no primeiro culto de teste o Registro mostrou `som torneira:nao` — "esta
+  // tela nunca pediu" — e a leitura na sala foi "o celular não está enviando
+  // som", porque o botão dizia só "ver em tela cheia".
+  const audioAntes = visto.volta.filter((x) => x && x.do === 'audio').length;
+  await pg2.click('#gesto');
+  await espera(800);
+  const pedidos = visto.volta.filter((x) => x && x.do === 'audio');
+  checar(pedidos.length > audioAntes,
+    'e o gesto PEDE o áudio ao servidor (POST /r {do:audio,on:true})',
+    audioAntes + ' → ' + pedidos.length);
+  checar(pedidos.every((x) => x.on === true),
+    'sempre para LIGAR — o cliente nunca desliga o som de si mesmo');
   await ctx2.close();
 }
 

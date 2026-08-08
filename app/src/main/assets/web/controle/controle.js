@@ -163,7 +163,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.147';
+const WEB_VERSION = '5.148';
 
 // Escrita UMA vez, na carga: o indicador mora no rodapé de Configurações desde
 // a v5.49 e não depende mais de qual aba está aberta (no cabeçalho ele
@@ -10585,6 +10585,28 @@ const MIRROR_VEREDITO = {
 // `PowerManager.THERMAL_STATUS_*` por índice.
 const MIRROR_TERMICA = ['NONE', 'LIGHT', 'MODERATE', 'SEVERE', 'CRITICAL', 'EMERGENCY', 'SHUTDOWN'];
 
+// O SOM DE UMA TELA, em uma frase.
+//
+// São DOIS fatos independentes, e cada combinação é um estado diferente com uma
+// saída diferente — deixá-los crus ("torneira:nao faixa:nao") obrigava a leitura
+// a ser feita de cabeça, e no primeiro culto de teste `torneira:nao`, que quer
+// dizer "ninguém tocou naquela tela", foi lido como "o celular não está
+// enviando som".
+//
+//  · `audio` (torneira) é o que o SERVIDOR abriu para aquela tela, e ele só
+//    abre quando ela pede — o que só acontece no toque do visitante, porque as
+//    telas nascem mudas por decisão (§3.11, invariante 10);
+//  · `som` (faixa) é o que o CLIENTE de fato conseguiu montar.
+//
+// A discordância entre os dois é o defeito; a concordância em "não" é apenas
+// uma tela que ninguém pediu para ouvir.
+function somDaTela(c) {
+  if (!c.audio && !c.som) return 'som: não pedido (ninguém tocou naquela tela)';
+  if (c.audio && !c.som) return 'som: PEDIDO e a faixa não nasceu';
+  if (!c.audio && c.som) return 'som: faixa montada sem a torneira aberta (?)';
+  return 'som: tocando';
+}
+
 function blocoEspelho(d) {
   if (!d || typeof d !== 'object') return '';
   const l = ['Espelho de pixels'];
@@ -10745,12 +10767,8 @@ function blocoEspelho(d) {
       l.push('          ' + Math.round((c.bytes || 0) / 104857.6) / 10 + ' MB'
         + ' · ' + (c.descartes | 0) + ' descarte(s)'
         + ' · ultimo write ha ' + mirrorDur(c.ultimaEscritaMs)
-        // OS DOIS LADOS DO SOM, lado a lado — e é a DISCORDÂNCIA entre eles que
-        // é a leitura. `torneira` é o que o servidor abriu para esta tela;
-        // `faixa` é o que o cliente de fato conseguiu montar. "torneira:sim
-        // faixa:nao" nomeia, sozinho, o defeito que sem isto obrigava a
-        // adivinhar entre o celular não mandar e a tela não receber.
-        + ' · som torneira:' + (c.audio ? 'sim' : 'nao') + ' faixa:' + (c.som ? 'sim' : 'nao')
+        // O SOM EM UMA FRASE, e não em dois "nao" para o operador interpretar.
+        + ' · ' + somDaTela(c)
         + ' · ' + (c.recomecos | 0) + ' recomeco(s)');
       // E A FRASE QUE ESTÁ ESCRITA NAQUELA TELA, quando há uma. É onde o
       // cliente já dizia a causa — só que para uma sala em que ninguém está.
@@ -13944,7 +13962,13 @@ const MIRROR_TEXTO_ON =
   + 'código; toque em "Ler o código da tela", aponte a câmera para ele, e ela '
   + 'entra na hora.\n\n'
   + 'Sem câmera à mão, o número de seis dígitos continua valendo: quem digitar '
-  + 'o número entra na fila abaixo e você aprova.';
+  + 'o número entra na fila abaixo e você aprova.\n\n'
+  // O SOM É POR TELA, e quem liga é quem está na frente dela. Isto precisa
+  // estar dito AQUI, na tela do operador, porque é ele quem vai ser perguntado
+  // — e no primeiro culto de teste a resposta que faltava era esta.
+  + 'Cada tela entra MUDA, de propósito (três telas com som dentro da igreja '
+  + 'são três alto-falantes com eco). Quem estiver na sala toca uma vez na tela '
+  + 'para ver em tela cheia e ouvir.';
 
 function renderEspelho() {
   if (!mirrorRowEl) return;
