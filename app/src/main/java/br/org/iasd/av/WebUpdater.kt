@@ -349,8 +349,17 @@ object WebUpdater {
     // ([ESPERAS_FALHA_MS]), porque "sem rede agora" quase nunca significa "sem
     // rede daqui a meio minuto".
 
-    /** Intervalo da ronda com tudo indo bem. */
-    private const val RONDA_MS = 5L * 60_000
+    /**
+     * Intervalo da ronda com tudo indo bem — **um minuto**, e não os cinco de
+     * antes.
+     *
+     * A conta que justifica o número: o custo de uma ronda é um GET de ~120
+     * bytes de JSON, e a frota é de poucos aparelhos. Cinco minutos economizava
+     * quatro requisições por hora e custava, no pior caso, cinco minutos de
+     * atraso somados a cada elo da corrente — e a corrente era longa (ver
+     * [aplicarSozinho]).
+     */
+    private const val RONDA_MS = 60_000L
 
     /**
      * Piso entre duas verificações BEM-SUCEDIDAS. Os gatilhos de evento
@@ -359,10 +368,17 @@ object WebUpdater {
      * Não vale para um pedido explícito (`forcar`), que é o operador esperando
      * resposta.
      */
-    private const val MIN_ENTRE_CHECKS_MS = 45_000
+    private const val MIN_ENTRE_CHECKS_MS = 15_000
 
-    /** Espera crescente depois de uma falha: ~30 s, 1 min, 2 min, 5 min. */
-    private val ESPERAS_FALHA_MS = longArrayOf(30_000, 60_000, 120_000, 300_000)
+    /**
+     * Espera crescente depois de uma falha: 10 s, 20 s, 45 s, 90 s.
+     *
+     * O teto era de cinco minutos, e ele era o pior lugar para ser generoso: a
+     * falha típica aqui é o Wi-Fi da igreja ainda associando na abertura do
+     * app, que se resolve em segundos — e a espera longa transformava um
+     * tropeço de dez segundos em cinco minutos de atraso.
+     */
+    private val ESPERAS_FALHA_MS = longArrayOf(10_000, 20_000, 45_000, 90_000)
 
     // Os marcos abaixo são medidos em `SystemClock.elapsedRealtime()`, não em
     // `currentTimeMillis()`: os pisos da vigilância são INTERVALOS, e o relógio
@@ -380,11 +396,50 @@ object WebUpdater {
 
     /**
      * Avisado quando um bundle NOVO acaba de ficar pronto no disco. É o que
-     * permite o aviso aparecer no segundo em que a atualização chega, em vez de
+     * permite a atualização entrar no segundo em que ela chega, em vez de
      * esperar a enquete de um minuto do lado web (ver `MainActivity`).
      */
     @Volatile
     var aoChegar: ((String) -> Unit)? = null
+
+    /**
+     * APLICAR SOZINHO, no instante em que o bundle fica pronto (v1.68).
+     *
+     * ## A corrente que não fechava
+     *
+     * Até aqui a base nova entrava "no próximo lançamento", e essa frase era
+     * literal de um jeito que ninguém tinha medido: [beginSession] decide UMA
+     * vez por **processo** ([sessionStarted]), e este processo quase nunca
+     * morre — ele é mantido vivo de propósito pelo `SessionService` (enquanto
+     * houver cena), pelo `SyncService` (enquanto houver download) e pelo
+     * `EspelhoService`. Fechar o app pelo Recentes também não basta: a Activity
+     * some, o processo fica. Na prática o operador reabria o app "várias e
+     * várias vezes" e continuava na versão velha, porque **reabrir a Activity
+     * não é reabrir o processo**.
+     *
+     * E havia um segundo elo, do lado web: a oferta de aplicar ao vivo era
+     * suprimida com cena no ar, download em curso **ou espelho ligado** — e
+     * durante os testes do espelho ele estava sempre ligado, então a pergunta
+     * nunca aparecia. As duas coisas juntas produziam "o OTA não funciona".
+     *
+     * ## O que isto muda, dito por inteiro
+     *
+     * A garantia escrita "nunca troca a base no meio de uma sessão" **deixa de
+     * valer por padrão**, a pedido do operador. Ela protegia contra uma troca
+     * ACIDENTAL; o custo real de uma troca é uma recarga dos dois WebViews, e
+     * esse custo é conhecido e recuperável: o telão recarrega, dispara
+     * `display-ready`, e o Controle reenvia a cena **com posição e estado de
+     * reprodução** (`resendSceneToDisplay`) — o mesmo caminho que a queda de um
+     * dongle já exercita. Uma mídia tocando volta no segundo em que estava. O
+     * que se vê é um piscar.
+     *
+     * O que NÃO é recuperável, e por isso está dito e não escondido: um lote de
+     * downloads em curso (hinário, Bíblia) recomeça o item que estava em voo, e
+     * o WebView do espelho continua com a página antiga em memória até alguém
+     * desligá-lo e ligá-lo. Nenhum dos dois perde dado.
+     */
+    @Volatile
+    var aplicarSozinho: ((String) -> Unit)? = null
 
     private val rondas by lazy {
         java.util.concurrent.Executors.newSingleThreadScheduledExecutor { r ->
@@ -429,6 +484,24 @@ object WebUpdater {
                 override fun onAvailable(network: android.net.Network) {
                     checkAsync(app, "rede voltou")
                 }
+
+                /**
+                 * E A INTERNET VALIDADA é um gatilho à parte do "há rede".
+                 *
+                 * O Wi-Fi da igreja associa antes de ter saída: o `onAvailable`
+                 * dispara nesse instante, a consulta falha, e a retentativa
+                 * seguinte é uma espera. `NET_CAPABILITY_VALIDATED` é o momento
+                 * em que o Android confirma que aquela rede de fato alcança a
+                 * internet — é o gatilho certo, e ele não existia.
+                 */
+                override fun onCapabilitiesChanged(
+                    network: android.net.Network,
+                    caps: android.net.NetworkCapabilities,
+                ) {
+                    if (caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED)) {
+                        checkAsync(app, "internet validada")
+                    }
+                }
             })
         } catch (e: Exception) {
             // Sem permissão ou sem serviço: os outros três gatilhos continuam.
@@ -468,7 +541,15 @@ object WebUpdater {
                 ultimoInstante = ultimoOk
                 falhasSeguidas = 0
                 proximaEm = 0
-                if (nova != null) aoChegar?.invoke(nova)
+                if (nova != null) {
+                    // O EMPURRÃO PRIMEIRO, a aplicação depois: o lado web fica
+                    // sabendo da versão (para o Registro) mesmo que a aplicação
+                    // falhe ou que ninguém a esteja ouvindo.
+                    aoChegar?.invoke(nova)
+                    // E ENTÃO ELA ENTRA, sozinha e agora. Ver [aplicarSozinho]
+                    // para por que "no próximo lançamento" nunca chegava.
+                    aplicarSozinho?.invoke(nova)
+                }
             } catch (e: Exception) {
                 ultimoInstante = SystemClock.elapsedRealtime()
                 ultimoResultado = "falhou (${e.message})"

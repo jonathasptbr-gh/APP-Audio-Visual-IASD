@@ -286,6 +286,22 @@ class MainActivity : ComponentActivity(), BridgeHost {
             runOnUiThread { web?.evaluateJavascript(js, null) }
         }
 
+        // E ELA ENTRA SOZINHA, no segundo em que fica pronta (v1.68).
+        //
+        // "Entra no próximo lançamento" era literal de um jeito que ninguém
+        // tinha medido: o `beginSession` decide uma vez por PROCESSO, e este
+        // processo quase nunca morre — os três serviços em primeiro plano o
+        // mantêm vivo de propósito, e fechar pelo Recentes derruba a Activity,
+        // não o processo. O operador reabria o app "várias e várias vezes" e
+        // continuava na versão velha. Ver o KDoc de `WebUpdater.aplicarSozinho`
+        // para a corrente inteira e para o que esta troca custa.
+        WebUpdater.aplicarSozinho = { versao ->
+            applyWebUpdate { aplicada ->
+                Log.i(TAG, if (aplicada != null) "base web $versao aplicada sozinha"
+                else "base web $versao não pôde ser aplicada agora")
+            }
+        }
+
         // Notificação de controles / tela de bloqueio / botões de mídia: o
         // sistema entrega a ação aqui e ela vai para o MESMO caminho dos botões
         // da tela (`window.__avRemote` → os handlers já existentes). Nada de
@@ -545,6 +561,7 @@ class MainActivity : ComponentActivity(), BridgeHost {
         // E o empurrão do OTA, pelo mesmo motivo dos dois acima: ele captura
         // esta Activity, e a ronda do `WebUpdater` sobrevive à tela.
         WebUpdater.aoChegar = null
+        WebUpdater.aplicarSozinho = null
         try { SessionService.stop(this) } catch (_: Exception) { }
         // O ESPELHO NÃO SOBREVIVE AO FECHAMENTO DO APP — ele é auxiliar e
         // nasceu de um toque do operador nesta tela. Deixá-lo servindo com a

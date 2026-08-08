@@ -1099,9 +1099,45 @@ SAF, Presentation e o serviço de segundo plano seguem idênticos.
 
 ### As três garantias (isto roda em culto)
 
-1. **Nunca troca a base no meio de uma sessão.** O download é em segundo
-   plano, mas o bundle novo só entra no **próximo lançamento** — o WebView do
-   telão jamais recarrega ao vivo. "Por lançamento" é literal: `beginSession()`
+1. ~~**Nunca troca a base no meio de uma sessão.**~~ **REVOGADA A PEDIDO DO
+   OPERADOR (v1.68 / v5.151).** A base nova entra **sozinha, no segundo em que
+   fica pronta**, independentemente do que estiver acontecendo. Leia o resto
+   deste item mesmo assim: ele explica por que a garantia existia, e o parágrafo
+   final explica por que ela caiu e o que a substitui.
+
+   **Por que ela caiu, e não foi por preguiça:** o que ela prometia nunca
+   acontecia. "Entra no próximo lançamento" é literal — `beginSession()` decide
+   uma vez por **PROCESSO** —, e este processo quase nunca morre: os três
+   serviços em primeiro plano (`SessionService`, `SyncService`, `EspelhoService`)
+   o mantêm vivo de propósito, e fechar pelo Recentes derruba a Activity, não o
+   processo. Somado a isso, a oferta de aplicar ao vivo era suprimida com cena no
+   ar, download em curso **ou espelho ligado** — e nos testes do espelho ele
+   ficava ligado o tempo todo. O operador reabria o app "várias e várias vezes" e
+   continuava na versão velha. Uma garantia que promete "no próximo lançamento"
+   quando não há próximo lançamento não é uma garantia: é um bug com
+   documentação.
+
+   **O que o piscar custa, medido e não suposto:** o telão recarrega, dispara
+   `display-ready`, e o Controle reenvia a cena **com posição e estado de
+   reprodução** (`resendSceneToDisplay`) — o mesmo caminho que a queda de um
+   dongle já exercita todo domingo. Uma mídia tocando volta no segundo em que
+   estava. O que NÃO volta, e está dito em vez de escondido: o item de um lote de
+   download que estava em voo recomeça (sem perder o que já baixou), e o WebView
+   do espelho segue com a página antiga em memória até alguém desligá-lo e
+   ligá-lo.
+
+   O que a substitui é o **watchdog de boot**, que não mudou: um bundle que não
+   confirme o boot é descartado no lançamento seguinte. Ele continua sendo a
+   defesa contra publicar algo quebrado — a diferença é que agora o primeiro
+   estrago chega mais rápido, e por isso o passo de testes do `apk.yml` importa
+   mais, não menos.
+
+   O texto abaixo descreve o mecanismo que continua valendo (a faxina, o
+   `sessionRoot`, o watchdog), e a razão de a troca ao vivo nunca apagar nada:
+
+   O download é em segundo
+   plano, e o `beginSession()` continua sendo o único ponto em que a faxina
+   roda. "Por lançamento" é literal: `beginSession()`
    decide uma única vez por **PROCESSO** (`sessionStarted`), e não por
    `onCreate`. A garantia tinha sido escrita supondo o contrário: uma recriação
    da Activity no meio do culto rearmava o watchdog e rodava o `cleanup`, que
@@ -1112,19 +1148,38 @@ SAF, Presentation e o serviço de segundo plano seguem idênticos.
    culto fazia todo recurso ainda não carregado (e qualquer recarga do telão)
    cair no fallback do APK: versão mais antiga, no meio da projeção.
 
-   **A ÚNICA exceção é o operador pedindo** (v5.132 / shell 29). O que esta
-   garantia protege é ele, não o mecanismo: a troca proibida é a ACIDENTAL. O
-   app agora AVISA quando há uma base baixada esperando e oferece aplicá-la na
-   hora (`otaPending`/`otaApply` → `WebUpdater.applyNow`, que troca o
-   `sessionRoot` e recarrega as duas páginas). Três guardas mantêm o espírito
-   intacto: a pergunta **não aparece com cena no ar nem com download em curso**;
-   recusar vale para a sessão inteira (aviso repetido é ruído, e ruído em culto
-   é pior que a versão antiga); e o watchdog arma igual, então um bundle que não
-   confirme o boot é descartado no lançamento seguinte, exatamente como no
-   caminho automático. **Nada é apagado ao aplicar**: o diretório antigo pode ter
-   requisições em voo durante a recarga, e quem o recolhe continua sendo o
-   `beginSession()` seguinte. Sem o pedido, o comportamento automático é o
-   mesmo de sempre — o bundle entra só no próximo lançamento.
+   **Como a aplicação automática funciona** (v1.68 / v5.151). São **dois
+   caminhos independentes**, e isso é deliberado: um deles chega por APK e o
+   outro por OTA, então a correção não depende de instalar nada para começar a
+   valer.
+
+   - **No shell**: `check()` termina, o bundle fica pronto, e o `WebUpdater`
+     chama `aplicarSozinho` — que a `MainActivity` liga ao mesmo `applyWebUpdate`
+     do caminho manual (`WebUpdater.applyNow` troca o `sessionRoot` e recarrega
+     as duas páginas). É o caminho robusto: ele não depende de o WebView do
+     Controle estar vivo nem de estar sendo escalonado.
+   - **No web**: a enquete de 20 s (era 60) chama `otaApply()` **sem perguntar**
+     assim que `otaPending()` responde alguma coisa, mais um gatilho na retomada
+     do app. Ele existe para o shell antigo (≥ 29) e para o caso de o empurrão
+     do shell se perder — o WebView do Controle é estrangulado em segundo plano,
+     e é justamente aí que uma versão nova costuma chegar.
+
+   `otaRecusadas` sobreviveu com outro significado: era "o operador disse
+   depois", e agora é "**já tentamos aplicar e o shell não aceitou**" — sem ela,
+   um bundle reprovado (sem o index do Controle, por exemplo) faria a enquete
+   pedir a aplicação a cada 20 s, para sempre.
+
+   **Nada é apagado ao aplicar**: o diretório antigo pode ter requisições em voo
+   durante a recarga, e quem o recolhe continua sendo o `beginSession()`
+   seguinte.
+
+   **A detecção também ficou agressiva**: ronda de **1 min** (era 5), piso entre
+   consultas de **15 s** (era 45), retentativa de falha em **10 s → 90 s** (era
+   30 s → 5 min), e um gatilho novo — `onCapabilitiesChanged` com
+   `NET_CAPABILITY_VALIDATED`, que é o instante em que o Android confirma que
+   aquela rede alcança a internet de verdade. O Wi-Fi da igreja associa **antes**
+   de ter saída, então o `onAvailable` sozinho disparava a consulta cedo demais,
+   ela falhava, e o resto era espera.
 2. **Válvula `minShell`.** Se o bundle exigir uma ponte mais nova que
    `NativeBridge.SHELL_VERSION`, é recusado: o app continua no que já tinha,
    funcionando, até um APK novo chegar. **É por isso que `SHELL_VERSION`
@@ -2105,7 +2160,7 @@ aparelho nenhum.
 O `versionCode`/`versionName` do APK vêm do CI (ver "Build") e não se tocam à
 mão.
 
-**Versão atual: v5.150** (base web) · `SHELL_VERSION` **33**, e o bundle segue com
+**Versão atual: v5.151** (base web) · `SHELL_VERSION` **33**, e o bundle segue com
 `minShell: 2` — ele funciona igual num shell antigo, só sem os recursos que são
 nativos por construção (a escada do voltar, os botões de volume, a notificação de
 controles), que **só chegam instalando o APK novo**, não pelo OTA.
