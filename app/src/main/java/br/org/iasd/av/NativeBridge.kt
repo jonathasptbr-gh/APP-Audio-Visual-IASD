@@ -71,6 +71,44 @@ interface BridgeHost {
      * Só a Activity pode fazê-lo: é ela que tem as duas páginas.
      */
     fun applyWebUpdate(onResult: (String?) -> Unit)
+
+    // ---------- espelho de pixels (o telão nas telas da rede local) ----------
+
+    /**
+     * LIGA o espelho: tela virtual privada + uma segunda `Presentation` com o
+     * MESMO `/web/display/` + o servidor da rede local.
+     *
+     * `modo` é `"imagem"` ou `"video"`, e é escolhido no LIGAR de propósito —
+     * trocar ao vivo exigiria `VirtualDisplay.setSurface`, que a AOSP descreve
+     * como tendo "efeito parecido com desligar a tela". Trocar de modo é
+     * desligar e ligar de novo, por ação do operador.
+     *
+     * Só a Activity pode fazê-lo: uma `Presentation` é um `Dialog`, e um
+     * `Dialog` exige uma thread com `Looper` — que a fila de IO da ponte não
+     * tem (ver o bloco do espelho em [NativeBridge]).
+     *
+     * Devolve o MESMO objeto de [mirrorState] — com `erro` não-vazio quando não
+     * deu —, para o lado web ter um formato só e um desenho só.
+     */
+    fun startMirror(modo: String, onResult: (JSONObject) -> Unit)
+
+    /**
+     * DESLIGA o espelho. Síncrono e sem resposta: quem chama já sabe o que
+     * pediu, e o desfecho aparece no [mirrorState] seguinte.
+     */
+    fun stopMirror()
+
+    /** Estado do espelho para a folha do Controle (endereço, PIN, telas). */
+    fun mirrorState(onResult: (JSONObject) -> Unit)
+
+    /** O anel de diagnóstico do espelho, em DADO — a frase é do `controle.js`. */
+    fun mirrorDiag(onResult: (JSONObject) -> Unit)
+
+    /**
+     * O operador decide sobre uma tela que digitou o PIN e está PENDENTE.
+     * `id` vazio ou `"*"` é a chave da aprovação automática desta sessão.
+     */
+    fun approveMirrorScreen(id: String, approve: Boolean, onResult: (Boolean) -> Unit)
 }
 
 /**
@@ -96,8 +134,14 @@ class NativeBridge(
          * versão mínima de que precisa, e o OTA recusa atualizações que
          * exijam mais do que o shell instalado oferece (ver [WebUpdater]).
          * Subir SEMPRE que a superfície da ponte mudar.
+         *
+         * 32 (v5.141) — os cinco métodos do ESPELHO DE PIXELS (`espelhoLigar`,
+         * `espelhoDesligar`, `espelhoEstado`, `espelhoDiag`, `espelhoAprovar`).
+         * O lado web não desenha o cartão do espelho abaixo disto: um método
+         * novo NÃO chega por OTA, e um botão que não faz nada no meio de um
+         * culto é pior que botão nenhum (a mesma regra do `appendYoutubeSearch`).
          */
-        const val SHELL_VERSION = 31
+        const val SHELL_VERSION = 32
 
         /**
          * Fila de IO da ponte, **compartilhada por todas as instâncias**.
@@ -411,6 +455,115 @@ class NativeBridge(
         val u = try { Uri.parse(url) } catch (_: Exception) { return }
         if (!u.scheme.equals("https", ignoreCase = true) || u.host.isNullOrBlank()) return
         host?.openExternalUrl(u.toString())
+    }
+
+    // ---------- espelho de pixels (o telão nas telas da rede local) ----------
+    //
+    // Os cinco métodos deste bloco NÃO vão para a fila `io`, e essa é a decisão
+    // que os separa de todo o resto da ponte. A `io` é uma thread ÚNICA
+    // compartilhada por todas as instâncias, e é nela que roda o download do
+    // YouTube: um vídeo de 380 MB a segura por minutos. Enfileirado, "ligar o
+    // espelho" no meio de um download simplesmente não aconteceria — a Promise
+    // venceria pelo prazo de 60 s do `native.js` e resolveria `null`, ou seja
+    // um "erro" sem causa no toque de um botão. É o mesmo raciocínio já
+    // publicado para o `ytCancel`.
+    //
+    // E há um motivo a mais, que é uma trava e não uma preferência: quem faz o
+    // trabalho é a MAIN THREAD (ver os métodos do [BridgeHost]), porque uma
+    // `Presentation` é um `Dialog` e um `Dialog` exige uma thread com `Looper`.
+    // A fila `io` é uma `Thread` daemon sem `Looper` — criar a janela do espelho
+    // ali daria `Can't create handler inside thread that has not called
+    // Looper.prepare()` no primeiro toque, na frente do operador. De brinde, a
+    // main thread é onde o `DisplayManager.DisplayListener` deste app já é
+    // chamado (registrado com handler `null`), então a criação da tela virtual e
+    // o `onDisplayAdded` não correm um contra o outro.
+    //
+    // Todos guardados por `host != null`: superfície nativa é privilégio do
+    // Controle. O WebView do espelho — como o do telão — recebe a ponte com
+    // `host = null`, e ele hospeda a IFrame Player API de terceiro POR DESIGN.
+    // Sem a guarda, um script de terceiro rodando lá dentro ligaria e desligaria
+    // o servidor da rede e aprovaria as telas que quisesse.
+
+    /**
+     * LIGA o espelho e resolve o estado resultante (o MESMO objeto do
+     * [espelhoEstado], com `erro` não-vazio quando não deu).
+     *
+     * `modo` é `"imagem"` ou `"video"` — ver [BridgeHost.startMirror] para por
+     * que ele é escolhido aqui e não trocado ao vivo.
+     *
+     * O espelho é AUXILIAR por contrato: ele liga por ação do operador e
+     * desliga por ação do operador, pelo fechamento do app, ou por uma falha que
+     * o app nomeia em texto. Uma TV que conecta não o derruba — e ligar COM a TV
+     * já conectada é uma pergunta que o lado web faz antes de chegar aqui.
+     */
+    @JavascriptInterface
+    fun espelhoLigar(callId: String, modo: String) {
+        val h = host
+        if (h == null) { resolve(callId, "null"); return }
+        h.startMirror(modo) { estado -> resolve(callId, estado.toString()) }
+    }
+
+    /**
+     * DESLIGA o espelho.
+     *
+     * Sem `callId` e sem espera, como o [ytCancel]: do outro lado isto escreve
+     * um campo `@Volatile` e volta — quem responde são os laços que o consultam
+     * (a drenagem do encoder, as threads de cliente). Segurar a Promise pelo
+     * tempo de soltar encoder, tela virtual, janela e sockets daria um botão
+     * travado justamente no caminho de desistir. O desfecho aparece no
+     * [espelhoEstado] seguinte.
+     */
+    @JavascriptInterface
+    fun espelhoDesligar() {
+        host?.stopMirror()
+    }
+
+    /**
+     * O estado do espelho para a folha do Controle: se está ligado, o endereço
+     * servido, o PIN da vez, as telas conectadas e as que esperam aprovação.
+     *
+     * DADO, não frase — a mesma regra do [otaDiag] e do [ytDiag] levada ao
+     * limite: aqui o Kotlin devolve JSON e quem escreve o texto é o
+     * `controle.js` (invariante 5). Um Kotlin que formatasse parágrafos seria
+     * UI de diagnóstico escrita do lado errado.
+     */
+    @JavascriptInterface
+    fun espelhoEstado(callId: String) {
+        val h = host
+        if (h == null) { resolve(callId, "null"); return }
+        h.mirrorState { estado -> resolve(callId, estado.toString()) }
+    }
+
+    /**
+     * O anel de diagnóstico do espelho (servidor, tela virtual, readback,
+     * encoder, ritmo, térmica, clientes) — em JSON, pelo mesmo motivo do
+     * [espelhoEstado]. Vira um BLOCO do Registro, nunca uma caixa nova.
+     */
+    @JavascriptInterface
+    fun espelhoDiag(callId: String) {
+        val h = host
+        if (h == null) { resolve(callId, "null"); return }
+        h.mirrorDiag { diag -> resolve(callId, diag.toString()) }
+    }
+
+    /**
+     * O OPERADOR NO LAÇO. Uma tela que acertou o PIN entra como **pendente** e
+     * só vira sessão quando alguém aqui aprova: um PIN de seis dígitos visível
+     * na tela do celular durante todo o culto é fraco demais para ser o único
+     * controle.
+     *
+     * `id` é o da pendente; `id` vazio ou `"*"` é a chave da APROVAÇÃO
+     * AUTOMÁTICA desta sessão (nasce desligada), para quando o operador estiver
+     * ocupado. Um valor reservado, e não um sexto método, porque `"*"` não é um
+     * id possível — eles são base64url de 128 bits, como os tokens do
+     * `SafRegistry` — e porque a superfície da ponte é contrato: cada método a
+     * mais é uma linha a mais que um shell antigo não tem.
+     */
+    @JavascriptInterface
+    fun espelhoAprovar(callId: String, id: String, aprovar: Boolean) {
+        val h = host
+        if (h == null) { resolve(callId, "false"); return }
+        h.approveMirrorScreen(id, aprovar) { ok -> resolve(callId, if (ok) "true" else "false") }
     }
 
     // ---------- vídeo do YouTube como ARQUIVO ----------

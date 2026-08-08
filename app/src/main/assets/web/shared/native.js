@@ -243,12 +243,94 @@
     }
   };
 
+  // ---- o DRENO do ESPELHO DE PIXELS (papel 'espelho') ----
+  //
+  // O espelho de pixels (ver docs/ESPELHO-DE-PIXELS.md) hospeda uma SEGUNDA
+  // cópia de `/web/display/` numa `Presentation` sobre um `VirtualDisplay`
+  // privado, cujo framebuffer é codificado e servido na rede local. Ele é o
+  // mesmo arquivo, o mesmo origin e o mesmo barramento do telão de verdade —
+  // e é justamente por ser idêntico que ele NÃO PODE FALAR.
+  //
+  // A arquitetura inteira SUPÕE um telão só. Dois emissores no barramento
+  // quebram, cada um à sua maneira:
+  //
+  //   - `display-status` sai a ~4 Hz de CADA telão. O Controle o usa como
+  //     fonte de sincronização (preview, barra, `authoritativeTime`) e o
+  //     `NativeBridge.snoopDisplayStatus` o lê de passagem para corrigir a
+  //     notificação de mídia — que é a ÚNICA janela do operador justamente
+  //     quando o app está minimizado. Duas fontes alternadas ali dão uma
+  //     barra que anda para a frente e para trás.
+  //   - `media-ended` dobrado dá um segundo `load` do mesmo item em
+  //     `repeat one` (fade duplo, visível na frente da congregação).
+  //   - `mic-status` do espelho (que não tem `MicChromeClient` e por isso nega
+  //     o `getUserMedia` em silêncio) APAGA o estado do microfone real, porque
+  //     o Controle o aplica sem filtro de origem.
+  //   - `diag-ask` respondido por dois telões faz o Registro mostrar o diário
+  //     de UM dos dois, sem dizer qual.
+  //
+  // ## É uma LISTA DE PERMISSÃO de um item, e não um dreno total
+  //
+  // A tentação é calar tudo. Isso QUEBRA O RECURSO: `display.js` anuncia
+  // `display-ready` ao fim do `init()`, e é esse anúncio — e só ele — que faz
+  // o Controle reenviar a cena (`resendSceneToDisplay`). Calado por inteiro, o
+  // espelho fica no wallpaper até alguém tocar em alguma coisa: exatamente nos
+  // três casos em que ele precisa se recuperar sozinho — ligado no meio do
+  // culto, depois da morte do renderer, e depois da recarga que o OTA faz.
+  //
+  // Deixar passar EXATAMENTE esse é seguro porque o reenvio é ENDEREÇADO
+  // desde a v5.140: o anúncio vai assinado (`__de`), o Controle carimba
+  // `__para` em todos os comandos da resposta, e o telão de verdade descarta o
+  // que não for dele. Nenhum outro comando ganha essa proteção, e por isso
+  // nenhum outro passa.
+  //
+  // E é uma lista de PERMISSÃO, nunca de recusa: um tipo de mensagem novo em
+  // `display.js` nasce mudo aqui por construção. Uma lista de recusa deixaria
+  // o próximo vazar em silêncio, que é a classe de defeito que este bloco
+  // existe para fechar.
+  const ESPELHO = global.__AV_ROLE__ === 'espelho';
+
   global.__AVBus = {
     post(msg) {
+      // A lista de permissão. Ver o bloco acima: um item, e o motivo dele.
+      if (ESPELHO && !(msg && msg.type === 'display-ready')) return;
       try { B.busPost(JSON.stringify(msg)); } catch (_) { /* ponte indisponível */ }
     },
     recv(fn) { busListeners.push(fn); },
   };
+
+  // A OUTRA metade do dreno: o `BroadcastChannel`.
+  //
+  // `sendCommand` (shared/db.js) manda por DOIS caminhos em paralelo — o relay
+  // nativo acima e o `BroadcastChannel` —, então calar só um deixaria o
+  // espelho falando pelo outro. Mas o conserto NÃO é apagar a API:
+  //
+  //   - `db.js` decide o canal perguntando `'BroadcastChannel' in global`.
+  //     Apagando a propriedade, `channel` nasce `null` e o espelho fica com um
+  //     ÚNICO caminho de RECEPÇÃO — e a redundância dos dois caminhos é
+  //     decisão escrita deste projeto (o relay existe porque o isolamento de
+  //     sites do WebView pode surpreender). Zerar a função também não basta,
+  //     porque `in` continuaria respondendo `true` e `new BroadcastChannel`
+  //     lançaria.
+  //   - O que precisa morrer é o ENVIO, e só ele. Uma subclasse do construtor
+  //     real com `postMessage` mudo é literalmente isso: o objeto que `db.js`
+  //     cria continua sendo um `BroadcastChannel` de verdade, recebe tudo o
+  //     que o Controle manda, e não devolve nada.
+  //
+  // ORDEM: isto tem de rodar ANTES de `db.js`, que captura o construtor no
+  // corpo do módulo (`new BroadcastChannel(CHANNEL_NAME)` na carga). O
+  // `display/index.html` carrega `native.js` PRIMEIRO — é a mesma razão pela
+  // qual `__NATIVE__` é definido aqui —, então a troca chega a tempo. Trocar
+  // depois seria um no-op silencioso.
+  //
+  // A guarda de `typeof` não é zelo: `class extends undefined` LANÇA, e uma
+  // exceção nesta IIFE derruba o resto da ponte inteira num WebView que por
+  // qualquer motivo não traga a API.
+  if (ESPELHO && typeof global.BroadcastChannel === 'function') {
+    const CanalReal = global.BroadcastChannel;
+    global.BroadcastChannel = class extends CanalReal {
+      postMessage() { /* o espelho não fala no barramento — ver o bloco acima */ }
+    };
+  }
 
   // ---- compartilhamento recebido por intent ----
   let shareCb = null;

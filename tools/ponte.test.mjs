@@ -150,6 +150,111 @@ try {
   checar(l.positionMs === 2_500_000_000 && l.durationMs === 3_100_000_000,
     'acima de 2³¹ ms a linha do tempo NÃO vira negativa (o defeito irmão do bgProgress)',
     l.positionMs + '/' + l.durationMs);
+
+  // ---- o DRENO do ESPELHO DE PIXELS, e o PAR NEGATIVO ---------------------
+  //
+  // O espelho é uma segunda cópia de `/web/display/` (ver
+  // docs/ESPELHO-DE-PIXELS.md). Ele não pode falar no barramento — a
+  // arquitetura supõe um telão só —, MENOS por um comando: o `display-ready`,
+  // que é o que faz o Controle reenviar a cena. Calado por inteiro, o espelho
+  // fica no wallpaper para sempre; falando à vontade, ele envenena o
+  // `display-status` que sincroniza a preview e a notificação de mídia.
+  //
+  // O par NEGATIVO é o que dá sentido ao positivo: um dreno que calasse TODO
+  // MUNDO passaria no teste do espelho com louvor e derrubaria o telão de
+  // verdade — em silêncio, e só no aparelho. Por isso as mesmas quatro
+  // mensagens são enviadas nos dois papéis, e as duas asserções são opostas.
+  //
+  // `window.__CanalReal` é capturado no init script, ANTES de o native.js
+  // trocar o construtor: é a única forma de o teste falar pelo barramento
+  // "por fora" do dreno e observá-lo dos dois lados.
+  async function paginaComPapel(papel) {
+    const p = await navegador.newPage();
+    await p.addInitScript((role) => {
+      window.__CanalReal = window.BroadcastChannel;
+      window.__busPost = [];
+      window.__AVBridge = {
+        shellVersion: () => 99,
+        role: () => role,
+        appVersion: () => 'v9.9',
+        busPost: (json) => { window.__busPost.push(JSON.parse(json)); },
+        otaConfirm: () => {},
+      };
+    }, papel);
+    await p.goto('about:blank');
+    await p.addScriptTag({ content: NATIVE });
+    return p;
+  }
+
+  // As quatro mensagens são as do caso real: o anúncio que PRECISA sair, e
+  // três dos emissores que precisam morrer (o de 4 Hz, o que faz o Controle
+  // avançar a playlist e o que apagaria o estado do microfone de verdade).
+  const percursoDoBarramento = async () => {
+    window.__AVBus.post({ type: 'display-ready', __de: 'inst-1' });
+    window.__AVBus.post({ type: 'display-status', currentTime: 12 });
+    window.__AVBus.post({ type: 'media-ended', id: 'hino-471' });
+    window.__AVBus.post({ type: 'mic-status', on: false });
+
+    // O canal que o `db.js` criaria (`new BroadcastChannel(...)`), e um
+    // ouvinte pelo construtor REAL para ver o que sai dele.
+    const canal = new BroadcastChannel('av-iasd');
+    const recebidos = [];
+    canal.addEventListener('message', (ev) => recebidos.push(ev.data));
+    const ouvinte = new window.__CanalReal('av-iasd');
+    const saiu = [];
+    ouvinte.addEventListener('message', (ev) => saiu.push(ev.data));
+
+    canal.postMessage({ type: 'display-status', currentTime: 12 });
+    // E alguém DE FORA manda: é o Controle falando com o telão. Isto tem de
+    // chegar nos dois papéis — o dreno mata o envio, nunca a recepção.
+    new window.__CanalReal('av-iasd').postMessage({ type: 'load', mediaId: 'x' });
+    await new Promise((r) => setTimeout(r, 250));
+
+    return {
+      papel: window.__AV_ROLE__,
+      bus: window.__busPost,
+      temBC: 'BroadcastChannel' in window,   // a pergunta que o db.js faz
+      construtorTrocado: window.BroadcastChannel !== window.__CanalReal,
+      canalEhReal: canal instanceof window.__CanalReal,
+      recebeu: recebidos.some((m) => m && m.type === 'load'),
+      vazou: saiu.some((m) => m && m.type === 'display-status'),
+    };
+  };
+
+  const pgEspelho = await paginaComPapel('espelho');
+  const esp = await pgEspelho.evaluate(percursoDoBarramento);
+
+  checar(esp.papel === 'espelho', 'o papel `espelho` chega ao lado web', esp.papel);
+  checar(esp.bus.length === 1 && esp.bus[0].type === 'display-ready',
+    'no espelho, o relay nativo deixa passar SÓ o display-ready (lista de permissão de um item)',
+    JSON.stringify(esp.bus.map((m) => m.type)));
+  checar(esp.bus.length === 1 && esp.bus[0].__de === 'inst-1',
+    'e ele passa ASSINADO — é o `__de` que faz o reenvio da cena ser endereçado',
+    JSON.stringify(esp.bus[0]));
+  checar(esp.vazou === false,
+    'e o BroadcastChannel do espelho não emite nada (postMessage é no-op)', esp.vazou);
+  checar(esp.temBC === true,
+    "mas a API CONTINUA existindo — o db.js decide o canal por `'BroadcastChannel' in global`",
+    esp.temBC);
+  checar(esp.construtorTrocado === true && esp.canalEhReal === true,
+    'o canal criado é uma SUBCLASSE do real: só o envio morreu',
+    'trocado=' + esp.construtorTrocado + ' real=' + esp.canalEhReal);
+  checar(esp.recebeu === true,
+    'e a RECEPÇÃO segue inteira — sem ela o espelho nunca receberia a cena de volta',
+    esp.recebeu);
+
+  // O PAR NEGATIVO. Mesmas quatro mensagens, papel do telão de verdade.
+  const pgDisplay = await paginaComPapel('display');
+  const dsp = await pgDisplay.evaluate(percursoDoBarramento);
+
+  checar(dsp.bus.length === 4,
+    'PAR NEGATIVO: no papel `display` as QUATRO mensagens saem — o dreno não vazou para o telão',
+    JSON.stringify(dsp.bus.map((m) => m.type)));
+  checar(dsp.construtorTrocado === false,
+    'e o BroadcastChannel do telão não é tocado', dsp.construtorTrocado);
+  checar(dsp.vazou === true,
+    'e ele continua EMITINDO pelo canal (é o segundo caminho do relay)', dsp.vazou);
+  checar(dsp.recebeu === true, 'e recebendo, como sempre', dsp.recebeu);
 } catch (e) {
   checar(false, 'o percurso terminou sem exceção (' + (e && e.message) + ')');
 }
