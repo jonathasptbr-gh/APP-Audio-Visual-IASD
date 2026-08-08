@@ -299,7 +299,7 @@ class EspelhoCodec(private val onQuadro: (Quadro) -> Unit) {
                     } finally {
                         try { c.releaseOutputBuffer(idx, false) } catch (_: Exception) { }
                     }
-                    if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) {
+                    if ((info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
                         return Fim.NORMAL
                     }
                 }
@@ -332,7 +332,7 @@ class EspelhoCodec(private val onQuadro: (Quadro) -> Unit) {
         // vez de (ou além de) publicá-lo no formato. Ele NÃO é um quadro de
         // vídeo: mandado como `0x02`, o cliente tentaria decodificar SPS/PPS
         // como imagem.
-        if (info.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG != 0) {
+        if ((info.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0) {
             if (csd == null) {
                 csd = bytes
                 onQuadro(
@@ -342,7 +342,7 @@ class EspelhoCodec(private val onQuadro: (Quadro) -> Unit) {
             return false
         }
 
-        val chave = info.flags and MediaCodec.BUFFER_FLAG_KEY_FRAME != 0
+        val chave = (info.flags and MediaCodec.BUFFER_FLAG_KEY_FRAME) != 0
         onQuadro(
             Quadro(
                 TIPO_VIDEO,
@@ -474,11 +474,30 @@ class EspelhoCodec(private val onQuadro: (Quadro) -> Unit) {
         private const val ESPERA_US = 10_000L
         private const val FPS_JANELA_MS = 2_000L
 
+        /**
+         * Os tipos de fio que as FONTES produzem (§5.2) — vídeo e `csd` daqui,
+         * JPEG do modo imagem no [EspelhoDisplay], áudio do `EspelhoAudio`.
+         *
+         * O `EspelhoServidor` tem a tabela **completa** no companion dele, que é
+         * onde ela pertence: ele enquadra os bytes e é quem fala com o cliente
+         * JS. A repetição destas cinco é deliberada e limitada às que uma FONTE
+         * carimba — o produtor não pode depender do transporte, senão apagar o
+         * servidor um dia levaria o encoder junto. **Os valores têm de bater com
+         * os de lá**: são números de protocolo, e mudá-los sem mudar o cliente é
+         * um fluxo que o navegador descarta em silêncio.
+         */
         const val TIPO_CSD_VIDEO: Byte = 0x01
         const val TIPO_VIDEO: Byte = 0x02
         const val TIPO_CSD_AUDIO: Byte = 0x10
         const val TIPO_AUDIO: Byte = 0x11
         const val TIPO_JPEG: Byte = 0x20
+
+        /**
+         * Mensagem de controle servidor→cliente. Não é produzida por fonte
+         * nenhuma — está aqui porque o `EspelhoServidor` a carimba num [Quadro]
+         * como qualquer outro, e ter METADE da tabela num lugar e metade noutro
+         * é pior que a repetição inteira.
+         */
         const val TIPO_CONTROLE: Byte = 0x30
 
         /**
@@ -502,8 +521,16 @@ class EspelhoCodec(private val onQuadro: (Quadro) -> Unit) {
         @Volatile
         private var baseUs = -1L
 
+        /**
+         * -1 = nenhum quadro carimbado ainda. Não é 0: com 0, o primeiro quadro
+         * da sessão cairia na guarda de monotonicidade (`0 <= 0`) e sairia com
+         * 1 µs em vez de 0. Um microssegundo não muda nada em cena nenhuma —
+         * mas um relógio cuja origem não é a origem é a classe de detalhe que
+         * volta como uma hora de depuração no dia em que o `tfdt` for
+         * conferido à mão contra o `moov`.
+         */
         @Volatile
-        private var ultimoUs = 0L
+        private var ultimoUs = -1L
 
         @Volatile
         private var descontinuidade = false
@@ -512,7 +539,7 @@ class EspelhoCodec(private val onQuadro: (Quadro) -> Unit) {
         @Synchronized
         fun abrirSessao() {
             baseUs = -1L
-            ultimoUs = 0L
+            ultimoUs = -1L
             descontinuidade = false
         }
 
@@ -543,9 +570,14 @@ class EspelhoCodec(private val onQuadro: (Quadro) -> Unit) {
             return us
         }
 
-        /** O último carimbo emitido — para quadros sem tempo próprio (`csd`). */
+        /**
+         * O último carimbo emitido — para quadros sem tempo próprio (`csd`).
+         *
+         * Nunca negativo: o `csd` é o PRIMEIRO quadro de toda conexão e
+         * costuma sair antes de qualquer imagem, quando [ultimoUs] ainda é -1.
+         */
         @Synchronized
-        fun ultimoCarimbo(): Long = ultimoUs
+        fun ultimoCarimbo(): Long = if (ultimoUs < 0L) 0L else ultimoUs
 
         @Synchronized
         private fun consumirDescontinuidade(): Boolean {

@@ -542,81 +542,82 @@ object EspelhoHttp {
         System.arraycopy(b, 0, fora, a.size, b.size)
         return fora
     }
-}
-
-/**
- * O laço de leitura — a invariante 2 encarnada.
- *
- * `InputStream.read(buf, off, len)` **não promete `len` bytes**: promete pelo
- * menos um. Num socket de rede local isso quase sempre coincide com a mensagem
- * inteira, e é por isso que um parser escrito sem laço passa em toda bancada e
- * desanda só no aparelho, com a rede ruim, no domingo. Todo byte que este arquivo
- * lê passa por aqui.
- *
- * `read` devolvendo `<= 0` é tratado como fim de fluxo. O contrato só permite 0
- * quando `len` é 0 (nunca é, aqui), mas um `InputStream` de terceiro mal
- * comportado que devolvesse 0 num laço "tente de novo" prenderia a thread para
- * sempre — e este é um laço que roda com um desconhecido do outro lado.
- */
-private class Fonte(private val entrada: InputStream) {
-
-    private val buf = ByteArray(2048)
-    private var ini = 0
-    private var fim = 0
-
-    private fun encher(): Boolean {
-        if (ini < fim) return true
-        ini = 0
-        fim = 0
-        val n = entrada.read(buf, 0, buf.size)
-        if (n <= 0) return false
-        fim = n
-        return true
-    }
-
-    private fun proximo(): Int {
-        if (!encher()) throw EspelhoHttp.Erro.Truncado
-        return buf[ini++].toInt() and 0xFF
-    }
 
     /**
-     * Uma linha terminada em LF (com o CR opcional imediatamente antes), com no
-     * máximo [teto] bytes ÚTEIS.
+     * O laço de leitura — a invariante 2 encarnada.
      *
-     * O CR não conta para o teto — senão uma linha de exatamente [teto] bytes
-     * seria recusada por causa do terminador, e um teto que reprova o valor que
-     * ele mesmo anuncia é um teto errado.
+     * `InputStream.read(buf, off, len)` **não promete `len` bytes**: promete pelo
+     * menos um. Num socket de rede local isso quase sempre coincide com a
+     * mensagem inteira, e é por isso que um parser escrito sem laço passa em toda
+     * bancada e desanda só no aparelho, com a rede ruim, no domingo. Todo byte
+     * que este arquivo lê passa por aqui.
      *
-     * Depois do corte, tudo fora de `[\x20-\x7E]` é [EspelhoHttp.Erro.Malformado]:
-     * é o que barra NUL, tabulação, CR solto no meio e qualquer byte alto antes de
-     * eles chegarem a um nome de cabeçalho, a um caminho ou a uma linha de log.
+     * `read` devolvendo `<= 0` é tratado como fim de fluxo. O contrato só permite
+     * 0 quando `len` é 0 (nunca é, aqui), mas um `InputStream` mal comportado que
+     * devolvesse 0 num laço "tente de novo" prenderia a thread para sempre — e
+     * este é um laço que roda com um desconhecido do outro lado.
      */
-    fun linha(teto: Int, seEstourar: EspelhoHttp.Erro): String {
-        val sb = StringBuilder()
-        while (true) {
-            val b = proximo()
-            if (b == 0x0A) break
-            if (sb.length > teto) throw seEstourar
-            sb.append(Char(b))
-        }
-        var linha = sb.toString()
-        if (linha.endsWith('\r')) linha = linha.substring(0, linha.length - 1)
-        if (linha.length > teto) throw seEstourar
-        for (c in linha) if (c < ' ' || c > '~') throw EspelhoHttp.Erro.Malformado
-        return linha
-    }
+    private class Fonte(private val entrada: InputStream) {
 
-    /** Exatamente [n] bytes, ou [EspelhoHttp.Erro.Truncado]. */
-    fun exato(n: Int): ByteArray {
-        val fora = ByteArray(n)
-        var escrito = 0
-        while (escrito < n) {
-            if (!encher()) throw EspelhoHttp.Erro.Truncado
-            val lote = minOf(fim - ini, n - escrito)
-            System.arraycopy(buf, ini, fora, escrito, lote)
-            ini += lote
-            escrito += lote
+        private val buf = ByteArray(2048)
+        private var ini = 0
+        private var fim = 0
+
+        private fun encher(): Boolean {
+            if (ini < fim) return true
+            ini = 0
+            fim = 0
+            val n = entrada.read(buf, 0, buf.size)
+            if (n <= 0) return false
+            fim = n
+            return true
         }
-        return fora
+
+        private fun proximo(): Int {
+            if (!encher()) throw Erro.Truncado
+            return buf[ini++].toInt() and 0xFF
+        }
+
+        /**
+         * Uma linha terminada em LF (com o CR opcional imediatamente antes), com
+         * no máximo [teto] bytes ÚTEIS.
+         *
+         * O CR não conta para o teto — senão uma linha de exatamente [teto] bytes
+         * seria recusada por causa do terminador, e um teto que reprova o valor
+         * que ele mesmo anuncia é um teto errado.
+         *
+         * Depois do corte, tudo fora de `[\x20-\x7E]` é [Erro.Malformado]: é o
+         * que barra NUL, tabulação, CR solto no meio e qualquer byte alto antes
+         * de eles chegarem a um nome de cabeçalho, a um caminho ou a uma linha de
+         * log.
+         */
+        fun linha(teto: Int, seEstourar: Erro): String {
+            val sb = StringBuilder()
+            while (true) {
+                val b = proximo()
+                if (b == 0x0A) break
+                if (sb.length > teto) throw seEstourar
+                sb.append(Char(b))
+            }
+            var linha = sb.toString()
+            if (linha.endsWith('\r')) linha = linha.substring(0, linha.length - 1)
+            if (linha.length > teto) throw seEstourar
+            for (c in linha) if (c < ' ' || c > '~') throw Erro.Malformado
+            return linha
+        }
+
+        /** Exatamente [n] bytes, ou [Erro.Truncado]. */
+        fun exato(n: Int): ByteArray {
+            val fora = ByteArray(n)
+            var escrito = 0
+            while (escrito < n) {
+                if (!encher()) throw Erro.Truncado
+                val lote = minOf(fim - ini, n - escrito)
+                System.arraycopy(buf, ini, fora, escrito, lote)
+                ini += lote
+                escrito += lote
+            }
+            return fora
+        }
     }
 }

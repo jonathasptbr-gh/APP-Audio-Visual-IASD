@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sonda de readback</title>
+  <!-- A PALETA vem da fonte única, como em todo o resto do bundle: esta página
+       é carregada de `https://appassets.androidplatform.net/espelho/sonda.html`
+       por uma `MirrorPresentation` DESCARTÁVEL (§7.4), então `../shared/` está
+       ao alcance. O magenta `#FF00FF` abaixo é o único valor literal, e ele NÃO
+       entra em `tokens.css` de propósito: ele é INSTRUMENTO, não cor de marca —
+       existe justamente por não pertencer a paleta nenhuma, então encontrá-lo
+       num pixel lido de volta só pode significar uma coisa. -->
+  <link rel="stylesheet" href="../shared/tokens.css">
+  <style>
+    /* ====================================================================
+       A SONDA DE READBACK — o experimento R1, respondido na primeira vez
+       que o operador liga o espelho, em produção e no aparelho dele.
+
+       ## O que ela responde, e por que só ela responde
+
+       Todo o espelho de pixels apoia-se numa suposição: que o framebuffer
+       de um `VirtualDisplay` privado, lido pela *input surface* de um
+       `MediaCodec`, contém o que a `Presentation` desenhou — INCLUSIVE a
+       camada de vídeo, que o SurfaceFlinger compõe por outro caminho. A
+       analogia do Miracast (§1.2) é forte mas não é prova: aquele display
+       nasce de outro adapter, com outras flags.
+
+       E há duas issues abertas, 100% reproduzíveis, apontando para o mesmo
+       lugar em aparelhos SAMSUNG — que é o aparelho do operador:
+       flutter#141207 (VirtualDisplay renderiza ESCURO) e flutter#172641
+       (SurfaceView dentro de VirtualDisplay fica PRETO depois de
+       bloquear/desbloquear a tela).
+
+       ## Ela é um INSTRUMENTO, não um juiz
+
+       Por isso o Kotlin imprime os RGB MEDIDOS sempre, com tolerância, e
+       nunca só o veredito: num aparelho com a imagem escurecida uma
+       comparação exata reprovaria nos dois pontos e diria "TELA INTEIRA
+       PRETA — a composição não chega", mandando o próximo leitor caçar um
+       defeito que não existe.
+
+       ## A geometria é DAQUI, e o Kotlin a pergunta
+
+       Cinco pontos de amostra, em FRAÇÕES do viewport. Eles são publicados
+       em `window.__sondaPontos()` para que `EspelhoDisplay` os leia em vez
+       de repetir os números — dois lugares com as mesmas coordenadas
+       divergem no primeiro ajuste de layout, e o modo de falhar seria um
+       veredito sobre o pixel errado.
+       ==================================================================== */
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      height: 100%;
+      /* O FUNDO É O ACCENT CHAPADO. Uma cor da paleta, saturada, que não é
+         preto nem branco: é ela que separa "o vídeo saiu preto" de "a tela
+         inteira saiu preta" — dois defeitos com consertos opostos. */
+      background: var(--accent);
+      overflow: hidden;
+    }
+
+    /* A faixa PRETA e a faixa BRANCA respondem o `KEY_COLOR_RANGE` (§3.3,
+       invariante 5) em NÚMERO, não em fé: aquela chave é descritor, não
+       comando, não governa a conversão RGB→YUV em *surface-input* e não tem
+       `isFormatSupported` para conferir. Se o preto voltar como #101010 e o
+       branco como #EBEBEB, o encoder está em faixa limitada e a resposta está
+       aqui — sem isto, "as cores saem lavadas" seria palpite. */
+    .faixa { position: fixed; left: 0; right: 0; height: 8%; }
+    .preta { top: 0; background: #000; }
+    .branca { bottom: 0; background: #fff; }
+
+    /* O VÍDEO no centro, com metade do viewport. `object-fit: fill` de
+       propósito: o que se mede é a COR de um pixel no meio dele, e uma barra
+       preta de `contain` no ponto de amostra inverteria o veredito. */
+    #v {
+      position: fixed;
+      left: 25%; top: 25%; width: 50%; height: 50%;
+      /* O fundo do elemento é PRETO para o caso de o arquivo faltar. Sozinho
+         isso seria indistinguível de "o vídeo saiu preto" — quem desempata é
+         `window.__sondaEstado()`, que diz se o arquivo carregou. */
+      background: #000;
+      object-fit: fill;
+    }
+
+    /* O BATIMENTO — e ela tem o DELA, porque não é `/display/` e não herdaria
+       o de lá (§7.4). Com a cena parada o `VirtualDisplay` não produz buffer e
+       o encoder não emite: um pixel que muda a cada segundo obriga o renderer
+       a produzir quadro e o SurfaceFlinger a recompor.
+       `setInterval`, NUNCA `requestAnimationFrame`: rAF é suspenso em página
+       oculta e casado ao vsync — é a ferramenta errada para um batimento cujo
+       trabalho é justamente existir quando ninguém está olhando. */
+    #bat { position: fixed; left: 0; top: 0; width: 1px; height: 1px; background: #010101; }
+  </style>
+</head>
+<body>
+  <div class="faixa preta"></div>
+  <div class="faixa branca"></div>
+  <!-- MAGENTA PURO 320x180, 2 s, H.264, ~40 kB. Uma cor que não existe em
+       lugar nenhum da paleta do app: lê-la de volta num pixel só pode
+       significar que a camada de vídeo entrou na composição.
+
+       O binário `sonda.mp4` mora ao lado deste arquivo e é produzido por:
+
+         ffmpeg -f lavfi -i color=c=0xFF00FF:s=320x180:r=15:d=2 \
+                -c:v libx264 -profile:v baseline -pix_fmt yuv420p \
+                -g 15 -an espelho/sonda.mp4
+
+       Faltando ele, o `<video>` fica no próprio fundo preto e
+       `__sondaEstado().arquivo` responde `erro` — que é o que impede um
+       arquivo ausente de ser lido como "o vídeo sai preto". -->
+  <video id="v" src="sonda.mp4" autoplay loop muted playsinline></video>
+  <div id="bat"></div>
+
+<script>
+(function () {
+  'use strict';
+
+  // OS CINCO PONTOS, em fração do viewport. `EspelhoDisplay.sonda()` os lê
+  // daqui (via `MirrorPresentation.avaliar`) em vez de repetir os números.
+  var PONTOS = [
+    { nome: 'fundo',  x: 0.50, y: 0.20, espera: 'accent'  },
+    { nome: 'video',  x: 0.50, y: 0.50, espera: 'magenta' },
+    { nome: 'preto',  x: 0.50, y: 0.04, espera: '#000000' },
+    { nome: 'branco', x: 0.50, y: 0.96, espera: '#FFFFFF' },
+    { nome: 'canto',  x: 0.03, y: 0.50, espera: 'accent'  },
+  ];
+
+  var v = document.getElementById('v');
+  var bat = document.getElementById('bat');
+  var estado = { arquivo: 'esperando', quadros: 0, batidas: 0, w: 0, h: 0 };
+
+  // Quadros DE VERDADE, contados por `requestVideoFrameCallback` quando ele
+  // existe. Sem ele o piso é o `timeupdate`, que é grosseiro mas responde a
+  // pergunta que importa: o elemento está PRODUZINDO alguma coisa? Um vídeo
+  // parado no primeiro quadro e um vídeo tocando dão vereditos diferentes se o
+  // defeito for de ciclo de vida, e não de composição.
+  function contar() {
+    estado.quadros++;
+    if (v.requestVideoFrameCallback) v.requestVideoFrameCallback(contar);
+  }
+  if (v.requestVideoFrameCallback) v.requestVideoFrameCallback(contar);
+  else v.addEventListener('timeupdate', function () { estado.quadros++; });
+
+  v.addEventListener('loadeddata', function () {
+    estado.arquivo = 'ok';
+    estado.w = v.videoWidth;
+    estado.h = v.videoHeight;
+  });
+  // `sonda.mp4` ausente, corrompido, ou um WebView sem H.264: os três chegam
+  // aqui, e os três precisam ser distinguíveis de "a composição não chega".
+  v.addEventListener('error', function () { estado.arquivo = 'erro'; });
+
+  // O autoplay não depende de gesto neste WebView
+  // (`mediaPlaybackRequiresUserGesture = false`, invariante 4 do `CLAUDE.md`),
+  // mas um `play()` explícito custa nada e cobre a política mudar.
+  var p = v.play();
+  if (p && p.catch) p.catch(function () {});
+
+  var claro = false;
+  setInterval(function () {
+    claro = !claro;
+    // Dois quase-pretos: o suficiente para o compositor considerar a janela
+    // suja, e invisível para quem estiver olhando a tela virtual.
+    bat.style.background = claro ? '#020202' : '#010101';
+    estado.batidas++;
+  }, 1000);
+
+  window.__sondaPontos = function () { return JSON.stringify(PONTOS); };
+  window.__sondaEstado = function () { return JSON.stringify(estado); };
+})();
+</script>
+</body>
+</html>

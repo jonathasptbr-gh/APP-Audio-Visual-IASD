@@ -70,7 +70,7 @@
   <div id="aviso" class="aviso" role="status" aria-live="polite"></div>
 </section>
 
-<!-- A ORDEM IMPORTA: `espelho.js` usa `window.AVFmp4` na primeira chamada de
+<!-- A ORDEM IMPORTA: `cliente.js` usa `window.AVFmp4` na primeira chamada de
      `csd()`, que só acontece depois do primeiro byte do fluxo — mas carregar o
      muxer depois do cliente deixaria uma janela em que um fluxo muito rápido
      chegaria antes dele. Dois `<script>` clássicos (sem `defer`, sem
@@ -84,7 +84,7 @@
 
          "/"      → espelho/index.html
          "/e.css" → espelho/espelho.css
-         "/e.js"  → espelho/espelho.js
+         "/e.js"  → espelho/cliente.js
          "/f.js"  → espelho/fmp4.js
 
      Os nomes na rede não são os nomes no disco, e isso é o certo: o que sai

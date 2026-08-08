@@ -138,8 +138,7 @@ class EspelhoDiag {
                 fatos[chave] = when (valor) {
                     is String -> sanear(valor)
                     is Int, is Long, is Double, is Float, is Boolean,
-                    is JSONObject, is JSONArray,
-                    -> valor
+                    is JSONObject, is JSONArray -> valor
                     // Nunca `toString()` calado: um tipo inesperado aqui é um
                     // erro de quem chamou, e ele precisa aparecer no Registro.
                     else -> "?" + valor.javaClass.simpleName
@@ -187,7 +186,10 @@ class EspelhoDiag {
         )
 
         for ((k, v) in fatos) o.put(k, v)
-        return o
+        // Última EXPRESSÃO do bloco, e não `return o`: `synchronized` é inline,
+        // então um `return` aqui seria um retorno não-local de uma função de
+        // corpo-expressão — que o compilador recusa.
+        o
     }
 
     /**

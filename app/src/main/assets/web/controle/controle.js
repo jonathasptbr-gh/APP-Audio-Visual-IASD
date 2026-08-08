@@ -10076,6 +10076,162 @@ function diagMse() {
     : 'DESLIGADA: shell ' + (window.__SHELL_VERSION__ | 0) + ' < 27 (instale o APK novo)');
 }
 
+// ===== O bloco do ESPELHO DE PIXELS no Registro =====
+// O Kotlin devolve DADO (JSON) e a frase é montada AQUI. Não é preciosismo: é
+// a mesma divisão do `otaDiag`/`ytDiag`, é o que respeita a invariante 5, e é o
+// que mantém a sanitização do que veio da rede num ponto só do lado nativo.
+//
+// TODA LINHA É OPCIONAL, e isso é de propósito: o recurso chega em entregas
+// (imagem, depois vídeo, depois áudio), e um bloco que exigisse todos os campos
+// quebraria a cada passo. O que o shell não souber responder simplesmente não
+// aparece — nunca "undefined" no meio de um log que vai ser repassado.
+function mirrorDur(ms) {
+  const s = Math.round((Number(ms) || 0) / 1000);
+  if (s < 60) return s + ' s';
+  const m = Math.round(s / 60);
+  return m < 60 ? m + ' min' : Math.floor(m / 60) + ' h ' + (m % 60) + ' min';
+}
+
+// Os cinco vereditos da sonda em frase — a tabela §7.4 da especificação. O
+// Kotlin manda o NOME do enum; traduzir aqui é o mesmo princípio de todo o
+// resto do bloco, e é o que permite mudar a frase sem tocar no shell.
+const MIRROR_VEREDITO = {
+  OK: 'OK — o vídeo aparece',
+  OK_ESCURO: 'OK, porém ESCURO (as cores da rede saem mais escuras que o telão)',
+  VIDEO_PRETO: 'VÍDEO SAI PRETO',
+  TUDO_PRETO: 'TELA INTEIRA PRETA — a composição não chega',
+  SEM_QUADRO: 'NENHUM QUADRO EM 5 s',
+  INDEFINIDO: 'INDEFINIDO — mediu algo fora dos casos catalogados',
+};
+// `PowerManager.THERMAL_STATUS_*` por índice.
+const MIRROR_TERMICA = ['NONE', 'LIGHT', 'MODERATE', 'SEVERE', 'CRITICAL', 'EMERGENCY', 'SHUTDOWN'];
+
+function blocoEspelho(d) {
+  if (!d || typeof d !== 'object') return '';
+  const l = ['Espelho de pixels'];
+  const srv = d.servidor || {};
+  const svc = d.servico || {};
+  if (srv.ligado) {
+    l.push('servidor: ' + (srv.url || '?')
+      + ' (' + (srv.tls ? 'HTTPS' : 'HTTP') + ', ligado à Wi-Fi)'
+      + (srv.noArMs ? ' · ' + mirrorDur(srv.noArMs) + ' no ar' : '')
+      + (svc.servico ? ' · serviço de pé' : ' · SEM serviço em primeiro plano'));
+  } else {
+    l.push('servidor: desligado');
+  }
+  const t = d.telaVirtual;
+  if (t) {
+    l.push('tela virtual: ' + t.larg + 'x' + t.alt + ' @ ' + t.dpi + ' dpi'
+      + ' · flags=' + (t.flags | 0)
+      + ' · privada: ' + (t.privada ? 'SIM' : 'NÃO')
+      // O nome do campo já diz que é DERIVADO, e a frase repete: não existe
+      // getter público de FLAG_NEVER_BLANK, então isto é dedução de não termos
+      // passado PUBLIC — não é leitura. Um Registro que afirma o que ninguém
+      // mediu é pior que um que se cala.
+      + ' · NEVER_BLANK (derivado): ' + (t.neverBlankDerivado ? 'SIM' : 'NÃO')
+      + (t.id != null ? ' · id ' + t.id : ''));
+  }
+  const vp = d.viewport;
+  if (vp) {
+    // OS DOIS NÚMEROS, sempre — é a promessa do recurso ("o espelho desenha no
+    // MESMO viewport CSS que a TV") virando leitura em vez de fé. 213 dpi dá
+    // 961,5 px CSS para um alvo de 960: meio ponto percentual, que não muda uma
+    // quebra de linha. Identidade de pixel não é prometida, e por isso os dois
+    // aparecem.
+    l.push('viewport do espelho: ' + (vp.cssExato != null ? vp.cssExato : vp.css) + ' px CSS'
+      + ' (alvo: ' + vp.alvo + ' — a TV desenha assim)');
+  }
+  if (d.modo) l.push('modo: ' + (d.modo === 'video' ? 'vídeo (H.264)' : 'imagem (JPEG)'));
+  const r = d.readback;
+  if (r) {
+    // O RGB MEDIDO SEMPRE, nunca só o veredito: há aparelho conhecido que
+    // devolve a imagem escurecida, e uma comparação exata imprimiria "TELA
+    // INTEIRA PRETA" — um diagnóstico falso, que manda o próximo leitor caçar
+    // um defeito que não existe.
+    l.push('readback: ' + (MIRROR_VEREDITO[r.veredito] || r.veredito || '?')
+      + ' — fundo ' + r.fora + ' · vídeo ' + r.dentro
+      + ' · preto ' + r.preto + ' · branco ' + r.branco
+      + (r.pixelCopy ? ' · PixelCopy ' + r.pixelCopy : '')
+      + (r.nota ? ' · ' + r.nota : ''));
+  }
+  const enc = d.encoder;
+  if (enc) {
+    l.push('encoder: ' + (enc.nome || '?')
+      + (enc.maxInstancias ? ' · instâncias máx: ' + enc.maxInstancias : '')
+      + ' · reclaims: ' + (enc.reclaims | 0));
+  }
+  const ritmo = d.ritmo;
+  if (ritmo && d.ligado) {
+    // O ÚNICO detector de "a janela do espelho morreu e o encoder continuou":
+    // H.264 impecável de um retângulo preto, com todos os contadores subindo e
+    // nenhuma exceção em lugar nenhum. Ele só ACUSA com vídeo tocando e cortina
+    // aberta — durante uma oração com a cortina fechada e um louvor pausado
+    // atrás, um detector ingênuo denunciaria uma falha que não existe, no
+    // Registro, com botão de copiar, para ser repassado.
+    const parado = (ritmo.kbps | 0) < 20 && (ritmo.fps || 0) <= 1.2;
+    const acusa = parado && cenaComVideoAberto();
+    l.push('ritmo: ' + (ritmo.kbps | 0) + ' kbps · ' + (ritmo.fps || 0) + ' fps'
+      + ' (' + Math.round((ritmo.janelaMs || 0) / 1000) + ' s)'
+      + ' · cena "' + (npNameInnerEl ? (npNameInnerEl.textContent || '—') : '—') + '"'
+      + ' — ' + (acusa
+        ? 'ALARME: ISTO É UM RETÂNGULO PRETO'
+        : (parado ? 'imagem parada, normal' : 'conteúdo se movendo')));
+  }
+  if (svc.termico != null) {
+    l.push('térmica: ' + (MIRROR_TERMICA[svc.termico] || svc.termico)
+      + ' (máx na sessão: ' + (MIRROR_TERMICA[svc.termicoMax] || svc.termicoMax) + ')'
+      + ' · carregador: ' + (svc.carregando ? 'SIM' : 'NÃO'));
+  }
+  const telas = Array.isArray(srv.telas) ? srv.telas : [];
+  const pend = Array.isArray(srv.pendentes) ? srv.pendentes : [];
+  if (srv.ligado) {
+    l.push('telas: ' + telas.length + ' conectada(s) de ' + (srv.teto || 3)
+      + ' · ' + pend.length + ' pendente(s)');
+    telas.forEach((c) => {
+      l.push('  tela ' + (c.rotulo || '?') + '  ' + (c.ua || '?')
+        + '  MSE:' + (c.mse ? 'sim' : 'nao')
+        + '  fetch-stream:' + (c.fetchStream ? 'sim' : 'nao')
+        + '  seguro:' + (c.seguro ? 'sim' : 'nao')
+        + '  wakeLock:' + (c.wakeLock ? 'sim' : 'nao')
+        + '  tela acesa ' + (c.telaAcesaMin | 0) + ' min');
+      l.push('          ' + Math.round((c.bytes || 0) / 104857.6) / 10 + ' MB'
+        + ' · ' + (c.descartes | 0) + ' descarte(s)'
+        + ' · ultimo write ha ' + mirrorDur(c.ultimaEscritaMs));
+    });
+    // A LINHA MAIS IMPORTANTE DESTE BLOCO quando ela aparece. Servidor de pé,
+    // porta escutando e nenhum SYN chegando é AP isolation — e ela é
+    // indistinguível de "ninguém abriu ainda" sem que alguém a nomeie. Não há
+    // conserto do lado do app: a saída é operacional (outro SSID, ou o hotspot
+    // do celular), e por isso a frase precisa vir junto.
+    if (srv.semConexaoMs > 120000) {
+      l.push('nenhuma conexão desde que ligou (há ' + mirrorDur(srv.semConexaoMs) + ') — '
+        + 'se alguém abriu o endereço, o roteador está isolando os clientes');
+    }
+    const saida = srv.ultimaSaida;
+    if (saida && typeof saida === 'object') {
+      l.push('ultima desconexao: tela ' + (saida.rotulo || '?')
+        + ' · ' + (saida.motivo || '?'));
+    }
+  }
+  const linhas = Array.isArray(d.linhas) ? d.linhas : [];
+  if (linhas.length) {
+    const hora = (t2) => new Date(t2).toLocaleTimeString('pt-BR', { hour12: false });
+    linhas.slice(-12).forEach((x) => l.push('  ' + hora(x.em) + '  ' + x.txt));
+  }
+  return l.join('\n');
+}
+
+// O detector de ritmo só pode ACUSAR com vídeo tocando e a cortina ABERTA — a
+// cortina cobre o telão, ou seja, por construção ela É um retângulo preto com a
+// mídia carregada. `view` é a cortina (ver renderControls) e `currentItem` diz
+// o tipo do que está em cena.
+function cenaComVideoAberto() {
+  if (view !== 'visual') return false;                 // cortina fechada: preto é o esperado
+  if (!currentItem) return false;
+  if (currentItem.kind === 'audio' || currentItem.kind === 'image') return false;
+  try { return !!preview.isPlaying(); } catch (_) { return false; }
+}
+
 // A LINHA DO TEMPO dos dois processos, em ordem de relógio.
 function eventosDiag() {
   if (!diagLinhas.length) {
@@ -13070,7 +13226,7 @@ function renderEspelhoLista(pendentes, telas) {
     nome.textContent = p.ua || 'Tela desconhecida';
     const sub = document.createElement('span');
     sub.className = 'mirror-item-sub';
-    sub.textContent = 'quer entrar' + (p.w ? ' · ' + p.w + '×' + p.h : '');
+    sub.textContent = 'quer entrar' + (p.desdeMs ? ' · esperando há ' + mirrorDur(p.desdeMs) : '');
     main.append(nome, sub);
     const sim = document.createElement('button');
     sim.type = 'button';
@@ -13617,7 +13773,15 @@ function cenaNoAr() {
 // Momento ruim para recarregar as duas páginas: além da cena no ar, um download
 // em curso morre com o documento — os `fetch` são desta página, e o arquivo que
 // o shell terminar de baixar não teria mais quem o recebesse.
-function horaRuimParaAtualizar() { return cenaNoAr() || bgWorkCount > 0; }
+//
+// E o ESPELHO NO AR é o terceiro caso (v5.141). Aplicar um bundle recarrega o
+// Controle e o telão — e o espelho, que é uma TERCEIRA página, ficaria servindo
+// o bundle ANTIGO, de um diretório que o `beginSession()` seguinte vai apagar.
+// Aqui as telas da rede são o que alguém está de fato assistindo: sem TV
+// conectada, elas são a projeção.
+function horaRuimParaAtualizar() {
+  return cenaNoAr() || bgWorkCount > 0 || espelhoLigado();
+}
 
 // O SHELL EMPURRA quando o bundle fica pronto (shell 31+): o aviso aparece no
 // segundo em que a atualização chega, em vez de esperar até um minuto pela
@@ -13647,6 +13811,11 @@ async function ofertarAtualizacao() {
   try { versao = (await AVNative.otaPending()) || ''; } catch (_) { return; }
   otaPendenteVersao = versao;
   if (!versao || otaRecusadas.has(versao)) return;
+  // Só quando há de fato o que aplicar, e só se acharmos que o espelho está no
+  // ar: a leitura pode estar velha (ele sai sozinho por falha nomeada), e uma
+  // pergunta suprimida por um estado que não existe mais seria pior que a
+  // pergunta. Não custa nada no caso comum — sem espelho, nem chega aqui.
+  if (espelhoLigado()) await lerEspelho();
   // Depois da ida à ponte, e não antes: assim o Registro fica sabendo da versão
   // pendente mesmo nas horas em que a pergunta não pode aparecer.
   if (horaRuimParaAtualizar()) return;

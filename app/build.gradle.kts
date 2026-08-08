@@ -188,4 +188,29 @@ dependencies {
     // candidatos em vez de "a de maior altura".
     implementation("com.github.TeamNewPipe:NewPipeExtractor:v0.26.4")
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs_nio:2.1.2")
+
+    // A QUARTA EXCEÇÃO à regra de zero dependência — e a única que **não põe um
+    // byte no APK**. Ainda assim é uma declaração nova, e por isso merece o mesmo
+    // tratamento por escrito das outras três (o pptx-renderer, o NewPipe e a
+    // IFrame API do YouTube).
+    //
+    // Ela existe por causa do ESPELHO DE PIXELS (ver docs/ESPELHO-DE-PIXELS.md).
+    // O `EspelhoHttp.kt` e o `EspelhoPares.kt` são o PRIMEIRO código deste
+    // projeto que aceita entrada de um desconhecido: um parser HTTP com controle
+    // de acesso, exposto num `ServerSocket` da rede da igreja. Em todo o resto do
+    // app um erro vira pixel errado; ali ele vira porta aberta.
+    //
+    // O argumento é do próprio documento que desenhou o recurso, virado contra
+    // ele mesmo: aquele texto recusa o RFC 6455 (WebSocket) porque seriam "~150
+    // linhas de protocolo SEM ORÁCULO, num repositório sem app/src/test" — e a
+    // mesma frase vale, palavra por palavra, contra um parser HTTP escrito à mão.
+    // Ou os dois arquivos são puros e testados, ou o argumento se aplica contra o
+    // recurso inteiro. Eles são: ZERO import de android.*, todo relógio entra por
+    // parâmetro, e o `./gradlew testDebugUnitTest` roda no CI **sem
+    // continue-on-error** (ver apk.yml).
+    //
+    // A conta da manutenção é do JUnit 4, que está estável há mais de uma década,
+    // não tem dependência transitiva além do hamcrest-core e roda no mesmo runner
+    // que o CI já usa para compilar o APK.
+    testImplementation("junit:junit:4.13.2")
 }

@@ -46,7 +46,7 @@
 // que aconteceu na tela: a imagem ficou congelada aqueles 4 s. Fechar o buraco
 // com a verdade é melhor que abrir um buraco que trava o `<video>` para sempre.
 // Quem cuida do outro lado dessa moeda (o cliente ficar 4 s atrás da borda) é a
-// perseguição de borda do `espelho.js`, e ela está escrita lá.
+// perseguição de borda do `cliente.js`, e ela está escrita lá.
 //
 // ## A costura de codec, e por que ela é pública
 //
@@ -63,7 +63,7 @@
 //
 // ## O que este arquivo NÃO faz
 //
-// Não fala com a rede (é o `espelho.js`), não decide quando emitir (idem), não
+// Não fala com a rede (é o `cliente.js`), não decide quando emitir (idem), não
 // tem áudio: a faixa AAC (`mp4a`/`esds`) é a Entrega 3 e entra aqui como uma
 // segunda `trak` quando P7 chegar. E não trata B-frames: o encoder é
 // configurado com `KEY_MAX_B_FRAMES = 0`, logo `DTS == PTS` e o `trun` não

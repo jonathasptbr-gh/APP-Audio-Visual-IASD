@@ -168,7 +168,11 @@ class EspelhoServidor(
      *   frase que o operador lê.
      */
     fun ligar(porta: Int, ipv4: InetAddress, tls: KeyStore?, senha: CharArray?): String {
-        desligar()
+        // SÓ desliga se havia um servidor de pé (religar sem desligar duplicaria
+        // as threads). A guarda não é economia: [desligar] ZERA O PAREAMENTO, e
+        // quem liga o espelho acabou de sortear o PIN — chamá-lo aqui sempre
+        // apagaria o PIN que já está desenhado na tela do operador.
+        if (servidor != null) desligar()
         val rede = redeDaWifi(app)
         if (ipv4 !is Inet4Address || rede.ip.hostAddress != ipv4.hostAddress) {
             throw Recusa("o endereco pedido nao e o da Wi-Fi atual")
@@ -259,8 +263,8 @@ class EspelhoServidor(
         if (servidor == null) return
         val bytes = enquadrar(q)
         when (q.tipo) {
-            TIPO_CSD_VIDEO -> csdVideo = bytes
-            TIPO_CSD_AUDIO -> csdAudio = bytes
+            EspelhoCodec.TIPO_CSD_VIDEO -> csdVideo = bytes
+            EspelhoCodec.TIPO_CSD_AUDIO -> csdAudio = bytes
         }
         for (t in telas.values) {
             if (!temDireito(t, q)) continue
@@ -279,10 +283,13 @@ class EspelhoServidor(
     fun avisar(json: JSONObject) {
         difundir(
             Quadro(
-                tipo = TIPO_CONTROLE,
+                tipo = EspelhoCodec.TIPO_CONTROLE,
                 chave = true,
                 descontinuidade = false,
-                ptsUs = 0,
+                // O último carimbo do vídeo, e não zero: o cabeçalho do fio tem
+                // um campo de tempo só, e um aviso datado no passado remoto
+                // seria a única coisa fora do eixo da sessão.
+                ptsUs = EspelhoCodec.ultimoCarimbo(),
                 bytes = json.toString().toByteArray(Charsets.UTF_8),
             ),
         )
@@ -292,17 +299,18 @@ class EspelhoServidor(
         // ÁUDIO É ESTRITAMENTE POR CLIENTE (§3.6, invariante 10). Quem decide
         // é o servidor, a partir do `POST /r {"do":"audio"}` daquela tela — e
         // nada que venha da rede liga o grafo de áudio ou o encoder AAC.
-        TIPO_CSD_AUDIO, TIPO_AAC -> t.audio
+        EspelhoCodec.TIPO_CSD_AUDIO, EspelhoCodec.TIPO_AUDIO -> t.audio
         // Enquanto a tela espera um quadro-chave, um delta só produziria lixo
         // verde. Ver a §5.3: "mandar bytes antes do IDR é a falha que ninguém
         // liga à causa".
-        TIPO_VIDEO -> !t.esperandoIdr || q.chave
+        EspelhoCodec.TIPO_VIDEO -> !t.esperandoIdr || q.chave
         else -> true
     }
 
     private fun entregar(t: Tela, q: Quadro, bytes: ByteArray) {
+        val ehVideo = q.tipo == EspelhoCodec.TIPO_VIDEO
         if (t.fila.offer(bytes)) {
-            if (q.tipo == TIPO_VIDEO && q.chave) t.esperandoIdr = false
+            if (ehVideo && q.chave) t.esperandoIdr = false
             return
         }
         // A FILA ENCHEU: o cliente não escoa. Esvazia tudo, conta o descarte e
@@ -311,8 +319,8 @@ class EspelhoServidor(
         t.fila.clear()
         t.descartes++
         t.esperandoIdr = true
-        val recomeco = q.tipo != TIPO_VIDEO || q.chave
-        if (recomeco && t.fila.offer(bytes) && q.tipo == TIPO_VIDEO && q.chave) {
+        val recomeco = !ehVideo || q.chave
+        if (recomeco && t.fila.offer(bytes) && ehVideo && q.chave) {
             t.esperandoIdr = false
         }
         pedirIdrComFreio(t)
@@ -388,7 +396,7 @@ class EspelhoServidor(
                 continue
             }
             emVoo.incrementAndGet()
-            Thread({
+            val t = Thread({
                 try {
                     aceitar(cru)
                 } catch (e: Throwable) {
@@ -397,7 +405,17 @@ class EspelhoServidor(
                     emVoo.decrementAndGet()
                     fecharQuieto(cru)
                 }
-            }, "av-espelho-cli").apply { isDaemon = true }.start()
+            }, "av-espelho-cli")
+            t.isDaemon = true
+            try {
+                t.start()
+            } catch (e: Throwable) {
+                // Sem thread não há atendimento — e o contador não pode ficar
+                // devendo, senão o teto se fecha sozinho para sempre.
+                emVoo.decrementAndGet()
+                fecharQuieto(cru)
+                Log.w(TAG, "não foi possível atender a conexão", e)
+            }
         }
         Log.i(TAG, "laço de aceite encerrado")
     }
@@ -414,13 +432,25 @@ class EspelhoServidor(
         val r = EspelhoHttp.lerRequisicao(entrada, hostsAceitos)
         val req = r.getOrNull()
         if (req == null) {
-            Log.i(TAG, "requisição recusada: ${r.exceptionOrNull()?.message ?: "malformada"}")
-            responder(socket.getOutputStream(), naoAchei())
+            // A RESPOSTA é do [EspelhoHttp] (`HostRecusado` e `OrigemEstranha`
+            // saem como o 404 idêntico); a LINHA do Registro, essa sim,
+            // distingue — senão o operador não teria como saber que alguém
+            // tentou rebinding contra o aparelho dele.
+            val erro = r.exceptionOrNull()
+            Log.i(TAG, "requisição recusada: ${erro?.message ?: "malformada"}")
+            if (erro is EspelhoHttp.Erro) {
+                if (erro is EspelhoHttp.Erro.HostRecusado || erro is EspelhoHttp.Erro.OrigemEstranha) {
+                    registrar("recusada: ${erro.message}")
+                }
+                responder(socket.getOutputStream(), EspelhoHttp.respostaDeErro(erro))
+            } else {
+                responder(socket.getOutputStream(), naoAchei())
+            }
             return
         }
         val saida = socket.getOutputStream()
         val sessao = validarToken(req.autorizacao)
-        rotear(req, saida, sessao, socket)
+        rotear(req, saida, sessao, socket, cru)
     }
 
     /**
@@ -484,13 +514,14 @@ class EspelhoServidor(
         saida: OutputStream,
         sessao: EspelhoPares.Sessao?,
         socket: Socket,
+        cru: Socket,
     ) {
         val rota = r.caminho
         when {
             r.metodo == "GET" && ESTATICOS.containsKey(rota) -> servirEstatico(rota, saida)
-            r.metodo == "POST" && rota == "/par" -> parear(r, saida, socket)
+            r.metodo == "POST" && rota == "/par" -> parear(r, saida, cru)
             r.metodo == "GET" && rota == "/v" -> {
-                if (sessao == null) responder(saida, naoAchei()) else servirFluxo(socket, saida, sessao)
+                if (sessao == null) responder(saida, naoAchei()) else servirFluxo(socket, cru, saida, sessao)
             }
             r.metodo == "POST" && rota == "/r" -> {
                 if (sessao == null) responder(saida, naoAchei()) else retorno(r, saida, sessao)
@@ -511,7 +542,7 @@ class EspelhoServidor(
         // A PÁGINA leva CSP e `X-Frame-Options`; os outros cabeçalhos de higiene
         // (`no-store`, `nosniff`, `no-referrer`, `Connection: close`) o
         // [EspelhoHttp] põe em toda resposta.
-        val extra = if (rota == "/") CABECALHOS_DA_PAGINA else emptyList()
+        val extra = if (rota == "/") EspelhoHttp.CABECALHOS_PAGINA else emptyList()
         responder(saida, EspelhoHttp.resposta(200, tipo, corpo, extra))
     }
 
@@ -531,13 +562,18 @@ class EspelhoServidor(
         null
     }
 
-    private fun parear(r: EspelhoHttp.Req, saida: OutputStream, socket: Socket) {
+    private fun parear(r: EspelhoHttp.Req, saida: OutputStream, cru: Socket) {
         val corpo = try {
             JSONObject(String(r.corpo, Charsets.UTF_8))
         } catch (e: Exception) {
             return responder(saida, naoAchei())
         }
-        val origem = enderecoDe(socket)
+        // A ORIGEM DO BLOQUEIO É O ENDEREÇO DO PAR, e não o cabeçalho `Origin`:
+        // cinco PINs errados bloqueiam **aquele aparelho** por 60 s, e um
+        // cabeçalho é escrito por quem tenta. O PIN, esse, NÃO rotaciona por
+        // tentativa errada — seria negação de serviço contra o visitante
+        // legítimo que está digitando.
+        val origem = enderecoDe(cru)
         val (status, json) = when {
             corpo.has("pin") -> {
                 val relato = relatoDe(corpo)
@@ -582,16 +618,32 @@ class EspelhoServidor(
      * conexão fecha a anterior antes de contar; sem isso, três recarregamentos
      * de página trancariam o operador para fora do próprio recurso.
      */
-    private fun servirFluxo(socket: Socket, saida: OutputStream, sessao: EspelhoPares.Sessao) {
-        val tela = Tela(rotuloNovo(), socket, sessao)
-        val anterior: Tela?
+    private fun servirFluxo(
+        socket: Socket,
+        cru: Socket,
+        saida: OutputStream,
+        sessao: EspelhoPares.Sessao,
+    ) {
+        val tela = Tela(rotuloNovo(), cru, sessao)
+        var anterior: Tela? = null
+        var lotado = false
+        // A ADMISSÃO é a única decisão deste arquivo que precisa ser atômica:
+        // duas conexões novas chegando juntas passariam as duas pelo teto se
+        // ele fosse conferido fora de um monitor.
         synchronized(telas) {
-            anterior = telas[sessao.token]
-            if (anterior == null && telas.size >= TETO_TELAS) {
-                responder(saida, EspelhoHttp.resposta(503, "application/json", LOTADO))
-                return
+            val atual = telas[sessao.token]
+            if (atual == null && telas.size >= TETO_TELAS) {
+                lotado = true
+            } else {
+                anterior = atual
+                telas[sessao.token] = tela
             }
-            telas[sessao.token] = tela
+        }
+        if (lotado) {
+            // FRASE, e não silêncio: o quarto cliente precisa saber que o
+            // limite é do espelho e que alguém tem de fechar uma página.
+            responder(saida, EspelhoHttp.resposta(503, "application/json", LOTADO))
+            return
         }
         anterior?.let { fechar(it, "a mesma tela reabriu a página") }
 
@@ -674,24 +726,32 @@ class EspelhoServidor(
             for (t in telas.values) {
                 val inicio = t.escritaIniciadaMs
                 if (inicio != 0L && agora - inicio > TETO_ESCRITA_MS) {
-                    fechar(t, "sem escrita há ${(agora - inicio) / 1000} s (cliente dormiu)")
+                    fechar(t, "sem escrita ha ${(agora - inicio) / 1000} s (cliente dormiu)")
                     continue
                 }
-                if (validarToken("Bearer " + t.sessao.token) == null) {
-                    fechar(t, "sessão expirada")
+                if (validarTokenCru(t.sessao.token) == null) {
+                    fechar(t, "sessao expirada")
                 }
             }
             limparPares()
         }
     }
 
+    /**
+     * Fecha uma tela **de fora**, que é a única forma de destravar um `write()`
+     * bloqueado.
+     *
+     * E fecha o socket **CRU**, nunca o `SSLSocket` que possa estar por cima
+     * dele: `SSLSocket.close()` tenta emitir `close_notify`, isto é, tenta
+     * ESCREVER — exatamente o que já está travado. Fechar o cru derruba os dois.
+     */
     private fun fechar(t: Tela, motivo: String) {
         if (!t.viva) return
         t.viva = false
         t.motivoDaSaida = motivo
         t.fila.clear()
         t.fila.offer(FIM)
-        fecharQuieto(t.socket)
+        fecharQuieto(t.cru)
         Log.i(TAG, "tela ${t.rotulo} fechada: $motivo")
     }
 
@@ -699,7 +759,10 @@ class EspelhoServidor(
         ultimaSaida = JSONObject()
             .put("rotulo", t.rotulo)
             .put("motivo", t.motivoDaSaida)
-            .put("hMs", SystemClock.elapsedRealtime())
+            // Relógio de PAREDE, e não `elapsedRealtime`: esta linha vira
+            // "última desconexão: tela C · 12:41" na tela do operador, e não há
+            // como converter tempo desde o boot em hora do culto.
+            .put("quando", System.currentTimeMillis())
             .put("bytes", t.bytes)
             .put("descartes", t.descartes)
     }
@@ -784,17 +847,8 @@ class EspelhoServidor(
         val lista = JSONArray()
         for (t in telas.values) {
             lista.put(
-                JSONObject()
+                relatoJson(t.sessao.relato)
                     .put("rotulo", t.rotulo)
-                    .put("ua", campo(t.sessao.relato, "ua"))
-                    .put("w", campoInt(t.sessao.relato, "w"))
-                    .put("h", campoInt(t.sessao.relato, "h"))
-                    .put("seguro", campoBool(t.sessao.relato, "seguro"))
-                    .put("mse", campoBool(t.sessao.relato, "mse"))
-                    .put("mms", campoBool(t.sessao.relato, "mms"))
-                    .put("fetchStream", campoBool(t.sessao.relato, "fetchStream"))
-                    .put("videoDecoder", campoBool(t.sessao.relato, "videoDecoder"))
-                    .put("wakeLock", campoBool(t.sessao.relato, "wakeLock"))
                     .put("telaAcesaMin", t.telaAcesaMin)
                     .put("audio", t.audio)
                     .put("bytes", t.bytes)
@@ -805,10 +859,9 @@ class EspelhoServidor(
         val pend = JSONArray()
         for (p in pendentes()) {
             pend.put(
-                JSONObject()
+                relatoJson(p.relato)
                     .put("id", p.id)
-                    .put("ua", campo(p.relato, "ua"))
-                    .put("desdeMs", p.desde),
+                    .put("desde", p.desde),
             )
         }
         return JSONObject()
@@ -826,11 +879,46 @@ class EspelhoServidor(
             .put("ultimaSaida", ultimaSaida ?: JSONObject.NULL)
     }
 
-    // ---------- PONTE COM OS DOIS ARQUIVOS PUROS ----------
+    // ---------- PONTE COM O EspelhoPares ----------
     //
-    // Todo contato com [EspelhoPares] passa por aqui, e por nenhum outro lugar.
-    // Se a implementação dele divergir do que a §3.5 declara, é ESTE bloco que
-    // se conserta — o resto do arquivo não sabe que ele existe.
+    // Todo contato com [EspelhoPares] passa por aqui, e por nenhum outro lugar
+    // (fora as menções ao TIPO `Sessao`/`Pendente`/`Relato` nas assinaturas).
+    // Se a implementação dele divergir, é ESTE bloco que se conserta — o resto
+    // do arquivo não sabe que ele existe.
+    //
+    // A §3.5 declara sete funções e duas data classes; o que ESTE arquivo
+    // consome, e portanto o contrato que aquele arquivo precisa cumprir, é:
+    //
+    //   object EspelhoPares {
+    //       data class Relato(
+    //           val ua: String, val w: Int, val h: Int, val seguro: Boolean,
+    //           val mse: Boolean, val mms: Boolean, val fetchStream: Boolean,
+    //           val videoDecoder: Boolean, val wakeLock: Boolean,
+    //       )                                              // os nomes da §5.5
+    //       data class Pendente(val id: String, val relato: Relato, val desde: Long)
+    //       data class Sessao(val token: String, val relato: Relato, val expiraEm: Long)
+    //       sealed class Veredito {
+    //           data class Espera(val id: String) : Veredito()    // PIN certo, aguarda o operador
+    //           data class Aprovada(val sessao: Sessao) : Veredito()
+    //           object Pendente : Veredito()                      // consulta: ainda esperando
+    //           object Nao : Veredito()                           // errado, recusado ou bloqueado
+    //       }
+    //       fun novoPin(rnd: SecureRandom): String
+    //       fun relatoDe(json: JSONObject): Relato       // SANEIA o texto da rede — invariante 9
+    //       fun tentar(pin: String, origem: String, relato: Relato, agora: Long): Veredito
+    //       fun consultar(id: String, agora: Long): Veredito
+    //       fun aprovar(id: String, agora: Long): Sessao?         // ação do OPERADOR
+    //       fun recusar(id: String)                               // ação do OPERADOR
+    //       fun validar(token: String?, agora: Long): Sessao?
+    //       fun encerrar(token: String)
+    //       fun pendentes(): List<Pendente>
+    //       fun limpar(agora: Long)
+    //       fun zerar()
+    //   }
+    //
+    // (`aprovar`, `recusar`, `novoPin` e `encerrar` não são chamados daqui: os
+    // dois primeiros são do `espelhoAprovar` da ponte, e os outros dois do dono
+    // que liga e desliga o espelho.)
     //
     // O relógio entregue a ele é `System.currentTimeMillis()`, e não o
     // `elapsedRealtime` que este arquivo usa internamente: [EspelhoPares] é
@@ -847,6 +935,11 @@ class EspelhoServidor(
 
     private fun validarToken(autorizacao: String?): EspelhoPares.Sessao? =
         EspelhoPares.validar(tokenDe(autorizacao), agoraMs())
+
+    /** O mesmo, para um token que já está guardado (o vigia, que não tem
+     *  cabeçalho nenhum na mão). */
+    private fun validarTokenCru(token: String): EspelhoPares.Sessao? =
+        EspelhoPares.validar(token, agoraMs())
 
     private fun tentarPin(pin: String, origem: String, relato: EspelhoPares.Relato) =
         EspelhoPares.tentar(pin, origem, relato, agoraMs())
@@ -879,21 +972,28 @@ class EspelhoServidor(
         else -> 403 to RECUSADA
     }
 
-    /** Um campo do relato, lido por reflexão de propriedade nomeada — ver o
-     *  KDoc de [estado]: o relato é do arquivo puro, e aqui só o repassamos. */
-    private fun campo(relato: EspelhoPares.Relato, nome: String): String =
-        try {
-            relato.javaClass.getMethod("get" + nome.replaceFirstChar { it.uppercase() })
-                .invoke(relato)?.toString() ?: ""
-        } catch (e: Exception) {
-            ""
-        }
-
-    private fun campoInt(relato: EspelhoPares.Relato, nome: String): Int =
-        campo(relato, nome).toIntOrNull() ?: 0
-
-    private fun campoBool(relato: EspelhoPares.Relato, nome: String): Boolean =
-        campo(relato, nome) == "true"
+    /**
+     * O relato do cliente vira JSON, campo a campo e com os MESMOS nomes da
+     * §5.5 — que são os nomes que o cliente mandou e os que o `controle.js`
+     * espera ler.
+     *
+     * Ele é repassado, nunca reinterpretado: quem SANEIA o texto que veio da
+     * rede é o [EspelhoPares] (§3.5, invariante 9), num ponto só e antes de
+     * qualquer coisa chegar aqui. O `ua` termina no Registro, que é o artefato
+     * que este projeto manda COPIAR e repassar — um `\n` ali injetaria linhas
+     * falsas num diagnóstico, e um diagnóstico que mente é pior que
+     * diagnóstico nenhum.
+     */
+    private fun relatoJson(r: EspelhoPares.Relato): JSONObject = JSONObject()
+        .put("ua", r.ua)
+        .put("w", r.w)
+        .put("h", r.h)
+        .put("seguro", r.seguro)
+        .put("mse", r.mse)
+        .put("mms", r.mms)
+        .put("fetchStream", r.fetchStream)
+        .put("videoDecoder", r.videoDecoder)
+        .put("wakeLock", r.wakeLock)
 
     // ---------- utilidades ----------
 
@@ -906,7 +1006,10 @@ class EspelhoServidor(
         }
     }
 
-    private fun naoAchei(): ByteArray = EspelhoHttp.resposta(404, "text/plain", CORPO_404)
+    /** O 404 canônico é do [EspelhoHttp] — rota inexistente, token inválido,
+     *  `Host` recusado e `Origin` estranha respondem o MESMO, até no
+     *  `Content-Length`. */
+    private fun naoAchei(): ByteArray = EspelhoHttp.naoEncontrado()
 
     private fun rotuloNovo(): String {
         val n = proximoRotulo.getAndIncrement()
@@ -933,7 +1036,9 @@ class EspelhoServidor(
      */
     private class Tela(
         val rotulo: String,
-        val socket: Socket,
+        /** O socket **CRU**, e não o `SSLSocket` que possa estar por cima — ver
+         *  [fechar]. É por ele que o vigia destrava uma escrita presa. */
+        val cru: Socket,
         val sessao: EspelhoPares.Sessao,
     ) {
         val fila = ArrayBlockingQueue<ByteArray>(FILA_QUADROS)
@@ -986,15 +1091,11 @@ class EspelhoServidor(
         private const val IDR_GLOBAL_MS = 1_000L
         private const val CABECALHO = 16
 
-        // Os tipos do fio (§5.2). Ficam aqui, e não no [EspelhoCodec], porque
-        // são contrato de PROTOCOLO — o cliente JS os desmonta pelos mesmos
-        // números.
-        const val TIPO_CSD_VIDEO: Byte = 0x01
-        const val TIPO_VIDEO: Byte = 0x02
-        const val TIPO_CSD_AUDIO: Byte = 0x10
-        const val TIPO_AAC: Byte = 0x11
-        const val TIPO_JPEG: Byte = 0x20
-        const val TIPO_CONTROLE: Byte = 0x30
+        // OS TIPOS DO FIO (§5.2) MORAM NO [EspelhoCodec], e este arquivo os lê
+        // de lá. Uma segunda cópia dos mesmos seis números seria a forma mais
+        // barata de fazer o servidor e o encoder discordarem sobre o que é um
+        // quadro de áudio — e o sintoma apareceria no navegador de outra
+        // pessoa, no meio de um culto.
 
         /**
          * MAPA FIXO de rota → caminho no bundle. **Nunca concatenação.**
@@ -1012,14 +1113,6 @@ class EspelhoServidor(
             "/e.css" to "web/espelho/espelho.css",
         )
 
-        private val CABECALHOS_DA_PAGINA = listOf(
-            "Content-Security-Policy: default-src 'self'; frame-ancestors 'none'; base-uri 'none'",
-            "X-Frame-Options: DENY",
-        )
-
-        /** O MESMO corpo para toda recusa — token inválido, rota inexistente,
-         *  `Host` recusado. Tamanho igual, texto igual: não vazar existência. */
-        private val CORPO_404 = "nao encontrado\n".toByteArray(Charsets.US_ASCII)
         private val OK_CURTO = "{\"ok\":true}".toByteArray(Charsets.US_ASCII)
         private val RECUSADA = "{\"estado\":\"recusada\"}"
         private val PENDENTE = "{\"estado\":\"pendente\"}"

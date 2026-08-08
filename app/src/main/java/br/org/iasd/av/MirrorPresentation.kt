@@ -93,6 +93,10 @@ class MirrorPresentation(
     /** Só o documento do telão participa do barramento. Ver o `@param url`. */
     private val noBarramento = url == WebViewFactory.URL_DISPLAY
 
+    // `systemUiVisibility` está depreciado desde a API 30. A supressão é da
+    // FUNÇÃO, e não da linha: anotar um `statement` de atribuição é território
+    // cinzento do compilador, e este arquivo não pode depender disso.
+    @Suppress("DEPRECATION")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -107,10 +111,9 @@ class MirrorPresentation(
         )
 
         // Nenhuma barra do sistema entra no framebuffer que vai para a rede.
-        // (Depreciado desde a API 30; é o que o molde usa, e trocar por
-        // `WindowInsetsController` só neste arquivo faria as duas telas de
-        // projeção divergirem sem ninguém decidir isso.)
-        @Suppress("DEPRECATION")
+        // (É o que o molde usa; trocar por `WindowInsetsController` só neste
+        // arquivo faria as duas telas de projeção divergirem sem ninguém
+        // decidir isso.)
         root.systemUiVisibility = (
             View.SYSTEM_UI_FLAG_LAYOUT_STABLE
                 or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
