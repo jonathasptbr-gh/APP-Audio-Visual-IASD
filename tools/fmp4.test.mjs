@@ -414,5 +414,223 @@ ok(F.initVideo(Buffer.from([...START4, 0x09, 0x10])) === null,
   ok(!m.pendente() && m.esvaziar(1000) === null, 'descartar() esvazia o pendente sem emitir nada');
 }
 
+// ---------------------------------------------------------------------------
+// 8. A FAIXA DE SOM — `mp4a`/`esds` a partir do AudioSpecificConfig
+//
+// Os dois ASC abaixo são ESCRITOS AQUI bit a bit (ISO/IEC 14496-3 §1.6.2.1),
+// não copiados de memória: 5 bits de audioObjectType, 4 de
+// samplingFrequencyIndex, 4 de channelConfiguration.
+//
+//   AAC-LC (2) · 48000 (índice 3) · 2 canais → 00010 0011 0010 0 → 0x11 0x90
+//   AAC-LC (2) · 44100 (índice 4) · 1 canal  → 00010 0100 0001 0 → 0x12 0x08
+//
+// Um erro de um bit aqui não lança nada em lugar nenhum: dá áudio no dobro da
+// velocidade, ou faixa que o navegador ignora.
+// ---------------------------------------------------------------------------
+function ascSintetico(objeto, indice, canais) {
+  const w = new EscritorDeBits();
+  w.u(5, objeto);
+  w.u(4, indice);
+  w.u(4, canais);
+  // Sem `rbsp_stop_one_bit`: o ASC não é RBSP. São 13 bits, completados com
+  // zeros até fechar os dois bytes que o `csd-0` do MediaCodec entrega.
+  const bits = w.bits.slice();
+  while (bits.length % 8) bits.push(0);
+  const out = Buffer.alloc(bits.length / 8);
+  for (let i = 0; i < bits.length; i++) if (bits[i]) out[i >> 3] |= 1 << (7 - (i & 7));
+  return out;
+}
+
+const ASC48 = ascSintetico(2, 3, 2);
+eq(Array.from(ASC48), [0x11, 0x90], 'o ASC sintético de 48 kHz estéreo é 0x11 0x90');
+
+eq(F.lerAsc(ASC48), { objeto: 2, taxa: 48000, canais: 2, codec: 'mp4a.40.2' },
+  'lerAsc: AAC-LC, 48 kHz, estéreo');
+eq(F.lerAsc(ascSintetico(2, 4, 1)), { objeto: 2, taxa: 44100, canais: 1, codec: 'mp4a.40.2' },
+  'lerAsc: 44,1 kHz mono — a taxa vem do ASC, nunca de um chute');
+ok(F.lerAsc(Buffer.from([0x11])) === null,
+  'um ASC truncado devolve null (e o cliente segue MUDO, com a imagem intacta)');
+// Índice 13 é reservado, não é taxa. Aceitá-lo daria um `mdhd` com timescale 0.
+ok(F.lerAsc(ascSintetico(2, 13, 2)) === null,
+  'um samplingFrequencyIndex reservado devolve null em vez de timescale zero');
+
+const som = F.initAudio(ASC48);
+ok(!!som, 'initAudio devolve um descritor para um ASC bem formado');
+const bs = b(som.bytes);
+
+ok(arvoreCoerente(bs) === null, 'toda caixa do init de som fecha com o pai', arvoreCoerente(bs));
+eq(lerCaixas(bs).map((c) => c.tipo), ['ftyp', 'moov'], 'o init de som também é ftyp + moov');
+eq(som.mime, 'audio/mp4; codecs="mp4a.40.2"', 'o mime de áudio carrega o codec derivado do ASC');
+eq([som.taxa, som.canais, som.escala], [48000, 2, 48000],
+  'taxa, canais e timescale saem todos do mesmo ASC');
+
+{
+  const mdhd = b(achar(bs, 'moov/trak/mdia/mdhd'));
+  eq(mdhd.readUInt32BE(12), 48000,
+    'timescale da faixa de som = a TAXA (1024 amostras por quadro, exato — em µs seriam 21333,33)');
+  const hdlr = b(achar(bs, 'moov/trak/mdia/hdlr'));
+  eq(hdlr.toString('latin1', 8, 12), 'soun', "handler_type = 'soun' (com 'vide' a faixa é ignorada)");
+  const trex = b(achar(bs, 'moov/mvex/trex'));
+  eq(trex.readUInt32BE(4), 2, 'trex do som aponta para a faixa 2');
+  const tkhd = b(achar(bs, 'moov/trak/tkhd'));
+  eq(tkhd.readUInt32BE(0) & 0xffffff, 3, 'tkhd de som também é track_enabled | in_movie');
+  eq(tkhd.readUInt32BE(12), 2, 'tkhd do som é a faixa 2');
+  eq([tkhd.readUInt32BE(76), tkhd.readUInt32BE(80)], [0, 0],
+    'e ele NÃO reserva área de imagem (width/height zerados)');
+  ok(!!lerCaixas(b(achar(bs, 'moov/trak/mdia/minf'))).find((c) => c.tipo === 'smhd'),
+    "o minf de som traz 'smhd' (um 'vmhd' aqui não lança e não toca)");
+}
+
+{
+  const stsd = b(achar(bs, 'moov/trak/mdia/minf/stbl/stsd'));
+  const entradas = lerCaixas(stsd, 8);
+  eq(entradas.map((c) => c.tipo), ['mp4a'], 'a sample entry de som é mp4a');
+  const mp4a = entradas[0].corpo;
+  eq(mp4a.readUInt16BE(16), 2, 'mp4a declara 2 canais');
+  eq(mp4a.readUInt16BE(18), 16, 'mp4a declara amostras de 16 bits');
+  eq(mp4a.readUInt32BE(24) / 65536, 48000, 'mp4a declara a taxa em 16.16');
+
+  // O `esds` mora no deslocamento 28 da AudioSampleEntry. Um byte a mais ou a
+  // menos nos campos "reserved" o desloca — e o navegador recusa o init inteiro
+  // sem dizer por quê.
+  const esds = lerCaixas(mp4a, 28).find((c) => c.tipo === 'esds');
+  ok(!!esds, 'e dentro dela vem o esds (no deslocamento 28 da AudioSampleEntry)');
+
+  // Os descritores, desmontados aqui — tag, comprimento base-128, corpo.
+  const desc = (buf, o) => {
+    const tag = buf[o];
+    let p = o + 1;
+    let tam = 0;
+    for (;;) {
+      const x = buf[p++];
+      tam = tam * 128 + (x & 0x7f);
+      if (!(x & 0x80)) break;
+    }
+    return { tag, tam, ini: p, corpo: buf.subarray(p, p + tam) };
+  };
+  const es = desc(esds.corpo, 4);                   // depois de version+flags do FullBox
+  eq(es.tag, 0x03, 'esds: o primeiro descritor é o ES_Descriptor (tag 3)');
+  eq(es.corpo.length, es.tam, 'esds: o comprimento do ES_Descriptor fecha com o corpo');
+  eq(es.corpo.readUInt16BE(0), 2, 'esds: ES_ID = 2 (a faixa de som)');
+  const dcd = desc(es.corpo, 3);
+  eq(dcd.tag, 0x04, 'esds: dentro dele, o DecoderConfigDescriptor (tag 4)');
+  eq(dcd.corpo[0], 0x40, 'esds: objectTypeIndication = 0x40 (MPEG-4 Audio)');
+  eq(dcd.corpo[1] >> 2, 5, 'esds: streamType = 5 (AudioStream)');
+  const dsi = desc(dcd.corpo, 13);
+  eq(dsi.tag, 0x05, 'esds: e o DecoderSpecificInfo (tag 5)');
+  eq(Array.from(dsi.corpo), Array.from(ASC48),
+    'esds: o AudioSpecificConfig vai VERBATIM lá dentro — é ele que configura o decodificador');
+  const sl = desc(es.corpo, 3 + 2 + dcd.tam);
+  eq(sl.tag, 0x06, 'esds: e o SLConfigDescriptor fecha o ES_Descriptor');
+  eq(sl.corpo[0], 0x02, 'esds: SLConfig predefinido = 2 (o valor de MP4)');
+}
+
+ok(F.initAudio(Buffer.from([0x11])) === null,
+  'um ASC ilegível não vira init de som nenhum — o espelho fica mudo, não meio mudo');
+
+// ---------------------------------------------------------------------------
+// 9. O EIXO DE TEMPO DO ÁUDIO — 1024 amostras exatas, e nenhum buraco
+//
+// Os carimbos são os que o `EspelhoAudio.ptsAgora()` produz: `âncora +
+// amostras × 1e6 / taxa`, com a divisão INTEIRA do Kotlin. A 48 kHz eles
+// avançam 21333, 21333, 21334… — e é justamente essa alternância que uma
+// duração convertida do carimbo ABSOLUTO transformaria em jitter de ±1 amostra
+// por quadro.
+// ---------------------------------------------------------------------------
+{
+  const m = F.criar();
+  ok(m.quadroAudio({ ptsUs: 0, dados: Buffer.from([1]) }) === null,
+    'sem csd de áudio o muxer não produz fragmento de som nenhum');
+
+  eq(!!m.csdAudio(ASC48), true, 'o muxer aceita o csd de áudio e monta o init');
+
+  const ANCORA = 5000000000;                        // 5 000 s: acima de 2³² µs, como no vídeo
+  const pts = (n) => ANCORA + Math.floor(n * 1024 * 1000000 / 48000);
+  const aac = Buffer.from([0x21, 0x10, 0x05, 0x20]);
+
+  ok(m.quadroAudio({ ptsUs: pts(0), dados: aac }) === null,
+    'o PRIMEIRO quadro AAC também não sai: ele é a âncora e ainda não tem duração');
+
+  const frags = [];
+  for (let n = 1; n <= 4; n++) {
+    const f = m.quadroAudio({ ptsUs: pts(n), dados: aac });
+    if (f) frags.push(b(f));
+  }
+  const ta = (f) => {
+    const d = b(achar(f, 'moof/traf/tfdt'));
+    const u = b(achar(f, 'moof/traf/trun'));
+    return { dts: d.readUInt32BE(4) * 4294967296 + d.readUInt32BE(8), dur: u.readUInt32BE(12) };
+  };
+  const linha = frags.map(ta);
+  eq(linha.map((x) => x.dur), [1024, 1024, 1024, 1024],
+    'cada quadro AAC dura 1024 amostras EXATAS, apesar do carimbo em µs truncado');
+  eq(linha[0].dts, Math.round(ANCORA * 48000 / 1000000),
+    'o tfdt do primeiro quadro é a âncora convertida uma vez — o mesmo instante do vídeo, em segundos');
+  let coladoA = true;
+  for (let i = 1; i < linha.length; i++) {
+    if (linha[i - 1].dts + linha[i - 1].dur !== linha[i].dts) coladoA = false;
+  }
+  ok(coladoA, 'NENHUM BURACO na faixa de som: o tfdt ACUMULA a duração já arredondada',
+    JSON.stringify(linha));
+
+  eq(b(achar(frags[0], 'moof/traf/tfhd')).readUInt32BE(4), 2,
+    'e o fragmento de som aponta para a faixa 2 (o de vídeo continua na 1)');
+  eq(b(achar(frags[0], 'moof/traf/trun')).readUInt32BE(20), 0x02000000,
+    'todo quadro AAC é ponto de sincronismo — marcá-lo como delta deixaria o espelho mudo');
+  eq(frags.map((f) => b(achar(f, 'moof/mfhd')).readUInt32BE(4)), [1, 2, 3, 4],
+    'o som tem o PRÓPRIO contador de sequência (compartilhá-lo com o vídeo daria mfhd repetido)');
+}
+
+// O BLOCO DE PCM PERDIDO — a fila do `EspelhoAudio` enchendo salta o carimbo, e
+// é exatamente aqui que o atraso de um quadro paga por si na faixa de som.
+{
+  const m = F.criar();
+  m.csdAudio(ASC48);
+  const aac = Buffer.from([0x21, 0x10]);
+  m.quadroAudio({ ptsUs: 0, dados: aac });
+  m.quadroAudio({ ptsUs: 21333, dados: aac });
+  // 40 ms de PCM descartados: o carimbo seguinte salta ~61 ms em vez de 21.
+  const f = b(m.quadroAudio({ ptsUs: 21333 + 61333, dados: aac }));
+  eq(b(achar(f, 'moof/traf/trun')).readUInt32BE(12), 2944,
+    'um bloco de PCM perdido vira uma amostra mais LONGA (2944 = 61,3 ms), e não um buraco');
+}
+
+{
+  const m = F.criar();
+  m.csdAudio(ASC48);
+  const aac = Buffer.from([0x21]);
+  m.quadroAudio({ ptsUs: 1000, dados: aac });
+  const f = b(m.quadroAudio({ ptsUs: 1000, dados: aac }));
+  eq(b(achar(f, 'moof/traf/trun')).readUInt32BE(12), 1,
+    'carimbo de áudio repetido vira duração 1 amostra, nunca 0');
+}
+
+{
+  const m = F.criar();
+  m.csdAudio(ASC48);
+  m.quadroAudio({ ptsUs: 0, dados: Buffer.from([0x21]) });
+  ok(m.pendenteAudio(), 'o quadro AAC fica retido, como o de vídeo');
+  m.descartarAudio();
+  ok(!m.pendenteAudio() && m.esvaziarAudio(1024) === null,
+    'descartarAudio() esvazia o retido sem emitir — é o que se faz ao soltar a faixa de som');
+}
+
+// AS DUAS FAIXAS SÃO INDEPENDENTES, e este é o teste que prova que soltar uma
+// não mexe na outra: o vídeo continua contando as suas sequências.
+{
+  const m = F.criar();
+  m.csd(CSD);
+  m.csdAudio(ASC48);
+  const q = Buffer.from([...START4, 0x65, 1]);
+  m.quadroAudio({ ptsUs: 0, dados: Buffer.from([0x21]) });
+  m.quadro({ ptsUs: 0, chave: true, dados: q });
+  const fv = b(m.quadro({ ptsUs: 33333, chave: false, dados: q }));
+  const fa = b(m.quadroAudio({ ptsUs: 21333, dados: Buffer.from([0x21]) }));
+  eq(b(achar(fv, 'moof/mfhd')).readUInt32BE(4), 1, 'o vídeo começa a sequência dele em 1');
+  eq(b(achar(fa, 'moof/mfhd')).readUInt32BE(4), 1, 'e o som começa a dele em 1, sem se atrapalharem');
+  eq(b(achar(fv, 'moof/traf/tfhd')).readUInt32BE(4), 1, 'faixa 1 para a imagem');
+  eq(b(achar(fa, 'moof/traf/tfhd')).readUInt32BE(4), 2, 'faixa 2 para o som');
+}
+
 console.log(falhas ? '\n' + falhas + ' FALHA(S)' : '\nTodos passaram.');
 process.exit(falhas ? 1 : 0);

@@ -77,10 +77,62 @@ class EspelhoDiag {
     private val fatos = LinkedHashMap<String, Any?>()
 
     // ---------- o ritmo (bytes e quadros por segundo, janela deslizante) ----------
+    //
+    // TODOS os baldes andam na MESMA janela e pelo MESMO `avancar` — se um dia
+    // um deles ficar de fora daquele laço, ele vira um contador que só cresce e
+    // passa a relatar o passado como presente, que é o defeito exato que o
+    // KDoc de `avancar` existe para impedir.
+    //
+    // Eles existem para separar três perguntas que a linha "ritmo" original
+    // misturava — e que, do jeito que ela estava, tinham a mesma resposta:
+    // "156 kbps · 1,2 fps" não diz se a fonte produz devagar, se a produção é
+    // irregular, ou se quem come a banda é o quadro-chave periódico.
+    //
+    //  · [bytesPorSeg]      quanto saiu no fio
+    //  · [bytesChavePorSeg] quanto disso foi quadro-CHAVE (o resto é delta)
+    //  · [quadrosPorSeg]    quantas imagens
+    //  · [chavesPorSeg]     quantas delas eram chave
+    //  · [intervaloSomaPorSeg]/[intervaloPiorPorSeg]  a distância entre quadros
+    //  · [atrasoPiorPorSeg] o pior atraso captura→fio da janela
 
     private val bytesPorSeg = LongArray(JANELA_S)
+    private val bytesChavePorSeg = LongArray(JANELA_S)
     private val quadrosPorSeg = IntArray(JANELA_S)
+    private val chavesPorSeg = IntArray(JANELA_S)
+    private val intervaloSomaPorSeg = LongArray(JANELA_S)
+    private val intervaloPiorPorSeg = IntArray(JANELA_S)
+    private val intervaloNPorSeg = IntArray(JANELA_S)
+    private val atrasoPiorPorSeg = IntArray(JANELA_S)
     private var segundoAtual = -1L
+
+    /** `elapsedRealtime` da última imagem — a base do intervalo entre quadros. */
+    private var ultimaImagemMs = -1L
+
+    /**
+     * A ÂNCORA do atraso captura→fio, e a razão de ele ser RELATIVO.
+     *
+     * Não existe, na plataforma, promessa de que o carimbo de uma *input
+     * surface* (que vem do `BufferQueue`) e um relógio lido no processo sejam o
+     * mesmo eixo — é a mesma cautela que o `EspelhoCodec.baseUs` já escreve.
+     * Então não se mede "o quadro levou N ms para sair", que exigiria essa
+     * igualdade: mede-se **quanto o quadro de agora demorou A MAIS que o
+     * primeiro da sessão**, que é uma diferença de diferenças e dispensa a
+     * suposição. Zero significa "o encoder acompanha a captura tão bem quanto
+     * acompanhava no início"; um número que SOBE é fila crescendo entre a tela
+     * virtual e o fio — o único jeito de distinguir "o encoder não produz" de
+     * "o cliente não consome" sem instrumentar o navegador.
+     *
+     * [SystemClock.uptimeMillis] de propósito, e não `elapsedRealtime`: é
+     * `CLOCK_MONOTONIC`, a mesma família do `nanoTime` de onde saem os carimbos
+     * de Surface neste sistema — as duas contagens só andam juntas se pararem
+     * juntas no sono profundo. Os baldes da janela continuam em
+     * `elapsedRealtime`, que é o que não pode congelar.
+     */
+    private var ancoraMs = -1L
+    private var ancoraPtsUs = -1L
+
+    /** O último atraso medido (ms). Ver [ancoraMs]: é relativo, não absoluto. */
+    private var atrasoMs = 0
 
     private data class Linha(val em: Long, val txt: String)
 
@@ -108,22 +160,87 @@ class EspelhoDiag {
      * Uma amostra de saída: [bytes] entregues e [quadros] produzidos.
      *
      * Chamada uma vez por quadro que sai do encoder (ou do compressor JPEG, no
-     * modo imagem). Os dois números alimentam a MESMA janela porque a pergunta
-     * do §7.5 é uma só — "isto aqui está se movendo?" — e ela precisa dos dois:
-     * um retângulo preto produz quadros minúsculos **e** raros, e cada número
-     * sozinho tem uma explicação inocente (cena parada; faixa grande).
+     * modo imagem). Os números alimentam a MESMA janela porque a pergunta do
+     * §7.5 é uma só — "isto aqui está se movendo?" — e ela precisa de mais de
+     * um: um retângulo preto produz quadros minúsculos **e** raros, e cada
+     * número sozinho tem uma explicação inocente (cena parada; faixa grande).
      *
      * `quadros = 0` é legítimo e é o caso do quadro de `csd`: ele gasta bytes e
-     * não é imagem nenhuma.
+     * não é imagem nenhuma. Uma amostra assim não mexe em intervalo, em atraso
+     * nem em quadro-chave — ela não é imagem, e contá-la ali sujaria a
+     * cadência com um evento que não tem lugar na linha do tempo.
+     *
+     * @param chave o quadro é um IDR. **É o número que decide a discussão do
+     *   `KEY_I_FRAME_INTERVAL`**: numa cena parada o quadro-chave é quase toda
+     *   a banda, e sem separá-lo do resto qualquer conversa sobre baixar o
+     *   intervalo é estimativa contra estimativa.
+     * @param ptsUs o carimbo do quadro no eixo da sessão, ou negativo quando
+     *   quem chamou não o tem. Serve só ao atraso relativo — ver [ancoraMs].
      */
-    fun amostra(bytes: Int, quadros: Int) {
+    fun amostra(bytes: Int, quadros: Int, chave: Boolean = false, ptsUs: Long = -1L) {
         synchronized(trava) {
-            val s = SystemClock.elapsedRealtime() / 1000L
+            val agora = SystemClock.elapsedRealtime()
+            val s = agora / 1000L
             avancar(s)
             val i = (s % JANELA_S).toInt()
             bytesPorSeg[i] += bytes.toLong()
             quadrosPorSeg[i] += quadros
+            if (quadros <= 0) return
+            if (chave) {
+                chavesPorSeg[i] += 1
+                bytesChavePorSeg[i] += bytes.toLong()
+            }
+            val d = if (ultimaImagemMs >= 0L) agora - ultimaImagemMs else -1L
+            // Acima de [TETO_MS] o intervalo é DESCARTADO, não truncado, e a
+            // diferença importa: o espelho desligado e religado (o anel é um
+            // só, ele sobrevive à sessão) deixaria a distância entre a última
+            // imagem de ontem e a primeira de agora entrando na janela como se
+            // fosse cadência. Um minuto sem quadro nenhum já está denunciado
+            // pelo fps em zero e pelo "último write há N s" do servidor; a
+            // cadência mede o que se move.
+            if (d in 0L..TETO_MS) {
+                val ms = d.toInt()
+                intervaloSomaPorSeg[i] += d
+                intervaloNPorSeg[i] += 1
+                if (ms > intervaloPiorPorSeg[i]) intervaloPiorPorSeg[i] = ms
+            }
+            ultimaImagemMs = agora
+            if (ptsUs >= 0L) medirAtraso(ptsUs, i)
         }
+    }
+
+    /**
+     * O atraso RELATIVO captura→fio deste quadro. Ver [ancoraMs] para o que o
+     * número significa e por que não é absoluto.
+     *
+     * Reancora quando o carimbo **anda para trás**, que é a assinatura de uma
+     * sessão nova (o `EspelhoCodec.abrirSessao` zera a base e o primeiro quadro
+     * volta a sair em 0) contra um anel que sobreviveu à anterior. Sem esta
+     * guarda, a primeira sessão nova imprimiria o tempo que o espelho ficou
+     * desligado como se fosse fila de encoder — um diagnóstico que mente, que é
+     * pior que diagnóstico nenhum.
+     */
+    private fun medirAtraso(ptsUs: Long, i: Int) {
+        val mono = SystemClock.uptimeMillis()
+        if (ancoraMs < 0L || ptsUs < ancoraPtsUs) {
+            ancoraMs = mono
+            ancoraPtsUs = ptsUs
+            atrasoMs = 0
+            return
+        }
+        val decorrido = mono - ancoraMs
+        val capturado = (ptsUs - ancoraPtsUs) / 1000L
+        // Negativo é aritmeticamente possível (o carimbo de captura de um
+        // quadro é anterior à saída dele, e a folga do primeiro quadro pode ter
+        // sido maior que a deste): ali o pipeline está MELHOR que na âncora, e
+        // "melhor que a referência" se relata como zero, não como número
+        // negativo que ninguém sabe ler.
+        atrasoMs = (decorrido - capturado).coerceIn(0L, TETO_MS).toInt()
+        // O balde é o que [amostra] já escolheu, e não um recalculado aqui:
+        // dois `elapsedRealtime` lidos com um instante de diferença podem cair
+        // em segundos diferentes, e o pior atraso iria parar num balde que a
+        // janela já considerou fechado.
+        if (atrasoMs > atrasoPiorPorSeg[i]) atrasoPiorPorSeg[i] = atrasoMs
     }
 
     /**
@@ -164,9 +281,17 @@ class EspelhoDiag {
      * Formato:
      * ```json
      * { "linhas": [ {"em": 1765..., "txt": "…"} ],
-     *   "ritmo":  { "kbps": 340, "fps": 1.2, "janelaMs": 10000 },
+     *   "ritmo":  { "kbps": 340, "fps": 8.1, "janelaMs": 10000,
+     *               "chaves": 2, "kbpsChave": 240,
+     *               "msMedio": 124, "msPior": 380,
+     *               "atrasoMs": 0, "atrasoPiorMs": 90 },
      *   "…fatos": … }
      * ```
+     * **Toda chave de `ritmo` é opcional para quem lê**: o `controle.js` monta a
+     * frase campo a campo e um shell antigo simplesmente não imprime a linha da
+     * cadência — é a regra escrita do `CLAUDE.md` ("o que o shell não souber
+     * responder não aparece, nunca 'undefined' no meio de um log que vai ser
+     * repassado").
      * Os fatos entram na RAIZ, não num objeto aninhado: o consumidor é uma
      * função de montagem de texto no `controle.js`, e um nível a menos de
      * indireção ali é uma linha a menos que pode errar o caminho em silêncio.
@@ -181,10 +306,22 @@ class EspelhoDiag {
 
         avancar(SystemClock.elapsedRealtime() / 1000L)
         var bytes = 0L
+        var bytesChave = 0L
         var quadros = 0
+        var chaves = 0
+        var intervaloSoma = 0L
+        var intervaloN = 0
+        var intervaloPior = 0
+        var atrasoPior = 0
         for (i in 0 until JANELA_S) {
             bytes += bytesPorSeg[i]
+            bytesChave += bytesChavePorSeg[i]
             quadros += quadrosPorSeg[i]
+            chaves += chavesPorSeg[i]
+            intervaloSoma += intervaloSomaPorSeg[i]
+            intervaloN += intervaloNPorSeg[i]
+            if (intervaloPiorPorSeg[i] > intervaloPior) intervaloPior = intervaloPiorPorSeg[i]
+            if (atrasoPiorPorSeg[i] > atrasoPior) atrasoPior = atrasoPiorPorSeg[i]
         }
         o.put(
             "ritmo",
@@ -193,7 +330,23 @@ class EspelhoDiag {
                 // número de rede — não KiB. A conta é bytes×8÷1000÷janela.
                 .put("kbps", Math.round(bytes * 8.0 / 1000.0 / JANELA_S).toInt())
                 .put("fps", Math.round(quadros * 10.0 / JANELA_S) / 10.0)
-                .put("janelaMs", JANELA_S * 1000),
+                .put("janelaMs", JANELA_S * 1000)
+                // A CADÊNCIA. Os números abaixo respondem, juntos, a
+                // pergunta que o par (kbps, fps) não responde: "a fonte está
+                // produzindo REGULARMENTE?". Um fps de 8 pode ser oito quadros
+                // espaçados de 125 ms (o batimento saudável) ou oito quadros em
+                // rajada seguidos de um buraco de 2 s — e para o `<video>` do
+                // cliente, que consome em tempo real, a segunda coisa é um
+                // travamento de 2 s. Só o PIOR intervalo separa as duas.
+                .put("chaves", chaves)
+                .put("kbpsChave", Math.round(bytesChave * 8.0 / 1000.0 / JANELA_S).toInt())
+                .put("msMedio", if (intervaloN > 0) (intervaloSoma / intervaloN).toInt() else 0)
+                .put("msPior", intervaloPior)
+                // Relativo à âncora da sessão, e com teto — ver `ancoraMs` e
+                // `TETO_MS`. Um `atrasoPior` colado no teto significa "parou",
+                // e não "atrasou muito".
+                .put("atrasoMs", atrasoMs)
+                .put("atrasoPiorMs", atrasoPior),
         )
 
         for ((k, v) in fatos) o.put(k, v)
@@ -224,7 +377,13 @@ class EspelhoDiag {
         for (k in 1..passos) {
             val i = ((segundoAtual + k) % JANELA_S).toInt()
             bytesPorSeg[i] = 0L
+            bytesChavePorSeg[i] = 0L
             quadrosPorSeg[i] = 0
+            chavesPorSeg[i] = 0
+            intervaloSomaPorSeg[i] = 0L
+            intervaloNPorSeg[i] = 0
+            intervaloPiorPorSeg[i] = 0
+            atrasoPiorPorSeg[i] = 0
         }
         segundoAtual = s
     }
@@ -249,10 +408,32 @@ class EspelhoDiag {
         /**
          * 10 s de janela. É o mesmo horizonte que a especificação usa na linha
          * "ritmo", e ele é curto o bastante para o operador ver o número reagir
-         * enquanto olha, e longo o bastante para uma cena parada (um quadro por
-         * segundo, por causa do batimento) render mais de uma amostra.
+         * enquanto olha, e longo o bastante para render mais de uma amostra até
+         * numa cena parada — onde quem produz é só o batimento do papel
+         * `espelho` (8 Hz desde a v5.144; 1 Hz até ela, e mesmo assim cabia).
+         * **E ele é o horizonte do quadro-chave também**: com o
+         * `KEY_I_FRAME_INTERVAL` em 5 s, uma janela de 10 s contém uma ou duas
+         * chaves, que é o mínimo para `kbpsChave` significar alguma coisa.
          */
         private const val JANELA_S = 10
+
+        /**
+         * O limite dos números de tempo da cadência (ms), com DOIS
+         * comportamentos diferentes e de propósito:
+         *
+         *  - **intervalo entre quadros: acima dele, descarta.** Ver [amostra] —
+         *    o que passa de um minuto não é cadência, é o espelho tendo ficado
+         *    desligado, e o anel sobrevive à sessão.
+         *  - **atraso relativo: acima dele, trunca.** Ali o número truncado
+         *    ainda diz a coisa certa ("a saída parou de acompanhar a captura"),
+         *    e um valor pendurado no teto é uma leitura, não um erro.
+         *
+         * Ele é maior que a janela de propósito: um intervalo de 12 s dentro de
+         * uma janela de 10 s é possível (o balde guarda o último intervalo
+         * medido, não a soma da janela) e é uma informação real — "a fonte
+         * ficou parada mais tempo do que esta janela inteira".
+         */
+        private const val TETO_MS = 60_000L
     }
 }
 

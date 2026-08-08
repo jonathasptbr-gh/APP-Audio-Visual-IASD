@@ -738,10 +738,16 @@ object EspelhoDisplay {
      *
      * O `csd` conta bytes e **não conta quadro**: ele gasta rede e não é
      * imagem nenhuma.
+     *
+     * A bandeira de chave e o carimbo viajam junto porque a CADÊNCIA se mede
+     * aqui ou não se mede em lugar nenhum: é o único ponto por onde todo quadro
+     * passa com as duas informações à mão. Ver `EspelhoDiag.amostra` — quem
+     * separa quadro-chave de delta é o que decide, com número, a discussão do
+     * `KEY_I_FRAME_INTERVAL`.
      */
     private fun quadroSaiu(q: Quadro) {
         val ehImagem = q.tipo == EspelhoCodec.TIPO_VIDEO || q.tipo == EspelhoCodec.TIPO_JPEG
-        diag.amostra(q.bytes.size, if (ehImagem) 1 else 0)
+        diag.amostra(q.bytes.size, if (ehImagem) 1 else 0, ehImagem && q.chave, q.ptsUs)
         onQuadro?.invoke(q)
     }
 

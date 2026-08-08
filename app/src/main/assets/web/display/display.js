@@ -1936,14 +1936,67 @@ espelhoAudioIniciar();
 // telão — mas ela é REAL, e é isso que importa: `#000` para `#000` não muda
 // nada e não gera quadro.
 //
-// A 1 Hz, e não a 4 Hz. A justificativa original ("o wake lock do `<video>` cai
-// no stall") é FALSA — o Chromium só limpa `playing_` em `pause` e `emptied`,
-// não em `waiting`. O batimento continua necessário pelo resto: manter a faixa
-// do buffer avançando, dar um quadro recente a quem conectar no meio de uma
-// cena parada, e fazer o "sem conexão há N s" do diagnóstico significar alguma
-// coisa. Nada disso pede quatro vezes por segundo, e cada batida é um quadro
-// codificado que atravessa a rede.
-const ESPELHO_BATIMENTO_MS = 1000;
+// ## 125 ms (8 Hz), e NÃO 1 s — o número que estava errado
+//
+// A 1 Hz o espelho chegava ao navegador da rede, e chegava TRAVANDO. O motivo
+// não é o batimento existir: é que **este intervalo é a granularidade da linha
+// do tempo INTEIRA do recurso**, e a 1 s ele empurra três coisas ao mesmo
+// tempo, todas fora deste arquivo:
+//
+//  1. **A duração de cada amostra do fMP4 é MEDIDA entre dois quadros
+//     consecutivos** (o "atraso de um quadro" do `espelho/fmp4.js`, achado D3 da
+//     especificação: o fragmento de N só é emitido quando N+1 chega, para a
+//     duração ser medição e não palpite). Numa cena parada — o estado NORMAL de
+//     um telão de igreja — quem produz os quadros é este batimento e mais
+//     ninguém, então a 1 Hz cada amostra dura 1 s **e chega 1 s atrasada**. O
+//     `<video>` do cliente consome 1 s de mídia por segundo de relógio contra
+//     uma fonte que entrega 1 s de mídia a cada 1 s: a margem é ZERO por
+//     construção, e todo soluço de rede, de GC ou de encoder vira um `waiting`
+//     de até um segundo — o travamento relatado. A 8 Hz a mesma margem zero
+//     custa 125 ms, que é abaixo do que se lê como travada, e o cliente ainda
+//     pode segurar dois ou três quadros de folga continuando "ao vivo".
+//  2. **A âncora do ÁUDIO é o carimbo do último quadro de vídeo**
+//     (`EspelhoAudio.ptsAgora` → `EspelhoCodec.ultimoCarimbo`), escolhida uma
+//     vez e **nunca reancorada** de propósito. O KDoc de lá orça o erro em "um
+//     intervalo de quadro (~33 ms)" — verdade com vídeo tocando, e falso numa
+//     cena parada, onde o intervalo era 1 s. Ligar o áudio com uma estrofe
+//     projetada podia nascer com até um segundo de desvio permanente entre voz
+//     e imagem: a desincronia relatada. A 8 Hz o mesmo erro é de 125 ms.
+//  3. **O que a fila do servidor descarta** e o "último write há N s" do
+//     Registro passam a ter resolução de 125 ms em vez de 1 s.
+//
+// ## O custo, com o número medido do aparelho
+//
+// Cada batida é UM P-frame cujo único macrobloco alterado é o do pulso; todo o
+// resto do quadro é `skip`, que o CABAC codifica como corrida — dezenas a
+// poucas centenas de bytes. Os sete quadros a mais por segundo custam da ordem
+// de 2 a 20 kbps. Medido no aparelho, uma cena PARADA já rodava a **156 kbps**
+// com 1,2 fps: a banda estava sendo comida pelos quadros-chave periódicos e
+// pelo conteúdo, não pelo batimento. Ou seja, subir a cadência oito vezes é
+// ruído no orçamento de rede e paga o recurso inteiro — e a conta pode ser
+// refeita a qualquer momento pela linha "ritmo" do Registro, que agora separa o
+// kbps dos quadros-chave do resto.
+//
+// ## Por que não 30 Hz
+//
+// Porque 125 ms já está abaixo do limiar de percepção de travamento e o jitter
+// de um AP de igreja é maior que a diferença; e porque cada batida é um passe
+// completo de codificação de 1280×720 sobre um quadro que não mudou. 8 Hz
+// mantém o encoder ocioso 27 de cada 30 quadros; 30 Hz o deixa em regime de
+// vídeo o culto inteiro, com o telão parado.
+//
+// A justificativa original ("o wake lock do `<video>` cai no stall") é FALSA e
+// não voltou: o Chromium só limpa `playing_` em `pause` e `emptied`, não em
+// `waiting`. O batimento vale pelo resto — a granularidade acima, dar um quadro
+// recente a quem conectar no meio de uma cena parada, e fazer o "sem conexão há
+// N s" do diagnóstico significar alguma coisa.
+//
+// **Acoplado ao `REPETIR_APOS_US` do `EspelhoCodec.kt`** (a repetição de quadro
+// do `MediaCodec`), que é a rede de segurança para quando ESTE timer for
+// estrangulado: lá o valor é quatro batidas, para nunca correr junto com o
+// batimento normal e ainda assim destravar rápido o quadro pendente no muxer.
+// Mexeu aqui, leia o companion de lá.
+const ESPELHO_BATIMENTO_MS = 125;
 if (ESPELHO) {
   const pulso = document.createElement('div');
   // Fora de qualquer fluxo, acima de tudo, e do tamanho de um pixel: ele não
@@ -1958,7 +2011,10 @@ if (ESPELHO) {
     claro = !claro;
     pulso.style.background = claro ? '#010101' : '#000000';
   }, ESPELHO_BATIMENTO_MS);
-  diag('batimento do espelho ligado (' + ESPELHO_BATIMENTO_MS + ' ms)');
+  // Os dois números, porque a leitura útil é a FREQUÊNCIA (é ela que aparece na
+  // linha "ritmo" como piso de fps) e o que se edita é o intervalo.
+  diag('batimento do espelho ligado (' + ESPELHO_BATIMENTO_MS + ' ms · '
+    + Math.round(1000 / ESPELHO_BATIMENTO_MS) + ' Hz)');
 }
 
 restore();

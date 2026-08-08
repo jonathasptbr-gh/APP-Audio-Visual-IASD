@@ -112,6 +112,27 @@
   const ALIVE_MS = 5 * 60 * 1000;
   const CHAVE_MS = 2000;                  // freio do pedido de IDR (§3.6, invariante 9)
 
+  // ---- O SOM (§3.9). Três números, e cada um existe por um modo de falhar ----
+  //
+  // 1. O quanto se SEGURA o `csd` de vídeo esperando o de áudio numa conexão em
+  //    que esta tela já pediu som. Ele cobre a ida e a volta do `POST /r` que
+  //    liga o áudio no servidor, e é o preço de as duas `SourceBuffer` terem de
+  //    nascer JUNTAS (ver `abrirMidia`).
+  const ESPERA_CSD_AUDIO_MS = 2500;
+  // 2. Faixa de som aberta e NENHUM quadro AAC chegando por este tempo: o grafo
+  //    do celular caiu. Sem soltar a faixa, o `<video>` PARA — a MSE só toca
+  //    quando TODAS as faixas têm dado no instante atual, e a imagem morreria
+  //    por causa do som. É a falha segura do §3.9 lida do lado do cliente.
+  const AUDIO_MUDO_MS = 3000;
+  // 3. E o mesmo, medido de outro jeito: a borda do som ficando este tanto
+  //    atrás da borda da imagem.
+  const ATRASO_AUDIO_S = 3;
+  // Quantas vezes se aceita remontar a `MediaSource` para ligar o som numa
+  // sessão. O gesto é UM, então uma remontagem basta; o teto existe para o dia
+  // em que algo insista, porque um laço de remontagem seria a projeção piscando
+  // sem parar por causa do recurso auxiliar.
+  const REBUILDS_AUDIO = 3;
+
   // O relato cabe no corpo de 256 B que o `POST /par` aceita (§5.1). A conta:
   // os campos fixos somam 154 caracteres, então sobram ~100 para o `ua`. 96
   // deixa folga para o escape de JSON e ainda carrega a parte que interessa de
@@ -129,22 +150,35 @@
 
   let muxer = null;
   let ms = null;
-  let sb = null;
+  let sbV = null;                         // a faixa de imagem
+  let sbA = null;                         // a de som, quando esta tela pediu
   let mime = '';
-  const fila = [];
-  let emVoo = null;                       // 'append' | 'remove' | null
+  let mimeA = '';
+  const fila = [];                        // itens `{ b: bytes, a: éÁudio }`
+  let emVoo = null;                       // { tipo:'append'|'remove', a } | null
   let podaPedida = false;
   let cotaSeguidas = 0;
   let posicionado = false;
   let esperandoChave = true;
   let compasso = null;
 
+  // O gesto do visitante pediu som? É a única coisa que faz esta tela receber
+  // AAC — nada aqui liga o grafo de áudio do celular, que sobe sozinho com o
+  // espelho (§3.9); o que o `POST /r {"do":"audio"}` liga é a ENTREGA para
+  // ESTA tela (§3.6, invariante 10).
+  let audioQuerido = false;
+  let initVideoRetido = null;             // o `csd` de vídeo à espera do de áudio
+  let esperaAudio = null;
+  let audioDesde = 0;                     // quando a faixa de som abriu (vigia do mudo)
+  let audioUltimoMs = 0;                  // e quando chegou o último quadro AAC
+  let rebuilds = 0;
+
   let modoImagem = false;
   let ctx2d = null;
   let ultimaChave = 0;
   let gestoFeito = false;
 
-  const conta = { quadros: 0, bytes: 0, recomecos: 0, reconexoes: 0 };
+  const conta = { quadros: 0, bytes: 0, recomecos: 0, reconexoes: 0, quadrosAudio: 0 };
   let acesaDesde = Date.now();
   let acesaMs = 0;
 
@@ -315,8 +349,30 @@
   }
 
   // --------------------------------------------------------------------------
-  // O VÍDEO — `MediaSource`, fila de append serializada, poda, borda
-  // --------------------------------------------------------------------------
+  // A MÍDIA — `MediaSource`, fila de append serializada, poda, borda
+  //
+  // ## AS DUAS `SourceBuffer` NASCEM JUNTAS, E ISSO GOVERNA O RESTO
+  //
+  // Não é escolha de estilo: **o Chromium recusa `addSourceBuffer` depois que a
+  // `MediaSource` inicializou** (o `ChunkDemuxer` só aceita ids novos enquanto
+  // está esperando os segmentos de inicialização; depois disso vem
+  // `QuotaExceededError`). É por isso que hls.js e o Shaka criam todas as
+  // faixas de uma vez. Daí as três consequências que o código abaixo carrega:
+  //
+  //  1. quando esta tela ainda não pediu som, a `MediaSource` nasce **só com
+  //     vídeo** — e é o caso da maioria das telas, que ficam mudas por decisão
+  //     (§3.11, invariante 10);
+  //  2. o gesto que liga o som **remonta** a `MediaSource` uma vez. Pisca, e
+  //     pisca no instante exato em que o visitante tocou na tela esperando algo
+  //     acontecer;
+  //  3. numa conexão em que o som JÁ é querido, o `csd` de vídeo fica RETIDO
+  //     por até `ESPERA_CSD_AUDIO_MS` esperando o de áudio, porque os dois
+  //     precisam estar em mãos antes do primeiro `appendBuffer`.
+  //
+  // E o outro lado da mesma moeda, que é o que mantém a falha segura do §3.9:
+  // a MSE só toca quando **todas** as faixas têm dado no instante atual, então
+  // uma faixa de som que pare de receber **para a imagem**. Quem impede isso é
+  // o vigia de [soltarAudio] — sem som é ruim, sem imagem é o culto.
 
   // A `MediaSource` SOBREVIVE ÀS RECONEXÕES, e isso não é economia: o carimbo
   // de tempo do fio é absoluto (base do PROCESSO do celular, §5.2), então
@@ -324,12 +380,15 @@
   // cada reconexão jogaria fora o passado e piscaria a tela à toa; mantendo-a,
   // o quadro que o muxer reteve antes da queda é fechado com a duração real do
   // buraco e o `buffered` continua sendo um intervalo só.
-  function abrirVideo(info) {
+  //
+  // [infoA] é o descritor da faixa de som, ou `null` — e `null` é o caminho
+  // normal: quem não pediu som não ganha faixa de som.
+  function abrirMidia(infoV, infoA) {
     if (ms) {
       // Reconexão: o `csd` chega de novo em toda conexão (§5.3). Reenviar o
       // segmento de inicialização é legal em MSE e é o que mantém a
       // `SourceBuffer` viva do outro lado de uma troca de encoder.
-      if (info.mime === mime) { enfileirar(info.bytes); return; }
+      if (infoV.mime === mime) { enfileirar(infoV.bytes, false); return; }
       // Mime diferente é resolução/perfil trocados — proibido durante a sessão
       // (§3.2, invariante 3). Se acontecer, recomeçar é a única saída honesta.
       recomecar('o formato do vídeo mudou');
@@ -339,14 +398,23 @@
       avisar('Este navegador não sabe receber vídeo ao vivo. Peça o modo imagem.', true);
       return;
     }
-    if (!suporta(info.mime)) {
+    if (!suporta(infoV.mime)) {
       // Acontece de verdade: o Chromium de código aberto (o do CI, e o de
       // algumas TVs) não traz H.264. Dizer QUAL é o formato é o que transforma
       // "não funciona" num pedido concreto.
-      avisar('Este navegador não decodifica ' + info.codec + '. Peça o modo imagem.', true);
+      avisar('Este navegador não decodifica ' + infoV.codec + '. Peça o modo imagem.', true);
       return;
     }
-    mime = info.mime;
+    // UM NAVEGADOR PODE TER O VÍDEO E NÃO O ÁUDIO. Nesse caso o som cai fora
+    // AQUI, antes de existir faixa nenhuma — nunca depois, que é quando ele
+    // levaria a imagem junto.
+    let som = infoA;
+    if (som && !suporta(som.mime)) {
+      avisar('Esta tela fica sem som: o navegador não decodifica ' + som.codec + '.');
+      som = null;
+    }
+    mime = infoV.mime;
+    mimeA = som ? som.mime : '';
     const MS = global.ManagedMediaSource || global.MediaSource;
     ms = new MS();
     // `disableRemotePlayback` e os dois eventos abaixo são o que o
@@ -357,26 +425,55 @@
     ms.addEventListener('endstreaming', () => {});
     ms.addEventListener('sourceopen', function () {
       try {
-        sb = ms.addSourceBuffer(mime);
-        // `segments`, NUNCA `sequence`: nossos fragmentos carregam o `tfdt`
-        // absoluto do relógio mestre, e `sequence` mandaria o navegador
-        // inventar os tempos — destruindo de graça a sincronia que a
-        // `MediaSource` existe para dar.
-        sb.mode = 'segments';
-        sb.addEventListener('updateend', aoTerminar);
-        sb.addEventListener('error', () => recomecar('o decodificador recusou os dados'));
+        sbV = prepararBuffer(mime, false);
       } catch (e) {
         avisar('Não deu para preparar o vídeo (' + ((e && e.message) || '?') + ').', true);
         return;
       }
+      if (som) {
+        try {
+          sbA = prepararBuffer(som.mime, true);
+          audioDesde = Date.now();
+          audioUltimoMs = 0;
+        } catch (e) {
+          // O SOM CAI SOZINHO, e a imagem segue. É a falha segura inteira numa
+          // linha: nada aqui derruba a `MediaSource` que já tem vídeo.
+          sbA = null;
+          mimeA = '';
+          som = null;
+          avisar('Esta tela ficou sem som (' + ((e && e.name) || '?') + ').');
+        }
+      }
+      // OS DOIS `appendBuffer` SÓ AGORA: enquanto os dois ids não tiverem
+      // recebido o segmento de inicialização, a `MediaSource` não inicializa —
+      // e enfileirar o vídeo antes de o `addSourceBuffer` do som ter acontecido
+      // seria correr contra isso à toa.
+      enfileirar(infoV.bytes, false);
+      if (som) enfileirar(som.bytes, true);
       aplicar();
     }, { once: true });
     el.v.src = URL.createObjectURL(ms);
-    enfileirar(info.bytes);
   }
 
-  function enfileirar(bytes) {
-    fila.push(bytes);
+  function prepararBuffer(tipo, ehAudio) {
+    const b = ms.addSourceBuffer(tipo);
+    // `segments`, NUNCA `sequence`: nossos fragmentos carregam o `tfdt`
+    // absoluto do relógio mestre, e `sequence` mandaria o navegador
+    // inventar os tempos — destruindo de graça a sincronia que a
+    // `MediaSource` existe para dar.
+    b.mode = 'segments';
+    b.addEventListener('updateend', aoTerminar);
+    b.addEventListener('error', function () {
+      // Um erro NA FAIXA DE SOM não pode derrubar a projeção — solta-se o som.
+      // Na de imagem não há o que salvar, e recomeçar limpo é a saída.
+      if (ehAudio) soltarAudio('o decodificador recusou o som');
+      else recomecar('o decodificador recusou os dados');
+    });
+    return b;
+  }
+
+  function enfileirar(bytes, ehAudio) {
+    fila.push({ b: bytes, a: !!ehAudio });
     if (fila.length > FILA_MAX) { recomecar('esta tela não está dando conta do fluxo'); return; }
     aplicar();
   }
@@ -386,57 +483,82 @@
   // idioma já existe na casa (`shared/mse.js`, `f.ocupada` + `aplicar()`); o
   // que muda aqui é que a poda entra na MESMA fila, senão ela e o append se
   // atropelam no primeiro `QuotaExceededError`.
+  //
+  // Com duas faixas a fila continua sendo UMA, e uma operação em voo por vez —
+  // não duas em paralelo, uma por buffer. Cada item sabe o próprio destino, a
+  // ordem de chegada é preservada, e o `updateend` de qualquer um dos dois cai
+  // no mesmo lugar sem ambiguidade sobre o que acabou.
   function aplicar() {
-    if (!sb || emVoo || !ms || ms.readyState !== 'open') return;
-    if (sb.updating) return;
+    if (!sbV || emVoo || !ms || ms.readyState !== 'open') return;
     if (podaPedida) {
       podaPedida = false;
       if (podar(cotaSeguidas > 0)) return;
     }
-    if (!fila.length) return;
-    const buf = fila[0];
-    emVoo = 'append';
-    try {
-      sb.appendBuffer(buf);
-    } catch (e) {
-      emVoo = null;
-      // `QuotaExceededError` é ESPERADO, não é falha: o MSE tem cota e um fluxo
-      // infinito a atinge por construção. A resposta é podar o passado e tentar
-      // o MESMO buffer de novo — ele continua na cabeça da fila.
-      if (e && e.name === 'QuotaExceededError') {
-        cotaSeguidas++;
-        podaPedida = true;
-        // Poda que não libera nada três vezes seguidas significa que não há
-        // passado a podar (o cursor ainda está no começo). Insistir seria um
-        // laço quente; recomeçar limpo é a saída.
-        if (cotaSeguidas > 3) { recomecar('a memória de vídeo deste navegador encheu'); return; }
-        aplicar();
-        return;
+    while (fila.length) {
+      const it = fila[0];
+      const alvo = it.a ? sbA : sbV;
+      // O destino sumiu (a faixa de som foi solta): o item vai fora. Segurá-lo
+      // travaria a fila inteira, e com ela a imagem.
+      if (!alvo) { fila.shift(); continue; }
+      if (alvo.updating) return;
+      emVoo = { tipo: 'append', a: it.a };
+      try {
+        alvo.appendBuffer(it.b);
+      } catch (e) {
+        emVoo = null;
+        // `QuotaExceededError` é ESPERADO, não é falha: o MSE tem cota e um
+        // fluxo infinito a atinge por construção. A resposta é podar o passado
+        // e tentar o MESMO buffer de novo — ele continua na cabeça da fila.
+        if (e && e.name === 'QuotaExceededError') {
+          cotaSeguidas++;
+          podaPedida = true;
+          // Poda que não libera nada três vezes seguidas significa que não há
+          // passado a podar (o cursor ainda está no começo). Insistir seria um
+          // laço quente; recomeçar limpo é a saída.
+          if (cotaSeguidas > 3) { recomecar('a memória de vídeo deste navegador encheu'); return; }
+          aplicar();
+          return;
+        }
+        recomecar('o navegador recusou os dados (' + ((e && e.name) || '?') + ')');
       }
-      recomecar('o navegador recusou os dados (' + ((e && e.name) || '?') + ')');
+      return;
     }
   }
 
   function aoTerminar() {
     const era = emVoo;
     emVoo = null;
-    if (era === 'append') { fila.shift(); cotaSeguidas = 0; }
+    if (era && era.tipo === 'append') { fila.shift(); cotaSeguidas = 0; }
     posicionar();
     aplicar();
   }
 
-  function podar(agressiva) {
-    if (!sb || sb.updating) return false;
-    let b;
-    try { b = sb.buffered; } catch (_) { return false; }
-    if (!b.length) return false;
-    const limite = el.v.currentTime - (agressiva ? GUARDA_S : JANELA_S);
-    if (!(limite > b.start(0) + 0.05)) return false;
+  function faixaDe(alvo) {
+    if (!alvo) return null;
     try {
-      emVoo = 'remove';
-      sb.remove(0, limite);
-      return true;
-    } catch (_) { emVoo = null; return false; }
+      const b = alvo.buffered;
+      return b && b.length ? b : null;
+    } catch (_) { return null; }
+  }
+
+  // Uma poda por giro, na faixa que precisar — as duas entram na mesma fila
+  // serializada, e o compasso de meio segundo dá conta das duas de sobra.
+  function podar(agressiva) {
+    const limite = el.v.currentTime - (agressiva ? GUARDA_S : JANELA_S);
+    const alvos = [sbV, sbA];
+    for (let i = 0; i < alvos.length; i++) {
+      const alvo = alvos[i];
+      if (!alvo || alvo.updating) continue;
+      const b = faixaDe(alvo);
+      if (!b) continue;
+      if (!(limite > b.start(0) + 0.05)) continue;
+      try {
+        emVoo = { tipo: 'remove', a: alvo === sbA };
+        alvo.remove(0, limite);
+        return true;
+      } catch (_) { emVoo = null; }
+    }
+    return false;
   }
 
   // O POSICIONAMENTO INICIAL — e ele NÃO é a perseguição da borda.
@@ -448,14 +570,76 @@
   // uma vez, é a única forma de entrar na linha do tempo. Rebasear o carimbo no
   // cliente seria a alternativa, e ela custaria uma SEGUNDA linha do tempo para
   // reconciliar em toda reconexão — que é justamente o que o §2.2 recusa.
+  //
+  // COM SOM, O PONTO É O MAIS TARDE DOS DOIS. O áudio começa a chegar depois da
+  // imagem (ele passa por um `POST` de ida e volta), então o começo da faixa de
+  // som é POSTERIOR ao da imagem — e um `currentTime` antes dele deixaria a
+  // faixa de som sem dado no instante atual: a MSE não toca, o cursor não anda,
+  // e como o cursor não anda ele nunca alcança o som. Trava para sempre, sem
+  // erro nenhum. Entrar pelo mais tarde dos dois é o que fecha essa porta.
   function posicionar() {
-    if (posicionado || !sb) return;
-    let b;
-    try { b = sb.buffered; } catch (_) { return; }
-    if (!b.length) return;
+    if (posicionado || !sbV) return;
+    const bv = faixaDe(sbV);
+    if (!bv) return;
+    let ini = bv.start(0);
+    if (sbA) {
+      const ba = faixaDe(sbA);
+      // Sem som ainda: ESPERAR. Quem desiste é o vigia de [soltarAudio], e ele
+      // desiste com prazo — não aqui, calado.
+      if (!ba) return;
+      ini = Math.max(ini, ba.start(0));
+    }
     posicionado = true;
-    try { el.v.currentTime = b.start(0); } catch (_) {}
+    try { el.v.currentTime = ini; } catch (_) {}
     tocar();
+  }
+
+  // O VIGIA DO SOM. Duas perguntas, a mesma resposta.
+  //
+  // Ele existe porque a MSE não toca sem dado em TODAS as faixas: um grafo de
+  // áudio que caiu no celular (contexto suspenso, WebView remontado, encoder
+  // AAC solto) congelaria a IMAGEM em três telas da igreja. Soltar a faixa de
+  // som devolve a imagem na hora, e o cliente DIZ que ficou sem som — nunca
+  // fica quieto, porque "sem som" e "travado" são a mesma tela preta para quem
+  // está olhando.
+  function vigiarAudio() {
+    if (!sbA || !ms || ms.readyState !== 'open') return;
+    const agora = Date.now();
+    const ba = faixaDe(sbA);
+    if (!ba) {
+      // Faixa aberta que nunca recebeu um quadro: o `csd` veio e o áudio não.
+      if (audioDesde && agora - audioDesde > AUDIO_MUDO_MS) soltarAudio('o som não chegou');
+      return;
+    }
+    if (audioUltimoMs && agora - audioUltimoMs > AUDIO_MUDO_MS) {
+      soltarAudio('o som parou de chegar');
+      return;
+    }
+    const bv = faixaDe(sbV);
+    if (bv && bv.end(bv.length - 1) - ba.end(ba.length - 1) > ATRASO_AUDIO_S) {
+      soltarAudio('o som ficou para trás');
+    }
+  }
+
+  // Solta a faixa de som SEM tocar na de imagem. `removeSourceBuffer` numa
+  // `MediaSource` aberta é operação normal da spec, e o que ela custa é a
+  // faixa de áudio sumir do elemento — que é exatamente o pedido.
+  function soltarAudio(porque) {
+    if (!sbA) return;
+    const morto = sbA;
+    sbA = null;
+    mimeA = '';
+    audioDesde = 0;
+    audioUltimoMs = 0;
+    // Os fragmentos de som que ainda estavam na fila vão fora com ela; o
+    // `aplicar` já os descartaria, e tirá-los aqui é o que impede a fila de
+    // encostar no `FILA_MAX` por causa de uma faixa que não existe mais.
+    for (let i = fila.length - 1; i >= 0; i--) if (fila[i].a) fila.splice(i, 1);
+    if (emVoo && emVoo.a) emVoo = null;
+    if (muxer) muxer.descartarAudio();
+    try { ms.removeSourceBuffer(morto); } catch (_) { /* já saiu com a MediaSource */ }
+    avisar('Esta tela ficou sem som (' + porque + ') — a imagem continua.');
+    aplicar();
   }
 
   function tocar() {
@@ -467,10 +651,18 @@
   }
 
   function borda() {
-    if (!sb || !ms || ms.readyState !== 'open') return;
-    let b;
-    try { b = sb.buffered; } catch (_) { return; }
-    if (!b.length) return;
+    if (!sbV || !ms || ms.readyState !== 'open') return;
+    // O VIGIA VEM ANTES DA PERSEGUIÇÃO: com a faixa de som travando o elemento,
+    // o `currentTime` não anda, e perseguir uma borda a partir de um cursor
+    // congelado só produziria um salto atrás do outro.
+    vigiarAudio();
+    // E o posicionamento pode ter ficado esperando o som entrar (ver
+    // `posicionar`); depois de soltar a faixa, ele precisa de alguém que o
+    // chame de novo — o `updateend` sozinho não basta quando não há mais o que
+    // appendar.
+    posicionar();
+    const b = faixaDe(sbV);
+    if (!b) return;
     const fim = b.end(b.length - 1);
     const atraso = fim - el.v.currentTime;
 
@@ -554,6 +746,13 @@
     postar('/r', { do: 'key' }, true).catch(() => {});
   }
 
+  // "Entregue AAC para ESTA tela." Não liga grafo nenhum no celular — o áudio
+  // do espelho sobe com o espelho (§3.9); o que isto abre é a torneira desta
+  // tela, e o servidor responde empurrando o `csd` de áudio guardado.
+  function pedirAudio() {
+    postar('/r', { do: 'audio', on: true }, true).catch(() => {});
+  }
+
   let ultimoAlive = 0;
 
   function bater() {
@@ -619,7 +818,26 @@
     if (q.tipo === T_CSD_VIDEO) {
       const info = muxer.csd(carga);
       if (!info) { avisar('O sinal veio sem os parâmetros do vídeo.', true); return; }
-      abrirVideo(info);
+      // A RETENÇÃO: esta tela já pediu som e a `MediaSource` ainda não existe,
+      // então as duas faixas têm de nascer juntas — e o `csd` de áudio vem logo
+      // atrás, assim que o `POST /r` desta conexão der a volta. Segurar aqui
+      // custa milissegundos; abrir só com vídeo custaria uma remontagem.
+      if (!ms && audioQuerido && !esperaAudio) {
+        initVideoRetido = info;
+        esperaAudio = setTimeout(function () {
+          esperaAudio = null;
+          const retido = initVideoRetido;
+          initVideoRetido = null;
+          if (!retido || ms) return;
+          // O som não veio: o grafo do celular não subiu (§3.9 — o handshake
+          // que libera o `forceMuted` nunca chegou). Abre-se só com imagem, e
+          // se diz isso: mudo é um estado, não um defeito escondido.
+          avisar('Esta tela está sem som — o celular não está enviando áudio.');
+          abrirMidia(retido, null);
+        }, ESPERA_CSD_AUDIO_MS);
+        return;
+      }
+      abrirMidia(info, null);
       return;
     }
     if (q.tipo === T_VIDEO) {
@@ -644,12 +862,43 @@
       jpeg(carga);
       return;
     }
-    if (q.tipo === T_CSD_AUDIO || q.tipo === T_AUDIO) {
-      // ENTREGA 3. O áudio entra como uma SEGUNDA `SourceBuffer` da MESMA
-      // `MediaSource`, com AAC vindo pronto do `MediaCodec` — a sincronia A/V
-      // é do navegador, não nossa (§3.9, invariante 7). Enquanto o `fmp4.js`
-      // não tiver a faixa `mp4a`/`esds`, ignorar é o certo: um caminho de áudio
-      // pela metade seria estalo na caixa de som do templo.
+    // O ÁUDIO (§3.9): uma SEGUNDA `SourceBuffer` da MESMA `MediaSource`, com o
+    // AAC vindo pronto do `MediaCodec` do celular. A sincronia A/V é do
+    // NAVEGADOR — uma `MediaSource`, uma linha do tempo —, e é por isso que
+    // isto custa dez linhas em vez das duzentas de um relógio próprio.
+    if (q.tipo === T_CSD_AUDIO) {
+      // Uma tela que não pediu som não recebe AAC (§3.6, invariante 10); se
+      // algo chegar assim mesmo, ela continua muda.
+      if (!audioQuerido) return;
+      const infoA = muxer.csdAudio(carga);
+      // ASC ilegível: MUDO, e a imagem intacta. É a metade do cliente da falha
+      // segura do §3.9 — nunca áudio pela metade.
+      if (!infoA) { avisar('Esta tela fica sem som: o sinal veio sem os parâmetros do áudio.'); return; }
+      if (esperaAudio) {
+        // O par completo: as duas faixas nascem agora, juntas.
+        clearTimeout(esperaAudio);
+        esperaAudio = null;
+        const retido = initVideoRetido;
+        initVideoRetido = null;
+        if (retido) abrirMidia(retido, infoA);
+        return;
+      }
+      // Reconexão com a faixa já de pé: reenviar o segmento de inicialização é
+      // legal em MSE e é o que a mantém viva do outro lado da queda.
+      if (sbA && infoA.mime === mimeA) { enfileirar(infoA.bytes, true); return; }
+      // E o `csd` que chega com a `MediaSource` já montada sem faixa de som
+      // não pode montar uma agora — o Chromium recusa `addSourceBuffer` depois
+      // da inicialização (ver o cabeçalho desta seção). Quem remonta é o GESTO,
+      // uma vez; aqui a chegada tardia é ignorada, e é ela que fecha o laço de
+      // remontagens que um "remonta quando o csd chegar" produziria.
+      return;
+    }
+    if (q.tipo === T_AUDIO) {
+      if (!sbA) return;
+      audioUltimoMs = Date.now();
+      conta.quadrosAudio++;
+      const frag = muxer.quadroAudio({ ptsUs: q.pts, dados: carga });
+      if (frag) enfileirar(frag, true);
       return;
     }
     if (q.tipo === T_CONTROLE) {
@@ -711,6 +960,12 @@
 
     conta.reconexoes++;
     avisar('');
+    // O PEDIDO DE ÁUDIO É POR CONEXÃO, não por sessão: do lado do servidor a
+    // tela é recriada a cada `GET /v` e nasce sem áudio (§3.6, invariante 10),
+    // então uma queda de rede deixaria esta tela muda para sempre se o pedido
+    // não fosse refeito aqui. É também ele que faz o `csd` de áudio chegar
+    // logo atrás do de vídeo — que é o que a retenção em `receber` espera.
+    if (audioQuerido) pedirAudio();
     const leitor = r.body.getReader();
     for (;;) {
       const passo = await leitor.read();
@@ -750,7 +1005,7 @@
   // trabalha para evitar, e navegador PARA em buraco. Quando não há saída, a
   // saída é jogar fora a linha do tempo inteira e montar outra — pisca uma vez
   // e volta certo.
-  function recomecar(porque) {
+  function recomecar(porque, suave) {
     conta.recomecos++;
     fila.length = 0;
     // A CONEXÃO CAI JUNTO, e sem isto o recomeço não recomeça nada: o `csd`

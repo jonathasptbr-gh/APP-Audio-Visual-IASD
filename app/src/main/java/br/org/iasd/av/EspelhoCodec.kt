@@ -62,20 +62,44 @@ data class Quadro(
  *     (v5.102) — a família de defeito mais cara deste repositório.
  *  2. **E ela repete UMA VEZ**, não continuamente: *"…will be repeated
  *     **(once)** if no new frame became available since"*. Ou seja, ela **não é
- *     piso de fps** e não mantém o pipeline vivo numa cena parada. O papel dela
- *     é garantir o primeiro quadro a um cliente que chega numa tela imóvel — e
- *     é por isso que 1 s basta. Quem mantém o fluxo é o batimento de 1 Hz do
- *     lado JS (papel `espelho`), que chega por OTA. Quem escrever aqui "com
- *     esta chave a taxa nunca cai a zero" está errado.
+ *     piso de fps** e não mantém o pipeline vivo numa cena parada. Quem mantém
+ *     o fluxo é o batimento do lado JS (papel `espelho`, no fim do
+ *     `display/display.js`), que chega por OTA. Quem escrever aqui "com esta
+ *     chave a taxa nunca cai a zero" está errado.
+ *
+ *     O papel que sobra para ela é preciso, e vale pelos dois quadros que
+ *     entrega: garantir o primeiro quadro a um cliente que chega numa tela
+ *     imóvel, e **destravar o quadro que o muxer do cliente está segurando**
+ *     quando o batimento do JS for estrangulado. O muxer só emite o fragmento
+ *     de N quando N+1 chega (o "atraso de um quadro" do `espelho/fmp4.js`), de
+ *     modo que uma fonte que emudece deixa a última imagem retida no navegador
+ *     — e é a repetição que a solta. Por isso [REPETIR_APOS_US] é ancorado no
+ *     batimento (quatro batidas), e não num segundo redondo.
  *  3. **`PARAMETER_KEY_REQUEST_SYNC_FRAME` age sobre o próximo quadro
  *     PRODUZIDO.** Com a cena parada e a tela virtual sem compor nada, pedir
  *     IDR **não produz nada**. [pedirIdr] e o batimento são complementares, não
  *     alternativos.
- *  4. **`KEY_I_FRAME_INTERVAL = 10`, não 2.** Todo `GET /v` é por construção um
- *     cliente novo e o servidor pede IDR ali mesmo; manter IDR a cada 2 s é
- *     meio keyframe por segundo para sempre, e num telão de texto um IDR de
- *     720p custa dezenas de kB — centenas de kbps de piso durante o culto
- *     inteiro, vezes três clientes, no rádio de um AP de igreja.
+ *  4. **`KEY_I_FRAME_INTERVAL = 5`, nem 2 nem 10.** Todo `GET /v` é por
+ *     construção um cliente novo e o servidor pede IDR ali mesmo, então o
+ *     intervalo espontâneo **não** é o caminho normal de um cliente pegar o
+ *     primeiro quadro. Ele é o que sobra quando o pedido explícito é engolido
+ *     pelo freio do `EspelhoServidor` (1 por tela a cada 2 s **e** um piso
+ *     global de 1 s): duas telas que abrem juntas, ou — o caso que dói — uma
+ *     fila que estourou e recomeçou com `esperandoIdr = true` no mesmo segundo
+ *     em que outra já pediu. Nesse buraco o cliente fica **preto até o próximo
+ *     IDR espontâneo**, e a 10 s isso são dez segundos de tela apagada no meio
+ *     do culto por causa de um congestionamento de rede de meio segundo.
+ *
+ *     A conta do outro lado, com o número medido no aparelho: uma cena PARADA
+ *     rodava a 156 kbps com ~1 IDR na janela de 10 s — isto é, o quadro-chave é
+ *     quase toda a banda, porque um IDR de 720p de um wallpaper fotográfico
+ *     custa dezenas a centenas de kB. Cair para 5 s **dobra esse piso**
+ *     (~300 kbps por tela, ~0,9 Mbps com as três) e corta o pior caso pela
+ *     metade. É o compromisso escolhido; 2 s multiplicaria o piso por cinco
+ *     para ganhar mais três segundos. A linha "ritmo" do Registro agora separa
+ *     `kbps de chaves` do resto justamente para esta conta poder ser refeita com
+ *     medição em vez de estimativa — se o piso incomodar no AP da igreja, o
+ *     número a mexer é este, e o efeito é visível na mesma linha.
  *  5. **`KEY_COLOR_RANGE` é DESCRITOR, não comando.** A doc o chama de
  *     *"optional key **describing** the range"*; ele não governa a conversão
  *     RGB→YUV do encoder em entrada por Surface e não há `isFormatSupported`
@@ -87,6 +111,14 @@ data class Quadro(
  *     `DTS == PTS`, e é isso que dispensa o `composition_time_offset` no `trun`
  *     do muxer JS. Fixar o perfil High sem isso liga B-frames em alguns
  *     encoders Samsung — e o aparelho do operador é Samsung.
+ *
+ *     **E há uma segunda razão, que é de LATÊNCIA e não de contêiner:** um
+ *     B-frame é codificado depois do quadro que ele referencia no futuro, ou
+ *     seja, o encoder passa a segurar quadros para reordená-los. Numa gravação
+ *     isso é grátis; aqui cada quadro retido é um quadro que o telão da rede
+ *     não mostrou ainda, somado ao atraso de um quadro que o muxer do cliente
+ *     já cobra por medir a duração. Ao vivo, reordenação é atraso pago em
+ *     imagem parada — nunca ligar.
  *  7. **`ERROR_RECLAIMED` é o modo de falha do app MINIMIZADO**, que é o estado
  *     normal deste app no meio do culto. A doc é explícita: *"the codec must be
  *     released, as it has moved to terminal state"*. Este arquivo o
@@ -97,6 +129,23 @@ data class Quadro(
  *  8. **Valores negativos de `dequeueOutputBuffer` são ignorados em silêncio**,
  *     menos `INFO_OUTPUT_FORMAT_CHANGED` — que é onde se lê `csd-0`/`csd-1`.
  *     Tratar `INFO_OUTPUT_BUFFERS_CHANGED` como erro é o engano clássico.
+ *  9. **`KEY_FRAME_RATE = 30` é DECLARAÇÃO, e `BITRATE_MODE_VBR` é o que a
+ *     torna inofensiva.** A taxa real de uma tela virtual é variável por
+ *     natureza (ela só produz quando a composição muda), e a chave é
+ *     obrigatória no formato: o que o encoder faz com ela é dividir o bitrate
+ *     alvo por 30 para orçar cada quadro. **Baixá-la para a cadência do
+ *     batimento seria o erro**: no instante em que um vídeo entra em cena a
+ *     fonte passa a 30 fps de verdade, e um encoder orçado para 8 fps gastaria
+ *     quatro vezes o alvo ou esmagaria a qualidade — justamente na cena que
+ *     mais importa. Ela fica em 30, que é o teto real.
+ *
+ *     E o modo tem de continuar **VBR**: `BITRATE_MODE_CBR` obriga o encoder a
+ *     ENCHER 3 Mbps mesmo com o telão parado, isto é, enfiar bits de
+ *     enchimento no rádio do AP da igreja durante uma oração. A prova de que o
+ *     VBR está fazendo o trabalho está na medição do aparelho: 156 kbps numa
+ *     cena parada contra o alvo de 3 Mbps. `BITRATE_MODE_CQ` seria defensável e
+ *     não é usado por um motivo prático — sem alvo em bits não há o que ajustar
+ *     em [ajustarBitrate], que é a única degradação térmica que existe aqui.
  *
  * ## O que este arquivo NÃO faz
  *
@@ -162,9 +211,13 @@ class EspelhoCodec(private val onQuadro: (Quadro) -> Unit) {
      * Quadros por segundo **medidos na saída do encoder**.
      *
      * É a única forma de enxergar o estrangulamento de timer do Chromium no
-     * WebView do espelho: se o batimento de 1 Hz for estrangulado com o app
-     * minimizado, este número cai de ~1 para ~0 — e o mesmo número denuncia a
-     * janela morta com o encoder vivo (H.264 impecável de um retângulo preto).
+     * WebView do espelho: numa cena parada este número **é** a frequência do
+     * batimento (8 Hz), então vê-lo cair para ~1 ou ~0 com o app minimizado é
+     * ver o orçamento de timers agindo apesar do `keepVisible`. O mesmo número
+     * denuncia a janela morta com o encoder vivo (H.264 impecável de um
+     * retângulo preto) — mas ali quem acusa é o **bitrate**, não ele: com o
+     * batimento no ar a contagem de quadros continua bonita mesmo com a janela
+     * morta. Ver a linha "ritmo" do Registro, montada no `controle.js`.
      */
     @Volatile
     var fpsMedido: Float = 0f
@@ -187,7 +240,8 @@ class EspelhoCodec(private val onQuadro: (Quadro) -> Unit) {
             )
             // Obrigatório no formato, e é uma DECLARAÇÃO, não uma promessa: a
             // taxa real de uma tela virtual é variável por natureza (ela só
-            // produz quando a composição muda).
+            // produz quando a composição muda). Fica no TETO real (30), nunca na
+            // cadência do batimento — ver a armadilha 9.
             setInteger(MediaFormat.KEY_FRAME_RATE, 30)
             setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, I_FRAME_S)
             // setLong. Ver a armadilha 1 do KDoc da classe — com setInteger
@@ -466,10 +520,39 @@ class EspelhoCodec(private val onQuadro: (Quadro) -> Unit) {
         const val BITRATE_PADRAO = 3_000_000
 
         /** Segundos entre IDRs espontâneos. Ver a armadilha 4. */
-        private const val I_FRAME_S = 10
+        private const val I_FRAME_S = 5
 
-        /** 1 s. Ver as armadilhas 1 e 2 — **é `long`, e repete uma vez**. */
-        private const val REPETIR_APOS_US = 1_000_000L
+        /**
+         * O intervalo do **batimento do papel `espelho`**, em microssegundos —
+         * repetido aqui porque as duas pontas são arquivos diferentes que
+         * viajam por caminhos diferentes (este chega instalando um APK, aquele
+         * chega por OTA) e não há como uma importar a outra.
+         *
+         * Ele NÃO governa nada: quem produz os quadros é o JS. Está aqui para
+         * [REPETIR_APOS_US] ser expresso em batidas em vez de num número solto,
+         * e para o próximo leitor saber onde está a outra metade
+         * (`assets/web/display/display.js`, constante `ESPELHO_BATIMENTO_MS`).
+         *
+         * **Divergir não quebra nada**: um bundle antigo (batimento de 1 s) num
+         * shell novo só faz a repetição de quadro disparar mais vezes — um
+         * quadro minúsculo a mais de vez em quando, que é exatamente o
+         * comportamento desejado quando a fonte está lenta.
+         */
+        private const val BATIMENTO_US = 125_000L
+
+        /**
+         * Quatro batidas. Ver as armadilhas 1 e 2 — **é `long`, e repete uma
+         * vez**.
+         *
+         * Nem menos, nem mais, e os dois lados têm dono. **Menos** faria a
+         * repetição correr junto com o batimento normal, duplicando quadros
+         * numa cena parada por nada. **Mais** (o 1 s de antes) atrasa a única
+         * coisa que ela ainda faz de útil: soltar, no cliente, a imagem que o
+         * muxer segura por causa do atraso de um quadro, quando o batimento do
+         * JS morre ou é estrangulado. Quatro batidas dizem "a fonte calou de
+         * verdade" sem falso positivo.
+         */
+        private const val REPETIR_APOS_US = BATIMENTO_US * 4
 
         private const val ESPERA_US = 10_000L
         private const val FPS_JANELA_MS = 2_000L

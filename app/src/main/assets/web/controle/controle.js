@@ -10642,7 +10642,17 @@ function blocoEspelho(d) {
     // aberta — durante uma oração com a cortina fechada e um louvor pausado
     // atrás, um detector ingênuo denunciaria uma falha que não existe, no
     // Registro, com botão de copiar, para ser repassado.
-    const parado = (ritmo.kbps | 0) < 20 && (ritmo.fps || 0) <= 1.2;
+    // O TERMO DO fps SAIU, e a razão é que ele deixou de significar o que
+    // significava: o batimento do papel espelho passou de 1 Hz para 8 Hz
+    // (v5.144), então uma cena PARADA agora marca ~8 fps e a condição
+    // `fps <= 1.2` nunca mais seria verdadeira — o alarme morreria calado, que
+    // é o pior desfecho para um detector. Quem sobrou é o bitrate, e ele
+    // sozinho separa os dois casos com folga de uma ordem de grandeza: um
+    // retângulo preto só produz P-frames de macrobloco `skip` (dezenas a
+    // poucas centenas de bytes) e quadros-chave de uma tela preta, o que dá
+    // algo abaixo de 30 kbps; qualquer coisa de verdade em cena — até um
+    // wallpaper parado, medido em 156 kbps no aparelho — fica muito acima.
+    const parado = (ritmo.kbps | 0) < 40;
     const acusa = parado && cenaComVideoAberto();
     l.push('ritmo: ' + (ritmo.kbps | 0) + ' kbps · ' + (ritmo.fps || 0) + ' fps'
       + ' (' + Math.round((ritmo.janelaMs || 0) / 1000) + ' s)'
@@ -10650,6 +10660,29 @@ function blocoEspelho(d) {
       + ' — ' + (acusa
         ? 'ALARME: ISTO É UM RETÂNGULO PRETO'
         : (parado ? 'imagem parada, normal' : 'conteúdo se movendo')));
+    // A CADÊNCIA, numa linha própria e inteiramente opcional (shell antigo não
+    // manda estes campos e a linha não aparece — nunca "undefined" num log que
+    // vai ser copiado e repassado). Ela existe para a próxima rodada em
+    // aparelho ser CONCLUSIVA: "kbps + fps" não distingue uma fonte regular de
+    // uma fonte em rajada, e é a rajada — o PIOR intervalo — que trava o
+    // `<video>` do outro lado, porque ele consome em tempo real.
+    const cad = [];
+    if (ritmo.msMedio != null) {
+      cad.push('intervalo ' + (ritmo.msMedio | 0) + ' ms · pior '
+        + (ritmo.msPior | 0) + ' ms');
+    }
+    if (ritmo.chaves != null) {
+      cad.push((ritmo.chaves | 0) + ' chave(s) = ' + (ritmo.kbpsChave | 0) + ' kbps');
+    }
+    if (ritmo.atrasoMs != null) {
+      // "Relativo" está escrito na tela de propósito: o número é o quanto o
+      // quadro de agora demorou A MAIS que o primeiro da sessão entre a captura
+      // e o fio, e não uma latência absoluta (ver o KDoc de `EspelhoDiag`).
+      // Sem a palavra, alguém somaria isto ao atraso do cliente.
+      cad.push('atraso relativo ' + (ritmo.atrasoMs | 0) + ' ms · pior '
+        + (ritmo.atrasoPiorMs | 0) + ' ms');
+    }
+    if (cad.length) l.push('  cadência: ' + cad.join(' · '));
   }
   if (svc.termico != null) {
     l.push('térmica: ' + (MIRROR_TERMICA[svc.termico] || svc.termico)
