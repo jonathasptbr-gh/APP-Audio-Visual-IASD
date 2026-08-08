@@ -1834,7 +1834,7 @@ sem a borda — o mudo, aliás, passou ao vermelho **saturado**.
 | **Conectar a tela** (`#simpleCastBtn`) | `AVNative.openCast()` — o seletor de espelhamento do Android. **Só existe SEM tela conectada**, e ali é o único botão da tela (ver o bloqueio abaixo); conectado, ele dá lugar à preview. No navegador vira o atalho para a tela do Display |
 | **Preview** (`.simple-stage`) | a projeção em miniatura, **só com tela conectada** — ver "A preview no lugar do botão de conectar" |
 | **Buscar música** (`#simpleSearchBtn`) | o MESMO popup de busca do acervo (`openHymnSearch`). Um toque na linha **toca a versão Cantada direto** (ver abaixo) |
-| **Linha do tempo** (`#simpleTime`) | decorrido · barra · duração, só LEITURA — espelha a mesma `#seek` do modo avançado (que já é alimentada pela preview, pelo `display-status` e pelo polling do YouTube) e some quando o item não tem duração |
+| **Linha do tempo** (`#simpleTime`) | decorrido · barra · duração — espelha a mesma `#seek` do modo avançado (que já é alimentada pela preview, pelo `display-status` e pelo polling do YouTube) e some quando o item não tem duração. **Interativa desde a v5.142**: tocar salta, arrastar procura. Ela nasceu como indicador ("quem precisa saltar no tempo usa o modo avançado") — só que voltar o refrão é a coisa mais comum que se faz durante um louvor, e mandar o operador SAIR do modo para isso é o oposto do que o modo existe para dar. O alvo de toque é a FAIXA (`.simple-time-hit`), não o traço de 4px: um controle de posição que exige mira não é um controle. O comando sai no `pointerup` — um `seek` por quadro faria a mídia engasgar durante o gesto —, e `simpleSeeking` impede o `timeupdate` de puxar o preenchimento de volta debaixo do dedo (a mesma regra do `volSeekingEl` no fader) |
 | **Letra** (`#simpleLyrics`) | a letra INTEIRA da música em cena, com o mesmo destaque e o mesmo acompanhamento da leitura auxiliar do modo avançado |
 | **Play/pause, parar e mudo** | `.click()` em `#playpause` / `#stop` / `#muteToggle`. O **parar** entrou na v5.72, ao lado do play: é a outra metade do transporte, e sem ele tirar a mídia do telão obrigava a ir ao modo avançado — justamente o que se faz no fim de cada louvor. A fileira passou a ter três colunas |
 | **Volume** (`#simpleVolDown` / `#simpleVolUp`) | teclas **−** e **+** com o número no meio (`.simple-vol-read`), não um slider |
@@ -2663,6 +2663,120 @@ pelo teclado (`innerHeight - vv.height - vv.offsetTop`) e escreve em `--kb`, que
 app pra cima. Quando o layout já é redimensionado pelo navegador (ou o teclado
 está fechado), a conta dá ~0 e nada muda — os dois mecanismos convivem.
 
+### O que o telão retoma ao RECONECTAR (`midiaNoAr`, v5.142)
+
+Quando o dongle cai e volta, o Android recria a `Presentation`, o WebView
+recarrega `/display/` e dispara `display-ready` — e o Controle reenvia a cena
+(`resendSceneToDisplay`). A pergunta que faltava era **o que** contava como
+cena.
+
+`currentId` **não é** "está no telão". Ele sobrevive de propósito a duas coisas,
+e é isso que permite repetir a faixa com o ▶:
+
+- **`stopClear`** — o operador cobriu o telão (o comando `clear` leva o Display
+  de volta ao wallpaper), mas o item continua selecionado;
+- **`resetAfterEnd`** — a música acabou e nada a seguiu (`repeat === 'off'`); o
+  `stage` já voltou ao wallpaper sozinho pela bandeira `ended`.
+
+Reenviando por `currentId`, os dois viravam defeito: o telão acordava com um
+vídeo **engatilhado** que ninguém pediu — e, num `<video>` pausado que nunca
+tocou, o WebView pinta o `getDefaultVideoPoster` dele, o retângulo cinza com o
+play — ou ressuscitava a música que já tinha terminado, no primeiro quadro dela.
+`midiaNoAr` responde a pergunta certa: **um telão vazio também é um estado, e
+restaurá-lo é não mandar nada.**
+
+O mesmo estado conserta um terceiro defeito, que parecia não ter relação:
+
+> **O ▶ depois do stop exigia dois toques no stop.** Ele decidia entre "retomar"
+> e "recarregar" por `preview.getCurrent()`, que só fica nulo no **fim** do fade
+> de saída do `clearFaded` (~0,6 s). O `play` mandado nessa janela era apagado
+> pelo `clear` que terminava logo atrás: o botão não fazia nada, e o operador
+> aprendeu a tocar em stop duas vezes — o que só comprava o tempo do fade.
+> `midiaNoAr` cai no instante do stop, então o primeiro toque no ▶ já recarrega.
+
+E o pôster: **`POSTER_VAZIO` ficou permanente** (ver `shared/stage.js`). Ele saía
+no `loadeddata`, com o raciocínio de que "há quadro, então mantê-lo esconderia o
+quadro congelado". A premissa estava errada — quem decide o que um `<video>`
+pinta é o **show poster flag** do HTML, desligado só pela reprodução ou por um
+**seek**. Numa cena restaurada pausada nenhuma das duas acontecia, a bandeira
+seguia ligada, e sem atributo de pôster o WebView desenhava o placeholder cinza.
+Com a bandeira desligada o atributo é ignorado pelo contrato, então mantê-lo não
+custa nada; e para o quadro congelado aparecer de fato, a cena pausada agora
+**sempre faz seek** (mesmo para o segundo zero).
+
+### O preto de vários segundos da transmissão direta (v5.142)
+
+Um stream leva segundos entre o comando e o primeiro quadro — init, índice e o
+primeiro fragmento vêm da **rede**. Metade desse caso já estava resolvida: quando
+a cena anterior era o wallpaper, a cortina fica de pé até haver quadro (o
+`mediaReady` com `PRONTO_STREAM_MS` acontece **antes** do `coverOut`).
+
+O que sobrava era a troca de **mídia para mídia**: ali o fade de saída já levou a
+anterior ao preto e não há cortina para segurar — segundos de tela preta, sem
+nada dizendo que o app está trabalhando. Do lado de quem opera isso é
+indistinguível de uma projeção que morreu.
+
+Agora um **giro** entra enquanto se espera (`mostrarEspera`), nos dois caminhos:
+sobre o preto, e também sobre o wallpaper — porque ali o operador vê exatamente a
+mesma tela de quando nada foi pedido, por vários segundos, depois de ter pedido
+um vídeo. Detalhes que não são decoração:
+
+- **Só no stream.** Um arquivo local vira quadro em milissegundos, e um spinner
+  que pisca é pior que nenhum.
+- **O nó é do MOTOR**, criado por ele no mesmo pai do `<video>`, com o
+  `@keyframes` injetado uma vez — não está nos dois `index.html`, pela mesma
+  razão que a cortina é compartilhada: duas cópias divergem no primeiro ajuste.
+- **`resetMediaDom` o apaga**, então ele nunca sobrevive à cena que o acendeu
+  (stop, clear e o começo de todo load passam por lá); e a ordem depois do
+  `mediaReady` é conferir o `loadSeq` **antes** de esconder — um load mais novo
+  já acendeu o giro dele, e apagá-lo depois de perder a corrida apagaria o
+  spinner do load que assumiu.
+
+### Girar a mídia (v5.142)
+
+Vídeo gravado de lado no celular chega **deitado** no telão. Não havia o que
+fazer: a mídia é do operador, reencodar no meio de um culto não existe, e "grave
+de pé" não conserta um arquivo pronto.
+
+- **Um botão que AVANÇA 90°**, em Configurações, e não quatro segmentos: ninguém
+  pensa em "270°", pensa em "gira mais uma vez até ficar de pé", e são no máximo
+  três toques até qualquer orientação. O rótulo mostra o ângulo vigente.
+- **A caixa troca de eixo antes de girar** (`aplicarGiro` em `shared/stage.js`),
+  e é isso que separa este código de um `transform: rotate()` solto: o `<video>`
+  ocupa o palco inteiro (W×H) e o `object-fit` encaixa a mídia **nesse**
+  retângulo. Girando só o transform, o encaixe teria sido calculado para o
+  retângulo errado — um vídeo retrato girado para paisagem apareceria minúsculo
+  no meio. Trocando `width`/`height` primeiro, a conta é feita no retângulo em
+  que a mídia vai de fato aparecer.
+- Por depender do TAMANHO do palco (que muda com a rotação do aparelho, a
+  resolução da TV e a preview trocando de casa entre os modos), há um
+  `ResizeObserver`; e `applyMedia()` o repõe, porque um elemento `hidden` não
+  tem caixa medível.
+- **Persistido** (`state.rotate`) como o preenchimento, e **reenviado ANTES do
+  `load`** na reconexão: um telão que volta no meio de um vídeo girado não pode
+  mostrá-lo deitado nem por um quadro.
+- **Tomou o lugar do "Esticar"**, que saiu: distorcer a proporção é o defeito que
+  "Ajustar" e "Preencher" existem para evitar, e ninguém o escolhia de propósito.
+  O valor guardado é **migrado** uma vez na carga — sem isso, quem já o tinha
+  ficaria com a mídia distorcida e sem nenhum controle na tela que explicasse por
+  quê.
+
+### O cast só era repintado no modo simplificado (v5.142)
+
+O ícone de cast sobre a preview carrega o estado da conexão, e quem o pintava era
+`renderSimpleCast()` — que começa com `if (appMode !== 'simple') return`. No modo
+avançado ele **nunca** era repintado: o aceso que o simplificado deixou ficava
+para sempre, e o operador via "conectado" sobre uma TV que já não estava lá. O
+estado da tela não é decoração de um dos modos; saiu para `renderCastBtn()`.
+
+Do lado do shell, dois avisos faltavam (ver `MainActivity.syncPresentation`): a
+saída antecipada de "não há tela" estava **dentro** do `if (current != null)`,
+então uma queda em que o sistema já tinha derrubado a janela sozinha não
+notificava ninguém; e o `setOnDismissListener` — o caminho da queda por distância
+— zerava a referência calado. O lado web ainda reconfere a lista **ao voltar para
+a frente**, porque um evento perdido não se recupera sozinho e este WebView é
+estrangulado justamente enquanto o app está minimizado.
+
 ### Modo "mesa de som" (saída de áudio local)
 
 **Ícone de alto-falante no canto INFERIOR ESQUERDO da preview**
@@ -2777,6 +2891,23 @@ mixer (`#lyricsViewBtn`, folha com linhas) abre um bottom-sheet **com scroll**
   disponibilidade das fontes) e só mover o destaque — e ela inclui a lista de
   fontes DISPONÍVEIS, não só a ativa: começar a leitura bíblica com um louvor
   tocando não muda o que está na frente, mas passa a haver o que alternar.
+
+#### A divisão das estrofes dentro de um slide (v5.142)
+
+Um slide da API pode trazer **mais de uma estrofe**, separadas por uma linha em
+branco (`<br><br>` na origem, que `normalizeLyricText` converte em `\n\n`). O
+visualizador desenhava o slide inteiro num nó só com `white-space: pre-line` — e
+é aí que a divisão se perdia: **`pre-line` colapsa sequências de espaço em
+branco**, então `\n\n` vira uma quebra simples e as duas estrofes encostam como
+se fossem um bloco só. Era o relato "alguns hinos não estão dividindo, mesmo na
+realidade tendo divisões".
+
+`lvBuildSong` divide o texto em blocos e cria um `.lv-text` por bloco. **A LINHA
+continua sendo UMA** (o mesmo `data-i`, o mesmo destaque, a mesma posição no
+tempo): o que se divide é a apresentação do texto, não a unidade de projeção —
+dividir a unidade quebraria o realce da estrofe em cena e o ⏮/⏭. Vale para os
+dois lugares que desenham letra, porque os dois chamam a mesma função (o popup de
+leitura e o painel do modo simplificado).
 
 ### Onde o Display roda
 
@@ -7040,6 +7171,44 @@ Três consequências disso, e cada uma cobre um `await` diferente:
   abertura) que se quer evitar num push-to-talk. Suspenso, ele para de segurar
   a saída de áudio — e só é suspenso se ninguém tiver reaberto o microfone
   nesse meio tempo.
+
+#### `NotReadableError` não é "outro app está usando" (v5.142)
+
+O relato foi o push-to-talk falhando com **"o microfone está em uso por outro
+app"** num aparelho em que nenhum outro app gravava — e a mensagem era nossa, do
+mapeamento de `NotReadableError`. O nome do erro engana: ele é o *"não consegui
+abrir o dispositivo"* genérico do WebRTC, e no Android a causa comum aqui não é
+disputa entre apps, é o **processamento pedido**.
+
+Com `echoCancellation`, o Chromium abre o `AudioRecord` em
+`VOICE_COMMUNICATION` para usar o cancelador de eco do hardware — uma sessão de
+**voz**, que o sistema recusa quando a saída de áudio está em outro caminho. Que
+é exatamente o caso deste app durante um culto: espelhamento ligado, telão
+recebendo o som.
+
+`startMic` passou a tentar **três vezes, da melhor para a que sempre abre**:
+
+1. `echoCancellation` + `noiseSuppression` + `autoGainControl` (o de sempre);
+2. os três **desligados** — força a fonte `MIC`, sem sessão de voz;
+3. `audio: true`, cru.
+
+A ordem é deliberada: o cancelamento de eco fica em primeiro porque num culto uma
+realimentação é um estrago imediato e público. Só se ele não abrir é que se desce
+— e um push-to-talk que funciona com risco de microfonia é melhor que um que não
+funciona, desde que fique registrado, que é o que a linha `microfone SEM
+cancelamento de eco` do Registro do telão faz.
+
+**`NotAllowedError`/`SecurityError` não descem a escada**: permissão negada é
+resposta do sistema (ou do `MicChromeClient`) e não melhora com menos
+processamento — insistir só gastaria duas chamadas para dar o mesmo erro. E a
+mensagem ao operador deixou de nomear uma causa que quase sempre estava errada:
+chegar até ela agora significa que as três tentativas falharam.
+
+> **Não foi reproduzido aqui.** A condição depende do roteamento de áudio do
+> aparelho com espelhamento ativo, que não existe neste ambiente. A escada é a
+> hipótese mais provável e não custa nada quando ela está errada — se o erro
+> persistir, o Registro do telão passa a dizer qual das três tentativas caiu e
+> com que nome, que é o que faltava para responder isso sem adivinhação.
 
 ### YouTube (IFrame Player API oficial)
 
