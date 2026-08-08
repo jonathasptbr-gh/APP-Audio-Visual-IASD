@@ -9969,6 +9969,11 @@ function openFadePopup() {
   renderFitSeg();
   renderLyricsBgSeg();
   renderWallSeg();
+  // O estado do espelho é relido ao ABRIR (e depois só enquanto a folha dele
+  // estiver aberta): a linha precisa dizer a verdade no instante em que o
+  // operador olha para ela, e o espelho pode ter saído do ar sozinho por uma
+  // falha nomeada desde a última vez.
+  lerEspelho();
   pedirDiag();
   fadePopupEl.classList.add('open');
 }
@@ -10125,6 +10130,17 @@ async function renderDiag() {
     const falha = (window.AVStream && window.AVStream.ultimoErro) || '';
     blocos.push('Transmissão direta (último "Tocar agora")\n' + motivoStream
       + (falha ? '\nfalhou ao tocar: ' + falha : ''));
+  }
+  // O ESPELHO DE PIXELS: mais um BLOCO desta caixa, nunca uma faixa nova em
+  // outro canto (regra do projeto). É o único lugar em que o veredito da sonda
+  // de readback e o estado do servidor podem ser LIDOS e REPASSADOS — e o botão
+  // de copiar, que já está no cabeçalho do Registro, os leva junto.
+  if (espelhoDisponivel()) {
+    let ed = null;
+    try { ed = await AVNative.espelhoDiag(); } catch (_) { ed = null; }
+    if (meu !== diagSeq) return;
+    const bloco = blocoEspelho(ed);
+    if (bloco) blocos.push(bloco);
   }
   if (meu !== diagSeq) return;   // outro render assumiu durante a espera
   blocos.push(eventosDiag());
@@ -13247,6 +13263,11 @@ const POPUPS = [
   [hymnSearchPopupEl, hymnSearchCloseEl, closeHymnSearch],
   [bibleVerPopupEl, bibleVerCloseEl, closeBibleVerPopup],
   [fadePopupEl, fadePopupCloseEl, closeFadePopup],
+  // A folha do espelho abre DE DENTRO de Configurações, então vem depois dela:
+  // o voltar percorre esta tabela de trás para a frente e precisa fechar a de
+  // cima primeiro. Uma linha aqui já a liga aos três caminhos de fechamento
+  // (✕, toque no fundo, botão do aparelho) — é para isso que a tabela existe.
+  [mirrorPopupEl, mirrorCloseEl, closeMirror],
   [lyricsPopupEl, lyricsPopupCloseEl, closeLyricsPopup],
   // A folha da música abre DE DENTRO do acervo, e o seletor de atalhos abre de
   // dentro dela: o voltar percorre esta tabela de trás para a frente, então a

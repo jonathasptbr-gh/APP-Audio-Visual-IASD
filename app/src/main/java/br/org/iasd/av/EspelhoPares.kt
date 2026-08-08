@@ -194,7 +194,12 @@ object EspelhoPares {
 
     private enum class Estado { AGUARDANDO, APROVADA, RECUSADA }
 
-    private class Espera(
+    /**
+     * O registro interno de uma tela que acertou o PIN. [Pendente] é a VISTA
+     * pública dele (sem o estado, sem a sessão), e o nome é diferente de propósito
+     * para não colidir com [Veredito.Espera], que é a resposta do fio.
+     */
+    private class Pendencia(
         val id: String,
         val relato: Relato,
         val desde: Long,
@@ -215,7 +220,7 @@ object EspelhoPares {
     private var rnd: SecureRandom = SecureRandom()
     private var recusados = 0
 
-    private val esperas = ArrayList<Espera>()
+    private val esperas = ArrayList<Pendencia>()
     private val vivas = ArrayList<Sessao>()
     private val erros = HashMap<String, Tentativas>()
 
@@ -330,9 +335,9 @@ object EspelhoPares {
         erros.remove(chave)
         if (esperas.size >= MAX_ESPERAS) return Veredito.Lotada
 
-        val e = Espera(novoToken(), sanear(relato), agora)
+        val e = Pendencia(novoToken(), sanear(relato), agora)
         esperas.add(e)
-        if (autoOn) aprovarEspera(e, agora)
+        if (autoOn) aprovarPendencia(e, agora)
         return Veredito.Espera(e.id)
     }
 
@@ -348,7 +353,7 @@ object EspelhoPares {
     @Synchronized
     fun consultar(id: String, agora: Long): Consulta {
         limpar(agora)
-        val e = acharEspera(id) ?: return Consulta.Desconhecida
+        val e = acharPendencia(id) ?: return Consulta.Desconhecida
         return when (e.estado) {
             Estado.APROVADA -> e.sessao?.let { Consulta.Pronta(it) } ?: Consulta.Desconhecida
             Estado.RECUSADA -> Consulta.Recusada
@@ -372,8 +377,8 @@ object EspelhoPares {
     @Synchronized
     fun aprovar(id: String, agora: Long): Sessao? {
         limpar(agora)
-        val e = acharEspera(id) ?: return null
-        return aprovarEspera(e, agora)
+        val e = acharPendencia(id) ?: return null
+        return aprovarPendencia(e, agora)
     }
 
     /**
@@ -383,7 +388,7 @@ object EspelhoPares {
      */
     @Synchronized
     fun recusar(id: String) {
-        val e = acharEspera(id) ?: return
+        val e = acharPendencia(id) ?: return
         val s = e.sessao
         if (s != null) vivas.removeAll { igual(s.token, it.token) }
         e.sessao = null
@@ -513,7 +518,7 @@ object EspelhoPares {
         erros.clear()
     }
 
-    private fun aprovarEspera(e: Espera, agora: Long): Sessao? {
+    private fun aprovarPendencia(e: Pendencia, agora: Long): Sessao? {
         if (e.estado == Estado.RECUSADA) return null
         e.sessao?.let { return it }
         if (vivas.size >= MAX_SESSOES) return null
@@ -524,7 +529,7 @@ object EspelhoPares {
         return s
     }
 
-    private fun acharEspera(id: String): Espera? {
+    private fun acharPendencia(id: String): Pendencia? {
         for (e in esperas) if (igual(id, e.id)) return e
         return null
     }
