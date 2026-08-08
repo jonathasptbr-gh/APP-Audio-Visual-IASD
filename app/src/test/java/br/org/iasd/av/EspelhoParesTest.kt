@@ -388,48 +388,32 @@ class EspelhoParesTest {
     }
 
     /**
-     * A fábrica que o servidor usa: valores crus da rede entram, um relato
-     * saneado sai. É aqui que a invariante 9 acontece "num ponto só" — e é ela
-     * que permite ao `EspelhoServidor` fazer o parse do JSON sem nunca precisar
-     * pensar em saneamento.
+     * O relato guardado já vem saneado — **não é o JS que limpa, e não é o
+     * servidor**.
+     *
+     * Este caso é o contrato com o `EspelhoServidor`: ele monta o [EspelhoPares.Relato]
+     * CRU a partir do JSON (só ele pode, porque `org.json` é da plataforma e não
+     * existe num teste de JVM) e entrega aqui; o saneamento acontece num ponto
+     * só, do lado que tem teste. Se alguém um dia sanear lá também, esta é a
+     * asserção que continua valendo — e a de lá é que vira a segunda cópia de uma
+     * regra de segurança.
      */
-    @Test
-    fun relatoDeSaneiaOsValoresCrus() {
-        val r = EspelhoPares.relatoDe(
-            ua = "Chrome\r\ntelas: 99 conectadas \"x\"",
-            w = -5,
-            h = 999_999,
-            seguro = false,
-            mse = true,
-            mms = false,
-            fetchStream = true,
-            videoDecoder = false,
-            wakeLock = false,
-            telaAcesaMin = -1,
-        )
-        assertFalse(r.ua.contains('\n'))
-        assertFalse(r.ua.contains('"'))
-        assertEquals(0, r.w)
-        assertEquals(20_000, r.h)
-        assertEquals(0, r.telaAcesaMin)
-        // `ua` ausente não é exceção nem "null" na tela: é vazio.
-        assertEquals("", EspelhoPares.relatoDe(null, 0, 0, false, false, false, false, false, false, 0).ua)
-    }
-
-    /** E o relato guardado já vem saneado — não é o JS que limpa. */
     @Test
     fun oRelatoGuardadoJaVemSaneado() {
         val v = EspelhoPares.tentar(
             pin,
             origem,
-            relato("Firefox\ntelas: 99 conectadas").copy(w = -5, telaAcesaMin = -1),
+            relato("Firefox\r\ntelas: 99 conectadas \"x\"").copy(w = -5, h = 999_999, telaAcesaMin = -1),
             t0,
         )
         val id = (v as EspelhoPares.Veredito.Espera).id
         val s = EspelhoPares.aprovar(id, t0)!!
         assertFalse(s.relato.ua.contains('\n'))
+        assertFalse(s.relato.ua.contains('\r'))
+        assertFalse(s.relato.ua.contains('"'))
         assertTrue(s.relato.ua.length <= EspelhoPares.TETO_TEXTO)
         assertEquals(0, s.relato.w)
+        assertEquals(20_000, s.relato.h)
         assertEquals(0, s.relato.telaAcesaMin)
     }
 

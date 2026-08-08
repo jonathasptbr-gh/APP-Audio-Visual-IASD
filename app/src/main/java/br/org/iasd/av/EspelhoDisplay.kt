@@ -17,7 +17,9 @@ import android.util.Log
 import android.view.Display
 import android.view.PixelCopy
 import android.view.Surface
+import org.json.JSONArray
 import org.json.JSONObject
+import org.json.JSONTokener
 import java.io.ByteArrayOutputStream
 import java.lang.ref.WeakReference
 import java.util.concurrent.atomic.AtomicBoolean
@@ -1363,7 +1365,32 @@ object EspelhoDisplay {
 
     private const val PRAZO_SONDA_MS = 5_000L
     private const val PRAZO_PIXELCOPY_MS = 1_500L
+    private const val PRAZO_ESTADO_MS = 1_500L
     private const val ESPERA_PINTAR_MS = 1_200L
+
+    /** Cedo o bastante para valer para quase todo quadro, tarde o bastante para a página existir. */
+    private const val LEITURA_PONTOS_MS = 400L
+
+    private const val JS_PONTOS = "(window.__sondaPontos ? window.__sondaPontos() : '')"
+    private const val JS_ESTADO = "(window.__sondaEstado ? window.__sondaEstado() : '')"
+
+    /**
+     * Os cinco pontos, **em fração do viewport**, na ordem do contrato: fundo,
+     * vídeo, preto, branco, canto.
+     *
+     * Isto é a rede de segurança de `window.__sondaPontos()`, não a fonte: a
+     * geometria é da `sonda.html`, e estes números têm de acompanhá-la. Eles
+     * são os que aquele arquivo publica hoje — fundo acima do vídeo, canto na
+     * borda esquerda (e **não** no canto superior esquerdo, que ali é a faixa
+     * preta).
+     */
+    private val PONTOS_PADRAO = arrayOf(
+        floatArrayOf(0.50f, 0.20f),
+        floatArrayOf(0.50f, 0.50f),
+        floatArrayOf(0.50f, 0.04f),
+        floatArrayOf(0.50f, 0.96f),
+        floatArrayOf(0.03f, 0.50f),
+    )
 
     /** ±28 por canal. Ver a decisão 2 do KDoc da [sonda]. */
     private const val TOLERANCIA = 28

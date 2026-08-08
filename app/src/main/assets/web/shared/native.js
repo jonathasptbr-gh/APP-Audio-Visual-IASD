@@ -556,6 +556,36 @@
     // mesa de comando e o som está no telão.
     keepAudioAlive(on) { try { B.keepAudioAlive(!!on); } catch (_) { /* shell antigo */ } },
 
+    // ---------- ESPELHO DE PIXELS (shell 32+) ----------
+    //
+    // O telão numa tela virtual privada, servido a navegadores da rede local
+    // (ver docs/ESPELHO-DE-PIXELS.md). Num shell antigo o `call` resolve null e
+    // o `try` engole — mas quem desenha a linha já pergunta o
+    // `__SHELL_VERSION__` antes, porque botão que não faz nada no meio de um
+    // culto é pior que botão nenhum.
+    //
+    // ESTES QUATRO NÃO REMONTAM CAMPO A CAMPO, e isso é deliberado: eles só
+    // repassam o `callId` e devolvem o JSON que o KOTLIN montou. A forma de
+    // falhar preferida deste projeto — um campo esquecido na remontagem, lido
+    // como `false`/`0` do outro lado (`slideLabel` v5.97→v5.102, `bytes`
+    // v5.118→v5.137) — não tem por onde acontecer aqui, porque não há
+    // remontagem. O que sobra de cuidado é a coerção dos ARGUMENTOS, abaixo.
+    espelhoLigar: (modo) => call(
+      (id) => B.espelhoLigar(id, String(modo || 'imagem')), CALL_TIMEOUT_MS,
+    ),
+    // Síncrono e SEM `callId`, no molde do `ytCancel`: desligar não pode
+    // esperar a fila de nada. Quem responde é o próprio estado, na consulta
+    // seguinte.
+    espelhoDesligar() { try { B.espelhoDesligar(); } catch (_) { /* shell antigo */ } },
+    espelhoEstado: () => call((id) => B.espelhoEstado(id), CALL_TIMEOUT_MS),
+    espelhoDiag: () => call((id) => B.espelhoDiag(id), CALL_TIMEOUT_MS),
+    // `idPendente` vazio (ou '*') é a chave da APROVAÇÃO AUTOMÁTICA da sessão,
+    // e `sim` é o valor dela — é o mesmo método porque é a mesma decisão do
+    // operador: quem entra nesta tela.
+    espelhoAprovar: (idPendente, sim) => call(
+      (id) => B.espelhoAprovar(id, String(idPendente || ''), !!sim), CALL_TIMEOUT_MS,
+    ).then((r) => r === true),
+
     // Botões físicos de volume: pede que a Activity os intercepte e os entregue
     // em `window.__avVolumeKey(±1)` — sem isso eles mexem na saída do sistema
     // (e, com espelhamento ativo, no volume da TV) em vez do fader do app.

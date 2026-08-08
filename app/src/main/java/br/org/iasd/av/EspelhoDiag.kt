@@ -1,8 +1,19 @@
 package br.org.iasd.av
 
+import android.content.Context
+import android.media.Image
+import android.media.MediaCodec
+import android.media.MediaCodecInfo
+import android.media.MediaFormat
+import android.media.MediaMuxer
 import android.os.SystemClock
+import android.util.Log
+import android.webkit.WebResourceResponse
+import androidx.webkit.WebViewAssetLoader
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
+import java.io.FileInputStream
 
 /**
  * O anel de diagnóstico do espelho de pixels — e ele **devolve DADO, nunca
