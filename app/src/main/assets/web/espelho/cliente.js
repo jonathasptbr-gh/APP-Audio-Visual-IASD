@@ -1020,17 +1020,35 @@
     cotaSeguidas = 0;
     posicionado = false;
     esperandoChave = true;
-    sb = null;
+    sbV = null;
+    sbA = null;
     mime = '';
-    if (muxer) muxer.descartar();
+    mimeA = '';
+    audioDesde = 0;
+    audioUltimoMs = 0;
+    if (esperaAudio) { clearTimeout(esperaAudio); esperaAudio = null; }
+    initVideoRetido = null;
+    if (muxer) { muxer.descartar(); muxer.descartarAudio(); }
     if (ms) {
-      try { if (ms.readyState === 'open') ms.removeSourceBuffer(ms.sourceBuffers[0]); } catch (_) {}
+      try {
+        if (ms.readyState === 'open') {
+          // TODAS as faixas, de trás para a frente: `sourceBuffers` é uma lista
+          // VIVA, e remover pelo índice 0 num laço crescente pula a segunda.
+          for (let i = ms.sourceBuffers.length - 1; i >= 0; i--) {
+            ms.removeSourceBuffer(ms.sourceBuffers[i]);
+          }
+        }
+      } catch (_) {}
     }
     ms = null;
     try {
       if (el.v.src) { URL.revokeObjectURL(el.v.src); el.v.removeAttribute('src'); el.v.load(); }
     } catch (_) {}
-    avisar(porque ? 'Recomeçando: ' + porque + '.' : 'Recomeçando…', true);
+    // `suave` é o recomeço PEDIDO (ligar o som): ele não é falha, e pintá-lo de
+    // vermelho no meio do culto diria a coisa errada a quem acabou de tocar na
+    // tela.
+    if (suave) avisar(porque ? porque + '…' : '');
+    else avisar(porque ? 'Recomeçando: ' + porque + '.' : 'Recomeçando…', true);
   }
 
   function parar() {
@@ -1074,10 +1092,24 @@
     // elas estão dentro da igreja, a 100–300 ms da PA, e três telas
     // desmutadas são três alto-falantes com eco. Quem está em outra sala é quem
     // aperta — e é este toque.
+    //
+    // E É AQUI, E SÓ AQUI, QUE A `MediaSource` É REMONTADA PARA GANHAR SOM. O
+    // Chromium recusa `addSourceBuffer` depois que ela inicializou (ver o
+    // cabeçalho da seção da mídia), então a faixa de áudio não pode ser
+    // acrescentada a uma projeção em curso: ou ela nasce junto, ou tudo nasce de
+    // novo. Amarrar a remontagem ao GESTO — e não à chegada do `csd` de áudio —
+    // é o que garante que ela aconteça UMA vez, num instante em que o visitante
+    // está olhando para a tela porque acabou de tocar nela.
+    const primeiraVez = !audioQuerido;
+    audioQuerido = true;
     try {
       el.v.muted = false;
-      postar('/r', { do: 'audio', on: true }, true).catch(() => {});
+      pedirAudio();
     } catch (_) {}
+    if (primeiraVez && ms && !sbA && !modoImagem && rebuilds < REBUILDS_AUDIO) {
+      rebuilds++;
+      recomecar('Ligando o som', true);
+    }
     tocar();
 
     // CINTO E SUSPENSÓRIO, nunca o único cinto: quem segura a tela acesa no
@@ -1133,6 +1165,10 @@
         mime: mime, fila: fila.length, posicionado: posicionado,
         quadros: conta.quadros, bytes: conta.bytes,
         recomecos: conta.recomecos, reconexoes: conta.reconexoes,
+        // O som, do jeito que ele falha: `audioQuerido` sem `audio` é "esta
+        // tela pediu e não recebeu", que é a leitura que faltava no aparelho.
+        audioQuerido: audioQuerido, audio: !!sbA, mimeAudio: mimeA,
+        quadrosAudio: conta.quadrosAudio, mudo: el.v ? !!el.v.muted : true,
         aviso: el.aviso ? el.aviso.textContent : '',
       };
     },
