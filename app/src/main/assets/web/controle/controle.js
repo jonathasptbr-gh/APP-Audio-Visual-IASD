@@ -44,6 +44,7 @@ const simpleTimeEl = document.getElementById('simpleTime');
 const simpleTimeCurEl = document.getElementById('simpleTimeCur');
 const simpleTimeDurEl = document.getElementById('simpleTimeDur');
 const simpleTimeFillEl = document.getElementById('simpleTimeFill');
+const simpleTimeHitEl = document.getElementById('simpleTimeHit');
 const simpleVolWrapEl = document.getElementById('simpleVolWrap');
 const simpleVolUpEl = document.getElementById('simpleVolUp');
 const simpleVolDownEl = document.getElementById('simpleVolDown');
@@ -162,7 +163,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.141';
+const WEB_VERSION = '5.143';
 
 // Escrita UMA vez, na carga: o indicador mora no rodapé de Configurações desde
 // a v5.49 e não depende mais de qual aba está aberta (no cabeçalho ele
@@ -238,6 +239,8 @@ const libSearchEl = document.getElementById('libSearch');
 const fadePopupEl = document.getElementById('fadePopup');
 const fadePopupCloseEl = document.getElementById('fadePopupClose');
 const fitSegEl = document.getElementById('fitSeg');
+const rotBtnEl = document.getElementById('rotBtn');
+const rotLabelEl = document.getElementById('rotLabel');
 const lyricsBgSegEl = document.getElementById('lyricsBgSeg');
 const wallFileEl = document.getElementById('wallFile');
 const wallPickEl = document.getElementById('wallPick');
@@ -998,6 +1001,30 @@ let mediaFit = 'contain'; // preenchimento da mídia (persistido em state 'fit')
 // (preview muda), evitando som inesperado saindo do celular numa sessão nova.
 let standalone = false;
 let ytEnded = false;       // YouTube terminou/parou sem player tocando: ▶ recarrega
+// HÁ MÍDIA EM CENA NO TELÃO? (v5.142)
+//
+// Não é "existe uma mídia selecionada" — isso é o `currentId`, que sobrevive de
+// propósito ao stop e ao fim natural, para o ▶ poder repetir a faixa. É "o telão
+// está mostrando esta mídia agora", e as duas coisas divergem em exatamente dois
+// pontos: `stopClear` (o operador cobriu o telão) e `resetAfterEnd` (a música
+// acabou e nada a seguiu). Nos dois o telão voltou ao wallpaper e o `currentId`
+// ficou onde estava.
+//
+// Faltava uma resposta para essa pergunta, e três defeitos saíram daí:
+//
+//  1. A RECONEXÃO DO TELÃO reenviava `load` para uma mídia parada, e o telão
+//     acordava com um vídeo engatilhado que ninguém pediu — o retângulo cinza
+//     com o play, ou o primeiro quadro da música que já tinha acabado.
+//  2. O MESMO no fim de cada música: o item continua selecionado, então todo
+//     dongle que caísse e voltasse ressuscitava a faixa anterior.
+//  3. O ▶ DEPOIS DO STOP decidia por `preview.getCurrent()`, que só fica nulo no
+//     FIM do fade de saída do `clearFaded` — meio segundo depois. Tocar play
+//     nessa janela mandava um `play` que o `clear` em curso apagava logo em
+//     seguida: o botão não fazia nada, e o operador aprendeu a tocar em stop
+//     duas vezes para "destravar". Era o fade, não o stop.
+//
+// Uma variável, três defeitos: o estado que faltava era esse.
+let midiaNoAr = false;
 let displayAudioBlocked = false; // Display reportou áudio bloqueado pelo navegador
 const scrollPos = {};      // posição de scroll por aba/pasta (sessão)
 
@@ -1375,12 +1402,53 @@ function pushAudioAlive() {
   try { AVNative.keepAudioAlive(standalone); } catch (_) { /* shell antigo */ }
 }
 
+// HÁ UMA TELA RECEBENDO A PROJEÇÃO?
+//
+// Não é a mesma pergunta de `displayActive()`, que mede se o telão MANDOU
+// notícia há pouco (ele só emite `display-status` com mídia em cena): um telão
+// conectado e mostrando o wallpaper não responde nada, e continua sendo um
+// telão conectado. Aqui a pergunta é sobre a CONEXÃO — a `Presentation` no app,
+// a janela do Display no navegador —, que é o que decide se ligar o som deste
+// aparelho atrapalha alguém.
+//
+// A liberação de teste do simplificado (`castTestUnlocked`) NÃO conta, e é
+// deliberado: ela não conecta nada, então não há player nenhum para interromper
+// — esconder o botão ali tiraria o som do único lugar onde ele pode ser ouvido.
+function telaoConectado() {
+  if (!window.__NATIVE__) return !!(webDisplayWin && !webDisplayWin.closed);
+  return lastDisplays.length > 0;
+}
+
+// O BOTÃO DA MESA DE SOM SOME COM TELÃO CONECTADO (v5.141).
+//
+// Os dois WebViews dividem o mesmo processo e a mesma saída de áudio do
+// Android. Ligar o som da preview enquanto o telão projeta não é "ouvir junto":
+// o `<video>` do Controle assume o foco de áudio e o player do telão é
+// INTERROMPIDO no meio do louvor, na frente da congregação. O botão existe para
+// o caso em que o celular É a caixa de som — e esse caso, por definição, é o
+// caso sem telão.
+//
+// Some, e não fica desabilitado: um botão apagado num canto da preview seria
+// mais um elemento a decifrar durante o culto, e a explicação ("por que não
+// posso ligar o som?") não cabe num `title` que ninguém vai abrir. Sem telão
+// ele volta sozinho, no mesmo lugar de sempre.
 function renderStandaloneSeg() {
   if (!pvSoundBtnEl) return;
+  pvSoundBtnEl.hidden = telaoConectado();
   pvSoundBtnEl.classList.toggle('on', standalone);
   pvSoundBtnEl.title = standalone
     ? 'Som no celular LIGADO — tocar para desligar'
     : 'Som no celular desligado — tocar para ligar (mesa de som)';
+}
+
+// A tela pode ser conectada COM A MESA DE SOM JÁ LIGADA — é o caso normal, aliás:
+// o operador chega, ouve o louvor pelo celular enquanto acerta as coisas, e só
+// então liga o dongle. Esconder o botão sem desligar o modo deixaria exatamente
+// o estado que este lote existe para impedir, e sem nenhum controle na tela para
+// desfazê-lo. Quem re-renderiza é o próprio `setStandalone`.
+function pushTelaoNoSom() {
+  if (telaoConectado() && standalone) { setStandalone(false); return; }
+  renderStandaloneSeg();
 }
 
 // Fundo da letra sincronizada (Hinário 2022): 'black' (padrão) ignora as
@@ -1939,6 +2007,7 @@ async function load() {
   const chronoPrefsV = (await AVDB.getState('chronoPrefs')) || null;
   const drawPrefsV = (await AVDB.getState('drawPrefs')) || null;
   const storedFit = await AVDB.getState('fit');
+  const storedRot = await AVDB.getState('rotate');
   const lyricsBgV = (await AVDB.getState('lyricsBg')) === 'image' ? 'image' : 'black';
   const downloadOkV = !!(await AVDB.getState('downloadOk'));
   let libItemsV;
@@ -1981,7 +2050,13 @@ async function load() {
   messages = messagesV;
   applyChronoPrefs(chronoPrefsV);
   applyDrawPrefs(drawPrefsV);
-  if (storedFit) mediaFit = storedFit;
+  // "Esticar" SAIU da UI na v5.142 e o valor guardado é MIGRADO aqui, uma vez.
+  // Sem a migração, quem já o tinha escolhido continuaria com a mídia distorcida
+  // no telão e sem nenhum botão na tela que explicasse por quê — o pior estado
+  // possível: o defeito permanece e o controle dele some.
+  if (storedFit === 'fill') { mediaFit = 'contain'; AVDB.setState('fit', mediaFit); }
+  else if (storedFit) mediaFit = storedFit;
+  mediaRot = ROTACOES.includes(storedRot | 0) ? (storedRot | 0) : 0;
   lyricsBg = lyricsBgV;
   downloadConsent = downloadOkV;
   libItems = libItemsV;
@@ -2007,6 +2082,8 @@ async function load() {
   preview.setMute(muted); preview.setVolume(volume);
   preview.setFade({ fadeIn: fadeCfg.in, fadeOut: fadeCfg.out, time: fadeCfg.time });
   preview.setFit(mediaFit);
+  preview.setRotate(mediaRot);
+  renderRotBtn();
 
   // restaura a posição de scroll da aba/pasta atual
   listHost().scrollTop = scrollPos[scrollKey()] || 0;
@@ -3431,6 +3508,48 @@ const LISTA_ROTULO = {
 };
 const ROTULO_PADRAO = { em: 'na lista', para: 'à lista' };
 
+// ===== DESTINOS: um item pode ir para MAIS DE UM lugar de uma vez (v5.141) =====
+//
+// Toda porta de entrada do app — o acervo, a busca do YouTube, o link
+// compartilhado, a importação de arquivos — perguntava "para onde?" e aceitava
+// UMA resposta: a folha fechava no primeiro toque, e quem quisesse o mesmo
+// louvor na playlist E nos Favoritos tinha de refazer a busca, reabrir a folha
+// e — no caso do YouTube — pagar o download de novo. O item é o mesmo; o que
+// muda é em quantas listas ele entra, e isso nunca foi uma escolha exclusiva.
+//
+// A tabela é a fonte única: uma porta nova ganha os três destinos escrevendo
+// uma linha, e um destino novo aparece em todas as portas de uma vez. `chave` é
+// o nome do destino como o app fala dele por fora (é o que viaja nas ações e no
+// `ytAcao`); `lista` é o nome no banco, que não se confunde com ele — o
+// Cronograma é a lista `imports` desde antes de se chamar Cronograma.
+const DESTINOS = [
+  { chave: 'playlist', lista: 'playlist', rotulo: 'Playlist', sub: 'Entra na fila do que está tocando agora' },
+  { chave: 'cronograma', lista: 'imports', rotulo: 'Cronograma', sub: 'A lista do culto' },
+  { chave: 'favoritos', lista: 'favs', rotulo: 'Favoritos', sub: 'O que se usa toda semana, sempre à mão' },
+];
+function destinoPorChave(chave) { return DESTINOS.find((d) => d.chave === chave) || null; }
+function listaDoDestino(chave) {
+  const d = destinoPorChave(chave);
+  return d ? d.lista : 'imports';
+}
+function listasDosDestinos(chaves) {
+  // `Set` porque duas chaves podem cair na mesma lista num futuro em que um
+  // destino novo compartilhe a `imports` — e um `listAdd` repetido gastaria uma
+  // transação para não fazer nada.
+  return [...new Set((chaves || []).map(listaDoDestino))];
+}
+
+// "à playlist e aos favoritos" — a lista de destinos escrita como se fala.
+// Sem isto o aviso do multi-destino sairia como "adicionado à playlist,
+// adicionado ao Cronograma", que é a mesma frase duas vezes.
+function juntarFrases(partes) {
+  if (partes.length <= 1) return partes[0] || '';
+  return partes.slice(0, -1).join(', ') + ' e ' + partes[partes.length - 1];
+}
+function ondeDe(listas, campo) {
+  return juntarFrases(listas.map((l) => (LISTA_ROTULO[l] || ROTULO_PADRAO)[campo]));
+}
+
 // O nome do item, encurtado — o aviso é uma linha e o nome de um louvor com o
 // álbum junto passa fácil da largura da tela.
 function rotuloItem(nome) {
@@ -3438,16 +3557,38 @@ function rotuloItem(nome) {
   return '"' + (nome.length > 28 ? nome.slice(0, 28) + '…' : nome) + '" ';
 }
 
-async function adicionarNaLista(lista, id, nome, btn) {
-  const jaTinha = await AVDB.listHas(lista, id);
-  await AVDB.listAdd(lista, id);
-  const onde = LISTA_ROTULO[lista] || ROTULO_PADRAO;
+// Acrescenta O MESMO id a VÁRIAS listas, com um aviso só.
+//
+// Um aviso por lista seria três faixas piscando uma por cima da outra para um
+// toque único — o mesmo argumento de `textoLote`, que já resolvia isto para
+// vários itens num destino só. Aqui é o espelho: um item em vários destinos.
+//
+// A frase separa o que ENTROU do que JÁ ESTAVA, porque é essa distinção que
+// impede o toque repetido (ver o cabeçalho acima). Com os dois casos presentes
+// ela diz os dois — "adicionado à playlist — já estava no Cronograma" —, e não
+// um resumo que esconderia metade.
+async function adicionarNasListas(listas, id, nome, btn) {
+  const alvos = [...new Set(listas)];
+  const novas = [], antigas = [];
+  for (const l of alvos) {
+    if (await AVDB.listHas(l, id)) { antigas.push(l); continue; }
+    await AVDB.listAdd(l, id);
+    novas.push(l);
+  }
   const que = rotuloItem(nome);
-  responder(btn, jaTinha ? 'dup' : 'ok',
-    jaTinha ? que + 'já está ' + onde.em : que + 'adicionado ' + onde.para);
-  if (lista === 'favs') await recarregarFavoritos();
-  if (lista === 'playlist') { plItems = await AVDB.listItems('playlist'); renderPlaylist(); }
-  return !jaTinha;
+  let texto;
+  if (!novas.length) texto = que + 'já está ' + ondeDe(antigas, 'em');
+  else if (!antigas.length) texto = que + 'adicionado ' + ondeDe(novas, 'para');
+  else texto = que + 'adicionado ' + ondeDe(novas, 'para') + ' — já estava ' + ondeDe(antigas, 'em');
+  responder(btn, novas.length ? (antigas.length ? 'dup' : 'ok') : 'dup', texto);
+  if (alvos.includes('favs')) await recarregarFavoritos();
+  if (alvos.includes('playlist')) { plItems = await AVDB.listItems('playlist'); renderPlaylist(); }
+  return novas.length;
+}
+
+// A forma de UM destino, que é o que a maior parte do app ainda usa.
+async function adicionarNaLista(lista, id, nome, btn) {
+  return (await adicionarNasListas([lista], id, nome, btn)) > 0;
 }
 
 // A identidade de uma CENA: tipo + descritor. Duas cenas com a mesma chave são
@@ -3866,7 +4007,18 @@ function micErrorText(err) {
   }
   if (err === 'NotFoundError') return 'Nenhum microfone encontrado neste aparelho.';
   if (err === 'unsupported') return 'Este aparelho não expõe captura de áudio ao app.';
-  if (err === 'NotReadableError') return 'O microfone está em uso por outro app.';
+  // "EM USO POR OUTRO APP" SAIU (v5.142) — a frase nomeava uma causa e quase
+  // sempre a errada. `NotReadableError` é o "não consegui abrir o dispositivo"
+  // genérico do WebRTC, e no Android a causa comum aqui não é outro app: é o
+  // sistema recusando a sessão de VOZ que o cancelamento de eco pede enquanto o
+  // áudio está indo para outro lugar (o telão). O app agora tenta de novo sem o
+  // processamento antes de desistir (ver `startMic`), então chegar até esta
+  // mensagem já significa que as três tentativas falharam — e aí a única coisa
+  // honesta a dizer é o que de fato costuma destravar.
+  if (err === 'NotReadableError') {
+    return 'O Android não liberou o microfone. Costuma ser uma chamada, um gravador '
+      + 'aberto em outro app ou o assistente de voz — feche-os e tente de novo.';
+  }
   return 'Não foi possível abrir o microfone (' + err + ').';
 }
 
@@ -6319,6 +6471,9 @@ async function send(id) {
   // no meio do deck anterior seria um slide aleatório no telão.
   deckPagina = 0;
   cmd({ type: 'load', mediaId: id, view, muted, volume, page: 0 });
+  // A partir daqui há mídia no telão — é o que a reconexão precisa reenviar e o
+  // que o ▶ pode retomar em vez de recarregar (ver `midiaNoAr`).
+  midiaNoAr = true;
   // re-render leve de estados ativos
   document.querySelectorAll('.lib-item,.row-item').forEach((el) => el.classList.toggle('active', el.dataset.id === id));
   renderNowPlaying();
@@ -6631,10 +6786,31 @@ function lvBuildSong(el, cur) {
         aux.textContent = slide.auxText;
         row.appendChild(aux);
       }
-      const txt = document.createElement('div');
-      txt.className = 'lv-text';
-      txt.textContent = slide.text || '';
-      row.appendChild(txt);
+      // A DIVISÃO DENTRO DO SLIDE (v5.142).
+      //
+      // Um slide da API pode trazer mais de uma estrofe, separadas por uma
+      // LINHA EM BRANCO (`<br><br>` na origem, que o `normalizeLyricText`
+      // converte em `\n\n`). O visualizador desenhava tudo num nó só com
+      // `white-space: pre-line` — e é aí que a divisão se perdia: `pre-line`
+      // COLAPSA sequências de espaço em branco, então `\n\n` vira UMA quebra
+      // simples e as duas estrofes encostam uma na outra como se fossem um
+      // bloco só. Era literalmente o relato: "alguns hinos não estão dividindo,
+      // mesmo na realidade tendo divisões".
+      //
+      // Cada bloco vira um parágrafo próprio. A LINHA continua sendo UMA (o
+      // mesmo `data-i`, o mesmo destaque, a mesma posição no tempo): o que se
+      // divide é a apresentação do texto, não a unidade de projeção — dividir a
+      // unidade quebraria o realce da estrofe em cena e o ⏮/⏭.
+      String(slide.text || '')
+        .split(/\n[ \t]*\n+/)
+        .map((b) => b.trim())
+        .filter(Boolean)
+        .forEach((bloco) => {
+          const txt = document.createElement('div');
+          txt.className = 'lv-text';
+          txt.textContent = bloco;
+          row.appendChild(txt);
+        });
     }
     if (i === cur) row.classList.add('current');
     el.appendChild(row);
@@ -6744,6 +6920,12 @@ function lvScroll(el, follow, smooth) {
 function resetAfterEnd() {
   // stage.js já voltou ao wallpaper internamente (ended flag);
   // apenas atualiza a UI sem limpar currentId (replay possível com play)
+  //
+  // E o telão está no wallpaper: o item continua SELECIONADO (é o que permite
+  // repetir com o ▶), mas não está mais EM CENA. Sem esta linha, todo dongle
+  // que caísse depois do fim de um louvor trazia a faixa de volta à TV — que é
+  // o "ele tenta exibir a primeira tela/thumbnail" do relato.
+  midiaNoAr = false;
   setPlaying(false);
   seekEl.value = 0;
   curTimeEl.textContent = '0:00';
@@ -6813,6 +6995,10 @@ async function stopClear() {
   pausaEm = Date.now();
   cmd({ type: 'clear' });
   clearManualText();
+  // O TELÃO ESTÁ VAZIO A PARTIR DAQUI, e isso precisa ser dito ANTES do fade
+  // terminar: quem pergunta a `preview.getCurrent()` recebe "ainda tem mídia"
+  // durante todo o esmaecimento do `clearFaded` (ver `midiaNoAr`).
+  midiaNoAr = false;
   setPlaying(false);
   // YouTube: 'clear' derruba o player da preview (dropYtPreview via cmd) e o do
   // Display → o próximo ▶ precisa recarregar (send), não só reenviar 'play'.
@@ -6932,10 +7118,23 @@ async function favoritarSelecionados() {
   sairDaSelecaoDepois();
 }
 
-// Encerrar a seleção depois que o pulso do botão foi visto. Um só ponto,
-// porque os três botões de destino da barra precisam da mesma espera.
+// A SELEÇÃO SOBREVIVE AO DESTINO (v5.141).
+//
+// Até aqui um destino encerrava a seleção: mandar cinco louvores para a playlist
+// E para os Favoritos exigia selecioná-los duas vezes, um por um, na mão. É o
+// mesmo defeito que a folha de destinos tinha — "só um caminho por vez" —, com
+// a diferença de que aqui não é preciso caixa de marcação nenhuma: os destinos
+// já são três botões lado a lado, e o único que os separava era a barra sumindo
+// no primeiro toque.
+//
+// A barra continua sendo fechada pelo ✕ (`#selCancel`), pelo botão voltar do
+// aparelho e por desmarcar o último item — três saídas que já existiam. O que
+// muda é ela não decidir sozinha que o operador terminou.
+//
+// O redesenho espera o pulso do botão pelo mesmo motivo de sempre: remontar a
+// lista agora arrancaria da tela justamente o botão que está confirmando.
 function sairDaSelecaoDepois() {
-  setTimeout(() => { exitSelection(); load(); }, PULSO_MS);
+  setTimeout(() => { load(); }, PULSO_MS);
 }
 
 // A conta é do LOTE: "3 de 4 adicionados" diz, numa linha, que um deles já
@@ -7296,8 +7495,10 @@ async function addToFolder(folderId, ids, btn) {
     return atual;
   });
   responder(btn, tipoLote(novos, ids.length), textoLote(novos, ids.length, onde));
-  // A folha do seletor fecha depois do pulso, pelo mesmo motivo da barra.
-  setTimeout(() => { closeFolderPicker(); exitSelection(); load(); }, PULSO_MS);
+  // A folha do seletor fecha depois do pulso, pelo mesmo motivo da barra. A
+  // SELEÇÃO fica (v5.141): os mesmos itens podem ir para uma segunda pasta, ou
+  // para a playlist e os Favoritos, sem serem selecionados de novo.
+  setTimeout(() => { closeFolderPicker(); load(); }, PULSO_MS);
 }
 
 // `ids` explícito = o alvo veio de fora da seleção múltipla (uma música do
@@ -8854,6 +9055,11 @@ function openYtMenu(r) {
   // não seria.
   if (!songMenuFor || songMenuFor.yt !== r) {
     songMenuFor = { yt: r, variant: 'full', audio: false, alt: YT_ALTURAS[0] };
+    // Item novo, folha nova: os destinos marcados são da FOLHA ABERTA e não
+    // atravessam de um vídeo para o outro. (Os toques nos seletores de forma e
+    // qualidade remontam a folha para o MESMO `r` e passam por aqui sem zerar
+    // nada, que é o que preserva o que já foi marcado.)
+    destLimpar();
   }
   songMenuTitleEl.textContent = r.name || 'Vídeo do YouTube';
   songMenuListEl.innerHTML = '';
@@ -8901,15 +9107,32 @@ function openYtMenu(r) {
   // `songMenuFor` — ler o teto lá dentro encontraria null e todo download sairia
   // no padrão, calado.
   const altura = soAudio ? 0 : (songMenuFor.alt | 0);
+  // OS DESTINOS SÃO MARCÁVEIS (v5.141), e aqui o ganho é maior que no acervo: um
+  // vídeo do YouTube custa MINUTOS de download. Até aqui, querer o mesmo louvor
+  // no Cronograma e nos Favoritos era baixá-lo duas vezes — e o operador só
+  // descobria isso na segunda espera. Agora o download é um só e o arquivo entra
+  // nas listas marcadas.
+  //
+  // "Tocar agora" NÃO ganha caixa: ele não é uma lista, é o telão. E ele
+  // continua honrando o que estiver marcado (o `songMenuItem` passa a união),
+  // então "marcar Cronograma + tocar agora" projeta e guarda no mesmo toque —
+  // que é exatamente o que se faz com o louvor que acabou de chegar.
+  const remontar = () => openYtMenu(r);
+  destExecutor = (alvos, btn) => ytAcao(r, alvos, btn, soAudio, altura);
   songMenuListEl.appendChild(songMenuItem(msym(ICON.play), 'Tocar agora',
     soAudio ? 'Toca no fundo, sem mexer no telão' : 'Projeta em seguida, sem entrar no Cronograma',
-    () => ytAcao(r, 'tocar', null, soAudio, altura)));
+    (vr, btn, alvos) => ytAcao(r, alvos, null, soAudio, altura), 'tocar'));
   songMenuListEl.appendChild(songMenuItem(msym(ICON.queue), 'Adicionar à playlist',
-    'Entra na fila, sem entrar no Cronograma', (vr, btn) => ytAcao(r, 'playlist', btn, soAudio, altura)));
+    'Entra na fila, sem entrar no Cronograma',
+    (vr, btn, alvos) => ytAcao(r, alvos, btn, soAudio, altura), 'playlist', remontar));
   songMenuListEl.appendChild(songMenuItem(msym(ICON.cronoAdd), 'Adicionar ao Cronograma',
-    'A lista do culto', (vr, btn) => ytAcao(r, 'cronograma', btn, soAudio, altura)));
+    'A lista do culto',
+    (vr, btn, alvos) => ytAcao(r, alvos, btn, soAudio, altura), 'cronograma', remontar));
   songMenuListEl.appendChild(songMenuItem(msym(ICON.star), 'Favoritar',
-    'Baixa e marca — fica à mão toda semana', (vr, btn) => ytAcao(r, 'favoritos', btn, soAudio, altura)));
+    'Baixa e marca — fica à mão toda semana',
+    (vr, btn, alvos) => ytAcao(r, alvos, btn, soAudio, altura), 'favoritos', remontar));
+  const go = destConfirmRow();
+  if (go) songMenuListEl.appendChild(go);
   songMenuPopupEl.classList.add('open');
 }
 
@@ -8928,12 +9151,11 @@ function openYtMenu(r) {
 // operador só quis ver uma vez. A lista de destino agora é decidida AQUI e
 // entregue ao `addMedia`, que continua gravando registro e lista na mesma
 // transação.
-const YT_LISTA = { tocar: 'avulsos', playlist: 'playlist', cronograma: 'imports', favoritos: 'favs' };
-// O nome do destino como se fala dele — para a única situação em que o app
-// precisa DIZER onde o item foi parar (ver `ytLinhaVisivel`).
-const YT_DESTINO_NOME = {
-  playlist: 'na playlist', cronograma: 'no Cronograma', favoritos: 'nos Favoritos',
-};
+// (`YT_LISTA` e `YT_DESTINO_NOME` saíram na v5.141: eram uma segunda tabela de
+// destinos, só para o YouTube, com os mesmos três nomes e as mesmas três listas
+// da `DESTINOS`/`LISTA_ROTULO`. Duas tabelas divergiriam no primeiro destino que
+// alguém acrescentasse a uma só — e o multi-destino precisava justamente de uma
+// fonte única para montar a frase "adicionado à playlist e ao Cronograma".)
 
 // Projeta um vídeo do YouTube SEM baixá-lo antes: o shell monta o manifesto das
 // duas faixas adaptativas e o `MediaSource` do lado web as transforma num
@@ -9078,11 +9300,31 @@ async function recuperarStream(rec, porque) {
   await load();
   if (currentId === rec.id || !currentId) await send(novo.id);
 }
-async function ytAcao(r, destino, btn, somenteAudio, altura) {
-  const tocar = destino === 'tocar';
+// `destinos` é a LISTA de escolhas da folha — uma ou várias chaves de
+// `DESTINOS`, mais o `tocar`, que não é lista nenhuma (v5.141). Uma string
+// solta continua valendo: os chamadores de fora da folha (o link já no
+// Cronograma) mandam um destino só, e escrever `['cronograma']` neles seria
+// ruído.
+async function ytAcao(r, destinos, btn, somenteAudio, altura) {
+  const escolhas = [...new Set(typeof destinos === 'string' ? [destinos] : (destinos || []))];
+  // Sem destino nenhum o download não teria dono e o item ficaria pendurado no
+  // slot avulso, invisível — pior que o Cronograma, que é a lista à vista e de
+  // onde se apaga com um toque. Não há caminho na UI que chegue aqui vazio; a
+  // guarda existe para não haver.
+  if (!escolhas.length) escolhas.push('cronograma');
+  const tocar = escolhas.includes('tocar');
+  // Os destinos que GUARDAM, na ordem da folha. `tocar` fica de fora: ele é o
+  // telão, e o telão não é uma lista.
+  const guardar = escolhas.filter((d) => d !== 'tocar');
   if (tocar) closeHymnSearch();
   setYtEstado(r.id, 'baixando');
-  const lista = YT_LISTA[destino] || 'imports';
+  // O DOWNLOAD NASCE NA PRIMEIRA lista escolhida e é ESPALHADO para as demais
+  // depois — o arquivo é um só, e o que muda entre os destinos é apenas em
+  // quantos conjuntos de ids o mesmo registro aparece. Sem nenhum destino de
+  // guarda (só "Tocar agora"), o slot avulso é quem segura os bytes, como
+  // sempre.
+  const listas = listasDosDestinos(guardar);
+  const lista = listas[0] || 'avulsos';
   // "JÁ ESTAVA LÁ?" PRECISA SER PERGUNTADO AGORA, antes do download: um vídeo
   // novo NASCE na lista (o `addMedia` lá dentro já recebe o destino), então
   // perguntar depois anunciaria todo download novo como "já estava lá" — o
@@ -9113,16 +9355,31 @@ async function ytAcao(r, destino, btn, somenteAudio, altura) {
   // mas "rápido" não é o pedido: o pedido é NÃO ESPERAR. Um áudio de 8 MB ainda
   // são segundos de espera com o culto rodando, e a transmissão começa a tocar
   // com o primeiro fragmento, na casa dos kB.
-  if (tocar && await tentarTransmitir(r, altura, soAudio)) return;
+  //
+  // COMBINADO COM UM DESTINO DE GUARDA, a transmissão fica de fora: ela não
+  // produz arquivo (é um manifesto que expira em horas), e o operador que
+  // marcou "Cronograma" pediu justamente o que sobra depois do domingo. Aqui o
+  // download é obrigatório, e projetar acontece no fim dele.
+  if (tocar && !guardar.length && await tentarTransmitir(r, altura, soAudio)) return;
 
   const existente = r && r.id ? await AVDB.mediaByYoutube(r.id, soAudio ? 'audio' : 'video') : null;
-  const jaNaLista = !!(existente && existente.blob && await AVDB.listHas(lista, existente.id));
+  // "Já estava lá" é sobre o CONJUNTO: com mais de um destino, o que interessa
+  // é se sobrou algo a fazer. Um vídeo que já está no Cronograma e não está nos
+  // Favoritos não é uma duplicata — metade do pedido é nova.
+  const listasNovas = [];
+  for (const l of listas) {
+    if (!(existente && existente.blob && await AVDB.listHas(l, existente.id))) listasNovas.push(l);
+  }
+  const jaNaLista = listas.length > 0 && listasNovas.length === 0;
   const rec = await ytArquivo(r, {
     lista,
     somenteAudio: soAudio,
     altura,
     naPreview: tocar,
-    aviso: destino === 'playlist' ? 'nenhum' : (tocar ? 'preview' : 'lib'),
+    // O aviso na biblioteca só cala quando NENHUM destino é visível ali — e a
+    // playlist é o único que não é. Com ela combinada ao Cronograma, o cartão
+    // volta a valer.
+    aviso: (guardar.length === 1 && guardar[0] === 'playlist') ? 'nenhum' : (tocar ? 'preview' : 'lib'),
     onPct: (pct) => setYtEstado(r.id, 'baixando', pct),
   });
   // FALAR QUANDO NÃO DEU. Até a v5.112 o download que falhava só apagava a
@@ -9152,13 +9409,14 @@ async function ytAcao(r, destino, btn, somenteAudio, altura) {
   }
   setYtEstado(r.id, 'pronto');
   // O registro REAPROVEITADO pode estar em outra lista (ou só no slot avulso):
-  // o download novo já nasceu na lista certa, mas este não. `listAdd` é
-  // idempotente, então vale para os dois casos sem perguntar qual é.
-  if (!tocar) {
-    await AVDB.listAdd(lista, rec.id);
+  // o download novo já nasceu na PRIMEIRA lista, mas nas outras não — e um
+  // reaproveitado pode não estar em nenhuma. `listAdd` é idempotente, então o
+  // laço vale para os dois casos sem perguntar qual é.
+  if (guardar.length) {
+    for (const l of listas) await AVDB.listAdd(l, rec.id);
     // Promovido a lista de verdade, sai do slot avulso — que existe só para
-    // segurar o que não tem outro dono. A ordem importa: primeiro entra na
-    // lista nova, senão o `listRemove` coletaria o blob.
+    // segurar o que não tem outro dono. A ordem importa: primeiro entra nas
+    // listas novas, senão o `listRemove` coletaria o blob.
     await AVDB.listRemove('avulsos', rec.id);
     // SEM FAIXA DE AVISO NO FIM DO DOWNLOAD (v5.119). `responder` cai no
     // `avisar` quando o botão não está visível — e no caminho do YouTube ele
@@ -9181,17 +9439,18 @@ async function ytAcao(r, destino, btn, somenteAudio, altura) {
     // para a playlist ou os Favoritos, que não são a lista à vista. Uma frase
     // curta dizendo PARA ONDE ele foi é o que fecha o compartilhamento.
     if (!ytLinhaVisivel(r.id)) {
-      avisar((jaNaLista ? 'Já estava ' : 'Adicionado ') + (YT_DESTINO_NOME[destino] || 'na lista') + '.',
-        jaNaLista ? 'dup' : 'ok');
+      const onde = juntarFrases((jaNaLista ? listas : listasNovas)
+        .map((l) => (LISTA_ROTULO[l] || ROTULO_PADRAO).em));
+      avisar((jaNaLista ? 'Já estava ' : 'Adicionado ') + onde + '.', jaNaLista ? 'dup' : 'ok');
     }
   } else {
     await fixarAvulso(rec.id);
   }
-  if (destino === 'playlist') {
+  if (listas.includes('playlist')) {
     plItems = await AVDB.listItems('playlist');
     renderPlaylist();
   }
-  if (destino === 'favoritos') await recarregarFavoritos();
+  if (listas.includes('favs')) await recarregarFavoritos();
   await load();
   if (tocar) {
     // A mídia avulsa não está em `libItems` nem em `plItems`, então quem
@@ -9514,7 +9773,51 @@ function hymnResultRow(coll, s, lyricHit, semColecao) {
 // não conseguiam dizer.
 let songMenuFor = null;   // { coll, s, variant } — `variant` é a escolha da folha de adicionar
 
+// ===== MARCAR MAIS DE UM DESTINO NA MESMA FOLHA (v5.141) =====
+//
+// A folha nasceu como "uma pergunta, uma resposta": cada linha era uma ação
+// completa e o toque fechava tudo. O toque continua sendo isso — nada do que
+// funcionava mudou de lugar —, mas cada linha de DESTINO ganhou uma caixa de
+// marcação na borda direita.
+//
+// A regra é uma só, e vale para as duas folhas (acervo e YouTube):
+//
+//  - **Toque no corpo da linha** = executa AGORA, para aquele destino MAIS o
+//    que já estiver marcado. É o caminho de um toque de sempre quando não há
+//    nada marcado, e é o que fecha a escolha quando há: marcar "Playlist" e
+//    tocar em "Cronograma" manda para os dois. Ignorar o que está marcado seria
+//    o app desfazer, calado, uma escolha que o operador acabou de fazer.
+//  - **Toque na caixa** = só marca (ou desmarca) e a folha CONTINUA aberta.
+//  - Com pelo menos um marcado aparece a linha de confirmação no fim da folha,
+//    para o caso em que todos os destinos desejados já estão marcados e não
+//    sobrou nenhuma linha para tocar.
+//
+// O conjunto é da FOLHA ABERTA, não do item: ele nasce vazio a cada abertura,
+// pelo mesmo motivo que o teto de resolução do YouTube nasce no padrão a cada
+// item — uma marcação que grudasse mandaria para os Favoritos, sem aviso, o
+// vídeo que se quis ver uma vez no domingo seguinte.
+const destMarcados = new Set();
+// Quem sabe EXECUTAR os destinos desta folha: `(chaves, btn) => Promise`. É
+// definido por quem monta a folha (o acervo e o YouTube fazem coisas diferentes
+// com a mesma lista de destinos) e lido pela linha de confirmação.
+let destExecutor = null;
+
+function destLimpar() { destMarcados.clear(); destExecutor = null; }
+
+// A união do que está marcado com a linha em que se tocou, na ordem da tabela —
+// para o aviso sair sempre na mesma ordem, e não na ordem em que o operador
+// marcou.
+function destUniao(chave) {
+  const alvo = new Set(destMarcados);
+  if (chave) alvo.add(chave);
+  const ordem = DESTINOS.map((d) => d.chave).filter((c) => alvo.has(c));
+  // Chaves que não estão na tabela (o `tocar` do YouTube) entram no fim: elas
+  // não são lista nenhuma, e quem as trata é o executor.
+  return ordem.concat([...alvo].filter((c) => !ordem.includes(c)));
+}
+
 function openSongMenu(coll, s, modo) {
+  destLimpar();
   songMenuFor = { coll, s, variant: 'full' };
   songMenuTitleEl.textContent = songLabel(coll, s);
   renderSongMenu(modo);
@@ -9522,12 +9825,40 @@ function openSongMenu(coll, s, modo) {
 }
 
 function closeSongMenu() {
+  // A folha é reusada como SELETOR DE DESTINOS da importação (ver
+  // `escolherDestinos`), e ali fechá-la é uma resposta — a promessa fica
+  // pendente para sempre se ninguém a resolver. Fechar por ✕, pelo fundo ou
+  // pelo botão voltar do aparelho entra todo aqui, então é aqui que a
+  // desistência é dita.
+  if (destPromptResolve) { fecharDestPrompt(null); return; }
+  destLimpar();
   songMenuFor = null;
   songMenuPopupEl.classList.remove('open');
 }
 
+// A caixa de marcação de uma linha de destino. `stopPropagation` porque ela vive
+// DENTRO do botão da linha: sem isso, marcar dispararia a ação da linha e a
+// folha fecharia — o oposto exato do que a caixa existe para permitir.
+function destCheck(chave, aoMudar) {
+  const cx = document.createElement('span');
+  cx.className = 'song-menu-check' + (destMarcados.has(chave) ? ' on' : '');
+  cx.setAttribute('role', 'checkbox');
+  cx.setAttribute('aria-checked', destMarcados.has(chave) ? 'true' : 'false');
+  cx.title = destMarcados.has(chave) ? 'Marcado — tocar para desmarcar'
+    : 'Marcar para enviar a mais de um destino';
+  cx.addEventListener('click', (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    if (destMarcados.has(chave)) destMarcados.delete(chave); else destMarcados.add(chave);
+    aoMudar();
+  });
+  return cx;
+}
+
 // Uma linha da folha: ícone + rótulo + (às vezes) uma segunda linha explicando.
-function songMenuItem(icone, rotulo, sub, acao) {
+// `destino` (opcional) é a chave da tabela `DESTINOS`: com ela a linha ganha a
+// caixa de marcação e a ação recebe a UNIÃO do marcado com esta linha.
+function songMenuItem(icone, rotulo, sub, acao, destino, aoMudar) {
   const li = document.createElement('li');
   const btn = document.createElement('button'); btn.className = 'song-menu-btn';
   if (typeof icone === 'string') {
@@ -9544,27 +9875,161 @@ function songMenuItem(icone, rotulo, sub, acao) {
     txt.appendChild(d);
   }
   btn.appendChild(txt);
+  // A caixa só aparece para destino de TABELA. O "Tocar agora" do YouTube passa
+  // por aqui com `destino = 'tocar'` para receber a união do que está marcado —
+  // mas ele não é uma lista, e uma caixa nele ofereceria "marcar o telão".
+  if (destino && destinoPorChave(destino)) btn.appendChild(destCheck(destino, aoMudar || (() => {})));
   // A variante escolhida no seletor do topo é LIDA AQUI e passada para a ação:
   // `closeSongMenu()` zera `songMenuFor`, e uma ação que fosse consultá-lo
-  // depois disso encontraria null.
+  // depois disso encontraria null. Vale igual para os destinos marcados, que
+  // `destLimpar()` zera no mesmo ponto.
   btn.addEventListener('click', () => {
     const variante = songMenuFor ? songMenuFor.variant : 'full';
+    const alvos = destino ? destUniao(destino) : null;
     closeSongMenu();
     // O botão VAI com a ação mesmo assim: a folha fecha aqui (o download de uma
     // música ou de um vídeo leva de segundos a minutos, e uma folha aberta
     // durante isso é uma tela travada), então o `responder` cai na faixa de
     // aviso — mas se um dia alguma dessas ações deixar de fechar a folha, o
     // pulso passa a valer sem precisar lembrar de ligá-lo.
-    acao(variante, btn);
+    acao(variante, btn, alvos);
   });
   li.appendChild(btn);
   return li;
 }
 
+// A linha de confirmação, no fim da folha e só com algo marcado. Ela existe
+// para o caso em que já não há linha a tocar: marcados Playlist e Favoritos,
+// tocar numa terceira linha acrescentaria um destino que ninguém pediu.
+function destConfirmRow() {
+  if (!destMarcados.size || !destExecutor) return null;
+  const alvos = destUniao(null);
+  const nomes = juntarFrases(alvos.map((c) => {
+    const d = destinoPorChave(c);
+    return d ? d.rotulo : c;
+  }));
+  const li = document.createElement('li');
+  li.className = 'song-menu-go-row';
+  const btn = document.createElement('button');
+  btn.type = 'button'; btn.className = 'song-menu-btn song-menu-go';
+  const txt = document.createElement('span'); txt.className = 'song-menu-text';
+  const t = document.createElement('span'); t.className = 'song-menu-label';
+  t.textContent = alvos.length > 1 ? 'Enviar aos ' + alvos.length + ' destinos' : 'Enviar';
+  const d = document.createElement('span'); d.className = 'song-menu-sub'; d.textContent = nomes;
+  txt.append(t, d);
+  btn.appendChild(txt);
+  btn.addEventListener('click', () => {
+    const variante = songMenuFor ? songMenuFor.variant : 'full';
+    const exec = destExecutor;
+    closeSongMenu();
+    // A folha pode ter sido remontada por outra porta entre o desenho desta
+    // linha e o toque nela; sem executor não há o que fazer, e uma exceção aqui
+    // derrubaria o handler no meio de um culto.
+    if (exec) exec(alvos, btn, variante);
+  });
+  li.appendChild(btn);
+  return li;
+}
+
+// ===== A MESMA FOLHA, COMO PERGUNTA (importação e compartilhamento) =====
+//
+// Um arquivo importado ou compartilhado ia SEMPRE para o Cronograma, sem
+// pergunta — a lista era escolhida no código (`destinoDoShare`). Para um louvor
+// que se quer nos Favoritos, isso significava importar, achar o item na lista e
+// marcá-lo à mão, um por um.
+//
+// Aqui a folha de destinos vira uma PERGUNTA: as mesmas três linhas marcáveis,
+// o Cronograma já marcado (o destino de sempre, para quem só quer confirmar) e
+// um botão que fecha. É a única porta em que a folha PRECISA de confirmação:
+// nas outras cada linha é uma ação completa, e aqui não há ação nenhuma até o
+// operador dizer para onde.
+//
+// **Desistir não perde o item.** Fechar por ✕, pelo fundo ou pelo voltar do
+// aparelho resolve `null`, e quem chamou importa no destino padrão — a mesma
+// regra do link compartilhado, que "nunca se perde".
+let destPromptResolve = null;
+
+function fecharDestPrompt(valor) {
+  const r = destPromptResolve;
+  destPromptResolve = null;
+  destLimpar();
+  songMenuFor = null;
+  songMenuPopupEl.classList.remove('open');
+  if (r) r(valor);
+}
+
+function escolherDestinos(titulo, padrao) {
+  // No simplificado não existe Cronograma nem playlist: perguntar por listas que
+  // a tela não tem seria pior que não perguntar (a mesma regra do link
+  // compartilhado ali). Quem chama já sabe disso, mas a guarda fica: uma folha
+  // aberta sobre a tela bloqueada não teria como ser respondida.
+  if (simplificado()) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    destPromptResolve = resolve;
+    destLimpar();
+    (padrao && padrao.length ? padrao : ['cronograma']).forEach((c) => destMarcados.add(c));
+    songMenuFor = { destPrompt: true };
+    songMenuTitleEl.textContent = titulo;
+    renderDestPrompt();
+    songMenuPopupEl.classList.add('open');
+  });
+}
+
+const DEST_ICONE = { playlist: 'queue', cronograma: 'cronoAdd', favoritos: 'star' };
+
+function renderDestPrompt() {
+  songMenuListEl.innerHTML = '';
+  const remontar = () => renderDestPrompt();
+  DESTINOS.forEach((d) => {
+    // Linhas PRÓPRIAS, e não `songMenuItem`: lá o corpo da linha EXECUTA e fecha
+    // a folha, e aqui não há ação nenhuma por trás dele — a linha inteira marca,
+    // que é o alvo que uma lista de opções pede. Reusar aquela função com uma
+    // ação vazia deixaria a folha fechando a cada marcação.
+    const li = document.createElement('li');
+    const btn = document.createElement('button');
+    btn.type = 'button'; btn.className = 'song-menu-btn';
+    // Mesma montagem do `songMenuItem`: a classe vai NO glifo, senão a escala
+    // de `.song-menu-icon.msym` não o alcança e o ícone sai menor que o das
+    // outras folhas.
+    const ic = msym(ICON[DEST_ICONE[d.chave]] || ICON.add);
+    ic.classList.add('song-menu-icon');
+    const txt = document.createElement('span'); txt.className = 'song-menu-text';
+    const t = document.createElement('span'); t.className = 'song-menu-label'; t.textContent = d.rotulo;
+    const sub = document.createElement('span'); sub.className = 'song-menu-sub'; sub.textContent = d.sub;
+    txt.append(t, sub);
+    // A caixa é a MESMA das outras folhas — ela para o borbulhar, então o
+    // listener da linha não roda duas vezes quando o toque cai exatamente nela.
+    btn.append(ic, txt, destCheck(d.chave, remontar));
+    btn.addEventListener('click', () => {
+      if (destMarcados.has(d.chave)) destMarcados.delete(d.chave); else destMarcados.add(d.chave);
+      remontar();
+    });
+    li.appendChild(btn);
+    songMenuListEl.appendChild(li);
+  });
+  const li = document.createElement('li');
+  li.className = 'song-menu-go-row';
+  const go = document.createElement('button');
+  go.type = 'button'; go.className = 'song-menu-btn song-menu-go';
+  const txt = document.createElement('span'); txt.className = 'song-menu-text';
+  const t = document.createElement('span'); t.className = 'song-menu-label';
+  const escolhidos = destUniao(null);
+  t.textContent = escolhidos.length ? 'Importar' : 'Escolha um destino';
+  const sub = document.createElement('span'); sub.className = 'song-menu-sub';
+  sub.textContent = juntarFrases(escolhidos.map((c) => (destinoPorChave(c) || {}).rotulo || c));
+  txt.append(t, sub);
+  go.appendChild(txt);
+  go.disabled = !escolhidos.length;
+  go.addEventListener('click', () => fecharDestPrompt(escolhidos));
+  li.appendChild(go);
+  songMenuListEl.appendChild(li);
+}
+
 function renderSongMenu(modo) {
-  // A folha é compartilhada com os resultados do YouTube (`openYtMenu`), que
-  // não têm `coll`/`s` — e o seletor de variante do topo chama isto de volta.
-  if (!songMenuFor || songMenuFor.yt) return;
+  // A folha é compartilhada com os resultados do YouTube (`openYtMenu`) e com o
+  // seletor de destinos da importação (`escolherDestinos`), que não têm
+  // `coll`/`s` — e o seletor de variante do topo chama isto de volta.
+  if (!songMenuFor || songMenuFor.yt || songMenuFor.destPrompt) return;
   const { coll, s } = songMenuFor;
   const temPlayback = !!s.has_instrumental_music;
   songMenuListEl.innerHTML = '';
@@ -9598,18 +10063,24 @@ function renderSongMenu(modo) {
       (v) => { songMenuFor.variant = v; renderSongMenu('add'); }));
   }
 
+  // OS TRÊS DESTINOS SÃO MARCÁVEIS (v5.141): o toque na linha continua sendo a
+  // ação completa de um toque só, e a caixa da borda acumula — a mesma música
+  // vai para a playlist E para os Favoritos sem refazer a busca. O executor é o
+  // mesmo dos três, porque a diferença entre eles sempre foi só a lista.
+  const remontar = () => renderSongMenu('add');
+  destExecutor = (alvos, btn, vr) => addSongToDestinos(coll, s, vr, alvos, btn);
   songMenuListEl.appendChild(songMenuItem(msym(ICON.queue), 'Adicionar à playlist',
     'Entra na fila do que está tocando agora',
-    (vr, btn) => addSongToPlaylist(coll, s, vr, btn)));
+    (vr, btn, alvos) => addSongToDestinos(coll, s, vr, alvos, btn), 'playlist', remontar));
   songMenuListEl.appendChild(songMenuItem(msym(ICON.cronoAdd), 'Adicionar ao Cronograma',
     'A lista do culto',
-    (vr, btn) => addSongVariant(coll, s, vr, btn)));
+    (vr, btn, alvos) => addSongToDestinos(coll, s, vr, alvos, btn), 'cronograma', remontar));
   // "Escolha o atalho" saiu do subtítulo (v5.103): favoritar virou o ato
   // simples, sem seletor no meio. Organizar em atalho continua possível — pela
   // seleção múltipla, dentro da gaveta, para quem tem muita coisa marcada.
   songMenuListEl.appendChild(songMenuItem(msym(ICON.star), 'Favoritar',
     'O que se usa toda semana, sempre à mão',
-    (vr, btn) => addSongToFavorites(coll, s, vr, btn)));
+    (vr, btn, alvos) => addSongToDestinos(coll, s, vr, alvos, btn), 'favoritos', remontar));
   // A LETRA como cena de roteiro: entra no Cronograma sem baixar áudio nenhum,
   // e projetá-la é o mesmo "Apenas a letra" da folha de tocar. É o item de
   // roteiro mais pedido depois do versículo — o hino que a congregação canta a
@@ -9617,6 +10088,11 @@ function renderSongMenu(modo) {
   songMenuListEl.appendChild(songMenuItem(lyricsOnlyIconSvg(), 'Só a letra, no Cronograma',
     'Sem baixar a música',
     (vr, btn) => addLyricCue(coll, s, btn)));
+  // SEM caixa de marcação: a letra não é o mesmo item em outra lista, é OUTRO
+  // item (uma cena de roteiro, sem áudio). Misturá-la aos destinos faria um
+  // toque criar duas coisas diferentes de uma vez.
+  const go = destConfirmRow();
+  if (go) songMenuListEl.appendChild(go);
 }
 
 // Cena de roteiro da LETRA de uma música do acervo.
@@ -9931,42 +10407,40 @@ async function playSongVariant(coll, s, variant) {
 // aberto de propósito. O aviso que sobra é o do RESULTADO ("Adicionado à
 // playlist"), que é outra informação.
 async function addSongVariant(coll, s, variant, btn) {
-  const id = await resolveSongMediaId(coll, s, variant, { toast: false });
-  if (!id) { avisar('Não foi possível adicionar (sem internet para baixar)', 'erro'); return; }
-  await adicionarNaLista('imports', id, songLabel(coll, s), btn);
-  if (activeTab === 'imports' && !currentFolder) load();
+  return addSongToDestinos(coll, s, variant, ['cronograma'], btn);
 }
 
-// Favoritos = atalhos, e um atalho é uma escolha: reusa o MESMO seletor da
-// barra de seleção múltipla (openFolderPicker), com o id da música no lugar da
-// seleção. Uma segunda lista de atalhos só para o acervo divergiria da
-// primeira no dia em que alguém criasse um atalho novo.
-// Favoritar uma música do acervo continua BAIXANDO o arquivo, e isso é
-// deliberado: um favorito é o que se usa toda semana, e o que o operador espera
-// dele num domingo de manhã é que ele TOQUE — inclusive com a rede da igreja
-// fora do ar. Um marcador que só guarda a referência seria mais barato de criar
-// e falharia justamente na hora em que ele é usado.
-//
-// O que mudou na v5.103 é o destino: a lista `favs`, direto, em vez do seletor
-// de atalho. Marcar o primeiro favorito custava criar uma pasta antes.
-async function addSongToFavorites(coll, s, variant, btn) {
+// UM download, VÁRIAS listas (v5.141). O caro aqui é `resolveSongMediaId` — ele
+// baixa o áudio quando ele ainda não está no aparelho —, e o item resultante é
+// o MESMO id em todas as listas. Fazer a conta uma vez e distribuir depois é a
+// diferença entre esperar um download e esperar três para a mesma música.
+async function addSongToDestinos(coll, s, variant, destinos, btn) {
+  const alvos = (destinos && destinos.length) ? destinos : ['cronograma'];
   const id = await resolveSongMediaId(coll, s, variant, { toast: false });
   if (!id) { avisar('Não foi possível adicionar (sem internet para baixar)', 'erro'); return; }
-  await adicionarNaLista('favs', id, songLabel(coll, s), btn);
-  renderLibrary();
+  await adicionarNasListas(listasDosDestinos(alvos), id, songLabel(coll, s), btn);
+  // Cada destino redesenha o que ele mudou, e só isso: os Favoritos aparecem na
+  // estrela de cada linha do acervo, e o Cronograma só precisa ser remontado se
+  // ele for a lista em cena.
+  if (alvos.includes('favoritos')) renderLibrary();
+  if (alvos.includes('cronograma') && activeTab === 'imports' && !currentFolder) load();
 }
 
-async function addSongToPlaylist(coll, s, variant, btn) {
-  const id = await resolveSongMediaId(coll, s, variant, { toast: false });
-  if (!id) { avisar('Não foi possível adicionar (sem internet para baixar)', 'erro'); return; }
-  await adicionarNaLista('playlist', id, songLabel(coll, s), btn);
-}
+// (`addSongToFavorites` e `addSongToPlaylist` saíram na v5.141: eram três
+// funções que diferiam APENAS na lista de destino, e o multi-destino as
+// unificou em `addSongToDestinos`. Favoritar uma música do acervo continua
+// BAIXANDO o arquivo, e isso é deliberado: um favorito é o que se usa toda
+// semana, e o que o operador espera dele num domingo de manhã é que ele TOQUE —
+// inclusive com a rede da igreja fora do ar. Um marcador que só guardasse a
+// referência seria mais barato de criar e falharia justamente na hora em que ele
+// é usado.)
 
 // ===== transições (fade in/out) =====
 function openFadePopup() {
   renderAppModeSeg();
   renderStandaloneSeg();
   renderFitSeg();
+  renderRotBtn();
   renderLyricsBgSeg();
   renderWallSeg();
   // O estado do espelho é relido ao ABRIR (e depois só enquanto a folha dele
@@ -10381,6 +10855,37 @@ async function applyFit(mode) {
   renderFitSeg();
   await AVDB.setState('fit', mediaFit);
   cmd({ type: 'fit', fit: mediaFit });
+}
+
+// ===== GIRAR A MÍDIA (v5.142) =====
+//
+// Vídeo gravado de lado no celular chega DEITADO no telão. Não havia nada a
+// fazer: a mídia é do operador, reencodar no meio de um culto não existe, e
+// "grave de pé" não conserta um arquivo já pronto.
+//
+// UM BOTÃO QUE AVANÇA, não quatro segmentos. Ninguém pensa em "270°" — pensa em
+// "gira mais uma vez até ficar de pé", e são no máximo três toques até qualquer
+// orientação. O rótulo mostra o ângulo vigente para o estado ser legível sem
+// contar toques, e é ele que diz que o giro está ligado quando a mídia em cena
+// já está de pé por acaso.
+//
+// PERSISTIDO como o preenchimento (`state.rotate`), e pelo mesmo motivo: o
+// telão pode reconectar, o app pode ser reaberto no meio do culto, e voltar ao
+// zero sozinho seria desfazer um ajuste que ninguém pediu para desfazer.
+const ROTACOES = [0, 90, 180, 270];
+let mediaRot = 0;
+function renderRotBtn() {
+  if (!rotBtnEl) return;
+  rotBtnEl.classList.toggle('active', mediaRot !== 0);
+  if (rotLabelEl) rotLabelEl.textContent = mediaRot + '°';
+  rotBtnEl.title = mediaRot ? 'Girada ' + mediaRot + '° — tocar gira mais 90°' : 'Girar 90° no telão';
+}
+async function applyRotate(graus) {
+  mediaRot = ((graus | 0) % 360 + 360) % 360;
+  if (!ROTACOES.includes(mediaRot)) mediaRot = 0;
+  renderRotBtn();
+  await AVDB.setState('rotate', mediaRot);
+  cmd({ type: 'rotate', rotate: mediaRot });
 }
 
 // ===== URL / compartilhamento =====
@@ -11067,14 +11572,35 @@ async function handleSharedUrl(url, title) {
 // uma vez, e com um slot só cada um apagaria o anterior — ali o Cronograma
 // continua sendo o destino nos dois modos.
 function simplificado() { return appMode === 'simple'; }
-function destinoDoShare() { return simplificado() ? 'avulsos' : 'imports'; }
+
+// OS DESTINOS DO LOTE QUE ESTÁ ENTRANDO (v5.141). No avançado quem os escolhe é
+// o operador, na folha (ver `escolherDestinos`); no simplificado a pergunta não
+// existe e o valor é ignorado, porque lá tudo vai para a prateleira avulsa.
+//
+// Uma variável de módulo, e não um parâmetro carregado por dez funções: o
+// caminho do share atravessa `handleSharedUrl`, `deckImportar`, `pptxImportar` e
+// `AVDB.addMedia`, todos já recebendo `lista` como um nome só. O que mudou é
+// quantas listas existem DEPOIS da primeira — e essa parte é sempre a mesma
+// (`espalharShare`).
+let shareDestinos = ['cronograma'];
+function destinoDoShare() {
+  return simplificado() ? 'avulsos' : listaDoDestino(shareDestinos[0]);
+}
+// As listas ALÉM da primeira. Quem cria o registro já o grava na primeira, na
+// mesma transação; as outras são um `listAdd` idempotente por item.
+async function espalharShare(id) {
+  if (simplificado() || !id) return;
+  const listas = listasDosDestinos(shareDestinos).slice(1);
+  for (const l of listas) await AVDB.listAdd(l, id);
+}
 async function guardarShare(rec) {
   if (!rec) return rec;
   // No simplificado quem prende o registro na prateleira é o `importShare`, de
   // uma vez só para todo o lote (ver `fixarAvulso`). Aqui só resta o avançado.
   if (!simplificado()) {
     // O registro pode ser um REAPROVEITADO que estava só na prateleira avulsa.
-    await AVDB.listAdd('imports', rec.id);
+    await AVDB.listAdd(destinoDoShare(), rec.id);
+    await espalharShare(rec.id);
     await AVDB.listRemove('avulsos', rec.id);
   }
   return rec;
@@ -11098,6 +11624,24 @@ async function importShare(pending) {
   await sairDasCamadas();
 
   const files = pending.files || [];
+  // PARA ONDE VAI ISTO? (v5.141) — a pergunta que o app respondia sozinho.
+  //
+  // Ela não vale para TUDO o que chega: um link do YouTube abre a folha própria
+  // dele logo abaixo (com os mesmos destinos, mais a forma e a qualidade), e
+  // perguntar duas vezes pelo mesmo item seria pior que não perguntar. E no
+  // simplificado `escolherDestinos` já devolve `null` sozinho — ali não existe
+  // Cronograma nem playlist.
+  //
+  // Desistir (✕, fundo, voltar) devolve `null` e o lote entra no Cronograma,
+  // como sempre entrou: um compartilhamento nunca se perde por causa de uma
+  // pergunta.
+  shareDestinos = ['cronograma'];
+  const temLinkYt = !!(pending.url && extractYouTubeId(pending.url));
+  if (files.length || (pending.url && !temLinkYt)) {
+    const titulo = files.length > 1 ? 'Importar ' + files.length + ' itens' : 'Importar';
+    const escolha = await escolherDestinos(titulo, ['cronograma']);
+    if (escolha && escolha.length) shareDestinos = escolha;
+  }
   // No simplificado NADA de um share vai para lista visível — arquivo inclusive
   // (v5.89): a tela não tem Cronograma nem playlist, e o que chega ali chega
   // para ir ao telão. Os ids do lote são fixados JUNTOS no fim, senão o quinto
@@ -11149,6 +11693,9 @@ async function importShare(pending) {
         });
       }
       if (rec) {
+        // O registro nasceu na PRIMEIRA lista escolhida; as demais são um
+        // `listAdd` por item (ver `espalharShare`).
+        await espalharShare(rec.id);
         if (!primeiro) primeiro = rec.id;
         lote.push(rec.id);
         ok++;
@@ -11187,6 +11734,7 @@ async function importShare(pending) {
     // Só conta o que DE FATO entrou: um `addMedia` que falha com `ok++` fora
     // da guarda fazia o share terminar como sucesso sem item nenhum.
     if (rec) {
+      await espalharShare(rec.id);
       if (!primeiro) primeiro = rec.id;
       lote.push(rec.id);
       ok++;
@@ -11210,7 +11758,24 @@ async function importShare(pending) {
   // Um share traz arquivos OU um link, mas a fixação é uma só de propósito: se
   // um dia vierem os dois, duas chamadas fariam a segunda expulsar a primeira.
   if (simplificado()) await fixarAvulso(lote);
+  // As listas que não são a que está em cena precisam ser relidas: a estrela de
+  // cada linha vem de `favSet`, e a fila da playlist de `plItems`.
+  const listasEscolhidas = simplificado() ? [] : listasDosDestinos(shareDestinos);
+  if (listasEscolhidas.includes('favs')) await recarregarFavoritos();
+  if (listasEscolhidas.includes('playlist')) {
+    plItems = await AVDB.listItems('playlist');
+    renderPlaylist();
+  }
   if (added && !tratado) await focarImportado(primeiro);
+  // DIZER PARA ONDE FOI, e só quando não for óbvio. `focarImportado` leva o
+  // operador ao Cronograma — a resposta visual de sempre —, mas um item que foi
+  // para os Favoritos ou para a playlist não aparece ali, e sem uma frase o
+  // import terminaria parecendo que nada entrou.
+  if (added && !tratado && lote.length
+    && (listasEscolhidas.length > 1 || (listasEscolhidas.length === 1 && listasEscolhidas[0] !== 'imports'))) {
+    const quantos = lote.length === 1 ? '1 item adicionado ' : lote.length + ' itens adicionados ';
+    avisar(quantos + ondeDe(listasEscolhidas, 'para') + '.', 'ok');
+  }
   if (naoAbriu) await avisarNaoAbriu(naoAbriu);
   return added;
 }
@@ -11987,7 +12552,14 @@ playPauseEl.addEventListener('click', () => {
   if (playing) { cmd({ type: 'pause' }); }
   // YouTube sem player vivo no Display (fim natural ou stop manual) → recarrega
   else if (ytEnded && currentItem && currentItem.kind === 'youtube' && currentId) { send(currentId); }
-  else if (preview.getCurrent()) { cmd({ type: 'play' }); }
+  // RETOMAR só vale com a mídia AINDA EM CENA. `preview.getCurrent()` sozinho
+  // não respondia isso: depois de um stop ele continua devolvendo o registro
+  // durante todo o fade de saída do `clearFaded` (~0,6 s), e o `play` mandado
+  // nessa janela era apagado pelo `clear` que terminava logo atrás — o ▶ não
+  // fazia nada, e o operador aprendia a tocar em STOP DUAS VEZES para
+  // destravar. `midiaNoAr` cai no mesmo instante em que o stop é dado, então o
+  // primeiro toque no ▶ já cai no `send` e recarrega. (v5.142)
+  else if (midiaNoAr && preview.getCurrent()) { cmd({ type: 'play' }); }
   else if (currentId) { send(currentId); } // após stop: recarrega e inicia do início
 });
 stopEl.addEventListener('click', stopClear);
@@ -12234,6 +12806,10 @@ volSliderEl.addEventListener('change', () => { volSeekingEl = null; persistCurre
 // (`appMode` é declarado no TOPO do arquivo, junto de `storedAppMode`: a classe
 // do `<body>` precisa estar certa antes do primeiro quadro.)
 let lastDisplays = [];          // telas conectadas (ponte nativa)
+// Releitura da lista de telas, definida junto do bloco nativo (ver mais abaixo)
+// e chamada na retomada do app. No navegador continua no-op: lá quem responde
+// "há tela?" é a janela do Display, e ela é observada por um relógio próprio.
+let reconferirTelas = () => {};
 
 function setAppMode(mode) {
   appMode = mode === 'simple' ? 'simple' : 'full';
@@ -12294,10 +12870,92 @@ function renderSimpleTime() {
   const timed = !seekEl.disabled && dur > 0;
   simpleTimeEl.hidden = !timed;
   if (!timed) return;
+  // DURANTE O ARRASTE quem escreve a barra é o dedo (ver `setupSimpleSeek`).
+  // Sem esta guarda, o `timeupdate` da mídia — que continua tocando enquanto se
+  // procura o ponto — puxaria o preenchimento de volta a cada quadro e o dedo
+  // brigaria com ele. É a mesma regra do `volSeekingEl` no fader.
+  if (simpleSeeking) return;
   simpleTimeCurEl.textContent = fmtTime(cur);
   simpleTimeDurEl.textContent = fmtTime(dur);
   simpleTimeFillEl.style.width = Math.max(0, Math.min(100, (cur / dur) * 100)) + '%';
+  if (simpleTimeHitEl) {
+    simpleTimeHitEl.setAttribute('aria-valuemax', String(Math.round(dur)));
+    simpleTimeHitEl.setAttribute('aria-valuenow', String(Math.round(cur)));
+  }
 }
+
+// ===== A BARRA DE TEMPO DO SIMPLIFICADO É INTERATIVA (v5.142) =====
+//
+// Ela nasceu como indicador — "neste modo não se arrasta nada; quem precisa
+// saltar no tempo usa o modo avançado". Só que saltar no tempo é a coisa mais
+// comum que se faz durante um louvor (voltar o refrão, pular a introdução), e
+// mandar o operador SAIR do modo para fazê-la é o oposto do que o modo existe
+// para dar. As teclas grandes continuam sendo a regra; o que muda é que a barra
+// deixou de ser um enfeite.
+//
+// Tocar salta; arrastar procura, e o comando só sai ao SOLTAR — um `seek` por
+// quadro de movimento faria a mídia engasgar durante todo o gesto. O tempo
+// enquanto o dedo anda é escrito na tela pelo próprio gesto (`simpleSeeking`),
+// que é como o operador enxerga para onde está indo.
+let simpleSeeking = false;
+function setupSimpleSeek() {
+  if (!simpleTimeHitEl) return;
+  const dur = () => parseFloat(seekEl.max) || 0;
+  const posicao = (e) => {
+    const r = simpleTimeHitEl.getBoundingClientRect();
+    if (!r.width) return 0;
+    const f = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
+    return f * dur();
+  };
+  const pintar = (t) => {
+    const d = dur();
+    simpleTimeCurEl.textContent = fmtTime(t);
+    simpleTimeFillEl.style.width = (d > 0 ? Math.max(0, Math.min(100, (t / d) * 100)) : 0) + '%';
+  };
+  simpleTimeHitEl.addEventListener('pointerdown', (e) => {
+    if (seekEl.disabled || dur() <= 0) return;
+    simpleSeeking = true;
+    // `seeking` é o MESMO sinal que a barra do modo avançado arma: é ele que
+    // impede a sessão de mídia de republicar uma posição que ainda está sob o
+    // dedo (ver `pushNowPlaying`). Dois estados para a mesma coisa divergiriam.
+    seeking = true;
+    simpleTimeHitEl.classList.add('seeking');
+    try { simpleTimeHitEl.setPointerCapture(e.pointerId); } catch (_) {}
+    pintar(posicao(e));
+  });
+  simpleTimeHitEl.addEventListener('pointermove', (e) => {
+    if (!simpleSeeking) return;
+    pintar(posicao(e));
+  });
+  const soltar = (e) => {
+    if (!simpleSeeking) return;
+    simpleSeeking = false;
+    seeking = false;
+    simpleTimeHitEl.classList.remove('seeking');
+    try { simpleTimeHitEl.releasePointerCapture(e.pointerId); } catch (_) {}
+    const t = posicao(e);
+    // A barra do modo avançado é a fonte de verdade da posição em toda a tela
+    // (o `renderSimpleTime` a espelha, e `pushNowPlaying` a lê): escrevê-la aqui
+    // é o que mantém os dois modos contando a mesma coisa até o próximo pulso
+    // do `display-status` chegar.
+    seekEl.value = String(t);
+    curTimeEl.textContent = fmtTime(t);
+    cmd({ type: 'seek', time: t });
+    renderSimpleTime();
+  };
+  simpleTimeHitEl.addEventListener('pointerup', soltar);
+  simpleTimeHitEl.addEventListener('pointercancel', (e) => {
+    // Cancelado (o sistema tomou o gesto): NÃO salta. Um `seek` para onde o
+    // dedo por acaso estava quando a chamada entrou seria um salto que ninguém
+    // pediu; a barra volta sozinha ao valor real no próximo render.
+    simpleSeeking = false;
+    seeking = false;
+    simpleTimeHitEl.classList.remove('seeking');
+    try { simpleTimeHitEl.releasePointerCapture(e.pointerId); } catch (_) {}
+    renderSimpleTime();
+  });
+}
+setupSimpleSeek();
 
 // Volume em passos, como num controle remoto — o MESMO passo dos botões
 // físicos (VOL_KEY_STEP), para os dois caminhos não discordarem, e a mesma
@@ -12324,23 +12982,34 @@ function holdRepeat(btn, fn) {
 // sozinha quando há telão, então o cartão informa o que já está conectado — e
 // o toque abre o seletor de espelhamento. No navegador não há Presentation
 // nem seletor: o cartão vira o atalho para a tela do Display.
-function renderSimpleCast() {
-  if (appMode !== 'simple') return;
+// O ÍCONE DE CAST SOBRE A PREVIEW — e ele vale nos DOIS modos (v5.142).
+//
+// Esta função morava dentro de `renderSimpleCast`, que começa com
+// `if (appMode !== 'simple') return`. O efeito era duplo e o segundo é o do
+// relato: no modo avançado o ícone NUNCA era repintado, então o vermelho de
+// "conectado" que o simplificado deixou aceso ficava para sempre — o operador
+// trocava de modo, a tela caía, e o ícone seguia dizendo que havia telão. O
+// estado da tela não é uma decoração de um dos modos; é o mesmo fato nos dois.
+function renderCastBtn() {
   const tv = simpleDisplay();
-  // `.connected` é o verde de "há uma tela recebendo"; a liberação de teste
-  // NUNCA o veste (ver `castTestUnlocked`) — ela é aviso, não conexão.
-  simpleCastBtnEl.classList.toggle('connected', !!tv && !castTestUnlocked);
-  simpleCastBtnEl.classList.toggle('testing', castTestUnlocked);
-  // Conectado, o botão dá lugar à PREVIEW e quem carrega o estado é o ícone de
-  // cast no canto dela: verde = uma tela recebendo, âmbar de aviso = liberação
-  // de teste (que não é conexão nenhuma). O mesmo par de cores do botão que ele
-  // substitui — o sinal mudou de lugar, não de significado.
+  // `.connected` marca "há uma tela recebendo"; a liberação de teste NUNCA o
+  // veste (ver `castTestUnlocked`) — ela é aviso, não conexão.
   pvCastBtnEl.classList.toggle('connected', !!tv && !castTestUnlocked);
   pvCastBtnEl.classList.toggle('testing', castTestUnlocked);
   pvCastBtnEl.title = castTestUnlocked
     ? 'Liberação de teste ativa — toque para trancar'
     : (tv ? 'Conectado: ' + (tv.name || 'TV') + ' — toque para trocar ou desconectar'
           : 'Espelhar na TV');
+}
+
+function renderSimpleCast() {
+  renderCastBtn();
+  if (appMode !== 'simple') return;
+  const tv = simpleDisplay();
+  // `.connected` é o verde de "há uma tela recebendo"; a liberação de teste
+  // NUNCA o veste (ver `castTestUnlocked`) — ela é aviso, não conexão.
+  simpleCastBtnEl.classList.toggle('connected', !!tv && !castTestUnlocked);
+  simpleCastBtnEl.classList.toggle('testing', castTestUnlocked);
   // Sem tela, o botão é a tela inteira (ver o bloqueio abaixo) e precisa dizer
   // tudo sozinho: uma frase, no rótulo. Com tela conectada ele volta a ser um
   // cartão entre outros — o rótulo nomeia a ação e o subtítulo informa o
@@ -12475,6 +13144,10 @@ function ytPreviewTime() {
 function openWebDisplay() {
   webDisplayWin = window.open('../display/', 'avDisplay');
   renderSimpleCast();
+  // No navegador a janela do Display é o "telão", e vale a mesma regra da mesa
+  // de som (ver `telaoConectado`) — inclusive para desenvolver a base web fora
+  // do aparelho, que é justamente o que este caminho serve.
+  pushTelaoNoSom();
   clearInterval(webDisplayTimer);
   if (!webDisplayWin) return;
   webDisplayTimer = setInterval(() => {
@@ -12483,6 +13156,7 @@ function openWebDisplay() {
     webDisplayTimer = null;
     webDisplayWin = null;
     renderSimpleCast();
+    pushTelaoNoSom();
   }, 1000);
 }
 
@@ -13045,6 +13719,8 @@ fitSegEl.addEventListener('click', (e) => {
   const btn = e.target.closest('.fit-opt');
   if (btn) applyFit(btn.dataset.fit);
 });
+// Girar: AVANÇA 90° por toque, dando a volta. Ver `applyRotate`.
+if (rotBtnEl) rotBtnEl.addEventListener('click', () => applyRotate(mediaRot + 90));
 // Wallpaper: escolher imagem / voltar ao padrão.
 wallFileEl.addEventListener('change', async () => {
   const file = (wallFileEl.files || [])[0];
@@ -13073,9 +13749,19 @@ if (window.__NATIVE__) {
       ? 'Telão conectado: ' + (tv.name || 'TV') + ' (' + tv.w + '\u00d7' + tv.h + ')'
       : 'Nenhum telão conectado';
     applyPreviewAspect(tv);
+    // O botão da mesa de som depende disto (ver `renderStandaloneSeg`): com
+    // telão conectado, o som da preview interromperia o player do telão.
+    pushTelaoNoSom();
   };
   AVNative.displays().then(renderDisplayStatus);
   AVNative.onDisplayChange(renderDisplayStatus);
+  // E RECONFERE AO VOLTAR PARA A FRENTE (v5.142). O aviso do shell é um evento,
+  // e um evento perdido não se recupera sozinho: a tela pode cair (ou voltar)
+  // com o app minimizado, e este WebView é estrangulado justamente aí. Uma
+  // leitura na retomada — a lista, não um evento — é o piso que fecha esse
+  // buraco, e é barata: uma consulta ao DisplayManager quando o operador pega o
+  // aparelho de volta.
+  reconferirTelas = () => { AVNative.displays().then(renderDisplayStatus); };
   // Para onde o botão de cast da preview abre neste aparelho. Espelhamento de
   // tela não é Google Cast, e o alvo muda por fabricante (Smart View na
   // Samsung, "Wireless display" no AOSP) sem API documentada — então o app
@@ -13521,6 +14207,13 @@ seekEl.addEventListener('pointerup', () => { seeking = false; });
 // sempre: um bundle velho no telão continua reconectando igual.
 function resendSceneToDisplay(para) {
   const enviar = (cmd) => AVDB.sendCommand(para ? Object.assign({ __para: para }, cmd) : cmd);
+  // O GIRO VIAJA PRIMEIRO, antes do `load` (v5.142). Ele é preferência de
+  // exibição, não conteúdo: o telão o lê do estado no arranque, mas entre o
+  // `display-ready` e essa leitura há uma janela — e um telão que reconecta no
+  // meio de um vídeo girado não pode mostrá-lo deitado nem por um quadro. Antes
+  // do `load` porque `applyMedia` repõe o giro ao revelar a mídia; depois dele
+  // seria um giro visível acontecendo na frente da congregação.
+  if (mediaRot) enviar({ type: 'rotate', rotate: mediaRot });
   // Reenvia SEMPRE que houver mídia carregada — não só a que está tocando.
   // A condição anterior (`playing || isImage`) deixava de fora justamente o
   // caso mais comum de uma queda de dongle: o louvor de fundo PAUSADO para a
@@ -13531,7 +14224,14 @@ function resendSceneToDisplay(para) {
   // abaixo (é uma sessão, como um versículo escolhido pela aba da Bíblia) — dar
   // `load` no id dela mandaria o telão carregar uma mídia sem bytes e apagaria
   // a projeção justamente na reconexão que este código existe para consertar.
-  if (currentId && !isCue(currentItem)) {
+  //
+  // `midiaNoAr` (v5.142) É A PERGUNTA CERTA, e `currentId` sozinho era a errada.
+  // Ele sobrevive de propósito ao stop e ao fim natural — é o que permite repetir
+  // a faixa com o ▶ —, então reenviar por ele fazia o telão ACORDAR TOCANDO algo
+  // que o operador tinha parado, ou ressuscitar a música que acabou. Esta função
+  // restaura o que ESTAVA no ar; um telão vazio também é um estado, e restaurá-lo
+  // é não mandar nada.
+  if (midiaNoAr && currentId && !isCue(currentItem)) {
     // E leva a POSIÇÃO. Sem ela o telão recarregava a mídia do ZERO: um hino
     // aos 3:20 recomeçava do início na frente da congregação. Pior, o
     // `display-status` seguinte chegava com `currentTime` 0 e arrastava a
@@ -13685,6 +14385,11 @@ document.addEventListener('visibilitychange', () => {
     return;
   }
   autoRefreshCollections();
+  // A tela pode ter caído (ou voltado) com o app minimizado — e é exatamente aí
+  // que este WebView está estrangulado e pode perder o aviso do shell. Reler a
+  // lista ao voltar para a frente é o piso que impede o ícone de cast de ficar
+  // aceso sobre uma TV que não está mais lá (v5.142).
+  reconferirTelas();
 });
 
 (async function init() {

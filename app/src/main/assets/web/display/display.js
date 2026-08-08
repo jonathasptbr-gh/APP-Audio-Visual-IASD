@@ -579,16 +579,54 @@ async function startMic() {
     micStatus(false, 'unsupported');
     return;
   }
-  let stream;
-  try {
-    stream = await navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-      video: false,
-    });
-  } catch (e) {
-    micStatus(false, (e && e.name) || 'error');
+  // ===== TRÊS TENTATIVAS, DA MELHOR PARA A QUE SEMPRE ABRE (v5.142) =====
+  //
+  // O relato é `NotReadableError` — "o microfone está em uso por outro app" — num
+  // aparelho em que nenhum outro app está gravando. O nome do erro engana: ele é
+  // o "não consegui abrir o dispositivo" genérico do WebRTC, e no Android a causa
+  // comum não é disputa entre apps, é o PROCESSAMENTO pedido.
+  //
+  // Com `echoCancellation` o Chromium abre o `AudioRecord` em
+  // `VOICE_COMMUNICATION` para usar o cancelador de eco do hardware — uma sessão
+  // de voz, que o sistema recusa quando a saída de áudio está em outro caminho
+  // (é exatamente o caso deste app: espelhamento ligado, telão recebendo o som).
+  // Pedir o microfone CRU não passa por esse caminho e abre.
+  //
+  // A ordem é deliberada: o cancelamento de eco fica em primeiro porque num culto
+  // uma realimentação é um estrago imediato e público (ver o CLAUDE.md). Só se
+  // ele não abrir é que se desce — e um push-to-talk que funciona com risco de
+  // microfonia é melhor que um que não funciona, desde que o operador seja
+  // avisado, que é o que o `sem-eco` do status faz.
+  const TENTATIVAS = [
+    { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+    { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+    true,
+  ];
+  let stream = null;
+  let ultimoErro = 'error';
+  let semEco = false;
+  for (let i = 0; i < TENTATIVAS.length; i++) {
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: TENTATIVAS[i], video: false });
+      semEco = i > 0;
+      break;
+    } catch (e) {
+      ultimoErro = (e && e.name) || 'error';
+      // PERMISSÃO NEGADA não melhora com menos processamento: é resposta do
+      // sistema (ou do `MicChromeClient`), e insistir só gasta duas chamadas
+      // para dar o mesmo erro. Qualquer outra falha é candidata a ser o
+      // dispositivo recusando aquela configuração — e essa vale tentar de novo.
+      if (ultimoErro === 'NotAllowedError' || ultimoErro === 'SecurityError') break;
+      // O operador pode ter soltado o botão entre uma tentativa e outra.
+      if (seq !== micSeq || !micWanted) break;
+    }
+  }
+  if (!stream) {
+    diag('microfone recusado: ' + ultimoErro);
+    micStatus(false, ultimoErro);
     return;
   }
+  if (semEco) diag('microfone SEM cancelamento de eco (o modo com eco foi recusado)');
   // O operador pode ter soltado o botão (ou apertado de novo, começando outra
   // captura) enquanto a permissão era resolvida: nos dois casos este stream já
   // nasceu obsoleto e não pode virar áudio no telão — quem manda é a última
@@ -1371,6 +1409,14 @@ AVDB.onCommand(async (cmd) => {
     return;
   }
 
+  // Giro da mídia (v5.142): mesmo desvio explícito do `fit`, e pela MESMA razão
+  // — sem ele o comando cairia no `ytHandle()` enquanto um vídeo do YouTube
+  // estivesse tocando, e o stage só veria o valor novo na mídia seguinte.
+  if (cmd.type === 'rotate') {
+    stage.setRotate(cmd.rotate);
+    return;
+  }
+
   // Fundo da letra sincronizada (preto/imagens dos slides) — não é um
   // comando do stage.js, letra é camada paralela (ver setLyricsBgMode).
   if (cmd.type === 'lyricsbg') {
@@ -1537,6 +1583,13 @@ async function restore() {
     // igual ao fade acima.
     const fit = await AVDB.getState('fit');
     if (fit) stage.setFit(fit);
+    // Giro da mídia — a mesma preferência visual persistida, lida no arranque
+    // pelo mesmo motivo: o telão pode ser recriado (queda do dongle) no meio de
+    // uma projeção girada, e voltar ao zero desfaria o ajuste na frente de todo
+    // mundo. O reenvio de cena do Controle o repete; esta leitura é o piso para
+    // o instante entre o `display-ready` e a resposta dele.
+    const rot = await AVDB.getState('rotate');
+    if (rot) stage.setRotate(rot);
     // Wallpaper escolhido pelo operador — preferência visual, igual às acima.
     await applyWallpaper();
   } catch (_) {

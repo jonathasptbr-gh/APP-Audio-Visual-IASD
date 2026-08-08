@@ -639,13 +639,31 @@ class MainActivity : ComponentActivity(), BridgeHost {
                 current.release()
                 current.dismiss()
                 presentation = null
-                notifyDisplayChange()
             }
+            // NOTIFICA MESMO SEM PRESENTATION A DERRUBAR, e é este o defeito do
+            // "ícone de cast continua vermelho depois de desconectar".
+            //
+            // Quando o dongle cai por distância, o sistema derruba a janela
+            // sozinho: o `setOnDismissListener` abaixo zera `presentation` sem
+            // avisar ninguém. O `onDisplayRemoved` que vem em seguida encontrava
+            // `current == null`, entrava neste ramo e SAÍA SEM NOTIFICAR — o lado
+            // web ficava com a última lista que recebeu, que ainda tinha a TV, e
+            // o ícone seguia aceso. A saída antecipada estava dentro do `if`
+            // errado: a notificação é sobre a TELA, não sobre a janela.
+            notifyDisplayChange()
             return
         }
 
         if (current != null) {
-            if (current.display.displayId == target.displayId && current.isShowing) return
+            if (current.display.displayId == target.displayId && current.isShowing) {
+                // A mesma tela, a mesma janela: nada mudou para o app — mas o
+                // `onDisplayChanged` também chega quando a RESOLUÇÃO muda, e é
+                // ela que o rodapé de Configurações exibe. Notificar aqui é um
+                // `evaluateJavascript` com uma leitura de lista do outro lado; o
+                // lado web já deduplica pelo que desenha.
+                notifyDisplayChange()
+                return
+            }
             current.release()
             current.dismiss()
             presentation = null
@@ -662,6 +680,13 @@ class MainActivity : ComponentActivity(), BridgeHost {
             if (presentation === p) {
                 presentation = null
                 p.release()
+                // E AVISA O LADO WEB. Este é o caminho da queda por distância —
+                // o sistema derruba a janela antes (ou sem) qualquer
+                // `onDisplayRemoved` —, e sem esta linha o Controle só descobria
+                // a desconexão no próximo evento do DisplayManager, que pode não
+                // vir. `listDisplays` é reconsultado do outro lado, então se a
+                // tela ainda estiver lá nada muda na tela do operador.
+                notifyDisplayChange()
             }
         }
         try {

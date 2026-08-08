@@ -2749,6 +2749,56 @@ main {
 .song-menu-seg-row { padding-bottom: .2rem; }
 .song-menu-seg { width: 100%; }
 
+/* ---------- MAIS DE UM DESTINO NA MESMA FOLHA (v5.141) ---------- */
+/* A caixa de marcação vive DENTRO do botão da linha e à direita dele: o corpo
+   da linha continua sendo a ação de um toque (é o caminho de sempre), e a caixa
+   é o alvo separado que acumula. `margin-left:auto` a empurra para a borda, o
+   único lugar em que ela não disputa o olho com o rótulo — que é o que se lê de
+   relance quando se está escolhendo para onde vai um louvor.
+   `--hit` é o alvo mínimo de toque do app: uma caixa desenhada com 20px seria
+   um alvo de 20px dentro de um botão que já é grande, e errar nela dispararia a
+   ação da linha — exatamente o que ela existe para evitar. */
+.song-menu-check {
+  flex: none; margin-left: auto; align-self: center;
+  width: var(--hit); height: var(--hit);
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+}
+/* O quadrado é um ::before para o alvo (acima) e o desenho (aqui) serem coisas
+   independentes — a mesma separação do `.pv-fab`, em que o botão é grande e o
+   ícone é pequeno. */
+.song-menu-check::before {
+  content: ''; display: block;
+  width: 20px; height: 20px; border-radius: var(--radius-xs);
+  border: 2px solid var(--muted); background: transparent;
+  transition: background .12s ease, border-color .12s ease;
+}
+/* Marcado = âmbar preenchido com o ✓ desenhado por cima, a mesma convenção do
+   accent em todo o app (navegação, seleção, progresso). O ✓ é uma máscara CSS —
+   um SVG a mais só para isto seria um arquivo para manter, e a fonte de ícones
+   é um subset em que ele não entrou. */
+.song-menu-check.on::before {
+  background: var(--accent); border-color: var(--accent);
+}
+.song-menu-check.on::after {
+  content: ''; position: absolute;
+  width: 11px; height: 6px;
+  border-left: 2.4px solid var(--bg); border-bottom: 2.4px solid var(--bg);
+  transform: translateY(-1.5px) rotate(-45deg);
+}
+.song-menu-check { position: relative; }
+/* A linha de confirmação: só aparece com algo marcado, e é a única da folha que
+   é um BOTÃO PRIMÁRIO — nas outras a hierarquia é toda igual, porque nenhuma é
+   "a" resposta. Aqui uma é: fechar a escolha. */
+.song-menu-go-row { padding-top: .35rem; }
+.song-menu-go {
+  justify-content: center; text-align: center;
+  border-color: var(--accent); background: var(--accent-soft);
+}
+.song-menu-go .song-menu-text { align-items: center; }
+.song-menu-go .song-menu-label { color: var(--accent); }
+.song-menu-go:disabled { opacity: .5; cursor: default; }
+
 /* ---------- popup de Exibição (preenchimento da mídia) ---------- */
 /* As transições (fade) são inerentes ao sistema — não há mais controles delas
    aqui; o popup guarda só o seletor de preenchimento (ajustar/preencher/esticar)
@@ -2775,6 +2825,16 @@ main {
   font-size: .82rem; font-weight: 600; cursor: pointer;
 }
 .fit-opt.active { background: var(--accent-fill); color: var(--on-accent); }
+/* GIRAR (v5.142): um botão só, no lugar que o "Esticar" deixou. Ele NÃO é um
+   segmento de um seletor — é uma ação que avança —, mas veste o mesmo `.fit-opt`
+   de propósito: está na mesma coluna das outras linhas do popup, e um botão de
+   outro formato ali leria como outro tipo de controle. `flex: none` porque não
+   divide largura com ninguém, e o ângulo entra ao lado do ícone. */
+.fit-opt--rot {
+  flex: none; display: inline-flex; align-items: center; gap: .35rem;
+  padding: .5rem .7rem; font-variant-numeric: tabular-nums;
+}
+.fit-opt--rot svg { display: block; width: var(--icon-sm); height: var(--icon-sm); }
 
 /* ---------- Leitura auxiliar (letra completa / capítulo inteiro) ---------- */
 /* Bottom-sheet de LEITURA, aberto pelo botão do mixer: a íntegra do que está
@@ -2802,8 +2862,15 @@ main {
   font-size: .95rem; line-height: 1.5; color: var(--text);
 }
 /* A quebra de linha da própria letra (\n vindo dos <br> da API) é intencional
-   — o mesmo motivo do pre-line em .lyrics-line no telão. */
+   — o mesmo motivo do pre-line em .lyrics-line no telão.
+   E é justamente por causa dele que a ESTROFE precisa ser um nó próprio: o
+   `pre-line` colapsa sequências de espaço em branco, então a linha em branco que
+   separa duas estrofes dentro do mesmo slide virava uma quebra simples e as duas
+   encostavam (ver `lvBuildSong`). O espaço entre parágrafos é o dobro da entre
+   linhas — o suficiente para a divisão se ler de relance, sem transformar a
+   letra numa pilha de cartões. */
 .lv-row .lv-text { white-space: pre-line; }
+.lv-row .lv-text + .lv-text { margin-top: .75em; }
 .lv-row--cover { color: var(--muted); font-size: .78rem; letter-spacing: .04em; text-transform: uppercase; }
 .lv-aux {
   font-size: .7rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
@@ -3087,8 +3154,19 @@ body.mode-simple .bottombar { display: none; }
    para não roubarem altura da letra. */
 .simple-time { flex: none; display: flex; align-items: center; gap: .5rem; }
 .simple-time-num { font-size: .72rem; font-variant-numeric: tabular-nums; color: var(--muted); flex: none; }
-.simple-time-bar { flex: 1; height: 4px; border-radius: var(--radius-pill); background: var(--surface); overflow: hidden; }
+/* O ALVO DE TOQUE é a faixa inteira, não o traço (v5.142). O traço tem 4px de
+   altura porque é isso que se quer VER; 4px é metade do que um dedo acerta, e um
+   controle de posição que exige mira não é um controle — era por isso que este
+   modo mandava o operador para a tela avançada. `touch-action: none` porque o
+   arraste é horizontal e a rolagem vertical da tela roubaria o gesto no meio. */
+.simple-time-hit {
+  flex: 1; padding: .55rem 0; cursor: pointer; touch-action: none;
+}
+.simple-time-bar { height: 4px; border-radius: var(--radius-pill); background: var(--surface); overflow: hidden; }
 .simple-time-fill { height: 100%; width: 0; background: var(--accent); border-radius: inherit; }
+/* Durante o arraste o traço ENGROSSA: é o único retorno de que o dedo pegou a
+   barra, já que não há alça para acompanhar. */
+.simple-time-hit.seeking .simple-time-bar { height: 7px; }
 .simple-lyrics {
   position: relative;            /* offsetParent das linhas (ver lvScroll) */
   flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain;

@@ -168,6 +168,48 @@
     let coveredNow = true;
     let coverSeq = 0; // descarta fades de cortina obsoletos (interrompidos por outro)
 
+    // ===== "ESTÁ CARREGANDO", na TRANSMISSÃO DIRETA (v5.142) =====
+    //
+    // Um stream leva segundos entre o comando e o primeiro quadro — init, índice
+    // e o primeiro fragmento vêm da REDE —, e nesse intervalo o palco mostra o
+    // preto. Quando a cena anterior era o wallpaper isso já está resolvido: a
+    // cortina fica de pé até haver quadro (ver o `coverOut` mais abaixo). O caso
+    // que sobrava é a troca de MÍDIA para MÍDIA: ali o fade de saída já levou a
+    // anterior ao preto e não há cortina para segurar — segundos de tela preta,
+    // sem nada dizendo que o app está trabalhando. Do lado de quem opera isso é
+    // indistinguível de uma projeção que morreu.
+    //
+    // O nó é criado AQUI, e não nos dois `index.html`: ele é do motor, existe só
+    // enquanto um stream espera, e duplicá-lo em dois arquivos seria a mesma
+    // divergência que a cortina compartilhada já existe para evitar. Sem CSS
+    // externo pelo mesmo motivo — a animação é um `@keyframes` injetado uma vez.
+    let girando = null;
+    function spinner() {
+      if (girando) return girando;
+      const casa = (video && video.parentElement) || null;
+      if (!casa) return null;
+      if (!document.getElementById('av-stage-busy-css')) {
+        const st = document.createElement('style');
+        st.id = 'av-stage-busy-css';
+        st.textContent = '@keyframes avStageSpin{to{transform:rotate(360deg)}}'
+          + '.av-stage-busy{position:absolute;inset:0;display:flex;align-items:center;'
+          + 'justify-content:center;pointer-events:none;z-index:3}'
+          + '.av-stage-busy::after{content:"";width:44px;height:44px;border-radius:50%;'
+          + 'border:3px solid rgba(255,255,255,.22);border-top-color:rgba(255,255,255,.85);'
+          + 'animation:avStageSpin 900ms linear infinite}';
+        document.head.appendChild(st);
+      }
+      girando = document.createElement('div');
+      girando.className = 'av-stage-busy';
+      girando.hidden = true;
+      casa.appendChild(girando);
+      return girando;
+    }
+    function mostrarEspera(on) {
+      const el = spinner();
+      if (el) el.hidden = !on;
+    }
+
     function setFade(cfg) {
       if (typeof cfg.fadeIn === 'boolean') fadeIn = cfg.fadeIn;
       if (typeof cfg.fadeOut === 'boolean') fadeOut = cfg.fadeOut;
@@ -392,6 +434,12 @@
       video.hidden = kind !== 'video' || ended;
       video.muted = forceMuted ? true : muted;
       if (!forceMuted) video.volume = volume;
+      // O GIRO É REPOSTO AQUI, e não só em `setRotate`: um elemento `hidden` não
+      // tem caixa medível (`clientWidth` 0), e `aplicarGiro` desiste quando não
+      // consegue medir o palco. Esta é a linha em que ele deixa de estar
+      // escondido — é aqui que a medida passa a existir. Sem isto, girar com o
+      // telão no wallpaper e só então projetar entregava a mídia sem giro.
+      if (rot) aplicarGiroTudo();
     }
 
     function play() {
@@ -489,14 +537,82 @@
       clearTimeout(muteApplyTimer); // evita mutar sozinho depois, com o volume já ajustado
       if (!forceMuted) video.volume = vol;
     }
-    // Preenchimento da mídia: 'contain' (ajustar, mostra tudo, pode ter barras),
-    // 'cover' (preenche o quadro, corta o excesso) ou 'fill' (estica, distorce
-    // a proporção). Aplicado direto via style (sobrepõe o object-fit do CSS)
-    // — mesmo valor pros dois elementos, já que só um está visível por vez.
+    // Preenchimento da mídia: 'contain' (ajustar, mostra tudo, pode ter barras)
+    // ou 'cover' (preenche o quadro, corta o excesso). Aplicado direto via style
+    // (sobrepõe o object-fit do CSS) — mesmo valor pros dois elementos, já que
+    // só um está visível por vez.
+    //
+    // O 'fill' (esticar) SAIU da UI na v5.142 — distorcer a proporção é o
+    // defeito que as outras duas existem para evitar. Ele continua sendo aceito
+    // aqui de propósito: o valor está PERSISTIDO no banco de quem já o escolheu
+    // (`state.fit`), e recusá-lo faria a mídia trocar de preenchimento sozinha
+    // na primeira abertura depois da atualização. O Controle migra o estado uma
+    // vez (ver `applyFit`); o motor não precisa ter opinião sobre isso.
     function setFit(v) {
       fit = (v === 'cover' || v === 'fill') ? v : 'contain';
       img.style.objectFit = fit;
       video.style.objectFit = fit;
+    }
+
+    // ===== GIRAR A MÍDIA (v5.142) =====
+    //
+    // Vídeo gravado de lado no celular chega DEITADO no telão, e não havia nada
+    // a fazer sobre isso — a mídia é do operador, não há reencode possível no
+    // meio de um culto, e "vire o celular" não vale para um arquivo já pronto.
+    //
+    // A caixa TROCA DE EIXO antes de girar, e é isso que separa este código de
+    // um `transform: rotate()` solto. Um `<video>` ocupa o palco inteiro (W×H) e
+    // o `object-fit` encaixa a mídia NESSE retângulo; girar só o transform
+    // deixaria o encaixe calculado para o retângulo errado — um vídeo retrato
+    // girado para paisagem apareceria minúsculo no meio, com o dobro de barras.
+    // Trocando `width`/`height` primeiro, o `object-fit` faz a conta no
+    // retângulo em que a mídia vai de fato aparecer, e a rotação só o põe de pé.
+    //
+    // Por isso ele depende do TAMANHO do palco, que muda (rotação do aparelho,
+    // resolução da TV, a preview trocando de casa entre os dois modos) — daí o
+    // `ResizeObserver`. Sem ele o giro ficaria certo até a primeira mudança de
+    // tamanho e errado a partir dali, em silêncio.
+    let rot = 0;
+    function aplicarGiro(el) {
+      if (!el) return;
+      if (!rot) {
+        el.style.inset = '';
+        el.style.width = ''; el.style.height = '';
+        el.style.left = ''; el.style.top = '';
+        el.style.transform = '';
+        return;
+      }
+      if (rot === 180) {
+        el.style.inset = ''; el.style.width = ''; el.style.height = '';
+        el.style.left = ''; el.style.top = '';
+        el.style.transform = 'rotate(180deg)';
+        return;
+      }
+      const caixa = el.parentElement || el.offsetParent;
+      const w = caixa ? caixa.clientWidth : 0;
+      const h = caixa ? caixa.clientHeight : 0;
+      // Sem medida (elemento ainda fora do documento) não há giro possível: o
+      // observer abaixo repõe assim que houver.
+      if (!w || !h) return;
+      el.style.inset = 'auto';
+      el.style.width = h + 'px';
+      el.style.height = w + 'px';
+      el.style.left = '50%';
+      el.style.top = '50%';
+      el.style.transform = 'translate(-50%, -50%) rotate(' + rot + 'deg)';
+    }
+    function aplicarGiroTudo() { aplicarGiro(img); aplicarGiro(video); }
+    function setRotate(v) {
+      const n = ((v | 0) % 360 + 360) % 360;
+      rot = (n === 90 || n === 180 || n === 270) ? n : 0;
+      aplicarGiroTudo();
+    }
+    if (global.ResizeObserver) {
+      const caixa = (video && video.parentElement) || null;
+      if (caixa) {
+        try { new ResizeObserver(() => { if (rot) aplicarGiroTudo(); }).observe(caixa); }
+        catch (_) { /* sem observer o giro só não reage a redimensionamento */ }
+      }
     }
     // Alterna se este stage é forçado a ficar sempre mudo (uso normal da
     // preview do Controle, espelhando o Display em silêncio) ou se passa a
@@ -546,6 +662,10 @@
     function resetMediaDom() {
       clearInterval(rampTimer);
       clearTimeout(muteApplyTimer);
+      // Limpar a fonte é o fim de qualquer espera: stop, clear e o começo de
+      // todo load passam por aqui, então o giro nunca sobrevive à cena que o
+      // acendeu.
+      mostrarEspera(false);
       img.hidden = true; img.removeAttribute('src');
       // Idem: esconder o <video> faz parte de limpar a fonte, não é detalhe
       // do applyMedia() que vem depois. Entre esta linha e ele há repaint
@@ -698,10 +818,20 @@
         // A posição só "gruda" depois que a duração é conhecida — escrever
         // currentTime junto com o src é perdido em silêncio. `once` porque
         // isto vale para ESTA fonte; a próxima traz o seu próprio pedido.
-        if (typeof startAt === 'number' && startAt > 0) {
+        //
+        // A CENA RESTAURADA PAUSADA SEMPRE FAZ SEEK, mesmo para o segundo zero
+        // (v5.142). Não é sobre a posição: é o seek que desliga o **show poster
+        // flag** do HTML e faz o elemento pintar o QUADRO em vez do pôster (ver
+        // o comentário do `POSTER_VAZIO` mais abaixo). Sem ele, um vídeo que
+        // volta pausado no início ficava no pôster — e, sem atributo de pôster,
+        // no retângulo cinza com o play do WebView. Um vídeo que vai TOCAR não
+        // precisa disto: o `play()` desliga a bandeira sozinho.
+        const precisaSeek = (typeof startAt === 'number' && startAt > 0) || autoplay === false;
+        if (precisaSeek) {
           video.addEventListener('loadedmetadata', () => {
             if (seq !== loadSeq) return;   // outro load assumiu durante a espera
-            if (isFinite(startAt)) video.currentTime = startAt;
+            const alvoT = (typeof startAt === 'number' && isFinite(startAt) && startAt > 0) ? startAt : 0;
+            try { video.currentTime = alvoT; } catch (_) { /* fonte sem seek */ }
           }, { once: true });
         }
         // `autoplay === false` é a cena que voltou PAUSADA. `undefined` mantém
@@ -751,8 +881,15 @@
       // para ele mostraria o preto do palco. Ver `computeCover`.
       if (view === 'visual' && coveredNow && !semVisual()) {
         if (fadeIn && alvo) {
+          // A cortina segura o wallpaper enquanto o stream não tem quadro — o
+          // telão não fica preto aqui. Mesmo assim o giro entra: o wallpaper é
+          // o repouso do telão, então sem ele o operador vê exatamente a mesma
+          // tela de quando nada foi pedido, por vários segundos, depois de ter
+          // pedido um vídeo.
+          if (ehStream) mostrarEspera(true);
           await mediaReady(alvo, ehStream ? PRONTO_STREAM_MS : 0);
           if (seq !== loadSeq) return;
+          mostrarEspera(false);
         }
         // Num stream a rampa de volume foi adiada lá em cima justamente para
         // cá: agora existe o que ouvir, e ela acompanha a cortina abrindo.
@@ -765,8 +902,18 @@
         // A ENTRADA DO CONTEÚDO, quando não há cortina para abrir. Espera o
         // primeiro quadro e só então esmaece de volta ao normal — imagem e som
         // entram juntos (ver `runFadeIn`).
+        //
+        // É AQUI que a transmissão direta deixava o preto na tela: sem cortina
+        // para segurar, os segundos de rede entre o comando e o primeiro quadro
+        // são preto puro. O giro diz que o app está trabalhando; ele só aparece
+        // no stream, porque um arquivo local vira quadro em milissegundos e um
+        // spinner que pisca é pior que nenhum (ver mostrarEspera/PRONTO_STREAM_MS).
+        if (ehStream) mostrarEspera(true);
         await mediaReady(alvo, ehStream ? PRONTO_STREAM_MS : 0);
+        // A ORDEM É ESTA: um load mais novo já acendeu o giro dele, e esconder
+        // depois de perder a corrida apagaria o spinner do load que ASSUMIU.
         if (seq !== loadSeq) return;
+        mostrarEspera(false);
         await runFadeIn(alvo, ehStream);
         if (seq !== loadSeq) return;
       }
@@ -848,6 +995,7 @@
         case 'seek': seek(cmd.time); break;
         case 'clear': return clearFaded();
         case 'fit': setFit(cmd.fit); break;
+        case 'rotate': setRotate(cmd.rotate); break;
       }
     }
 
@@ -888,14 +1036,27 @@
       }, 400);
     });
 
-    // O PÔSTER SAI ASSIM QUE HÁ QUADRO. Ele existe só para cobrir a janela em
-    // que o elemento está em cena sem nada para mostrar (ver `POSTER_VAZIO`);
-    // mantê-lo depois disso mudaria comportamento, porque o `show poster flag`
-    // do HTML segue LIGADO num vídeo pausado que ainda não tocou — e a cena
-    // restaurada PAUSADA (reconexão do dongle) mostraria o preto do palco no
-    // lugar do quadro congelado, que é justamente o que ela existe para
-    // mostrar. Cada `load` o repõe antes de a fonte nova entrar.
-    video.addEventListener('loadeddata', () => video.removeAttribute('poster'));
+    // O PÔSTER VAZIO FICA. PARA SEMPRE. (v5.142)
+    //
+    // Ele saía no `loadeddata`, e o raciocínio era: "há quadro, então mantê-lo
+    // esconderia o quadro congelado da cena restaurada pausada". A premissa está
+    // errada, e é ela que produzia o retângulo cinza com o play que este pôster
+    // existe para matar.
+    //
+    // Quem decide o que um `<video>` pinta não é o `poster`, é o **show poster
+    // flag** do HTML: enquanto ele estiver LIGADO o elemento mostra o pôster, e
+    // ele só é desligado quando a reprodução começa **ou quando há um seek**.
+    // Num vídeo restaurado PAUSADO nenhuma das duas coisas acontecia — a
+    // bandeira seguia ligada, o atributo tinha acabado de ser removido, e sem
+    // atributo o WebView desenha o `getDefaultVideoPoster` dele: o retângulo
+    // cinza com o play. Tirar o pôster não revelava o quadro; revelava o
+    // placeholder.
+    //
+    // Com a bandeira desligada o `poster` é IGNORADO pelo próprio contrato —
+    // então mantê-lo não custa nada no caso normal e cobre exatamente a janela
+    // em que ele importa. E para o quadro congelado aparecer de fato, o que
+    // falta é o seek: é ele que a cena pausada faz abaixo, sempre.
+    // (Cada `load` repõe o atributo antes de a fonte nova entrar.)
 
     // A MESMA guarda do handler interno (acima): com um load em voo, o fim
     // natural é do item que está SAINDO — anunciá-lo (`media-ended`) faria o
@@ -916,6 +1077,7 @@
 
     return {
       handle, load, clear, play, pause, seek, page, setView, setMute, setVolume, setFade, setFit,
+      setRotate, getRotate: () => rot,
       setForceMuted,
       coverIn, coverOut, instantCover, fadeOutToBlack,
       getCurrent: () => current,
