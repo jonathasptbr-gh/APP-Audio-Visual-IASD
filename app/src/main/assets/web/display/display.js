@@ -13,6 +13,16 @@ const textContentEl = document.getElementById('textContent');
 const textMainEl = document.getElementById('textMain');
 const textSubEl = document.getElementById('textSub');
 
+// IDENTIDADE DESTA INSTÂNCIA, por CARREGAMENTO da página. Existe para o
+// Controle poder ENDEREÇAR o reenvio de cena a quem acabou de se anunciar, em
+// vez de acordar todo mundo que estiver ouvindo o barramento (ver o `__para`
+// no `onCommand` lá embaixo). Aleatório, e não um contador, pelo mesmo motivo
+// dos ids da ponte: duas páginas que recarregam começariam ambas em "1".
+// `padEnd` porque `toString(36)` de uma mantissa que termina em zeros devolve
+// menos caracteres do que o `slice` pede — o mesmo cuidado que `shared/native.js`
+// tem com a época dele.
+const INSTANCIA = 'd' + Math.random().toString(36).slice(2, 10).padEnd(8, '0');
+
 // Config de transições, usada aqui para animar o player do YouTube (que vive
 // fora do stage). INERENTE ao sistema: toda troca visual é animada com fade,
 // sempre — não há opção de desligar nem ajustar. Vem de stage.js para não
@@ -1282,6 +1292,14 @@ AVDB.onCommand(async (cmd) => {
   // errada é que não podia ficar, porque quem lê conclui que o caso está
   // coberto.
   if (!cmd) return;
+  // COMANDO ENDEREÇADO: o barramento é broadcast, mas a resposta a um
+  // `display-ready` é para UMA instância. Sem esta linha, uma segunda página
+  // do Display (uma aba aberta para depurar, uma restaurada pelo navegador, e
+  // amanhã uma tela na rede local) fazia a TV rodar um `load` inteiro — fade,
+  // releitura, re-seek — por um evento que era de outra. Comando sem `__para`
+  // é para todos, que é o caso de TODOS os comandos de operação: só o reenvio
+  // de cena endereça.
+  if (cmd.__para && cmd.__para !== INSTANCIA) return;
   if (cmd.type === 'pause' || cmd.type === 'clear' || cmd.type === 'load') pausaComandada = Date.now();
   // O Controle pede a caixa-preta ao abrir Configurações.
   if (cmd.type === 'diag-ask') {
@@ -1476,7 +1494,10 @@ async function restore() {
     // não em algo persistido pelo próprio Display) se reenvia um 'load' para
     // retomar.
     diag('telão pronto');
-    AVDB.sendCommand({ type: 'display-ready' });
+    // `__de` é a ASSINATURA do pedido: o Controle reenvia a cena só para quem
+    // se anunciou (ver `resendSceneToDisplay`). Sem ela — bundle antigo do lado
+    // do Controle — o reenvio continua sendo broadcast, como sempre foi.
+    AVDB.sendCommand({ type: 'display-ready', __de: INSTANCIA });
   }
 }
 

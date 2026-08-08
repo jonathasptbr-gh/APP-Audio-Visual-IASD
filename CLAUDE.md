@@ -203,6 +203,18 @@ recria a Presentation, o WebView recarrega `/display/` e dispara
 `display-ready` — e o Controle reenvia a cena ao receber isso
 (`resendSceneToDisplay` em `controle.js`). Não invente um mecanismo paralelo.
 
+**E o reenvio é ENDEREÇADO** (v5.140). O barramento é broadcast, mas a resposta
+a um `display-ready` é para UMA instância: o telão assina o anúncio (`__de`, um
+id aleatório por carregamento da página) e o Controle devolve a cena com
+`__para`, que o `onCommand` do Display confere antes de qualquer outra coisa.
+Sem isso — e foi assim até a v5.139 — qualquer segunda instância de `/display/`
+que abrisse, recarregasse ou fosse restaurada pelo navegador fazia a TV rodar um
+`load` inteiro (fade de saída, releitura da mídia, re-seek, fade de entrada) na
+frente da congregação, por um evento que não era dela. Comando **sem** `__para`
+continua valendo para todos, que é o caso de **todos** os comandos de operação:
+só o reenvio de cena endereça, e um bundle antigo de qualquer um dos dois lados
+cai de volta no broadcast de sempre. `tools/display-smoke.mjs` trava a regra.
+
 A **cena** é mais do que "mídia tocando":
 
 - Reenvia **toda mídia carregada**, não só a que está tocando. A condição
@@ -1458,7 +1470,7 @@ produziria exatamente o mesmo estado, por isso a fila espera.
 todo `.js` de `assets/web`, uma validação de `version.json`, os testes de
 `tools/` — o parser `sidx`, o **oráculo do contrato de `shouldInterceptRequest`**
 (`webview-range.test.mjs`, que trava a invariante 8: Node puro, determinístico,
-sem `continue-on-error`) e seis testes **em Chromium de verdade**, todos em
+sem `continue-on-error`) e sete testes **em Chromium de verdade**, todos em
 `continue-on-error`: a **fumaça** que sobe a base web e usa a tela
 (`smoke.mjs`), as **mensagens de falha** da transmissão direta
 (`mse.test.mjs`), a **transição de entrada do palco** (`stage-fade.test.mjs`),
@@ -1468,7 +1480,12 @@ apaga mídia do operador), as **contas da biblioteca** (`acervo.test.mjs`:
 mesma tela) e **o que a ponte de fato entrega** (`ponte.test.mjs` — `native.js`
 REMONTA campo a campo os objetos que manda ao Kotlin, e um campo esquecido some
 em silêncio: `optBoolean`/`optLong` leem ausente como `false`/`0`, que são
-valores legítimos).
+valores legítimos) e **o TELÃO** (`display-smoke.mjs`, v5.140 — até ele
+**nenhum** teste carregava `/display/`: a fumaça abre o Controle e o
+`stage-fade` monta o palco à mão, então a metade que roda na frente da
+congregação era a metade que a CI nunca executou, e é justamente a que menos
+rede de segurança tem, porque o watchdog do OTA também não a valida. Ele trava
+também o endereçamento do reenvio de cena).
 Eles existem porque `node --check` prova que o arquivo é
 PARSEÁVEL, não que o app funciona — a v5.121 saiu com um botão chamando uma
 função apagada, sintaxe perfeita e CI verde. O canal OTA publica
@@ -1661,7 +1678,7 @@ aparelho nenhum.
 O `versionCode`/`versionName` do APK vêm do CI (ver "Build") e não se tocam à
 mão.
 
-**Versão atual: v5.139** (base web) · `SHELL_VERSION` **31**, e o bundle segue com
+**Versão atual: v5.140** (base web) · `SHELL_VERSION` **31**, e o bundle segue com
 `minShell: 2` — ele funciona igual num shell antigo, só sem os recursos que são
 nativos por construção (a escada do voltar, os botões de volume, a notificação de
 controles), que **só chegam instalando o APK novo**, não pelo OTA.

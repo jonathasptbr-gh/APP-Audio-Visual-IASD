@@ -527,6 +527,31 @@ de nome do pacote pode citar cue que não está nele (`11578-11587`).
 
 ---
 
+## Adendo (v5.140) — dois defeitos achados DEPOIS desta auditoria, e já corrigidos
+
+Vieram da análise da "tela na rede local" (`docs/PLANO-TELAO-NA-REDE.md`), que
+leu o barramento com outra pergunta na cabeça. Nenhum dos dois tem relação com
+aquele recurso — são defeitos do código de hoje.
+
+1. **`display-ready` não tinha destinatário** (`controle.js` · `display.js`) —
+   **confirmado, corrigido na v5.140**. `resendSceneToDisplay()` era chamado
+   incondicionalmente, e o barramento é broadcast: qualquer segunda instância de
+   `/display/` que abrisse, recarregasse ou fosse restaurada pelo navegador
+   fazia a TV rodar um `load` inteiro — fade de saída, releitura da mídia,
+   re-seek, fade de entrada — na frente da congregação. O telão passou a assinar
+   o anúncio (`__de`) e o reenvio passou a ser endereçado (`__para`); comando sem
+   endereço segue valendo para todos, então bundle antigo de qualquer um dos dois
+   lados degrada para o comportamento anterior.
+2. **Nenhum teste jamais carregou `/display/`** — **confirmado, corrigido na
+   v5.140** com `tools/display-smoke.mjs`. A fumaça abre o Controle; o
+   `stage-fade` monta o palco à mão a partir do `stage.js`; os demais carregam
+   módulos isolados. A metade do sistema que roda na frente da congregação era a
+   metade que a CI nunca executou — e é a que menos rede de segurança tem, já
+   que o watchdog do OTA também não a valida (quem confirma o bundle é o
+   Controle, por decisão documentada).
+
+---
+
 ## 9. Sugestão de priorização
 
 1. **Religar o feedback**: trocar os `flash()` novos por `avisar()` (1.1) — é o
