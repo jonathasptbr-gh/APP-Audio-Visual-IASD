@@ -163,7 +163,7 @@ const appVersionEl = document.getElementById('appVersion');
 // "Web v4.87" com "Shell v1.5" diz na hora que o OTA chegou mas o APK não
 // (ou o contrário). Manter WEB_VERSION igual a `version` em version.json —
 // é ela que dispara (ou não) a atualização nos aparelhos.
-const WEB_VERSION = '5.145';
+const WEB_VERSION = '5.146';
 
 // Escrita UMA vez, na carga: o indicador mora no rodapé de Configurações desde
 // a v5.49 e não depende mais de qual aba está aberta (no cabeçalho ele
@@ -10684,8 +10684,19 @@ function blocoEspelho(d) {
       // quadro de agora demorou A MAIS que o primeiro da sessão entre a captura
       // e o fio, e não uma latência absoluta (ver o KDoc de `EspelhoDiag`).
       // Sem a palavra, alguém somaria isto ao atraso do cliente.
-      cad.push('atraso relativo ' + (ritmo.atrasoMs | 0) + ' ms · pior '
-        + (ritmo.atrasoPiorMs | 0) + ' ms');
+      //
+      // E COLADO NO TETO NÃO É UMA MEDIDA — é a ausência de uma. O Kotlin
+      // trunca em `TETO_MS`, então um valor exatamente no teto quer dizer
+      // "a âncora desta sessão não vale" (o anel sobreviveu a um espelho
+      // anterior sem o carimbo ter andado para trás), e imprimi-lo como
+      // "60000 ms" faz o operador ler um minuto de fila que não existe. Foi o
+      // que apareceu no primeiro culto de teste, num espelho com 30 s no ar.
+      const TETO_ATRASO_MS = 60000;
+      const pinado = (ritmo.atrasoMs | 0) >= TETO_ATRASO_MS;
+      cad.push(pinado
+        ? 'atraso relativo: sem referência válida nesta sessão'
+        : 'atraso relativo ' + (ritmo.atrasoMs | 0) + ' ms · pior '
+          + (ritmo.atrasoPiorMs | 0) + ' ms');
     }
     if (cad.length) l.push('  cadência: ' + cad.join(' · '));
   }
@@ -10733,7 +10744,17 @@ function blocoEspelho(d) {
         + '  tela acesa ' + (c.telaAcesaMin | 0) + ' min');
       l.push('          ' + Math.round((c.bytes || 0) / 104857.6) / 10 + ' MB'
         + ' · ' + (c.descartes | 0) + ' descarte(s)'
-        + ' · ultimo write ha ' + mirrorDur(c.ultimaEscritaMs));
+        + ' · ultimo write ha ' + mirrorDur(c.ultimaEscritaMs)
+        // OS DOIS LADOS DO SOM, lado a lado — e é a DISCORDÂNCIA entre eles que
+        // é a leitura. `torneira` é o que o servidor abriu para esta tela;
+        // `faixa` é o que o cliente de fato conseguiu montar. "torneira:sim
+        // faixa:nao" nomeia, sozinho, o defeito que sem isto obrigava a
+        // adivinhar entre o celular não mandar e a tela não receber.
+        + ' · som torneira:' + (c.audio ? 'sim' : 'nao') + ' faixa:' + (c.som ? 'sim' : 'nao')
+        + ' · ' + (c.recomecos | 0) + ' recomeco(s)');
+      // E A FRASE QUE ESTÁ ESCRITA NAQUELA TELA, quando há uma. É onde o
+      // cliente já dizia a causa — só que para uma sala em que ninguém está.
+      if (c.aviso) l.push('          diz: "' + c.aviso + '"');
     });
     // A LINHA MAIS IMPORTANTE DESTE BLOCO quando ela aparece. Servidor de pé,
     // porta escutando e nenhum SYN chegando é AP isolation — e ela é
@@ -14154,6 +14175,37 @@ async function abrirLeitorQr() {
   qrMsgEl.textContent = 'Aponte para o código que aparece na tela.';
   clearInterval(qrTimer);
   qrTimer = setInterval(passoLeitorQr, QR_INTERVALO_MS);
+  vigiarImagemQr();
+}
+
+// A CÂMERA PODE ABRIR SEM ENTREGAR IMAGEM, e isso aconteceu em aparelho: o
+// indicador do sistema acende, a leitura roda, e o operador olha para um
+// retângulo preto sem ter como mirar. Um visor preto e um visor "ainda
+// carregando" são a mesma tela, e quem está com o aparelho na mão não tem como
+// distinguir — então o app diz qual dos dois é.
+//
+// `videoWidth` é o teste honesto: ele só sai de zero quando um quadro de
+// verdade chegou ao elemento. A frase só aparece depois de dois segundos
+// porque abrir a câmera leva um instante em qualquer aparelho, e um alarme que
+// pisca no caminho normal é um alarme que ninguém lê.
+function vigiarImagemQr() {
+  const ate = Date.now() + 2000;
+  const olhar = () => {
+    if (!qrFluxo) return;
+    if (qrVideoEl.videoWidth > 0) {
+      qrMsgEl.textContent = 'Aponte para o código que aparece na tela ('
+        + qrVideoEl.videoWidth + '×' + qrVideoEl.videoHeight + ').';
+      return;
+    }
+    if (Date.now() > ate) {
+      qrMsgEl.textContent = 'A câmera abriu mas não está entregando imagem. '
+        + 'A leitura continua tentando às cegas — se não funcionar, use o número '
+        + 'de seis dígitos.';
+      return;
+    }
+    setTimeout(olhar, 250);
+  };
+  setTimeout(olhar, 250);
 }
 
 async function passoLeitorQr() {

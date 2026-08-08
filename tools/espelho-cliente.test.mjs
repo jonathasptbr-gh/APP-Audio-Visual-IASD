@@ -586,6 +586,20 @@ checar(true, 'aprovada, a MESMA página troca para o player (sem navegar)');
   const tipos = new Set(visto.volta.filter(Boolean).map((x) => x.do));
   checar([...tipos].every((t) => t === 'key' || t === 'alive' || t === 'audio'),
     'o upstream do cliente é só key/alive/audio', JSON.stringify([...tipos]));
+
+  // O `alive` conta o estado DA TELA para o Registro do operador (a frase que
+  // está escrita nela, se a faixa de som nasceu, quantos recomeços). Ele
+  // precisa CABER nos 256 B do `POST /r`: acima do teto o servidor fecha a
+  // conexão seca, e do lado de cá isso vira "não foi possível falar com o
+  // celular" — uma falha sem causa visível, justamente no canal que existe
+  // para dar causa às falhas.
+  const alives = visto.volta.filter((x) => x && x.do === 'alive');
+  checar(alives.length > 0, 'o cliente relata o próprio estado por `alive`', alives.length);
+  const maior = Math.max(0, ...alives.map((a) => Buffer.byteLength(JSON.stringify(a))));
+  checar(maior <= 256, 'e o relato cabe nos 256 B do POST /r', maior);
+  checar(alives.some((a) => 'aviso' in a && 'som' in a && 'recomecos' in a),
+    'com a frase da tela, o estado do som e os recomeços',
+    JSON.stringify(alives[0]));
 }
 
 // ---------------------------------------------------------------------------

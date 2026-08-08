@@ -746,7 +746,7 @@
              METADADO de diagnóstico e o lugar onde se procura diagnóstico é
              junto do estado do telão e do alvo de espelhamento, não numa faixa
              de navegação. Preenchido por `renderVersionLabel`. -->
-        <span id="appVersion" class="app-version">Controle v5.145</span>
+        <span id="appVersion" class="app-version">Controle v5.146</span>
       </div>
     </div>
   </div>
@@ -821,8 +821,14 @@
        ganha os três de uma vez — que é exatamente o que a tabela existe para
        fazer. Uma câmera que sobrevive ao fechamento é o equivalente visual do
        microfone esquecido ligado. -->
-  <div id="qrPopup" class="popup-backdrop">
-    <div class="popup-sheet">
+  <!-- TELA CHEIA, e sem a animação de subida da folha. Duas razões, e as duas
+       são sobre ver a imagem: mirar um código numa TV do outro lado do salão
+       pede o maior visor possível, e um `<video>` de câmera dentro de um
+       contêiner TRANSFORMADO é território conhecido de renderização vazia no
+       WebView do Android — a folha comum vive num `translateY`. Aqui não há
+       transform nenhum. -->
+  <div id="qrPopup" class="popup-backdrop popup-backdrop--full">
+    <div class="popup-sheet popup-sheet--full">
       <div class="popup-header">
         <span class="msym popup-header-icon" aria-hidden="true">&#xe3b0;</span>
         <span class="popup-title">Ler o código da tela</span>
